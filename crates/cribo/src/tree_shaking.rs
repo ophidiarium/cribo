@@ -1040,8 +1040,6 @@ mod tests {
             reexported_names: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
-            stdlib_imports: FxIndexSet::default(),
         });
 
         // Add an unused function
@@ -1060,8 +1058,6 @@ mod tests {
             reexported_names: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
-            stdlib_imports: FxIndexSet::default(),
         });
 
         // Add entry module that uses only used_func
@@ -1085,8 +1081,6 @@ mod tests {
             reexported_names: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
-            stdlib_imports: FxIndexSet::default(),
         });
 
         // Run tree shaking

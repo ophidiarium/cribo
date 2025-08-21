@@ -5,9 +5,10 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprList, ExprName,
-    ExprNoneLiteral, ExprStringLiteral, ExprSubscript, ExprUnaryOp, FStringFlags, FStringPart,
-    FStringValue, Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprCall,
+    ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
+    ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart, FStringValue, Keyword,
+    Operator, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -252,5 +253,126 @@ pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
         slice: Box::new(slice),
         ctx,
         range: TextRange::default(),
+    })
+}
+
+/// Creates a tuple expression node.
+///
+/// # Arguments
+/// * `elts` - The tuple elements
+///
+/// # Example
+/// ```rust
+/// // Creates: `(a, b, c)`
+/// let elements = vec![
+///     name("a", ExprContext::Load),
+///     name("b", ExprContext::Load),
+///     name("c", ExprContext::Load),
+/// ];
+/// let expr = tuple(elements);
+/// ```
+pub fn tuple(elts: Vec<Expr>) -> Expr {
+    Expr::Tuple(ExprTuple {
+        elts,
+        ctx: ExprContext::Load,
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+        parenthesized: true,
+    })
+}
+
+/// Creates a binary operation expression node.
+///
+/// # Arguments
+/// * `left` - The left operand
+/// * `op` - The binary operator
+/// * `right` - The right operand
+///
+/// # Example
+/// ```rust
+/// // Creates: `a + b`
+/// let left = name("a", ExprContext::Load);
+/// let right = name("b", ExprContext::Load);
+/// let expr = bin_op(left, Operator::Add, right);
+/// ```
+pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
+    Expr::BinOp(ExprBinOp {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a boolean operation expression node.
+///
+/// # Arguments
+/// * `op` - The boolean operator (And/Or)
+/// * `values` - The operand expressions
+///
+/// # Example
+/// ```rust
+/// // Creates: `a or b`
+/// let values = vec![
+///     name("a", ExprContext::Load),
+///     name("b", ExprContext::Load),
+/// ];
+/// let expr = bool_op(BoolOp::Or, values);
+/// ```
+pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
+    Expr::BoolOp(ExprBoolOp {
+        op,
+        values,
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates an if-expression (ternary conditional) node.
+///
+/// # Arguments
+/// * `test` - The condition expression
+/// * `body` - The expression to evaluate if true
+/// * `orelse` - The expression to evaluate if false
+///
+/// # Example
+/// ```rust
+/// // Creates: `a if condition else b`
+/// let condition = name("condition", ExprContext::Load);
+/// let body = name("a", ExprContext::Load);
+/// let orelse = name("b", ExprContext::Load);
+/// let expr = if_exp(condition, body, orelse);
+/// ```
+pub fn if_exp(condition: Expr, body: Expr, orelse: Expr) -> Expr {
+    Expr::If(ExprIf {
+        test: Box::new(condition),
+        body: Box::new(body),
+        orelse: Box::new(orelse),
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates an 'in' comparison expression node.
+///
+/// # Arguments
+/// * `left` - The value to check
+/// * `right` - The container to check in
+///
+/// # Example
+/// ```rust
+/// // Creates: `x in [1, 2, 3]`
+/// let left = name("x", ExprContext::Load);
+/// let right = list(vec![...], ExprContext::Load);
+/// let expr = in_op(left, right);
+/// ```
+pub fn in_op(left: Expr, right: Expr) -> Expr {
+    Expr::Compare(ExprCompare {
+        left: Box::new(left),
+        ops: Box::new([CmpOp::In]),
+        comparators: Box::new([right]),
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
     })
 }

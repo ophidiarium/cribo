@@ -7,23 +7,42 @@ input_file: crates/cribo/tests/fixtures/future_imports_basic/main.py
 # https://github.com/ophidiarium/cribo
 
 from __future__ import annotations
-import functools
-import types
-import typing
-mypackage = types.SimpleNamespace(__name__='mypackage')
-mypackage_submodule = types.SimpleNamespace(__name__='mypackage.submodule')
+import sys as _sys
+import importlib as _importlib
+class _CriboModule():
+
+    def __init__(self, m, p):
+        self._m, self._p = m, p
+
+    def __getattr__(self, n):
+        f = self._p + '.' + n
+        try:
+            return _CriboModule(_importlib.import_module(f), f)
+        except ImportError:
+            return getattr(self._m, n)
+
+    def __getattribute__(self, n):
+        return object.__getattribute__(self, n) if n in ('_m', '_p', '__getattr__') else getattr(object.__getattribute__(self, '_m'), n)
+class _Cribo():
+
+    def __getattr__(self, n):
+        m = _sys.modules.get(n) or _importlib.import_module(n)
+        return _CriboModule(m, n)
+_cribo = _Cribo()
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
+mypackage_submodule = _cribo.types.SimpleNamespace(__name__='mypackage.submodule')
 mypackage.submodule = mypackage_submodule
 """Submodule with future imports."""
 """Package initialization with future import."""
-@functools.cache
+@_cribo.functools.cache
 def _cribo_init___cribo_c3d681_mypackage_submodule_utils():
-    _cribo_module = types.SimpleNamespace()
+    _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'mypackage.submodule.utils'
-    Dict = typing.Dict
+    Dict = _cribo.typing.Dict
     _cribo_module.Dict = Dict
-    Any = typing.Any
+    Any = _cribo.typing.Any
     _cribo_module.Any = Any
-    Union = typing.Union
+    Union = _cribo.typing.Union
     _cribo_module.Union = Union
 
     def validate_input(data: InputData) -> bool:
@@ -33,38 +52,44 @@ def _cribo_init___cribo_c3d681_mypackage_submodule_utils():
         return "key" in data and isinstance(data.get("numbers"), list)
     _cribo_module.validate_input = validate_input
 
-    def format_output(data: typing.Any) -> FormattedOutput:
+    def format_output(data: _cribo.typing.Any) -> FormattedOutput:
         """Format data for output."""
         return f"Formatted: {data}"
     _cribo_module.format_output = format_output
-    InputData = typing.Dict[str, typing.Any]
+    InputData = _cribo.typing.Dict[str, _cribo.typing.Any]
     _cribo_module.InputData = InputData
-    FormattedOutput = typing.Union[str, typing.Dict[str, typing.Any]]
+    FormattedOutput = _cribo.typing.Union[str, _cribo.typing.Dict[str, _cribo.typing.Any]]
     _cribo_module.FormattedOutput = FormattedOutput
+    _cribo_module.Dict = _cribo.typing.Dict
+    _cribo_module.Any = _cribo.typing.Any
+    _cribo_module.Union = _cribo.typing.Union
     return _cribo_module
-@functools.cache
+@_cribo.functools.cache
 def _cribo_init___cribo_41d36f_mypackage_core():
-    _cribo_module = types.SimpleNamespace()
+    _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'mypackage.core'
-    Dict = typing.Dict
+    Dict = _cribo.typing.Dict
     _cribo_module.Dict = Dict
-    List = typing.List
+    List = _cribo.typing.List
     _cribo_module.List = List
-    Any = typing.Any
+    Any = _cribo.typing.Any
     _cribo_module.Any = Any
 
-    def process_data(data: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.Any]:
+    def process_data(data: _cribo.typing.Dict[str, _cribo.typing.Any]) -> _cribo.typing.Dict[str, _cribo.typing.Any]:
         """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
         result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
         return result
     _cribo_module.process_data = process_data
 
-    def _transform_data(data: typing.Dict[str, typing.Any]) -> typing.List[str]:
+    def _transform_data(data: _cribo.typing.Dict[str, _cribo.typing.Any]) -> _cribo.typing.List[str]:
         """Transform data into list format."""
         return [f"{k}={v}" for k, v in data.items()]
     _cribo_module._transform_data = _transform_data
-    ProcessingResult = typing.Dict[str, typing.Any]
+    ProcessingResult = _cribo.typing.Dict[str, _cribo.typing.Any]
     _cribo_module.ProcessingResult = ProcessingResult
+    _cribo_module.Dict = _cribo.typing.Dict
+    _cribo_module.List = _cribo.typing.List
+    _cribo_module.Any = _cribo.typing.Any
     return _cribo_module
 mypackage.core = _cribo_init___cribo_41d36f_mypackage_core()
 process_data = mypackage.core.process_data

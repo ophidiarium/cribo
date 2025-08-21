@@ -81,7 +81,16 @@ impl<'a> RecursiveImportTransformer<'a> {
             Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
             Expr::Attribute(attr) => {
                 attr.attr.as_str() == "TYPE_CHECKING"
-                    && matches!(&*attr.value, Expr::Name(name) if name.id.as_str() == "typing")
+                    && match &*attr.value {
+                        // Check for both typing.TYPE_CHECKING and _cribo.typing.TYPE_CHECKING
+                        Expr::Name(name) => name.id.as_str() == "typing",
+                        Expr::Attribute(inner_attr) => {
+                            // Handle _cribo.typing.TYPE_CHECKING
+                            inner_attr.attr.as_str() == "typing"
+                                && matches!(&*inner_attr.value, Expr::Name(name) if name.id.as_str() == "_cribo")
+                        }
+                        _ => false,
+                    }
             }
             _ => false,
         }
@@ -242,8 +251,9 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if this is a stdlib import that should be normalized
     fn should_normalize_stdlib_import(&self, module_name: &str) -> bool {
-        // Check if it's a safe stdlib module
-        crate::side_effects::is_safe_stdlib_module(module_name)
+        // Check if it's a stdlib module
+        let root_module = module_name.split('.').next().unwrap_or(module_name);
+        ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
     }
 
     /// Build a mapping of stdlib imports to their rewritten paths
@@ -330,9 +340,53 @@ impl<'a> RecursiveImportTransformer<'a> {
                             "RecursiveImportTransformer: Entering function '{}'",
                             func_def.name.as_str()
                         );
+
+                        // Transform decorators
+                        for decorator in &mut func_def.decorator_list {
+                            self.transform_expr(&mut decorator.expression);
+                        }
+
+                        // Transform parameter annotations
+                        for param in &mut func_def.parameters.posonlyargs {
+                            if let Some(annotation) = &mut param.parameter.annotation {
+                                self.transform_expr(annotation);
+                            }
+                        }
+                        for param in &mut func_def.parameters.args {
+                            if let Some(annotation) = &mut param.parameter.annotation {
+                                self.transform_expr(annotation);
+                            }
+                        }
+                        if let Some(vararg) = &mut func_def.parameters.vararg
+                            && let Some(annotation) = &mut vararg.annotation
+                        {
+                            self.transform_expr(annotation);
+                        }
+                        for param in &mut func_def.parameters.kwonlyargs {
+                            if let Some(annotation) = &mut param.parameter.annotation {
+                                self.transform_expr(annotation);
+                            }
+                        }
+                        if let Some(kwarg) = &mut func_def.parameters.kwarg
+                            && let Some(annotation) = &mut kwarg.annotation
+                        {
+                            self.transform_expr(annotation);
+                        }
+
+                        // Transform return type annotation
+                        if let Some(returns) = &mut func_def.returns {
+                            self.transform_expr(returns);
+                        }
+
+                        // Transform the function body
                         self.transform_statements(&mut func_def.body);
                     }
                     Stmt::ClassDef(class_def) => {
+                        // Transform decorators
+                        for decorator in &mut class_def.decorator_list {
+                            self.transform_expr(&mut decorator.expression);
+                        }
+
                         // Check if this class has hard dependencies that should not be transformed
                         let class_name = class_def.name.as_str();
 
@@ -482,12 +536,41 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
                     Stmt::Try(try_stmt) => {
                         self.transform_statements(&mut try_stmt.body);
+
+                        // Ensure try body is not empty
+                        if try_stmt.body.is_empty() {
+                            log::debug!(
+                                "Adding pass statement to empty try body in import transformer"
+                            );
+                            try_stmt.body.push(crate::ast_builder::statements::pass());
+                        }
+
                         for handler in &mut try_stmt.handlers {
                             let ExceptHandler::ExceptHandler(eh) = handler;
                             self.transform_statements(&mut eh.body);
+
+                            // Ensure exception handler body is not empty
+                            if eh.body.is_empty() {
+                                log::debug!(
+                                    "Adding pass statement to empty except handler in import transformer"
+                                );
+                                eh.body.push(crate::ast_builder::statements::pass());
+                            }
                         }
                         self.transform_statements(&mut try_stmt.orelse);
                         self.transform_statements(&mut try_stmt.finalbody);
+                    }
+                    Stmt::AnnAssign(ann_assign) => {
+                        // Transform the annotation
+                        self.transform_expr(&mut ann_assign.annotation);
+
+                        // Transform the target
+                        self.transform_expr(&mut ann_assign.target);
+
+                        // Transform the value if present
+                        if let Some(value) = &mut ann_assign.value {
+                            self.transform_expr(value);
+                        }
                     }
                     Stmt::Assign(assign) => {
                         // First check if this is an assignment from importlib.import_module()
@@ -594,20 +677,98 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    // Handle stdlib imports (only those without aliases)
+                    // Handle stdlib imports
                     if !stdlib_imports.is_empty() {
                         // Build rename map for expression rewriting
                         let rename_map = self.build_stdlib_rename_map(&stdlib_imports);
 
                         // Track these renames for expression rewriting
-                        for (local_name, rewritten_path) in rename_map {
+                        for (local_name, rewritten_path) in rename_map.clone() {
                             self.import_aliases.insert(local_name, rewritten_path);
+                        }
+
+                        // If we're in a wrapper module, create local assignments for stdlib imports
+                        if self.is_wrapper_init {
+                            let mut assignments = Vec::new();
+
+                            for (module_name, alias) in &stdlib_imports {
+                                // Determine the local name that the import creates
+                                let local_name = if let Some(alias_name) = alias {
+                                    // Aliased import: "import json as j" creates local "j"
+                                    alias_name.clone()
+                                } else if module_name.contains('.') {
+                                    // Dotted import without alias: "import collections.abc" doesn't create a binding
+                                    // Skip these as they don't create local variables
+                                    continue;
+                                } else {
+                                    // Simple import: "import json" creates local "json"
+                                    module_name.clone()
+                                };
+
+                                let proxy_path = format!("_cribo.{module_name}");
+                                let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
+                                let value_expr = crate::ast_builder::expressions::dotted_name(
+                                    &proxy_parts,
+                                    ExprContext::Load,
+                                );
+                                let target = crate::ast_builder::expressions::name(
+                                    local_name.as_str(),
+                                    ExprContext::Store,
+                                );
+                                let assign_stmt = crate::ast_builder::statements::assign(
+                                    vec![target],
+                                    value_expr,
+                                );
+                                assignments.push(assign_stmt);
+                            }
+
+                            // If there are non-stdlib imports, keep them and add assignments
+                            if !non_stdlib_imports.is_empty() {
+                                let new_import = StmtImport {
+                                    names: non_stdlib_imports,
+                                    ..import_stmt.clone()
+                                };
+                                assignments.insert(0, Stmt::Import(new_import));
+                            }
+
+                            return assignments;
                         }
                     }
 
-                    // If all imports were stdlib without aliases, return empty to remove the statement
+                    // If all imports were stdlib, we need to handle aliased imports
                     if non_stdlib_imports.is_empty() {
-                        return Vec::new();
+                        // Create local assignments for aliased stdlib imports
+                        let mut assignments = Vec::new();
+                        for (module_name, alias) in &stdlib_imports {
+                            if let Some(alias_name) = alias {
+                                // Aliased import creates a local binding
+                                let proxy_path = format!("_cribo.{module_name}");
+                                let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
+                                let value_expr = crate::ast_builder::expressions::dotted_name(
+                                    &proxy_parts,
+                                    ExprContext::Load,
+                                );
+                                let target = crate::ast_builder::expressions::name(
+                                    alias_name.as_str(),
+                                    ExprContext::Store,
+                                );
+                                let assign_stmt = crate::ast_builder::statements::assign(
+                                    vec![target],
+                                    value_expr,
+                                );
+                                assignments.push(assign_stmt);
+
+                                // Track the alias for import_module resolution
+                                if module_name == "importlib" {
+                                    log::debug!(
+                                        "Tracking importlib alias: {alias_name} -> importlib"
+                                    );
+                                    self.import_aliases
+                                        .insert(alias_name.clone(), "importlib".to_string());
+                                }
+                            }
+                        }
+                        return assignments;
                     }
 
                     // Otherwise, create a new import with only non-stdlib imports
@@ -812,23 +973,89 @@ impl<'a> RecursiveImportTransformer<'a> {
             if import_from.level == 0 && self.should_normalize_stdlib_import(module_str) {
                 // Extract the root module for stdlib imports
                 let _root_module = module_str.split('.').next().unwrap_or(module_str);
-                // Track renaming for imported symbols
-                for alias in &import_from.names {
-                    let imported_name = alias.name.as_str();
-                    if imported_name == "*" {
-                        continue; // Skip star imports
+
+                // If we're in a wrapper module, create local assignments
+                if self.is_wrapper_init {
+                    let mut assignments = Vec::new();
+
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        if imported_name == "*" {
+                            continue; // Skip star imports
+                        }
+
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                        let full_path = format!("_cribo.{module_str}.{imported_name}");
+
+                        // Track this renaming for expression rewriting
+                        // For importlib.import_module, track it without the _cribo prefix for detection
+                        if module_str == "importlib" && imported_name == "import_module" {
+                            self.import_aliases.insert(
+                                local_name.to_string(),
+                                format!("{module_str}.{imported_name}"),
+                            );
+                        } else {
+                            self.import_aliases
+                                .insert(local_name.to_string(), full_path.clone());
+                        }
+
+                        // Create local assignment: local_name = _cribo.module.symbol
+                        let proxy_parts: Vec<&str> = full_path.split('.').collect();
+                        let value_expr = crate::ast_builder::expressions::dotted_name(
+                            &proxy_parts,
+                            ExprContext::Load,
+                        );
+                        let target =
+                            crate::ast_builder::expressions::name(local_name, ExprContext::Store);
+                        let assign_stmt =
+                            crate::ast_builder::statements::assign(vec![target], value_expr);
+                        assignments.push(assign_stmt);
+
+                        // Note: The module_transformer will handle adding to _cribo_module namespace
+                        // based on whether the symbol should be exported
                     }
 
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                    let full_path = format!("_cribo.{module_str}.{imported_name}");
+                    return assignments;
+                } else {
+                    // For non-wrapper modules, create local assignments for from-imported stdlib symbols
+                    let mut assignments = Vec::new();
 
-                    // Track this renaming for expression rewriting
-                    self.import_aliases
-                        .insert(local_name.to_string(), full_path);
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        if imported_name == "*" {
+                            continue; // Skip star imports
+                        }
+
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                        let full_path = format!("_cribo.{module_str}.{imported_name}");
+
+                        // Track this renaming for expression rewriting
+                        // For importlib.import_module, track it without the _cribo prefix for detection
+                        if module_str == "importlib" && imported_name == "import_module" {
+                            self.import_aliases.insert(
+                                local_name.to_string(),
+                                format!("{module_str}.{imported_name}"),
+                            );
+                        } else {
+                            self.import_aliases
+                                .insert(local_name.to_string(), full_path.clone());
+                        }
+
+                        // Create local assignment: local_name = _cribo.module.symbol
+                        let proxy_parts: Vec<&str> = full_path.split('.').collect();
+                        let value_expr = crate::ast_builder::expressions::dotted_name(
+                            &proxy_parts,
+                            ExprContext::Load,
+                        );
+                        let target =
+                            crate::ast_builder::expressions::name(local_name, ExprContext::Store);
+                        let assign_stmt =
+                            crate::ast_builder::statements::assign(vec![target], value_expr);
+                        assignments.push(assign_stmt);
+                    }
+
+                    return assignments;
                 }
-
-                // Return empty to remove the import statement
-                return Vec::new();
             }
         }
 
@@ -947,6 +1174,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 local_name,
                                 expressions::name(&namespace_var, ExprContext::Load),
                             ));
+
+                            // Track this as a local variable to prevent it from being transformed as a stdlib module
+                            self.local_variables.insert(local_name.to_string());
+                            log::debug!(
+                                "  Tracked '{local_name}' as local variable to prevent stdlib transformation"
+                            );
                         } else {
                             log::debug!(
                                 "  Skipping namespace assignment: {local_name} = {namespace_var} \
@@ -1660,6 +1893,51 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // First check if the base of this attribute is a wrapper module import
                 if let Expr::Name(base_name) = &*attr_expr.value {
                     let name = base_name.id.as_str();
+
+                    // Check if this is a stdlib module reference (e.g., collections.abc)
+                    if crate::resolver::is_stdlib_module(name, self.python_version) {
+                        // Check if this stdlib name is shadowed by local variables or imports
+                        // In wrapper modules, we only track local_variables which includes imported names
+                        let is_shadowed = self.local_variables.contains(name);
+
+                        if !is_shadowed {
+                            // Transform stdlib module attribute access to use _cribo proxy
+                            // e.g., collections.abc -> _cribo.collections.abc
+                            log::debug!(
+                                "Transforming stdlib attribute access: {}.{} -> _cribo.{}.{}",
+                                name,
+                                attr_expr.attr.as_str(),
+                                name,
+                                attr_expr.attr.as_str()
+                            );
+
+                            // Create _cribo.module.attr
+                            let attr_name = attr_expr.attr.to_string();
+                            let attr_ctx = attr_expr.ctx;
+                            let attr_range = attr_expr.range;
+
+                            *expr = Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Attribute(ExprAttribute {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    value: Box::new(Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        id: "_cribo".into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    attr: Identifier::new(name, TextRange::default()),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(&attr_name, TextRange::default()),
+                                ctx: attr_ctx,
+                                range: attr_range,
+                            });
+                            return;
+                        }
+                    }
+
                     if let Some((wrapper_module, imported_name)) =
                         self.wrapper_module_imports.get(name)
                     {

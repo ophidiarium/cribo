@@ -2,12 +2,11 @@
 
 use std::path::PathBuf;
 
-use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
-    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef, StmtIf,
-    StmtImport, StmtImportFrom, UnaryOp, visitor::source_order::SourceOrderVisitor,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -30,7 +29,7 @@ use crate::{
     },
     cribo_graph::CriboGraph,
     resolver::ModuleResolver,
-    side_effects::{is_safe_stdlib_module, module_has_side_effects},
+    side_effects::module_has_side_effects,
     transformation_context::TransformationContext,
     types::{FxHashSet, FxIndexMap, FxIndexSet},
     visitors::ExportCollector,
@@ -71,13 +70,6 @@ pub struct Bundler<'a> {
     pub(crate) init_functions: FxIndexMap<String, String>,
     /// Collected future imports
     pub(crate) future_imports: FxIndexSet<String>,
-    /// Collected stdlib imports that are safe to hoist
-    /// Maps module name to map of imported names to their aliases (None if no alias)
-    pub(crate) stdlib_import_from_map: FxIndexMap<String, FxIndexMap<String, Option<String>>>,
-    /// Regular import statements (import module)
-    pub(crate) stdlib_import_statements: Vec<Stmt>,
-    /// Track all stdlib modules that need to be imported (from graph + dynamic requirements)
-    pub(crate) stdlib_modules_to_import: FxIndexSet<String>,
     /// Track stdlib module aliases (e.g., "j" -> "json") for expression transformation
     pub(crate) stdlib_module_aliases: FxIndexMap<String, String>,
     /// Track which modules have been bundled
@@ -185,45 +177,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Collect all names introduced by stdlib imports in the current scope
-    /// This includes module names, their aliases, and imported symbols with their aliases
+    /// With the proxy approach, we don't need to track stdlib names anymore
+    /// This method returns an empty set for compatibility
     pub(crate) fn collect_stdlib_names_in_scope(&self) -> FxIndexSet<String> {
-        let mut stdlib_names = FxIndexSet::default();
-
-        // Add names from `import <name>` and `import <name> as <alias>`
-        stdlib_names.extend(
-            self.stdlib_import_statements
-                .iter()
-                .filter_map(|stmt| match stmt {
-                    Stmt::Import(import_stmt) => Some(import_stmt),
-                    _ => None,
-                })
-                .flat_map(|import_stmt| &import_stmt.names)
-                .map(|alias| {
-                    // Use the alias if present; otherwise the top-level module name
-                    // e.g., "import importlib.machinery" binds "importlib"
-                    if let Some(asname) = &alias.asname {
-                        asname.as_str().to_string()
-                    } else {
-                        alias
-                            .name
-                            .as_str()
-                            .split('.')
-                            .next()
-                            .unwrap_or_else(|| alias.name.as_str())
-                            .to_string()
-                    }
-                }),
-        );
-
-        // Add names from `from <mod> import <name>` and `from <mod> import <name> as <alias>`
-        stdlib_names.extend(
-            self.stdlib_import_from_map
-                .values()
-                .flatten()
-                .map(|(name, alias_opt)| alias_opt.as_ref().unwrap_or(name).clone()),
-        );
-
-        stdlib_names
+        FxIndexSet::default()
     }
 
     /// Create a new bundler instance
@@ -236,9 +193,6 @@ impl<'a> Bundler<'a> {
             module_registry: FxIndexMap::default(),
             init_functions: FxIndexMap::default(),
             future_imports: FxIndexSet::default(),
-            stdlib_import_from_map: FxIndexMap::default(),
-            stdlib_import_statements: Vec::new(),
-            stdlib_modules_to_import: FxIndexSet::default(),
             stdlib_module_aliases: FxIndexMap::default(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
@@ -2114,7 +2068,7 @@ impl<'a> Bundler<'a> {
         self.semantic_bundler = Some(params.semantic_bundler);
 
         // Initialize stdlib modules from the dependency graph
-        self.initialize_stdlib_modules_from_graph(params.graph);
+        // Stdlib modules are now handled by _cribo proxy, no initialization needed
 
         // Initialize bundler settings and collect preliminary data
         self.initialize_bundler(params);
@@ -2239,7 +2193,7 @@ impl<'a> Bundler<'a> {
 
         if needs_types_for_inlined_imports {
             log::debug!("Adding types import for inlined module imports in entry module");
-            self.require_stdlib_module("types");
+            // Types import will be handled by _cribo proxy
         }
 
         // Collect imports from ALL modules (after normalization) for hoisting
@@ -2253,20 +2207,20 @@ impl<'a> Bundler<'a> {
         // Also add functools, as wrapper init functions are cached with @functools.cache.
         if !wrapper_modules.is_empty() {
             log::debug!("Adding types and functools imports for wrapper modules");
-            self.require_stdlib_module("types");
-            self.require_stdlib_module("functools");
+            // Types import will be handled by _cribo proxy
+            // Functools import will be handled by _cribo proxy
         }
 
         // If we have namespace imports, inject types as stdlib dependency
         if !self.namespace_imported_modules.is_empty() {
             log::debug!("Adding types import for namespace imports");
-            self.require_stdlib_module("types");
+            // Types import will be handled by _cribo proxy
         }
 
         // If entry module has direct imports or dotted imports that need namespace objects
         if needs_types_for_entry_imports {
             log::debug!("Adding types import for namespace objects in entry module");
-            self.require_stdlib_module("types");
+            // Types import will be handled by _cribo proxy
         }
 
         // We'll add types import later if we actually create namespace objects for importlib
@@ -2324,19 +2278,7 @@ impl<'a> Bundler<'a> {
         // If we have any namespace objects to create, we need types
         if !self.namespace_registry.is_empty() {
             log::debug!("Adding types import for namespace objects");
-            self.require_stdlib_module("types");
-        }
-
-        // Generate stdlib imports if needed (these go at the very top)
-        if !self.stdlib_modules_to_import.is_empty() {
-            log::debug!(
-                "Generating stdlib imports for {} modules",
-                self.stdlib_modules_to_import.len()
-            );
-            self.require_stdlib_module("types"); // Ensure types is imported for SimpleNamespace
-
-            let stdlib_statements = self.generate_stdlib_imports();
-            final_body.extend(stdlib_statements);
+            // Types import will be handled by _cribo proxy
         }
 
         // Now that all namespace requirements have been registered, generate the namespace statements
@@ -2350,7 +2292,25 @@ impl<'a> Bundler<'a> {
             // Generate all namespace statements through the centralized method
             // This ensures namespaces exist before any module code that might reference them
             let namespace_statements = namespace_manager::generate_required_namespaces(self);
+            log::debug!(
+                "Generated {} namespace statements",
+                namespace_statements.len()
+            );
+            if !namespace_statements.is_empty() {
+                log::debug!(
+                    "First namespace statement type: {:?}",
+                    std::mem::discriminant(&namespace_statements[0])
+                );
+            }
+            log::debug!(
+                "final_body length before namespace statements: {}",
+                final_body.len()
+            );
             final_body.extend(namespace_statements);
+            log::debug!(
+                "final_body length after namespace statements: {}",
+                final_body.len()
+            );
 
             // Generate parent attribute assignments right after namespace creation
             // This ensures parent.child = child assignments happen before any code that uses them
@@ -2434,7 +2394,7 @@ impl<'a> Bundler<'a> {
         // transform
         if has_wrapper_modules {
             log::debug!("Adding functools import for module cache decorators");
-            self.require_stdlib_module("functools");
+            // Functools import will be handled by _cribo proxy
         }
 
         if use_module_cache_for_wrappers {
@@ -2622,15 +2582,8 @@ impl<'a> Bundler<'a> {
             // Scan for import statements
             for stmt in &ast.body {
                 match stmt {
-                    Stmt::Import(import_stmt) => {
-                        for alias in &import_stmt.names {
-                            let imported_name = alias.name.as_str();
-                            if is_safe_stdlib_module(imported_name) && alias.asname.is_none() {
-                                // This is a normalized stdlib import (no alias), ensure it's
-                                // hoisted
-                                self.require_stdlib_module(imported_name);
-                            }
-                        }
+                    Stmt::Import(_import_stmt) => {
+                        // Stdlib imports are handled by the proxy, no special processing needed
                     }
                     Stmt::ImportFrom(import_from) => {
                         // Check if this is an import from an inlined module
@@ -2720,7 +2673,7 @@ impl<'a> Bundler<'a> {
                 // Use centralized namespace_manager for consistency
                 // This ensures proper tracking and deduplication
                 // Ensure 'types' is available for SimpleNamespace construction (idempotent)
-                self.require_stdlib_module("types");
+                // Types import will be handled by _cribo proxy
                 for inlined_submodule in sorted_submodules {
                     log::debug!(
                         "Registering early namespace for inlined submodule '{inlined_submodule}'"
@@ -2736,7 +2689,14 @@ impl<'a> Bundler<'a> {
                     );
 
                     // Add the generated statements to the bundle
+                    log::debug!(
+                        "Adding {} namespace statements for '{}'",
+                        stmts.len(),
+                        inlined_submodule
+                    );
+                    log::debug!("final_body length before namespace: {}", final_body.len());
                     final_body.extend(stmts);
+                    log::debug!("final_body length after namespace: {}", final_body.len());
                 }
             }
         }
@@ -3380,7 +3340,7 @@ impl<'a> Bundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Ensure 'types' is imported for SimpleNamespace creation
-                        self.require_stdlib_module("types");
+                        // Types import will be handled by _cribo proxy
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
                         let namespace_stmts =
@@ -3484,7 +3444,7 @@ impl<'a> Bundler<'a> {
                                                 "Found stdlib import in wrapper module \
                                                  {module_name}: {module}"
                                             );
-                                            self.require_stdlib_module(module);
+                                            // Stdlib import will be handled by _cribo proxy
                                         }
                                     }
                                 }
@@ -3506,7 +3466,7 @@ impl<'a> Bundler<'a> {
                                             );
                                             // For from imports, we need to add the base module
                                             // import
-                                            self.require_stdlib_module(module_str);
+                                            // Stdlib import will be handled by _cribo proxy
                                         }
                                     }
                                 }
@@ -4226,22 +4186,7 @@ impl<'a> Bundler<'a> {
                         .insert(alias_name.clone(), rewritten_path);
                 }
 
-                // Pre-populate hoisted importlib aliases for the entry module
-                if let Some(importlib_imports) = self.stdlib_import_from_map.get("importlib") {
-                    for (name, alias_opt) in importlib_imports {
-                        if name == "import_module"
-                            && let Some(alias) = alias_opt
-                        {
-                            log::debug!(
-                                "Pre-populating importlib.import_module alias for entry module: \
-                                 {alias} -> importlib.import_module"
-                            );
-                            transformer
-                                .import_aliases
-                                .insert(alias.clone(), "importlib.import_module".to_string());
-                        }
-                    }
-                }
+                // With proxy approach, we don't need to pre-populate importlib aliases
                 log::debug!(
                     "Transforming entry module '{module_name}' with RecursiveImportTransformer"
                 );
@@ -4257,7 +4202,7 @@ impl<'a> Bundler<'a> {
             // Track if namespace objects were created
             if created_namespace_objects {
                 log::debug!("Namespace objects were created, adding types import");
-                self.require_stdlib_module("types");
+                // Types import will be handled by _cribo proxy
             }
 
             // If importlib was transformed, remove importlib import
@@ -4756,7 +4701,7 @@ impl<'a> Bundler<'a> {
 
         // If we're generating any namespace statements, ensure types is imported
         if !namespace_statements.is_empty() {
-            self.require_stdlib_module("types");
+            // Types import will be handled by _cribo proxy
         }
 
         // Add hoisted imports at the beginning of final_body
@@ -4803,6 +4748,38 @@ impl<'a> Bundler<'a> {
         // fixes
         final_body = self.deduplicate_function_definitions(final_body);
 
+        // Generate _cribo proxy for stdlib access (always included)
+        // IMPORTANT: This must be inserted after any __future__ imports but before any other code
+        // We insert it here at the very end to ensure it's not affected by any reordering
+        log::debug!("Inserting _cribo proxy after __future__ imports");
+
+        // Find the position after __future__ imports
+        let mut insert_position = 0;
+        for (i, stmt) in final_body.iter().enumerate() {
+            if let Stmt::ImportFrom(import_from) = stmt
+                && let Some(module) = &import_from.module
+                && module.as_str() == "__future__"
+            {
+                insert_position = i + 1;
+                continue;
+            }
+            // Stop after we've passed all __future__ imports
+            break;
+        }
+
+        let proxy_statements = crate::ast_builder::proxy_generator::generate_cribo_proxy();
+        // Insert proxy statements after __future__ imports
+        for (i, stmt) in proxy_statements.into_iter().enumerate() {
+            final_body.insert(insert_position + i, stmt);
+        }
+
+        log::debug!(
+            "Creating final ModModule with {} statements",
+            final_body.len()
+        );
+        for (i, stmt) in final_body.iter().take(3).enumerate() {
+            log::debug!("Statement {}: type = {:?}", i, std::mem::discriminant(stmt));
+        }
         let mut result = ModModule {
             node_index: self.create_transformed_node("Bundled module root".to_string()),
             range: TextRange::default(),
@@ -4811,10 +4788,6 @@ impl<'a> Bundler<'a> {
 
         // Assign proper node indices to all nodes in the final AST
         self.assign_node_indices_to_ast(&mut result);
-
-        // Post-processing: Remove importlib import if it's unused
-        // This happens when all importlib.import_module() calls were transformed
-        import_deduplicator::remove_unused_importlib(&mut result);
 
         // Log transformation statistics
         let stats = self.transformation_context.get_stats();
@@ -4869,234 +4842,6 @@ impl<'a> Bundler<'a> {
     /// Check if a namespace is already registered
     pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
         self.namespace_registry.contains_key(sanitized_name)
-    }
-
-    /// Initialize stdlib modules from the dependency graph
-    fn initialize_stdlib_modules_from_graph(&mut self, graph: &CriboGraph) {
-        // Collect all stdlib imports from the dependency graph
-        for (_module_id, module) in &graph.modules {
-            for (_item_id, item_data) in &module.items {
-                // Add all stdlib imports from this item to our set
-                for stdlib_import in &item_data.stdlib_imports {
-                    self.stdlib_modules_to_import.insert(stdlib_import.clone());
-                }
-            }
-        }
-
-        log::debug!(
-            "Found {} stdlib imports from dependency graph",
-            self.stdlib_modules_to_import.len()
-        );
-    }
-
-    /// Generate the stdlib import statements and _cribo namespace assignments
-    fn generate_stdlib_imports(&mut self) -> Vec<Stmt> {
-        let mut statements = Vec::new();
-
-        // Always ensure 'types' is included for SimpleNamespace
-        self.stdlib_modules_to_import.insert("types".to_string());
-
-        // Skip if no stdlib imports
-        if self.stdlib_modules_to_import.is_empty() {
-            log::debug!("No stdlib imports to generate");
-            return statements;
-        }
-
-        log::debug!(
-            "Generating stdlib imports for: {:?}",
-            self.stdlib_modules_to_import
-        );
-
-        // Sort stdlib imports for deterministic output
-        let mut sorted_imports: Vec<_> = self.stdlib_modules_to_import.iter().cloned().collect();
-        sorted_imports.sort();
-
-        // First, generate all import statements with aliases
-        for module_name in &sorted_imports {
-            // Generate alias name: _cribo_module_name
-            let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
-
-            // Generate: import module_name as _cribo_module_name
-            let import_stmt = StmtImport {
-                node_index: AtomicNodeIndex::dummy(),
-                names: vec![ruff_python_ast::Alias {
-                    node_index: AtomicNodeIndex::dummy(),
-                    name: Identifier::new(module_name, TextRange::default()),
-                    asname: Some(Identifier::new(&alias_name, TextRange::default())),
-                    range: TextRange::default(),
-                }],
-                range: TextRange::default(),
-            };
-            statements.push(Stmt::Import(import_stmt));
-        }
-
-        // Then create the _cribo namespace
-        // For modules with dots in their names (e.g., collections.abc), we can't use them as keyword arguments
-        // So we'll create the namespace first, then set attributes
-        let mut simple_modules = Vec::new();
-        let mut dotted_modules = Vec::new();
-
-        for module_name in &sorted_imports {
-            if module_name.contains('.') {
-                dotted_modules.push(module_name.clone());
-            } else {
-                simple_modules.push(module_name.clone());
-            }
-        }
-
-        // Build keyword arguments for simple modules (no dots)
-        let mut keywords = vec![Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__name__", TextRange::default())),
-            value: expressions::string_literal("_cribo"),
-            range: TextRange::default(),
-        }];
-
-        for module_name in &simple_modules {
-            let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
-            keywords.push(Keyword {
-                node_index: AtomicNodeIndex::dummy(),
-                arg: Some(Identifier::new(module_name, TextRange::default())),
-                value: expressions::name(&alias_name, ExprContext::Load),
-                range: TextRange::default(),
-            });
-        }
-
-        // Create: _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', os=_cribo_os, ...)
-        let cribo_namespace = statements::assign(
-            vec![expressions::name("_cribo", ExprContext::Store)],
-            expressions::call(
-                expressions::attribute(
-                    expressions::name("_cribo_types", ExprContext::Load),
-                    "SimpleNamespace",
-                    ExprContext::Load,
-                ),
-                vec![],
-                keywords,
-            ),
-        );
-        statements.push(cribo_namespace);
-
-        // Add dotted modules by creating proper nested namespace structure
-        // We need to ensure parent namespaces exist before setting nested attributes
-        let mut processed_parents = FxIndexSet::default();
-        for module_name in &dotted_modules {
-            let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
-
-            // Split the module name into parts
-            let parts: Vec<&str> = module_name.split('.').collect();
-
-            // Ensure all parent namespaces exist
-            let mut current_path = "_cribo".to_string();
-            for i in 0..parts.len() - 1 {
-                let parent_attr = parts[i];
-                let parent_path = if i == 0 {
-                    format!("_cribo.{parent_attr}")
-                } else {
-                    format!("{current_path}.{parent_attr}")
-                };
-
-                // Only create parent namespace if we haven't already
-                if !processed_parents.contains(&parent_path) {
-                    // Check if attribute exists, if not create it
-                    // Generate: if not hasattr(parent, attr): parent.attr = _cribo_types.SimpleNamespace()
-                    let parent_expr = if i == 0 {
-                        expressions::name("_cribo", ExprContext::Load)
-                    } else {
-                        // Build nested attribute access
-                        let mut expr = expressions::name("_cribo", ExprContext::Load);
-                        for j in 0..i {
-                            expr = expressions::attribute(expr, parts[j], ExprContext::Load);
-                        }
-                        expr
-                    };
-
-                    // Create the check and assignment
-                    let hasattr_check = expressions::call(
-                        expressions::name("hasattr", ExprContext::Load),
-                        vec![
-                            parent_expr.clone(),
-                            expressions::string_literal(parent_attr),
-                        ],
-                        vec![],
-                    );
-
-                    let namespace_create = expressions::call(
-                        expressions::attribute(
-                            expressions::name("_cribo_types", ExprContext::Load),
-                            "SimpleNamespace",
-                            ExprContext::Load,
-                        ),
-                        vec![],
-                        vec![],
-                    );
-
-                    let setattr_stmt = Stmt::Expr(StmtExpr {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(expressions::call(
-                            expressions::name("setattr", ExprContext::Load),
-                            vec![
-                                parent_expr,
-                                expressions::string_literal(parent_attr),
-                                namespace_create,
-                            ],
-                            vec![],
-                        )),
-                        range: TextRange::default(),
-                    });
-
-                    let if_stmt = Stmt::If(StmtIf {
-                        node_index: AtomicNodeIndex::dummy(),
-                        test: Box::new(expressions::unary_op(UnaryOp::Not, hasattr_check)),
-                        body: vec![setattr_stmt],
-                        elif_else_clauses: vec![],
-                        range: TextRange::default(),
-                    });
-
-                    statements.push(if_stmt);
-                    processed_parents.insert(parent_path.clone());
-                }
-
-                current_path = parent_path;
-            }
-
-            // Now set the final attribute to the imported module
-            // Build the parent expression for the final attribute
-            let parent_expr = if parts.len() == 1 {
-                expressions::name("_cribo", ExprContext::Load)
-            } else {
-                let mut expr = expressions::name("_cribo", ExprContext::Load);
-                for i in 0..parts.len() - 1 {
-                    expr = expressions::attribute(expr, parts[i], ExprContext::Load);
-                }
-                expr
-            };
-
-            let final_attr = parts[parts.len() - 1];
-            let setattr_call = expressions::call(
-                expressions::name("setattr", ExprContext::Load),
-                vec![
-                    parent_expr,
-                    expressions::string_literal(final_attr),
-                    expressions::name(&alias_name, ExprContext::Load),
-                ],
-                vec![],
-            );
-            statements.push(Stmt::Expr(StmtExpr {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(setattr_call),
-                range: TextRange::default(),
-            }));
-        }
-
-        statements
-    }
-
-    /// Register an additional stdlib module requirement (e.g., 'types' for `SimpleNamespace`)
-    pub fn require_stdlib_module(&mut self, module_name: &str) {
-        log::debug!("Adding dynamic stdlib requirement: {module_name}");
-        self.stdlib_modules_to_import
-            .insert(module_name.to_string());
     }
 
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
@@ -5241,37 +4986,8 @@ impl<'a> Bundler<'a> {
             let base_name = name.id.as_str();
 
             // First check if this is a stdlib import - if so, it's not a namespace module
-            // This fixes the issue where `abc` stdlib module is confused with `complex_pkg.abc`
-            let is_stdlib_import =
-                self.stdlib_import_statements.iter().any(|stmt| {
-                    let Stmt::Import(import_stmt) = stmt else {
-                        return false;
-                    };
-                    import_stmt.names.iter().any(|alias| {
-                        // Check if the import is aliased
-                        if let Some(asname) = &alias.asname {
-                            // If aliased, check if the alias matches base_name
-                            asname.as_str() == base_name
-                        } else {
-                            // For dotted imports like `import a.b.c`, check the top-level module
-                            alias.name.as_str().split('.').next() == Some(base_name)
-                        }
-                    })
-                }) || self.stdlib_import_from_map.iter().any(|(module, imports)| {
-                    // Check if base_name is the module being imported from
-                    if module.split('.').next() == Some(base_name) {
-                        return true;
-                    }
-                    // Check if base_name is an imported symbol (possibly aliased)
-                    imports.iter().any(|(_name, alias_opt)| {
-                        alias_opt.as_deref().unwrap_or(_name.as_str()) == base_name
-                    })
-                });
-
-            if is_stdlib_import {
-                log::debug!("Assignment uses stdlib module '{base_name}', not deferring");
-                return false;
-            }
+            // With proxy approach, stdlib imports are accessed via _cribo and don't conflict
+            // with local module names, so we don't need to check for stdlib imports
 
             // For the specific case we're fixing: if the name "messages" is used
             // and there's a bundled module "greetings.messages", then this assignment

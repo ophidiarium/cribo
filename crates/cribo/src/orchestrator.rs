@@ -1634,8 +1634,23 @@ impl BundleOrchestrator {
         let empty_parsed = get_empty_parsed_module();
         let stylist = ruff_python_codegen::Stylist::from_tokens(empty_parsed.tokens(), "");
 
+        log::debug!("Bundled AST has {} statements", bundled_ast.body.len());
+        if !bundled_ast.body.is_empty() {
+            log::debug!(
+                "First statement type in bundled AST: {:?}",
+                std::mem::discriminant(&bundled_ast.body[0])
+            );
+        }
+
         let mut code_parts = Vec::new();
-        for stmt in &bundled_ast.body {
+        for (i, stmt) in bundled_ast.body.iter().enumerate() {
+            if i < 3 {
+                log::debug!(
+                    "Processing statement {}: type = {:?}",
+                    i,
+                    std::mem::discriminant(stmt)
+                );
+            }
             let generator = ruff_python_codegen::Generator::from(&stylist);
             let stmt_code = generator.stmt(stmt);
             code_parts.push(stmt_code);

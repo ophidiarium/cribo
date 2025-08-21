@@ -47,6 +47,7 @@
 
 pub mod expressions;
 pub mod other;
+pub mod proxy_generator;
 pub mod statements;
 
 // Re-export commonly used functions for convenience

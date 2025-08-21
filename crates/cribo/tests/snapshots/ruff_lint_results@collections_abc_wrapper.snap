@@ -5,8 +5,6 @@ input_file: crates/cribo/tests/fixtures/collections_abc_wrapper/main.py
 RuffLintResults {
     f401_violations: [],
     f404_violations: [],
-    other_violations: [
-        "Line 5: unused-import - `collections.abc.Mapping` imported but unused",
-    ],
-    total_violations: 1,
+    other_violations: [],
+    total_violations: 0,
 }

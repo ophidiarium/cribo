@@ -5,8 +5,6 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 RuffLintResults {
     f401_violations: [],
     f404_violations: [],
-    other_violations: [
-        "Line 5: unused-import - `types` imported but unused",
-    ],
-    total_violations: 1,
+    other_violations: [],
+    total_violations: 0,
 }
