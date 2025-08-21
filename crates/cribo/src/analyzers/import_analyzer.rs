@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{ModModule, Stmt, StmtImportFrom, visitor::Visitor};
+use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
@@ -681,13 +681,8 @@ impl ImportAnalyzer {
     ) -> bool {
         let mut visitor =
             SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
-        for stmt in &ast.body {
-            visitor.visit_stmt(stmt);
-            if visitor.found {
-                return true;
-            }
-        }
-        false
+        ruff_python_ast::visitor::walk_body(&mut visitor, &ast.body);
+        visitor.found
     }
 
     /// Check if an import statement imports from the target module
