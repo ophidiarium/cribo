@@ -68,6 +68,9 @@ pub struct RecursiveImportTransformer<'a> {
     /// This prevents duplicate namespace assignments when multiple imports reference the same
     /// module
     populated_modules: FxIndexSet<String>,
+    /// Track which stdlib modules were actually imported in this module
+    /// This prevents transforming references to stdlib modules that weren't imported
+    imported_stdlib_modules: FxIndexSet<String>,
     /// Python version for compatibility checks
     python_version: u8,
 }
@@ -113,6 +116,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
             populated_modules: FxIndexSet::default(),
+            imported_stdlib_modules: FxIndexSet::default(),
             python_version: params.python_version,
         }
     }
@@ -371,8 +375,25 @@ impl<'a> RecursiveImportTransformer<'a> {
                             self.transform_expr(returns);
                         }
 
+                        // Save current local variables and create a new scope for the function
+                        let saved_locals = self.local_variables.clone();
+
+                        // Track function parameters as local variables before transforming the body
+                        // This prevents incorrect transformation of parameter names that shadow stdlib modules
+                        for param in &func_def.parameters.args {
+                            self.local_variables
+                                .insert(param.parameter.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local: {}",
+                                param.parameter.name.as_str()
+                            );
+                        }
+
                         // Transform the function body
                         self.transform_statements(&mut func_def.body);
+
+                        // Restore the previous scope's local variables
+                        self.local_variables = saved_locals;
                     }
                     Stmt::ClassDef(class_def) => {
                         // Transform decorators
@@ -516,6 +537,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut while_stmt.orelse);
                     }
                     Stmt::For(for_stmt) => {
+                        // Track loop variable as local before transforming to prevent incorrect stdlib transformations
+                        if let Expr::Name(name) = for_stmt.target.as_ref() {
+                            self.local_variables.insert(name.id.as_str().to_string());
+                            log::debug!(
+                                "Tracking for loop variable as local: {}",
+                                name.id.as_str()
+                            );
+                        }
+
                         self.transform_expr(&mut for_stmt.target);
                         self.transform_expr(&mut for_stmt.iter);
                         self.transform_statements(&mut for_stmt.body);
@@ -661,6 +691,13 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Normalize ALL stdlib imports, including those with aliases
                         if self.should_normalize_stdlib_import(module_name) {
+                            // Track that this stdlib module was imported
+                            self.imported_stdlib_modules.insert(module_name.to_string());
+                            // Also track parent modules for dotted imports (e.g., collections.abc imports collections too)
+                            if let Some(dot_pos) = module_name.find('.') {
+                                let parent = &module_name[..dot_pos];
+                                self.imported_stdlib_modules.insert(parent.to_string());
+                            }
                             stdlib_imports.push((
                                 module_name.to_string(),
                                 alias.asname.as_ref().map(|n| n.as_str().to_string()),
@@ -983,6 +1020,13 @@ impl<'a> RecursiveImportTransformer<'a> {
         if let Some(module) = &import_from.module {
             let module_str = module.as_str();
             if import_from.level == 0 && self.should_normalize_stdlib_import(module_str) {
+                // Track that this stdlib module was imported
+                self.imported_stdlib_modules.insert(module_str.to_string());
+                // Also track parent modules for dotted imports
+                if let Some(dot_pos) = module_str.find('.') {
+                    let parent = &module_str[..dot_pos];
+                    self.imported_stdlib_modules.insert(parent.to_string());
+                }
                 // If we're in a wrapper module, create local assignments
                 if self.is_wrapper_init {
                     let mut assignments = Vec::new();
