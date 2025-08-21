@@ -848,10 +848,14 @@ pub fn transform_module_to_init_function<'a>(
                             lifted_name,
                         ));
 
-                        if !initialized_lifted_globals.contains(target.id.as_str()) {
-                            initialized_lifted_globals.insert(target.id.to_string());
+                        if initialized_lifted_globals.insert(target.id.to_string()) {
                             debug!(
                                 "Initialized lifted global '{lifted_name}' from annotated assignment '{}'",
+                                target.id
+                            );
+                        } else {
+                            debug!(
+                                "Refreshed lifted global '{lifted_name}' after annotated reassignment '{}'",
                                 target.id
                             );
                         }
