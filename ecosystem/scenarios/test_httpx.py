@@ -109,7 +109,6 @@ def test_bundled_module_loading(bundled_httpx):
         assert hasattr(httpx, "AsyncClient")
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_get_request(bundled_httpx):
     """Test basic GET request with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -121,7 +120,6 @@ def test_bundled_get_request(bundled_httpx):
         assert "origin" in data
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_post_request(bundled_httpx):
     """Test POST request with JSON data using bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -132,7 +130,6 @@ def test_bundled_post_request(bundled_httpx):
         assert response_data["json"] == test_data
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_custom_headers(bundled_httpx):
     """Test custom headers with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -144,7 +141,6 @@ def test_bundled_custom_headers(bundled_httpx):
         assert response_headers.get("X-Test-Header") == "test-value"
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_query_params(bundled_httpx):
     """Test query parameters with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -155,7 +151,6 @@ def test_bundled_query_params(bundled_httpx):
         assert args == params
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_client_usage(bundled_httpx):
     """Test Client context manager with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -171,7 +166,6 @@ def test_bundled_client_usage(bundled_httpx):
             assert headers.get("X-Client-Header") == "test"
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_timeout(bundled_httpx):
     """Test timeout handling with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -180,7 +174,6 @@ def test_bundled_timeout(bundled_httpx):
             httpx.get("https://httpbin.org/delay/10", timeout=1)
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_status_codes(bundled_httpx):
     """Test various status codes with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
@@ -191,7 +184,6 @@ def test_bundled_status_codes(bundled_httpx):
         assert resp.status_code == 500
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_async_client(bundled_httpx):
     """Test AsyncClient functionality with bundled httpx."""
     import asyncio
@@ -209,7 +201,6 @@ def test_bundled_async_client(bundled_httpx):
         asyncio.run(async_test())
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_http2_support(bundled_httpx):
     """Test HTTP/2 support with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
