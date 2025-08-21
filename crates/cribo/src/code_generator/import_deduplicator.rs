@@ -10,112 +10,11 @@ use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
 use super::{bundler::Bundler, expression_handlers};
 use crate::{
     code_generator::module_registry::is_init_function, cribo_graph::CriboGraph as DependencyGraph,
-    side_effects::is_safe_stdlib_module, tree_shaking::TreeShaker, types::FxIndexSet,
+    tree_shaking::TreeShaker, types::FxIndexSet,
 };
 
-/// Check if a statement uses importlib
-pub(super) fn stmt_uses_importlib(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::Expr(expr_stmt) => expression_handlers::expr_uses_importlib(&expr_stmt.value),
-        Stmt::Assign(assign) => expression_handlers::expr_uses_importlib(&assign.value),
-        Stmt::AugAssign(aug_assign) => expression_handlers::expr_uses_importlib(&aug_assign.value),
-        Stmt::AnnAssign(ann_assign) => ann_assign
-            .value
-            .as_ref()
-            .is_some_and(|v| expression_handlers::expr_uses_importlib(v)),
-        Stmt::FunctionDef(func_def) => func_def.body.iter().any(stmt_uses_importlib),
-        Stmt::ClassDef(class_def) => class_def.body.iter().any(stmt_uses_importlib),
-        Stmt::If(if_stmt) => {
-            expression_handlers::expr_uses_importlib(&if_stmt.test)
-                || if_stmt.body.iter().any(stmt_uses_importlib)
-                || if_stmt.elif_else_clauses.iter().any(|clause| {
-                    clause
-                        .test
-                        .as_ref()
-                        .is_some_and(expression_handlers::expr_uses_importlib)
-                        || clause.body.iter().any(stmt_uses_importlib)
-                })
-        }
-        Stmt::While(while_stmt) => {
-            expression_handlers::expr_uses_importlib(&while_stmt.test)
-                || while_stmt.body.iter().any(stmt_uses_importlib)
-                || while_stmt.orelse.iter().any(stmt_uses_importlib)
-        }
-        Stmt::For(for_stmt) => {
-            expression_handlers::expr_uses_importlib(&for_stmt.iter)
-                || for_stmt.body.iter().any(stmt_uses_importlib)
-                || for_stmt.orelse.iter().any(stmt_uses_importlib)
-        }
-        Stmt::With(with_stmt) => {
-            with_stmt.items.iter().any(|item| {
-                expression_handlers::expr_uses_importlib(&item.context_expr)
-                    || item
-                        .optional_vars
-                        .as_ref()
-                        .is_some_and(|v| expression_handlers::expr_uses_importlib(v))
-            }) || with_stmt.body.iter().any(stmt_uses_importlib)
-        }
-        Stmt::Try(try_stmt) => {
-            try_stmt.body.iter().any(stmt_uses_importlib)
-                || try_stmt.handlers.iter().any(|handler| match handler {
-                    ruff_python_ast::ExceptHandler::ExceptHandler(eh) => {
-                        eh.type_
-                            .as_ref()
-                            .is_some_and(|t| expression_handlers::expr_uses_importlib(t))
-                            || eh.body.iter().any(stmt_uses_importlib)
-                    }
-                })
-                || try_stmt.orelse.iter().any(stmt_uses_importlib)
-                || try_stmt.finalbody.iter().any(stmt_uses_importlib)
-        }
-        Stmt::Assert(assert_stmt) => {
-            expression_handlers::expr_uses_importlib(&assert_stmt.test)
-                || assert_stmt
-                    .msg
-                    .as_ref()
-                    .is_some_and(|v| expression_handlers::expr_uses_importlib(v))
-        }
-        Stmt::Return(ret) => ret
-            .value
-            .as_ref()
-            .is_some_and(|v| expression_handlers::expr_uses_importlib(v)),
-        Stmt::Raise(raise_stmt) => {
-            raise_stmt
-                .exc
-                .as_ref()
-                .is_some_and(|v| expression_handlers::expr_uses_importlib(v))
-                || raise_stmt
-                    .cause
-                    .as_ref()
-                    .is_some_and(|v| expression_handlers::expr_uses_importlib(v))
-        }
-        Stmt::Delete(del) => del
-            .targets
-            .iter()
-            .any(expression_handlers::expr_uses_importlib),
-        // Statements that don't contain expressions
-        Stmt::Import(_)
-        | Stmt::ImportFrom(_) // Already handled by import transformation
-        | Stmt::Pass(_)
-        | Stmt::Break(_)
-        | Stmt::Continue(_)
-        | Stmt::Global(_)
-        | Stmt::Nonlocal(_)
-        | Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
-        // Match and TypeAlias need special handling
-        Stmt::Match(match_stmt) => {
-            expression_handlers::expr_uses_importlib(&match_stmt.subject)
-                || match_stmt
-                    .cases
-                    .iter()
-                    .any(|case| case.body.iter().any(stmt_uses_importlib))
-        }
-        Stmt::TypeAlias(type_alias) => expression_handlers::expr_uses_importlib(&type_alias.value),
-    }
-}
-
 /// Check if a statement is a hoisted import
-pub(super) fn is_hoisted_import(bundler: &Bundler, stmt: &Stmt) -> bool {
+pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::ImportFrom(import_from) => {
             if let Some(ref module) = import_from.module {
@@ -124,77 +23,16 @@ pub(super) fn is_hoisted_import(bundler: &Bundler, stmt: &Stmt) -> bool {
                 if module_name == "__future__" {
                     return true;
                 }
-                // Check if this is a stdlib import that we've hoisted
-                if crate::side_effects::is_safe_stdlib_module(module_name) {
-                    // Check if this exact import is in our hoisted stdlib imports
-                    return is_import_in_hoisted_stdlib(bundler, module_name);
-                }
-                // We no longer hoist third-party imports, so they should never be considered
-                // hoisted Only stdlib and __future__ imports are hoisted
+                // Stdlib imports are no longer hoisted - handled by proxy
             }
             false
         }
-        Stmt::Import(import_stmt) => {
-            // Check if any of the imported modules are hoisted (stdlib or third-party)
-            import_stmt.names.iter().any(|alias| {
-                let module_name = alias.name.as_str();
-                // Check stdlib imports
-                if crate::side_effects::is_safe_stdlib_module(module_name) {
-                    bundler.stdlib_import_statements.iter().any(|hoisted| {
-                        matches!(hoisted, Stmt::Import(hoisted_import)
-                            if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                    })
-                }
-                // We no longer hoist third-party imports
-                else {
-                    false
-                }
-            })
+        Stmt::Import(_import_stmt) => {
+            // Stdlib imports are no longer hoisted - handled by proxy
+            false
         }
         _ => false,
     }
-}
-
-/// Check if a specific module is in our hoisted stdlib imports
-pub(super) fn is_import_in_hoisted_stdlib(bundler: &Bundler, module_name: &str) -> bool {
-    // Check if module is in our from imports map
-    if bundler.stdlib_import_from_map.contains_key(module_name) {
-        return true;
-    }
-
-    // Check if module is in our regular import statements
-    bundler.stdlib_import_statements.iter().any(|hoisted| {
-        matches!(hoisted, Stmt::Import(hoisted_import)
-            if hoisted_import.names.iter().any(|alias| alias.name.as_str() == module_name))
-    })
-}
-
-/// Add a regular stdlib import (e.g., "sys", "types")
-/// This creates an import statement and adds it to the tracked imports
-pub(super) fn add_stdlib_import(bundler: &mut Bundler, module_name: &str) {
-    // Check if we already have this import to avoid duplicates
-    let already_imported = bundler.stdlib_import_statements.iter().any(|stmt| {
-        if let Stmt::Import(import_stmt) = stmt {
-            import_stmt
-                .names
-                .iter()
-                .any(|alias| alias.name.as_str() == module_name)
-        } else {
-            false
-        }
-    });
-
-    if already_imported {
-        log::debug!("Stdlib import '{module_name}' already exists, skipping");
-        return;
-    }
-
-    let import_stmt =
-        crate::ast_builder::statements::import(vec![crate::ast_builder::other::alias(
-            module_name,
-            None,
-        )]);
-    bundler.stdlib_import_statements.push(import_stmt);
 }
 
 /// Collect imports from a module for hoisting
@@ -202,6 +40,7 @@ pub(super) fn collect_imports_from_module(
     bundler: &mut Bundler,
     ast: &ModModule,
     module_name: &str,
+    python_version: u8,
 ) {
     log::debug!("Collecting imports from module: {module_name}");
     for stmt in &ast.body {
@@ -239,38 +78,47 @@ pub(super) fn collect_imports_from_module(
                         import_from.level
                     );
 
-                    // Check if this is a safe stdlib module, skipping __future__ imports.
-                    if module_str != "__future__" && is_safe_stdlib_module(module_str) {
-                        log::debug!(
-                            "Collecting stdlib import: from {} import {:?} (level: {})",
-                            module_str,
-                            import_from
-                                .names
-                                .iter()
-                                .map(|a| a.name.as_str())
-                                .collect::<Vec<_>>(),
-                            import_from.level
-                        );
-                        let import_map = bundler
-                            .stdlib_import_from_map
-                            .entry(module_str.to_string())
-                            .or_default();
-
+                    // Stdlib imports are now handled by the _cribo proxy
+                    // We only need to track aliases for expression transformation
+                    let root_module = module_str.split('.').next().unwrap_or(module_str);
+                    if module_str != "__future__"
+                        && ruff_python_stdlib::sys::is_known_standard_library(
+                            python_version,
+                            root_module,
+                        )
+                    {
+                        // Track aliases for stdlib modules (for expression transformation)
                         for alias in &import_from.names {
-                            let name = alias.name.as_str();
-                            let alias_name = alias.asname.as_ref().map(|a| a.as_str().to_string());
-                            import_map.insert(name.to_string(), alias_name);
+                            if let Some(alias_name) = alias.asname.as_ref() {
+                                bundler.stdlib_module_aliases.insert(
+                                    alias_name.as_str().to_string(),
+                                    module_str.to_string(),
+                                );
+                            }
                         }
                     }
                 }
             }
             Stmt::Import(import_stmt) => {
-                // Track regular import statements for stdlib modules
-                if import_stmt.names.iter().any(|alias| {
+                // Track stdlib module aliases for expression transformation
+                for alias in &import_stmt.names {
                     let imported_module_name = alias.name.as_str();
-                    is_safe_stdlib_module(imported_module_name) && alias.asname.is_none()
-                }) {
-                    bundler.stdlib_import_statements.push(stmt.clone());
+                    let root_module = imported_module_name
+                        .split('.')
+                        .next()
+                        .unwrap_or(imported_module_name);
+                    if ruff_python_stdlib::sys::is_known_standard_library(
+                        python_version,
+                        root_module,
+                    ) {
+                        // Track the module and its alias
+                        if let Some(alias_name) = alias.asname.as_ref() {
+                            bundler.stdlib_module_aliases.insert(
+                                alias_name.as_str().to_string(),
+                                imported_module_name.to_string(),
+                            );
+                        }
+                    }
                 }
             }
             _ => {}
@@ -296,107 +144,10 @@ pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>)
         final_body.push(statements::import_from(Some("__future__"), aliases, 0));
     }
 
-    // Then stdlib from imports - deduplicated and sorted by module name
-    let mut sorted_modules: Vec<_> = bundler.stdlib_import_from_map.iter().collect();
-    sorted_modules.sort_by_key(|(module_name, _)| *module_name);
-
-    for (module_name, imported_names) in sorted_modules {
-        // Sort the imported names for deterministic output
-        let mut sorted_names: Vec<(String, Option<String>)> = imported_names
-            .iter()
-            .map(|(name, alias)| (name.clone(), alias.clone()))
-            .collect();
-        sorted_names.sort_by_key(|(name, _)| name.clone());
-
-        let aliases: Vec<Alias> = sorted_names
-            .into_iter()
-            .map(|(name, alias_opt)| other::alias(&name, alias_opt.as_deref()))
-            .collect();
-
-        final_body.push(statements::import_from(Some(module_name), aliases, 0));
-    }
-
-    // IMPORTANT: Only safe stdlib imports are hoisted to the bundle top level.
+    // Stdlib imports are now handled by _cribo proxy, no need to add them here
     // Third-party imports are NEVER hoisted because they may have side effects
     // (e.g., registering plugins, modifying global state, network calls).
     // Third-party imports remain in their original location to preserve execution order.
-
-    // Regular stdlib import statements - deduplicated and sorted by module name
-    let mut seen_modules = crate::types::FxIndexSet::default();
-    let mut unique_imports = Vec::new();
-
-    for stmt in &bundler.stdlib_import_statements {
-        if let Stmt::Import(import_stmt) = stmt {
-            collect_unique_imports_for_hoisting(
-                import_stmt,
-                &mut seen_modules,
-                &mut unique_imports,
-            );
-        }
-    }
-
-    // Sort by module name for deterministic output
-    unique_imports.sort_by_key(|(module_name, _)| module_name.clone());
-
-    for (_, import_stmt) in unique_imports {
-        final_body.push(import_stmt);
-    }
-
-    // NOTE: We do NOT hoist third-party regular import statements for the same reason
-    // as above - they may have side effects and should remain in their original context.
-}
-
-/// Collect unique imports from an import statement for hoisting
-fn collect_unique_imports_for_hoisting(
-    import_stmt: &StmtImport,
-    seen_modules: &mut crate::types::FxIndexSet<String>,
-    unique_imports: &mut Vec<(String, Stmt)>,
-) {
-    for alias in &import_stmt.names {
-        let module_name = alias.name.as_str();
-        if seen_modules.contains(module_name) {
-            continue;
-        }
-        seen_modules.insert(module_name.to_string());
-        // Create import statement preserving the original alias
-        unique_imports.push((
-            module_name.to_string(),
-            crate::ast_builder::statements::import(vec![crate::ast_builder::other::alias(
-                module_name,
-                alias
-                    .asname
-                    .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str),
-            )]),
-        ));
-    }
-}
-
-/// Remove unused importlib references from a module
-pub(super) fn remove_unused_importlib(ast: &mut ModModule) {
-    // Check if importlib is actually used in the code
-    let mut importlib_used = false;
-    for stmt in &ast.body {
-        if stmt_uses_importlib(stmt) {
-            importlib_used = true;
-            break;
-        }
-    }
-
-    if !importlib_used {
-        log::debug!("importlib is unused after transformation, removing import");
-        ast.body.retain(|stmt| match stmt {
-            Stmt::Import(import_stmt) => !import_stmt
-                .names
-                .iter()
-                .any(|alias| alias.name.as_str() == "importlib"),
-            Stmt::ImportFrom(import_from_stmt) => import_from_stmt
-                .module
-                .as_ref()
-                .is_none_or(|m| m.as_str() != "importlib"),
-            _ => true,
-        });
-    }
 }
 
 /// Deduplicate deferred imports against existing body statements
@@ -614,12 +365,16 @@ pub(super) fn is_duplicate_import_from(
     bundler: &Bundler,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
+    python_version: u8,
 ) -> bool {
     if let Some(ref module) = import_from.module {
         let module_name = module.as_str();
         // For third-party imports, check if they're already in the body
-        let is_third_party = !is_safe_stdlib_module(module_name)
-            && !is_bundled_module_or_package(bundler, module_name);
+        // Check if it's a stdlib module
+        let root_module = module_name.split('.').next().unwrap_or(module_name);
+        let is_stdlib =
+            ruff_python_stdlib::sys::is_known_standard_library(python_version, root_module);
+        let is_third_party = !is_stdlib && !is_bundled_module_or_package(bundler, module_name);
 
         if is_third_party {
             return existing_body.iter().any(|existing| {
@@ -691,6 +446,7 @@ pub(super) fn trim_unused_imports_from_modules(
     modules: &[(String, ModModule, PathBuf, String)],
     graph: &DependencyGraph,
     tree_shaker: Option<&TreeShaker>,
+    python_version: u8,
 ) -> Vec<(String, ModModule, PathBuf, String)> {
     let mut trimmed_modules = Vec::new();
 
@@ -704,6 +460,15 @@ pub(super) fn trim_unused_imports_from_modules(
 
         // Get unused imports from the graph
         if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+            // Check if this module has side effects (will become a wrapper module)
+            let has_side_effects = !module_dep_graph.side_effect_items.is_empty();
+
+            if has_side_effects {
+                log::debug!(
+                    "Module '{module_name}' has side effects - skipping stdlib import removal"
+                );
+            }
+
             let mut unused_imports =
                 crate::analyzers::import_analyzer::ImportAnalyzer::find_unused_imports_in_module(
                     module_dep_graph,
@@ -897,16 +662,6 @@ pub(super) fn trim_unused_imports_from_modules(
                                 );
                             }
 
-                            // Extra check for normalized imports: If this is a normalized
-                            // import and no assignments using
-                            // it survived, it should be removed
-                            if import_item.is_normalized_import {
-                                log::debug!(
-                                    "Import '{import_name}' is a normalized import \
-                                     (used_by_surviving_code: {used_by_surviving_code})"
-                                );
-                            }
-
                             if !used_by_surviving_code {
                                 log::debug!(
                                     "Import '{import_name}' from module '{module}' is not used by \
@@ -924,17 +679,56 @@ pub(super) fn trim_unused_imports_from_modules(
             }
 
             if !unused_imports.is_empty() {
-                log::debug!(
-                    "Found {} unused imports in {}",
-                    unused_imports.len(),
-                    module_name
-                );
-                // Log unused imports details
-                log_unused_imports_details(&unused_imports);
+                // If this is a wrapper module (has side effects), filter out stdlib imports
+                // from the unused list since they should be preserved as part of the module's API
+                if has_side_effects {
+                    let original_count = unused_imports.len();
+                    unused_imports.retain(|import_info| {
+                        // Check if this is a stdlib import
+                        let root_module = import_info
+                            .module
+                            .split('.')
+                            .next()
+                            .unwrap_or(&import_info.module);
+                        let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
+                            python_version,
+                            root_module,
+                        );
 
-                // Filter out unused imports from the AST
-                ast.body
-                    .retain(|stmt| !should_remove_import_stmt(stmt, &unused_imports));
+                        if is_stdlib {
+                            log::debug!(
+                                "Preserving stdlib import '{}' from '{}' in wrapper module",
+                                import_info.name,
+                                import_info.module
+                            );
+                            false // Remove from unused list (preserve the import)
+                        } else {
+                            true // Keep in unused list (will be removed)
+                        }
+                    });
+
+                    if original_count != unused_imports.len() {
+                        log::debug!(
+                            "Filtered {} stdlib imports from unused list for wrapper module '{}'",
+                            original_count - unused_imports.len(),
+                            module_name
+                        );
+                    }
+                }
+
+                if !unused_imports.is_empty() {
+                    log::debug!(
+                        "Found {} unused imports in {}",
+                        unused_imports.len(),
+                        module_name
+                    );
+                    // Log unused imports details
+                    log_unused_imports_details(&unused_imports);
+
+                    // Filter out unused imports from the AST
+                    ast.body
+                        .retain(|stmt| !should_remove_import_stmt(stmt, &unused_imports));
+                }
             }
         }
 

@@ -5,8 +5,9 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, Decorator, Expr, ExprContext, Identifier, Parameters, Stmt, StmtAssign,
-    StmtExpr, StmtFunctionDef, StmtGlobal, StmtImport, StmtImportFrom, StmtPass, StmtReturn,
+    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, Identifier, Parameters,
+    Stmt, StmtAssign, StmtExpr, StmtFunctionDef, StmtGlobal, StmtImport, StmtImportFrom, StmtPass,
+    StmtReturn, StmtTry,
 };
 use ruff_text_size::TextRange;
 
@@ -121,6 +122,28 @@ pub fn import(names: Vec<Alias>) -> Stmt {
         names,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a simple import statement with an alias.
+///
+/// This is a convenience wrapper for creating an import with a single module
+/// that is aliased to a different name.
+///
+/// # Arguments
+/// * `module_name` - The module to import
+/// * `alias_name` - The alias to use for the module
+///
+/// # Example
+/// ```rust
+/// // Creates: `import sys as _sys`
+/// let stmt = import_aliased("sys", "_sys");
+/// ```
+pub fn import_aliased(module_name: &str, alias_name: &str) -> Stmt {
+    Stmt::Import(StmtImport {
+        node_index: AtomicNodeIndex::dummy(),
+        names: vec![super::other::alias(module_name, Some(alias_name))],
+        range: TextRange::default(),
     })
 }
 
@@ -324,5 +347,37 @@ pub fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
         targets: vec![expressions::subscript(target, key, ExprContext::Store)],
         value: Box::new(value),
         range: TextRange::default(),
+    })
+}
+
+/// Creates a try-except statement node.
+///
+/// # Arguments
+/// * `body` - The statements to try
+/// * `handlers` - The exception handlers
+/// * `orelse` - The else clause statements (executed if no exception)
+/// * `finalbody` - The finally clause statements (always executed)
+///
+/// # Example
+/// ```rust
+/// // Creates: try: ... except ImportError: ...
+/// let try_body = vec![...];
+/// let except_handler = ExceptHandler::ExceptHandler(...);
+/// let stmt = try_stmt(try_body, vec![except_handler], vec![], vec![]);
+/// ```
+pub fn try_stmt(
+    body: Vec<Stmt>,
+    handlers: Vec<ExceptHandler>,
+    orelse: Vec<Stmt>,
+    finalbody: Vec<Stmt>,
+) -> Stmt {
+    Stmt::Try(StmtTry {
+        body,
+        handlers,
+        orelse,
+        finalbody,
+        is_star: false,
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
     })
 }

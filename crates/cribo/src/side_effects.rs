@@ -8,26 +8,12 @@ use ruff_python_ast::{ModModule, StmtImportFrom};
 
 use crate::visitors::SideEffectDetector;
 
-/// Check if a module name represents a safe stdlib module that can be hoisted
-/// without side effects
-pub fn is_safe_stdlib_module(module_name: &str) -> bool {
-    match module_name {
-        // Modules that modify global state - DO NOT HOIST
-        "antigravity" | "this" | "__hello__" | "__phello__" | "site" | "sitecustomize"
-        | "usercustomize" | "readline" | "rlcompleter" | "turtle" | "tkinter" | "webbrowser"
-        | "platform" | "locale" => false,
-
-        _ => {
-            let root_module = module_name.split('.').next().unwrap_or(module_name);
-            ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
-        }
-    }
-}
-
 /// Check if an import statement would have side effects
-pub fn import_has_side_effects(module_name: &str) -> bool {
-    // Safe stdlib modules don't have side effects
-    if is_safe_stdlib_module(module_name) {
+pub fn import_has_side_effects(module_name: &str, python_version: u8) -> bool {
+    // Check if it's a stdlib module
+    let root_module = module_name.split('.').next().unwrap_or(module_name);
+    if ruff_python_stdlib::sys::is_known_standard_library(python_version, root_module) {
+        // Stdlib modules are handled by the proxy, so no side effects for our purposes
         return false;
     }
 
@@ -37,15 +23,17 @@ pub fn import_has_side_effects(module_name: &str) -> bool {
 }
 
 /// Check if a from-import statement would have side effects
-pub fn from_import_has_side_effects(import_from: &StmtImportFrom) -> bool {
-    // Star imports always have potential side effects (except from safe stdlib)
+pub fn from_import_has_side_effects(import_from: &StmtImportFrom, python_version: u8) -> bool {
+    // Star imports always have potential side effects (except from stdlib)
     let is_star = import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
 
     if let Some(module) = &import_from.module {
         let module_name = module.as_str();
 
-        // Safe stdlib modules don't have side effects even with star imports
-        if is_safe_stdlib_module(module_name) {
+        // Check if it's a stdlib module
+        let root_module = module_name.split('.').next().unwrap_or(module_name);
+        if ruff_python_stdlib::sys::is_known_standard_library(python_version, root_module) {
+            // Stdlib modules are handled by the proxy, so no side effects for our purposes
             return false;
         }
 
@@ -55,7 +43,7 @@ pub fn from_import_has_side_effects(import_from: &StmtImportFrom) -> bool {
         }
 
         // Check if this is a known side-effect import
-        import_has_side_effects(module_name)
+        import_has_side_effects(module_name, python_version)
     } else {
         // Relative imports
         is_star
@@ -66,7 +54,7 @@ pub fn from_import_has_side_effects(import_from: &StmtImportFrom) -> bool {
 ///
 /// This checks for executable code at the module level beyond simple
 /// definitions and safe imports.
-pub fn module_has_side_effects(ast: &ModModule) -> bool {
+pub fn module_has_side_effects(ast: &ModModule, python_version: u8) -> bool {
     // Delegate to the AST visitor
-    SideEffectDetector::check_module(ast)
+    SideEffectDetector::check_module(ast, python_version)
 }

@@ -20,7 +20,6 @@ mod orchestrator;
 mod resolver;
 mod semantic_bundler;
 mod side_effects;
-mod stdlib_normalization;
 mod transformation_context;
 mod tree_shaking;
 mod types;
