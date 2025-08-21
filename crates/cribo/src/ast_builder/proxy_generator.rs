@@ -286,13 +286,18 @@ fn create_cribo_module_getattr() -> Stmt {
 
 /// Create __getattribute__ method for _`CriboModule`
 fn create_cribo_module_getattribute() -> Stmt {
-    // n in ('_m','_p','__getattr__')
+    // n in ('_m','_p','__getattr__', '__class__', '__dict__', '__dir__', '__module__', '__qualname__')
     let special_attrs = expressions::in_op(
         expressions::name("n", ExprContext::Load),
         expressions::tuple(vec![
             expressions::string_literal("_m"),
             expressions::string_literal("_p"),
             expressions::string_literal("__getattr__"),
+            expressions::string_literal("__class__"),
+            expressions::string_literal("__dict__"),
+            expressions::string_literal("__dir__"),
+            expressions::string_literal("__module__"),
+            expressions::string_literal("__qualname__"),
         ]),
     );
 

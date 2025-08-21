@@ -22,7 +22,7 @@ class _CriboModule():
             return getattr(self._m, n)
 
     def __getattribute__(self, n):
-        return object.__getattribute__(self, n) if n in ('_m', '_p', '__getattr__') else getattr(object.__getattribute__(self, '_m'), n)
+        return object.__getattribute__(self, n) if n in ('_m', '_p', '__getattr__', '__class__', '__dict__', '__dir__', '__module__', '__qualname__') else getattr(object.__getattribute__(self, '_m'), n)
 class _Cribo():
 
     def __getattr__(self, n):
