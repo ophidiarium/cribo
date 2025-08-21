@@ -408,21 +408,18 @@ impl<'a> GraphBuilder<'a> {
                 Stmt::FunctionDef(method_def) => {
                     // Collect variables from method decorators (execute at class body time)
                     for decorator in &method_def.decorator_list {
-                        self.collect_vars_in_expr(&decorator.expression, &mut method_read_vars);
+                        self.collect_vars_in_expr(&decorator.expression, &mut read_vars);
                     }
 
                     // Collect variables from method parameter annotations and defaults
-                    self.collect_function_parameter_vars(
-                        &method_def.parameters,
-                        &mut method_read_vars,
-                    );
+                    self.collect_function_parameter_vars(&method_def.parameters, &mut read_vars);
 
                     // Collect variables from return type annotation
                     if let Some(returns) = &method_def.returns {
-                        self.collect_vars_in_expr(returns, &mut method_read_vars);
+                        self.collect_vars_in_expr(returns, &mut read_vars);
                     }
 
-                    // Collect variables used in the method body
+                    // Collect variables used in the method body (these are eventual dependencies)
                     self.collect_vars_in_body(
                         &method_def.body,
                         &mut method_read_vars,

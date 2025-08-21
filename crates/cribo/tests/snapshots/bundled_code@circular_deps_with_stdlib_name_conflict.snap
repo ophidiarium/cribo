@@ -29,6 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 pkg = _cribo.types.SimpleNamespace(__name__='pkg')
+ConsoleBase = None
 @_cribo.functools.cache
 def _cribo_init___cribo_2353ad_pkg_pretty():
     _cribo_module = _cribo.types.SimpleNamespace()
