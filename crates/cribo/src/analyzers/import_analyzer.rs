@@ -679,32 +679,193 @@ impl ImportAnalyzer {
         symbol_name: &str,
         module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
-        for stmt in &ast.body {
-            if let Stmt::ImportFrom(import_from) = stmt
-                && Self::import_matches_module(import_from, importing_module, target_module)
-            {
-                // Check if the symbol is being imported
-                for alias in &import_from.names {
-                    let alias_name = alias.name.as_str();
-                    if alias_name == symbol_name {
-                        return true;
-                    }
-                    // Handle wildcard imports (from module import *)
-                    if alias_name == "*" {
-                        // If we have module export information, check if the symbol is in __all__
-                        if let Some(exports_map) = module_exports {
-                            if let Some(Some(export_list)) = exports_map.get(target_module) {
-                                // Module has __all__, check if symbol is in it
-                                return export_list.iter().any(|s| s == symbol_name);
+        Self::module_imports_symbol_recursive(
+            &ast.body,
+            importing_module,
+            target_module,
+            symbol_name,
+            module_exports,
+        )
+    }
+
+    /// Recursively check if statements contain an import of a specific symbol
+    fn module_imports_symbol_recursive(
+        stmts: &[Stmt],
+        importing_module: &str,
+        target_module: &str,
+        symbol_name: &str,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
+    ) -> bool {
+        for stmt in stmts {
+            match stmt {
+                Stmt::ImportFrom(import_from)
+                    if Self::import_matches_module(
+                        import_from,
+                        importing_module,
+                        target_module,
+                    ) =>
+                {
+                    // Check if the symbol is being imported
+                    for alias in &import_from.names {
+                        let alias_name = alias.name.as_str();
+                        if alias_name == symbol_name {
+                            return true;
+                        }
+                        // Handle wildcard imports (from module import *)
+                        if alias_name == "*" {
+                            // If we have module export information, check if the symbol is in __all__
+                            if let Some(exports_map) = module_exports {
+                                if let Some(Some(export_list)) = exports_map.get(target_module) {
+                                    // Module has __all__, check if symbol is in it
+                                    return export_list.iter().any(|s| s == symbol_name);
+                                }
+                                // No __all__ defined, wildcard imports public names only
+                                return !symbol_name.starts_with('_');
                             }
-                            // No __all__ defined, wildcard imports public names only
+                            // No export information available, conservatively treat wildcard
+                            // as importing only public names (non-underscore)
                             return !symbol_name.starts_with('_');
                         }
-                        // No export information available, conservatively treat wildcard
-                        // as importing only public names (non-underscore)
-                        return !symbol_name.starts_with('_');
                     }
                 }
+                Stmt::FunctionDef(f) => {
+                    if Self::module_imports_symbol_recursive(
+                        &f.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::ClassDef(c) => {
+                    if Self::module_imports_symbol_recursive(
+                        &c.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::If(i) => {
+                    if Self::module_imports_symbol_recursive(
+                        &i.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                    for clause in &i.elif_else_clauses {
+                        if Self::module_imports_symbol_recursive(
+                            &clause.body,
+                            importing_module,
+                            target_module,
+                            symbol_name,
+                            module_exports,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+                Stmt::For(s) => {
+                    if Self::module_imports_symbol_recursive(
+                        &s.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) || Self::module_imports_symbol_recursive(
+                        &s.orelse,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::While(s) => {
+                    if Self::module_imports_symbol_recursive(
+                        &s.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) || Self::module_imports_symbol_recursive(
+                        &s.orelse,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::Try(t) => {
+                    if Self::module_imports_symbol_recursive(
+                        &t.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) || Self::module_imports_symbol_recursive(
+                        &t.orelse,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) || Self::module_imports_symbol_recursive(
+                        &t.finalbody,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                    for handler in &t.handlers {
+                        let ruff_python_ast::ExceptHandler::ExceptHandler(eh) = handler;
+                        if Self::module_imports_symbol_recursive(
+                            &eh.body,
+                            importing_module,
+                            target_module,
+                            symbol_name,
+                            module_exports,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+                Stmt::With(w) => {
+                    if Self::module_imports_symbol_recursive(
+                        &w.body,
+                        importing_module,
+                        target_module,
+                        symbol_name,
+                        module_exports,
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::Match(m) => {
+                    for case in &m.cases {
+                        if Self::module_imports_symbol_recursive(
+                            &case.body,
+                            importing_module,
+                            target_module,
+                            symbol_name,
+                            module_exports,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         false
