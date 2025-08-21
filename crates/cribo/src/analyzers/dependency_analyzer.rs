@@ -369,7 +369,9 @@ impl DependencyAnalyzer {
 
         // Use AST analysis results for classification
         if analysis_result.has_only_constants
-            && !module_names.iter().any(|name| name.ends_with("__init__"))
+            && !module_names
+                .iter()
+                .any(|name| crate::util::is_init_module(name))
         {
             // Modules that only contain constants create unresolvable cycles
             // Exception: __init__.py files often only have imports/exports which is normal

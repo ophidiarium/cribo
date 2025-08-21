@@ -2104,8 +2104,8 @@ impl<'a> Bundler<'a> {
         // them to be overwritten with empty SimpleNamespace objects.
         // Use the classification results (not side-effect heuristic) and support any depth.
         for (module_name, _, _, _) in &wrapper_modules {
-            // Skip modules that end with __init__ (e.g., "pkg.__init__")
-            if module_name.ends_with(".__init__") {
+            // Skip __init__ modules (e.g., "pkg.__init__")
+            if crate::util::is_init_module(module_name) {
                 continue;
             }
 
@@ -4127,6 +4127,37 @@ impl<'a> Bundler<'a> {
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
 
+            // If the entry module is part of circular dependencies, reorder its statements
+            // The entry module might be named "__init__" while the circular module is tracked as "yaml" (or similar package name)
+            let mut reorder = false;
+            let mut lookup_name = module_name.as_str();
+
+            if crate::util::is_init_module(&module_name) {
+                // For __init__ modules, we need to find the corresponding package name
+                // in the circular modules list
+                if let Some(package_name) = self
+                    .circular_modules
+                    .iter()
+                    .find(|m| !m.contains('.') && !crate::util::is_init_module(m))
+                {
+                    reorder = true;
+                    lookup_name = package_name.as_str();
+                }
+            } else if self.circular_modules.contains(&module_name) {
+                reorder = true;
+            }
+
+            if reorder {
+                log::debug!(
+                    "Entry module '{module_name}' is part of circular dependencies, reordering statements"
+                );
+                ast.body = self.reorder_statements_for_circular_module(
+                    lookup_name,
+                    ast.body,
+                    python_version,
+                );
+            }
+
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
             let entry_module_renames = symbol_renames
@@ -4443,7 +4474,7 @@ impl<'a> Bundler<'a> {
 
                 // For __init__ modules, we need to find the actual package name
                 // The package name is the wrapper module without __init__
-                let package_name = if module_name == "__init__" {
+                let package_name = if crate::util::is_init_module(&module_name) {
                     // Find the wrapper module that represents the package
                     self.module_registry
                         .keys()
