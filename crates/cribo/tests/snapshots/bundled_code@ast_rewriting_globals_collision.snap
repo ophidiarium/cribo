@@ -93,6 +93,7 @@ _cribo_models_base_Connection = None
 def _cribo_init___cribo_0a162a_models_base():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'models.base'
+    global _cribo_models_base_Connection
     """Base models module - imports only from core to avoid circular dependencies"""
     _cribo_module.util_validate = validate_6
     util_validate = validate_6
@@ -103,7 +104,8 @@ def _cribo_init___cribo_0a162a_models_base():
     Logger = None
     _cribo_module.Logger = Logger
     Connection = []
-    _cribo_module.Connection = Connection
+    _cribo_models_base_Connection = Connection
+    _cribo_module.Connection = _cribo_models_base_Connection
 
     def process(data):
         """Process function in base module"""
@@ -135,8 +137,6 @@ def _cribo_init___cribo_0a162a_models_base():
         _cribo_module.Connection = _cribo_models_base_Connection
         return "base_initialized"
     _cribo_module.initialize = initialize
-    global _cribo_models_base_Connection
-    _cribo_models_base_Connection = Connection
     return _cribo_module
 @_cribo.functools.cache
 def _cribo_init___cribo_293a98_models():

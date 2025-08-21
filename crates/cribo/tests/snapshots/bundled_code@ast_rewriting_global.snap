@@ -44,13 +44,16 @@ _cribo_module_mixed_patterns_counter = None
 def _cribo_init___cribo_c75306_module_mixed_patterns():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'module_mixed_patterns'
+    global _cribo_module_mixed_patterns_counter, _cribo_module_mixed_patterns_foo
     """Module demonstrating mixed global access patterns."""
     foo = "module3_foo"
-    _cribo_module.foo = foo
+    _cribo_module_mixed_patterns_foo = foo
+    _cribo_module.foo = _cribo_module_mixed_patterns_foo
     bar = "module3_bar"
     _cribo_module.bar = bar
     counter = 0
-    _cribo_module.counter = counter
+    _cribo_module_mixed_patterns_counter = counter
+    _cribo_module.counter = _cribo_module_mixed_patterns_counter
 
     def get_values():
         """Get module globals using different methods."""
@@ -88,10 +91,6 @@ def _cribo_init___cribo_c75306_module_mixed_patterns():
     _cribo_module.complex_global_usage = complex_global_usage
     _cribo_module.__dict__["initialized_via_globals"] = True
     exec("exec_created_var = 'created_via_exec'", _cribo_module.__dict__)
-    global _cribo_module_mixed_patterns_foo
-    _cribo_module_mixed_patterns_foo = foo
-    global _cribo_module_mixed_patterns_counter
-    _cribo_module_mixed_patterns_counter = counter
     return _cribo_module
 @_cribo.functools.cache
 def _cribo_init___cribo_5101f4_module_globals_dict():
