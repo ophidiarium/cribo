@@ -979,7 +979,8 @@ impl BundleOrchestrator {
 
             // Build dependency graph BEFORE no-ops removal
             if let Some(module) = params.graph.get_module_by_name_mut(&module_name) {
-                let mut builder = crate::graph_builder::GraphBuilder::new(module);
+                let python_version = self.config.python_version().unwrap_or(10);
+                let mut builder = crate::graph_builder::GraphBuilder::new(module, python_version);
                 // No longer setting normalized_modules as we handle stdlib normalization later
                 builder.build_from_ast(&processed.ast)?;
             }

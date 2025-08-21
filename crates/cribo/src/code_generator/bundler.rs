@@ -1731,6 +1731,7 @@ impl<'a> Bundler<'a> {
         &mut self,
         modules: &[(String, ModModule, PathBuf, String)],
         entry_module_name: &str,
+        python_version: u8,
     ) -> ClassificationResult {
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
@@ -1826,7 +1827,7 @@ impl<'a> Bundler<'a> {
             // With full static bundling, we only need to wrap modules with side effects
             // All imports are rewritten at bundle time, so namespace imports, direct imports,
             // and circular dependencies can all be handled through static transformation
-            let has_side_effects = module_has_side_effects(ast);
+            let has_side_effects = module_has_side_effects(ast, python_version);
 
             // Check if this module is in a circular dependency and accesses imported module
             // attributes
@@ -1973,6 +1974,7 @@ impl<'a> Bundler<'a> {
             params.modules,
             params.graph,
             params.tree_shaker,
+            params.python_version,
         );
 
         // Index all module ASTs to assign node indices and initialize transformation context
@@ -2083,7 +2085,8 @@ impl<'a> Bundler<'a> {
         let has_circular_dependencies = !self.circular_modules.is_empty();
 
         // Classify modules into inlinable and wrapper modules
-        let classification = self.classify_modules(&modules, params.entry_module_name);
+        let classification =
+            self.classify_modules(&modules, params.entry_module_name, python_version);
         let inlinable_modules = classification.inlinable_modules;
         let wrapper_modules = classification.wrapper_modules;
         let module_exports_map = classification.module_exports_map;
@@ -2200,7 +2203,12 @@ impl<'a> Bundler<'a> {
         // This must be done on the normalized modules to capture stdlib imports
         // that were converted from "from X import Y" to "import X" format
         for (module_name, ast, _, _) in &modules {
-            import_deduplicator::collect_imports_from_module(self, ast, module_name);
+            import_deduplicator::collect_imports_from_module(
+                self,
+                ast,
+                module_name,
+                params.python_version,
+            );
         }
 
         // If we have wrapper modules, inject types as stdlib dependency.
@@ -2761,6 +2769,7 @@ impl<'a> Bundler<'a> {
                         &ctx,
                         ast.clone(),
                         &empty_renames,
+                        python_version,
                     );
                     final_body.push(init_function);
 
@@ -4243,6 +4252,7 @@ impl<'a> Bundler<'a> {
                             self,
                             import_from,
                             &final_body,
+                            python_version,
                         );
 
                         if duplicate {

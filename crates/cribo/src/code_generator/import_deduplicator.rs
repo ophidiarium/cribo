@@ -47,6 +47,7 @@ pub(super) fn collect_imports_from_module(
     bundler: &mut Bundler,
     ast: &ModModule,
     module_name: &str,
+    python_version: u8,
 ) {
     log::debug!("Collecting imports from module: {module_name}");
     for stmt in &ast.body {
@@ -88,7 +89,10 @@ pub(super) fn collect_imports_from_module(
                     // We only need to track aliases for expression transformation
                     let root_module = module_str.split('.').next().unwrap_or(module_str);
                     if module_str != "__future__"
-                        && ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
+                        && ruff_python_stdlib::sys::is_known_standard_library(
+                            python_version,
+                            root_module,
+                        )
                     {
                         // Track aliases for stdlib modules (for expression transformation)
                         for alias in &import_from.names {
@@ -110,7 +114,10 @@ pub(super) fn collect_imports_from_module(
                         .split('.')
                         .next()
                         .unwrap_or(imported_module_name);
-                    if ruff_python_stdlib::sys::is_known_standard_library(10, root_module) {
+                    if ruff_python_stdlib::sys::is_known_standard_library(
+                        python_version,
+                        root_module,
+                    ) {
                         // Track the module and its alias
                         if let Some(alias_name) = alias.asname.as_ref() {
                             bundler.stdlib_module_aliases.insert(
@@ -365,13 +372,15 @@ pub(super) fn is_duplicate_import_from(
     bundler: &Bundler,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
+    python_version: u8,
 ) -> bool {
     if let Some(ref module) = import_from.module {
         let module_name = module.as_str();
         // For third-party imports, check if they're already in the body
         // Check if it's a stdlib module
         let root_module = module_name.split('.').next().unwrap_or(module_name);
-        let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
+        let is_stdlib =
+            ruff_python_stdlib::sys::is_known_standard_library(python_version, root_module);
         let is_third_party = !is_stdlib && !is_bundled_module_or_package(bundler, module_name);
 
         if is_third_party {
@@ -444,6 +453,7 @@ pub(super) fn trim_unused_imports_from_modules(
     modules: &[(String, ModModule, PathBuf, String)],
     graph: &DependencyGraph,
     tree_shaker: Option<&TreeShaker>,
+    python_version: u8,
 ) -> Vec<(String, ModModule, PathBuf, String)> {
     let mut trimmed_modules = Vec::new();
 
@@ -687,8 +697,10 @@ pub(super) fn trim_unused_imports_from_modules(
                             .split('.')
                             .next()
                             .unwrap_or(&import_info.module);
-                        let is_stdlib =
-                            ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
+                        let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
+                            python_version,
+                            root_module,
+                        );
 
                         if is_stdlib {
                             log::debug!(

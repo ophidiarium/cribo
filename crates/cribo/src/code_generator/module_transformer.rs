@@ -39,6 +39,7 @@ pub fn transform_module_to_init_function<'a>(
     ctx: &ModuleTransformContext,
     mut ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    python_version: u8,
 ) -> Stmt {
     let init_func_name = &bundler.init_functions[ctx.synthetic_name];
     let mut body = Vec::new();
@@ -135,7 +136,8 @@ pub fn transform_module_to_init_function<'a>(
             if let Some(ref module) = resolved_module {
                 // Check if this is a stdlib module
                 let root_module = module.split('.').next().unwrap_or(module);
-                let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
+                let is_stdlib =
+                    ruff_python_stdlib::sys::is_known_standard_library(python_version, root_module);
 
                 if is_stdlib && import_from.level == 0 {
                     // Track stdlib imports for re-export
@@ -2482,9 +2484,10 @@ pub fn transform_module_to_cache_init_function(
     ctx: &ModuleTransformContext,
     ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    python_version: u8,
 ) -> Stmt {
     // Call the regular transform_module_to_init_function to get the function
-    let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames);
+    let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames, python_version);
 
     // Add the @_cribo.functools.cache decorator
     if let Stmt::FunctionDef(mut func_def) = stmt {
@@ -2605,8 +2608,13 @@ pub fn process_wrapper_modules(
         };
 
         // Always use cached init functions to ensure modules are only initialized once
-        let init_function =
-            transform_module_to_cache_init_function(bundler, &ctx, ast.clone(), symbol_renames);
+        let init_function = transform_module_to_cache_init_function(
+            bundler,
+            &ctx,
+            ast.clone(),
+            symbol_renames,
+            python_version,
+        );
 
         result.push(init_function);
     }

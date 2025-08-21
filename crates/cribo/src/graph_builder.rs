@@ -25,6 +25,7 @@ pub struct GraphBuilder<'a> {
     /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
     /// "`importlib.import_module`")
     import_aliases: FxIndexMap<String, String>,
+    python_version: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -35,11 +36,12 @@ enum ScopeType {
 }
 
 impl<'a> GraphBuilder<'a> {
-    pub fn new(graph: &'a mut ModuleDepGraph) -> Self {
+    pub fn new(graph: &'a mut ModuleDepGraph, python_version: u8) -> Self {
         Self {
             graph,
             current_scope: ScopeType::Module,
             import_aliases: FxIndexMap::default(),
+            python_version,
         }
     }
 
@@ -176,7 +178,10 @@ impl<'a> GraphBuilder<'a> {
                 eventual_read_vars: FxIndexSet::default(),
                 write_vars: FxIndexSet::default(),
                 eventual_write_vars: FxIndexSet::default(),
-                has_side_effects: crate::side_effects::import_has_side_effects(module_name),
+                has_side_effects: crate::side_effects::import_has_side_effects(
+                    module_name,
+                    self.python_version,
+                ),
                 imported_names,
                 reexported_names: FxIndexSet::default(),
                 defined_symbols: FxIndexSet::default(),
@@ -272,7 +277,10 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: FxIndexSet::default(),
             write_vars: FxIndexSet::default(),
             eventual_write_vars: FxIndexSet::default(),
-            has_side_effects: crate::side_effects::from_import_has_side_effects(import_from),
+            has_side_effects: crate::side_effects::from_import_has_side_effects(
+                import_from,
+                self.python_version,
+            ),
             imported_names,
             reexported_names,
             defined_symbols: FxIndexSet::default(),
@@ -539,19 +547,8 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
-            // Check if this assignment is from a safe stdlib module attribute access
-            // e.g., ABC = abc.ABC where 'abc' is a safe stdlib module
-            let mut is_safe_stdlib_attribute_access = false;
-            if let Expr::Attribute(attr_expr) = assign.value.as_ref()
-                && let Expr::Name(name_expr) = attr_expr.value.as_ref()
-            {
-                let module_name = name_expr.id.as_str();
-                let root_module = module_name.split('.').next().unwrap_or(module_name);
-                if ruff_python_stdlib::sys::is_known_standard_library(10, root_module) {
-                    is_safe_stdlib_attribute_access = true;
-                    log::debug!("Assignment from stdlib module '{module_name}' attribute access");
-                }
-            }
+            // With the proxy approach, stdlib modules are handled dynamically,
+            // so we treat all attribute accesses conservatively for side effects
 
             let item_data = ItemData {
                 item_type: ItemType::Assignment {
@@ -563,12 +560,7 @@ impl<'a> GraphBuilder<'a> {
                                                                * read" */
                 write_vars: FxIndexSet::default(),
                 eventual_write_vars: FxIndexSet::default(),
-                // Attribute access on safe stdlib modules doesn't have side effects
-                has_side_effects: if is_safe_stdlib_attribute_access {
-                    false
-                } else {
-                    Self::expression_has_side_effects(&assign.value)
-                },
+                has_side_effects: Self::expression_has_side_effects(&assign.value),
                 imported_names: FxIndexSet::default(),
                 reexported_names,
                 defined_symbols: var_decls,

@@ -253,7 +253,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     fn should_normalize_stdlib_import(&self, module_name: &str) -> bool {
         // Check if it's a stdlib module
         let root_module = module_name.split('.').next().unwrap_or(module_name);
-        ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
+        ruff_python_stdlib::sys::is_known_standard_library(self.python_version, root_module)
     }
 
     /// Build a mapping of stdlib imports to their rewritten paths
