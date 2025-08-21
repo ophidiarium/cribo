@@ -15,9 +15,7 @@ use ruff_text_size::TextRange;
 use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
-    code_generator::{
-        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
-    },
+    code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -325,9 +323,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
 
         debug!("Creating top-level namespace: {namespace}");
-        // Ensure types module is imported
-        import_deduplicator::add_stdlib_import(bundler, "types");
         // Create: namespace = types.SimpleNamespace(__name__='namespace')
+        // Note: types module is accessed via _cribo proxy, no explicit import needed
         let keywords = vec![Keyword {
             node_index: AtomicNodeIndex::dummy(),
             arg: Some(Identifier::new("__name__", TextRange::default())),
@@ -799,8 +796,7 @@ pub fn require_namespace(
             }
         }
 
-        // Ensure types module is imported before using SimpleNamespace
-        crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
+        // Note: types module is accessed via _cribo proxy, no explicit import needed
 
         // Check namespace info and gather necessary data before mutable borrow
         let namespace_info = bundler

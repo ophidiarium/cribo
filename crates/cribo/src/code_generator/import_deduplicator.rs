@@ -35,13 +35,6 @@ pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
     }
 }
 
-/// Add a regular stdlib import (e.g., "sys", "types")
-/// This is now a no-op since stdlib imports are handled by the proxy
-pub(super) fn add_stdlib_import(_bundler: &mut Bundler, _module_name: &str) {
-    // Stdlib imports are now handled by the _cribo proxy
-    log::debug!("Stdlib import request ignored - handled by _cribo proxy");
-}
-
 /// Collect imports from a module for hoisting
 pub(super) fn collect_imports_from_module(
     bundler: &mut Bundler,
