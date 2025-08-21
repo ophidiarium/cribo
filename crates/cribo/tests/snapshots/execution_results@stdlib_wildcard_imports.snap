@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/stdlib_wildcard_imports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Counter: Counter({'b': 3, 'a': 2, 'c': 1})\nOrderedDict: OrderedDict({'a': 1, 'b': 2})\nProcessed data: {'processed': True, 'original': {'key': 'value'}}\nJSON string: {\"test\": \"data\"}\nCombinations: [(1, 2), (1, 3), (2, 3)]\nLocal collections: I'm a local variable, not the module!\nAnother counter: Counter({'x': 1, 'y': 1, 'z': 1})\nAll tests passed!",
+    stderr: "",
+}

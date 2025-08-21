@@ -798,10 +798,24 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     let result = rewrite_import_with_renames(
                         self.bundler,
-                        new_import,
+                        new_import.clone(),
                         self.symbol_renames,
                         &mut self.populated_modules,
                     );
+
+                    // Track any aliases created by the import to prevent incorrect stdlib transformations
+                    for alias in &new_import.names {
+                        if let Some(asname) = &alias.asname {
+                            let local_name = asname.as_str();
+                            self.local_variables.insert(local_name.to_string());
+                            log::debug!(
+                                "Tracking import alias as local variable: {} (from {})",
+                                local_name,
+                                alias.name.as_str()
+                            );
+                        }
+                    }
+
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
                         self.module_name,
