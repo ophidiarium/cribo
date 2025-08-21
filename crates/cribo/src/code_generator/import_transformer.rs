@@ -1884,7 +1884,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if crate::resolver::is_stdlib_module(name, self.python_version) {
                         // Check if this stdlib name is shadowed by local variables or imports
                         // In wrapper modules, we only track local_variables which includes imported names
-                        let is_shadowed = self.local_variables.contains(name);
+                        let is_shadowed = self.local_variables.contains(name)
+                            || self.import_aliases.contains_key(name);
 
                         if !is_shadowed {
                             // Transform stdlib module attribute access to use _cribo proxy
