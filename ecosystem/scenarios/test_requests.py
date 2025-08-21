@@ -7,6 +7,7 @@ This script:
 3. Compares behavior with the original library
 """
 
+import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -15,6 +16,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_test_directories, get_package_requirements, parse_requirements_file
+
+# Default timeout for HTTP requests - longer in CI environments
+DEFAULT_TIMEOUT = 30 if os.environ.get("CI") else 10
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
@@ -97,7 +101,7 @@ def test_bundled_module_loading(bundled_requests):
 def test_bundled_get_request(bundled_requests):
     """Test basic GET request with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
-        resp = requests.get("https://httpbin.org/get")
+        resp = requests.get("https://httpbin.org/get", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert "headers" in data
@@ -108,7 +112,7 @@ def test_bundled_post_request(bundled_requests):
     """Test POST request with JSON data using bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         test_data = {"key": "value", "number": 42}
-        resp = requests.post("https://httpbin.org/post", json=test_data)
+        resp = requests.post("https://httpbin.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_data = resp.json()
         assert response_data["json"] == test_data
@@ -118,7 +122,7 @@ def test_bundled_custom_headers(bundled_requests):
     """Test custom headers with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         headers = {"User-Agent": "cribo-test/1.0", "X-Test-Header": "test-value"}
-        resp = requests.get("https://httpbin.org/headers", headers=headers)
+        resp = requests.get("https://httpbin.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_headers = resp.json()["headers"]
         assert response_headers.get("User-Agent") == "cribo-test/1.0"
@@ -129,7 +133,7 @@ def test_bundled_query_params(bundled_requests):
     """Test query parameters with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         params = {"foo": "bar", "baz": "123"}
-        resp = requests.get("https://httpbin.org/get", params=params)
+        resp = requests.get("https://httpbin.org/get", params=params, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         args = resp.json()["args"]
         assert args == params
@@ -145,10 +149,10 @@ def test_bundled_timeout(bundled_requests):
 def test_bundled_status_codes(bundled_requests):
     """Test various status codes with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
-        resp = requests.get("https://httpbin.org/status/404")
+        resp = requests.get("https://httpbin.org/status/404", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 404
 
-        resp = requests.get("https://httpbin.org/status/500")
+        resp = requests.get("https://httpbin.org/status/500", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 500
 
 
