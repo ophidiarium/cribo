@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{ModModule, Stmt};
+use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
@@ -624,6 +624,197 @@ impl ImportAnalyzer {
                 }
             }
             _ => {}
+        }
+    }
+    /// Check if a symbol from a module is imported by any other module in the bundle
+    ///
+    /// This function is used to determine if private symbols (e.g., starting with underscore)
+    /// should still be exported because they're imported by other modules.
+    pub fn is_symbol_imported_by_other_modules(
+        module_asts: &[(String, ModModule, PathBuf, String)],
+        module_name: &str,
+        symbol_name: &str,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
+    ) -> bool {
+        debug!(
+            "Checking imports for symbol '{}' from module '{}' in {} modules",
+            symbol_name,
+            module_name,
+            module_asts.len()
+        );
+
+        // Look through all modules to see if any import this symbol
+        for (other_module_name, ast, _, _) in module_asts {
+            // Skip the module itself
+            if other_module_name == module_name {
+                continue;
+            }
+
+            // Check import statements in the module
+            if Self::module_imports_symbol(
+                ast,
+                other_module_name,
+                module_name,
+                symbol_name,
+                module_exports,
+            ) {
+                debug!(
+                    "Symbol '{symbol_name}' from module '{module_name}' is imported by module '{other_module_name}'"
+                );
+                return true;
+            }
+        }
+
+        debug!(
+            "Symbol '{symbol_name}' from module '{module_name}' is not imported by any other modules"
+        );
+        false
+    }
+
+    /// Check if a module imports a specific symbol from another module
+    fn module_imports_symbol(
+        ast: &ModModule,
+        importing_module: &str,
+        target_module: &str,
+        symbol_name: &str,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
+    ) -> bool {
+        let mut visitor =
+            SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
+        ruff_python_ast::visitor::walk_body(&mut visitor, &ast.body);
+        visitor.found
+    }
+
+    /// Check if an import statement imports from the target module
+    fn import_matches_module(
+        import_from: &StmtImportFrom,
+        importing_module: &str,
+        target_module: &str,
+    ) -> bool {
+        if let Some(import_module) = &import_from.module {
+            let import_module_str = import_module.as_str();
+
+            // Handle both absolute and relative imports
+            if import_from.level == 0 {
+                // Absolute import: "from rich.cells import ..."
+                import_module_str == target_module
+            } else {
+                // Relative import: "from .cells import ...", "from ..utils import ...", etc.
+                // Get the package of the importing module
+                if let Some(mut package_prefix) = importing_module
+                    .rsplit_once('.')
+                    .map(|(pkg, _)| pkg.to_string())
+                {
+                    // For relative imports with level > 1, traverse up the package hierarchy
+                    // level 1: from .foo import ... (stay at current package)
+                    // level 2: from ..foo import ... (go up one level)
+                    // level 3: from ...foo import ... (go up two levels)
+                    for _ in 1..import_from.level {
+                        if let Some((parent, _)) = package_prefix.rsplit_once('.') {
+                            package_prefix = parent.to_string();
+                        } else {
+                            // Attempted to go above top-level package
+                            return false;
+                        }
+                    }
+
+                    let resolved_module = format!("{package_prefix}.{import_module_str}");
+                    resolved_module == target_module
+                } else {
+                    // The importing module is a top-level module, can't do relative imports
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+}
+
+/// Visitor that checks if a specific symbol is imported from a target module
+struct SymbolImportVisitor<'a> {
+    importing_module: &'a str,
+    target_module: &'a str,
+    symbol_name: &'a str,
+    module_exports: Option<&'a FxIndexMap<String, Option<Vec<String>>>>,
+    found: bool,
+}
+
+impl<'a> SymbolImportVisitor<'a> {
+    fn new(
+        importing_module: &'a str,
+        target_module: &'a str,
+        symbol_name: &'a str,
+        module_exports: Option<&'a FxIndexMap<String, Option<Vec<String>>>>,
+    ) -> Self {
+        Self {
+            importing_module,
+            target_module,
+            symbol_name,
+            module_exports,
+            found: false,
+        }
+    }
+
+    fn check_import_from(&mut self, import_from: &StmtImportFrom) {
+        if ImportAnalyzer::import_matches_module(
+            import_from,
+            self.importing_module,
+            self.target_module,
+        ) {
+            // Check if the symbol is being imported
+            for alias in &import_from.names {
+                let alias_name = alias.name.as_str();
+                if alias_name == self.symbol_name {
+                    self.found = true;
+                    return;
+                }
+                // Handle wildcard imports (from module import *)
+                if alias_name == "*" {
+                    // If we have module export information, check if the symbol is in __all__
+                    if let Some(exports_map) = self.module_exports {
+                        if let Some(Some(export_list)) = exports_map.get(self.target_module) {
+                            // Module has __all__, check if symbol is in it
+                            if export_list.iter().any(|s| s == self.symbol_name) {
+                                self.found = true;
+                                return;
+                            }
+                        } else {
+                            // No __all__ defined, wildcard imports public names only
+                            if !self.symbol_name.starts_with('_') {
+                                self.found = true;
+                                return;
+                            }
+                        }
+                    } else {
+                        // No export information available, conservatively treat wildcard
+                        // as importing only public names (non-underscore)
+                        if !self.symbol_name.starts_with('_') {
+                            self.found = true;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<'a> ruff_python_ast::visitor::Visitor<'a> for SymbolImportVisitor<'a> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        // Early exit if we've already found what we're looking for
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::ImportFrom(import_from) => {
+                self.check_import_from(import_from);
+            }
+            _ => {
+                // Continue traversing for other statement types
+                ruff_python_ast::visitor::walk_stmt(self, stmt);
+            }
         }
     }
 }

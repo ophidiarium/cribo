@@ -79,7 +79,7 @@ def _cribo_init___cribo_9a9871_with_side_effects():
     print("Loading with_side_effects module")
     _module_state = []
     _cribo_module._module_state = _module_state
-    _module_state.append("initialized")
+    _cribo_module._module_state.append("initialized")
 
     def effect_function():
         """Function from module with side-effects."""
@@ -116,7 +116,7 @@ def _cribo_init___cribo_9a9871_with_side_effects():
         """Function registered as a side-effect."""
         return "registered_result"
     _cribo_module.registered_function = registered_function
-    if len(_module_state) > 0:
+    if len(_cribo_module._module_state) > 0:
         print(f"Module state initialized with {len(_module_state)} items")
     return _cribo_module
 """Main module demonstrating various wildcard import patterns."""
