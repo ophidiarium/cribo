@@ -863,44 +863,14 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Also set as module attribute if it should be exported (for non-lifted vars)
                     if let Expr::Name(target) = ann_assign.target.as_ref() {
-                        debug!(
-                            "Checking annotated assignment '{}' in module '{}'",
-                            target.id, ctx.module_name
+                        emit_module_attr_if_exportable(
+                            bundler,
+                            &target.id,
+                            ctx.module_name,
+                            &mut body,
+                            module_scope_symbols,
+                            lifted_names.as_ref(),
                         );
-                        // Check if this is NOT a lifted variable
-                        let is_lifted = lifted_names
-                            .as_ref()
-                            .is_some_and(|names| names.contains_key(target.id.as_str()));
-
-                        if is_lifted {
-                            debug!(
-                                "Annotated assignment '{}' is a lifted variable, skipping module attribute",
-                                target.id
-                            );
-                        } else {
-                            debug!("module_scope_symbols is: {module_scope_symbols:?}");
-                            let should_export = should_include_symbol(
-                                bundler,
-                                &target.id,
-                                ctx.module_name,
-                                module_scope_symbols,
-                            );
-                            debug!(
-                                "Annotated assignment '{}' should_include_symbol returned: {}",
-                                target.id, should_export
-                            );
-                            if should_export {
-                                debug!(
-                                    "Adding module attribute for annotated assignment '{}'",
-                                    target.id
-                                );
-                                body.push(
-                                    crate::code_generator::module_registry::create_module_attr_assignment(
-                                        MODULE_VAR, &target.id,
-                                    ),
-                                );
-                            }
-                        }
                     }
                 } else {
                     // Type annotation without value, just add it
@@ -2263,12 +2233,50 @@ fn add_module_attr_if_exported(
     body: &mut Vec<Stmt>,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
-    if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
-        && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
+    if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
+        emit_module_attr_if_exportable(
+            bundler,
+            &name,
+            module_name,
+            body,
+            module_scope_symbols,
+            None, // No lifted_names check needed for regular assigns
+        );
+    }
+}
+
+/// Helper to emit module attribute if a symbol should be exported
+/// This centralizes the logic for both Assign and `AnnAssign` paths
+fn emit_module_attr_if_exportable(
+    bundler: &Bundler,
+    symbol_name: &str,
+    module_name: &str,
+    body: &mut Vec<Stmt>,
+    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    lifted_names: Option<&FxIndexMap<String, String>>,
+) {
+    // Check if this is a lifted variable (only relevant for AnnAssign)
+    if let Some(names) = lifted_names
+        && names.contains_key(symbol_name)
     {
+        debug!(
+            "Symbol '{symbol_name}' is a lifted variable, skipping module attribute"
+        );
+        return;
+    }
+
+    let should_export =
+        should_include_symbol(bundler, symbol_name, module_name, module_scope_symbols);
+    debug!(
+        "Symbol '{symbol_name}' in module '{module_name}' should_include_symbol returned: {should_export}"
+    );
+
+    if should_export {
+        debug!("Adding module attribute for symbol '{symbol_name}'");
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                MODULE_VAR, &name,
+                MODULE_VAR,
+                symbol_name,
             ),
         );
     }
