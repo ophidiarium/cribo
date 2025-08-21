@@ -68,8 +68,6 @@ pub struct RecursiveImportTransformer<'a> {
     /// This prevents duplicate namespace assignments when multiple imports reference the same
     /// module
     populated_modules: FxIndexSet<String>,
-    /// Cached set of stdlib names in scope to avoid repeated computation
-    stdlib_names_in_scope: FxIndexSet<String>,
     /// Python version for compatibility checks
     python_version: u8,
 }
@@ -99,9 +97,6 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Create a new transformer from parameters
     #[allow(clippy::needless_pass_by_value)] // params contains mutable references
     pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
-        // Compute stdlib names once during initialization
-        let stdlib_names_in_scope = params.bundler.collect_stdlib_names_in_scope();
-
         Self {
             bundler: params.bundler,
             module_name: params.module_name,
@@ -118,7 +113,6 @@ impl<'a> RecursiveImportTransformer<'a> {
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
             populated_modules: FxIndexSet::default(),
-            stdlib_names_in_scope,
             python_version: params.python_version,
         }
     }
@@ -1237,20 +1231,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 }
 
                                 // If local_name is different from namespace_var, create an alias
-                                // But skip if it would conflict with a stdlib name in scope
                                 if local_name != namespace_var {
-                                    // Check if this would conflict with a stdlib name in scope
-                                    if self.stdlib_names_in_scope.contains(local_name) {
-                                        log::debug!(
-                                            "  Skipping alias '{local_name} = {namespace_var}' - \
-                                             would conflict with stdlib name '{local_name}'"
-                                        );
-                                    } else {
-                                        self.deferred_imports.push(statements::simple_assign(
-                                            local_name,
-                                            expressions::name(&namespace_var, ExprContext::Load),
-                                        ));
-                                    }
+                                    self.deferred_imports.push(statements::simple_assign(
+                                        local_name,
+                                        expressions::name(&namespace_var, ExprContext::Load),
+                                    ));
                                 }
                                 self.created_namespace_objects = true;
 
@@ -1867,7 +1852,6 @@ impl<'a> RecursiveImportTransformer<'a> {
             module_path: self.module_path,
             symbol_renames: self.symbol_renames,
             inside_wrapper_init: self.is_wrapper_init,
-            stdlib_names: &self.stdlib_names_in_scope,
             python_version: self.python_version,
         })
     }
@@ -2995,7 +2979,6 @@ struct RewriteImportFromParams<'a> {
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
     inside_wrapper_init: bool,
-    stdlib_names: &'a FxIndexSet<String>,
     python_version: u8,
 }
 
@@ -3008,7 +2991,6 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         module_path,
         symbol_renames,
         inside_wrapper_init,
-        stdlib_names,
         python_version,
     } = params;
     // Resolve relative imports to absolute module names
@@ -3189,7 +3171,6 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &bundler.module_registry,
                 &bundler.inlined_modules,
                 &bundler.bundled_modules,
-                stdlib_names,
                 python_version,
             );
 

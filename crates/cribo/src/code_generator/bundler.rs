@@ -176,13 +176,6 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Collect all names introduced by stdlib imports in the current scope
-    /// With the proxy approach, we don't need to track stdlib names anymore
-    /// This method returns an empty set for compatibility
-    pub(crate) fn collect_stdlib_names_in_scope(&self) -> FxIndexSet<String> {
-        FxIndexSet::default()
-    }
-
     /// Create a new bundler instance
     pub fn new(
         module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
