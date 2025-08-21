@@ -534,15 +534,16 @@ pub fn transform_module_to_init_function<'a>(
     // Declare lifted globals FIRST if any - they need to be declared before any usage
     // But we'll initialize them later after the original variables are defined
     if let Some(ref lifted_names) = lifted_names
-        && !lifted_names.is_empty() {
-            // Declare all lifted globals once (sorted) for deterministic output
-            let mut lifted: Vec<&str> = lifted_names
-                .values()
-                .map(std::string::String::as_str)
-                .collect();
-            lifted.sort_unstable();
-            body.push(ast_builder::statements::global(lifted));
-        }
+        && !lifted_names.is_empty()
+    {
+        // Declare all lifted globals once (sorted) for deterministic output
+        let mut lifted: Vec<&str> = lifted_names
+            .values()
+            .map(std::string::String::as_str)
+            .collect();
+        lifted.sort_unstable();
+        body.push(ast_builder::statements::global(lifted));
+    }
 
     // Track which lifted globals we've already initialized to avoid duplicates
     let mut initialized_lifted_globals = rustc_hash::FxHashSet::default();
@@ -695,43 +696,39 @@ pub fn transform_module_to_init_function<'a>(
                     // exported
                     body.push(Stmt::Assign(assign_clone.clone()));
 
-                    // If this variable is being lifted to a global, initialize the global now
+                    // If this variable is being lifted to a global, update the global
                     let mut lifted_var_handled = false;
                     if let Some(ref lifted_names) = lifted_names
                         && let Some(name) =
                             expression_handlers::extract_simple_assign_target(&assign_clone)
                         && let Some(lifted_name) = lifted_names.get(&name)
                     {
-                        // Only initialize if we haven't already done so
-                        if initialized_lifted_globals.contains(&name) {
-                            // Already initialized, just mark as handled
-                            lifted_var_handled = true;
-                            debug!(
-                                "Skipping duplicate initialization of lifted global '{lifted_name}'"
-                            );
-                        } else {
-                            // Initialize the lifted global with the value we just assigned
-                            // __cribo_module_var = original_var
-                            body.push(ast_builder::statements::assign(
-                                vec![ast_builder::expressions::name(
-                                    lifted_name,
-                                    ExprContext::Store,
-                                )],
-                                ast_builder::expressions::name(&name, ExprContext::Load),
-                            ));
+                        // Always propagate to the lifted binding to keep it in sync
+                        body.push(ast_builder::statements::assign(
+                            vec![ast_builder::expressions::name(
+                                lifted_name,
+                                ExprContext::Store,
+                            )],
+                            ast_builder::expressions::name(&name, ExprContext::Load),
+                        ));
 
-                            // For lifted globals, ALWAYS set the module attribute
-                            // because functions in the module need to access it
-                            body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                        // Keep the module attribute consistent with the current value
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment_with_value(
                                 MODULE_VAR,
                                 &name,
                                 lifted_name,
-                            ));
+                            ),
+                        );
 
-                            initialized_lifted_globals.insert(name.clone());
-                            lifted_var_handled = true;
+                        if initialized_lifted_globals.insert(name.clone()) {
                             debug!("Initialized lifted global '{lifted_name}' from '{name}'");
+                        } else {
+                            debug!(
+                                "Refreshed lifted global '{lifted_name}' after reassignment of '{name}'"
+                            );
                         }
+                        lifted_var_handled = true;
                     }
 
                     // Skip further module attribute handling if this was a lifted variable
@@ -830,34 +827,28 @@ pub fn transform_module_to_init_function<'a>(
 
                     body.push(Stmt::AnnAssign(ann_assign_clone.clone()));
 
-                    // If this variable is being lifted to a global, initialize the global now
+                    // If this variable is being lifted to a global, handle it
                     if let Some(ref lifted_names) = lifted_names
                         && let Expr::Name(target) = ann_assign_clone.target.as_ref()
                         && let Some(lifted_name) = lifted_names.get(target.id.as_str())
                     {
-                        // Only initialize if we haven't already done so
-                        if initialized_lifted_globals.contains(target.id.as_str()) {
-                            debug!(
-                                "Skipping duplicate initialization of lifted global '{lifted_name}' from annotated assignment"
-                            );
-                        } else {
-                            // Initialize the lifted global with the value we just assigned
-                            // __cribo_module_var = original_var
-                            body.push(ast_builder::statements::assign(
-                                vec![ast_builder::expressions::name(
-                                    lifted_name,
-                                    ExprContext::Store,
-                                )],
-                                ast_builder::expressions::name(&target.id, ExprContext::Load),
-                            ));
-
-                            // For lifted globals, ALWAYS set the module attribute
-                            // because functions in the module need to access it
-                            body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                                MODULE_VAR,
-                                target.id.as_str(),
+                        // Always propagate to the lifted binding to keep it in sync
+                        body.push(ast_builder::statements::assign(
+                            vec![ast_builder::expressions::name(
                                 lifted_name,
-                            ));
+                                ExprContext::Store,
+                            )],
+                            ast_builder::expressions::name(&target.id, ExprContext::Load),
+                        ));
+
+                        // Keep the module attribute consistent with the current value
+                        body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                            MODULE_VAR,
+                            target.id.as_str(),
+                            lifted_name,
+                        ));
+
+                        if !initialized_lifted_globals.contains(target.id.as_str()) {
                             initialized_lifted_globals.insert(target.id.to_string());
                             debug!(
                                 "Initialized lifted global '{lifted_name}' from annotated assignment '{}'",
