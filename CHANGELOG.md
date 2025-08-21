@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.18](https://github.com/ophidiarium/cribo/compare/v0.5.17...v0.5.18) (2025-08-21)
+
+
+### Bug Fixes
+
+* add module namespace assignments for wildcard imports in wrapper inits ([#318](https://github.com/ophidiarium/cribo/issues/318)) ([e94f158](https://github.com/ophidiarium/cribo/commit/e94f158d9e2f57c4910de73f1dc7a5eb182f9c2d))
+* handle circular dependencies with __version__ module imports ([#314](https://github.com/ophidiarium/cribo/issues/314)) ([e2fbfe9](https://github.com/ophidiarium/cribo/commit/e2fbfe99a7b583fb7c5e9d591b1bd2073012e9d7))
+* include explicitly imported private symbols in circular dependencies ([#312](https://github.com/ophidiarium/cribo/issues/312)) ([8c18c8a](https://github.com/ophidiarium/cribo/commit/8c18c8a5de6599e0bda04d00e3a53c3d4192b9c1))
+* preserve symbols accessed dynamically via locals/globals with __all__ ([#317](https://github.com/ophidiarium/cribo/issues/317)) ([715eb1d](https://github.com/ophidiarium/cribo/commit/715eb1d3731d3b5b983996a46b38d4db9509ec73))
+
 ## [0.5.17](https://github.com/ophidiarium/cribo/compare/v0.5.16...v0.5.17) (2025-08-17)
 
 
