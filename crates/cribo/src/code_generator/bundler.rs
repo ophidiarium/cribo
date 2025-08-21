@@ -5482,9 +5482,17 @@ impl<'a> Bundler<'a> {
         global_declarations: &rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>,
         lifted_names: Option<&FxIndexMap<String, String>>,
     ) {
-        // First, collect all global declarations in this function
-        // These variables should NOT be transformed to module attributes
+        // First, collect all names in this function scope that must NOT be rewritten
+        // (globals declared here or nonlocals captured from an outer function)
         let mut global_vars = rustc_hash::FxHashSet::default();
+
+        // Build a reverse map for lifted names to avoid O(n) scans per name
+        let lifted_to_original: Option<FxIndexMap<String, String>> = lifted_names.map(|m| {
+            m.iter()
+                .map(|(orig, lift)| (lift.clone(), orig.clone()))
+                .collect()
+        });
+
         for stmt in &func_def.body {
             if let Stmt::Global(global_stmt) = stmt {
                 for name in &global_stmt.names {
@@ -5499,19 +5507,19 @@ impl<'a> Bundler<'a> {
                         global_vars.insert(var_name.clone());
                     }
 
-                    // Also check if this is a lifted name by looking in the lifted_names map
-                    if let Some(lifted_map) = lifted_names {
-                        // Check if var_name is a lifted name (appears as a value in the map)
-                        for (original_name, lifted_name) in lifted_map {
-                            if lifted_name == &var_name {
-                                // This is a lifted global - both the original and lifted names
-                                // should be excluded from transformation
-                                global_vars.insert(original_name.clone());
-                                global_vars.insert(lifted_name.clone());
-                                break;
-                            }
-                        }
+                    // Also check if this is a lifted name via reverse lookup
+                    if let Some(rev) = &lifted_to_original
+                        && let Some(original_name) = rev.get(var_name.as_str())
+                    {
+                        // Exclude both original and lifted names from transformation
+                        global_vars.insert(original_name.clone());
+                        global_vars.insert(var_name.clone());
                     }
+                }
+            } else if let Stmt::Nonlocal(nonlocal_stmt) = stmt {
+                // Nonlocals are not module-level; exclude them from module attribute rewrites
+                for name in &nonlocal_stmt.names {
+                    global_vars.insert(name.to_string());
                 }
             }
         }
