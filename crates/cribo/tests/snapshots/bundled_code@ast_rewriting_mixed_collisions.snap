@@ -383,6 +383,7 @@ _cribo_services_auth_manager_result = None
 def _cribo_init___cribo_ee1d45_services_auth_manager():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'services.auth.manager'
+    global _cribo_services_auth_manager_result
     """\nAuthentication manager with complex naming conflicts\n"""
     Optional = _cribo.typing.Optional
     _cribo_module.Optional = Optional
@@ -394,7 +395,8 @@ def _cribo_init___cribo_ee1d45_services_auth_manager():
     DBConnection = Connection_6
     base = models_base
     result = "auth_result"
-    _cribo_module.result = result
+    _cribo_services_auth_manager_result = result
+    _cribo_module.result = _cribo_services_auth_manager_result
     validate = lambda x: f"auth_lambda_validate: {x}"
     _cribo_module.validate = validate
 
@@ -514,8 +516,6 @@ def _cribo_init___cribo_ee1d45_services_auth_manager():
             return {"manager_results": result}
     AuthManager.__module__ = 'services.auth.manager'
     _cribo_module.AuthManager = AuthManager
-    global _cribo_services_auth_manager_result
-    _cribo_services_auth_manager_result = result
     _cribo_module.Optional = _cribo.typing.Optional
     _cribo_module.Dict = _cribo.typing.Dict
     _cribo_module.Any = _cribo.typing.Any

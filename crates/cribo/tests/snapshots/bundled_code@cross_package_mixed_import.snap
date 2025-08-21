@@ -90,11 +90,15 @@ _cribo_models__base_model = None
 def _cribo_init___cribo_f00e4b_core():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'core'
+    global _cribo_core__initialized
+    global _cribo_core__config
     """Core package with initialization logic and cross-package imports."""
     _initialized = False
-    _cribo_module._initialized = _initialized
+    _cribo_core__initialized = _initialized
+    _cribo_module._initialized = _cribo_core__initialized
     _config = {"debug": False}
-    _cribo_module._config = _config
+    _cribo_core__config = _config
+    _cribo_module._config = _cribo_core__config
     _cribo_module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     _cribo_module.validate = validate
     _cribo_module.get_config = get_config
@@ -116,10 +120,6 @@ def _cribo_init___cribo_f00e4b_core():
         """Check if core is initialized."""
         return _cribo_module._initialized
     _cribo_module.is_initialized = is_initialized
-    global _cribo_core__initialized
-    _cribo_core__initialized = _initialized
-    global _cribo_core__config
-    _cribo_core__config = _config
     _cribo_module.version = core_version
     _cribo_module.utils = core_utils
     return _cribo_module
@@ -127,6 +127,7 @@ def _cribo_init___cribo_f00e4b_core():
 def _cribo_init___cribo_563ea2_models():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'models'
+    global _cribo_models__base_model
     """Models package with conditional imports and circular dependency handling."""
     sys = _cribo.sys
     _cribo_module.sys = sys
@@ -145,7 +146,8 @@ def _cribo_init___cribo_563ea2_models():
         ModelID = str
         _cribo_module.ModelID = ModelID
     _base_model = None
-    _cribo_module._base_model = _base_model
+    _cribo_models__base_model = _base_model
+    _cribo_module._base_model = _cribo_models__base_model
 
     def get_base_model():
         """Lazy import of BaseModel to avoid circular imports."""
@@ -172,8 +174,6 @@ def _cribo_init___cribo_563ea2_models():
     __all__ = ["get_model_version", "process_user", "get_base_model", "ModelID", "DEFAULT_MODEL_CONFIG", "HAS_ADVANCED"]
     if HAS_ADVANCED:
         __all__.append("AdvancedModel")
-    global _cribo_models__base_model
-    _cribo_models__base_model = _base_model
     _cribo_module.user = models_user
     _cribo_module.base = models_base
     return _cribo_module
