@@ -2762,7 +2762,6 @@ impl<'a> Bundler<'a> {
                         &ctx,
                         ast.clone(),
                         &empty_renames,
-                        python_version,
                     );
                     final_body.push(init_function);
 
