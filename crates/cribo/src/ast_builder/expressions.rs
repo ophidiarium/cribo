@@ -157,6 +157,33 @@ pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
     result
 }
 
+/// Creates a module reference expression, handling both simple and dotted names.
+///
+/// This is a convenience function that automatically chooses between creating
+/// a simple name expression or a dotted name expression based on whether the
+/// module name contains dots.
+///
+/// # Arguments
+/// * `module_name` - The module name (e.g., "math" or "os.path")
+/// * `ctx` - The expression context
+///
+/// # Example
+/// ```rust
+/// // Creates: `math` (simple name)
+/// let expr = module_reference("math", ExprContext::Load);
+///
+/// // Creates: `os.path` (dotted name)
+/// let expr = module_reference("os.path", ExprContext::Load);
+/// ```
+pub fn module_reference(module_name: &str, ctx: ExprContext) -> Expr {
+    if module_name.contains('.') {
+        let parts: Vec<&str> = module_name.split('.').collect();
+        dotted_name(&parts, ctx)
+    } else {
+        name(module_name, ctx)
+    }
+}
+
 /// Creates a list expression node.
 ///
 /// # Arguments

@@ -434,3 +434,16 @@ pub fn register_module(
 
     (synthetic_name, init_func_name)
 }
+
+/// Check if a module is a wrapper submodule (not inlined)
+///
+/// A module is considered a wrapper submodule if:
+/// - It exists in the module registry (meaning it has an init function)
+/// - It is NOT in the inlined modules set
+pub fn is_wrapper_submodule(
+    module_path: &str,
+    module_registry: &FxIndexMap<String, String>,
+    inlined_modules: &FxIndexSet<String>,
+) -> bool {
+    module_registry.contains_key(module_path) && !inlined_modules.contains(module_path)
+}

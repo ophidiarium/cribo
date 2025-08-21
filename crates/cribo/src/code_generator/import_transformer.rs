@@ -343,15 +343,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                             self.transform_expr(&mut decorator.expression);
                         }
 
-                        // Transform parameter annotations
+                        // Transform parameter annotations and default values
                         for param in &mut func_def.parameters.posonlyargs {
                             if let Some(annotation) = &mut param.parameter.annotation {
                                 self.transform_expr(annotation);
+                            }
+                            if let Some(default) = &mut param.default {
+                                self.transform_expr(default);
                             }
                         }
                         for param in &mut func_def.parameters.args {
                             if let Some(annotation) = &mut param.parameter.annotation {
                                 self.transform_expr(annotation);
+                            }
+                            if let Some(default) = &mut param.default {
+                                self.transform_expr(default);
                             }
                         }
                         if let Some(vararg) = &mut func_def.parameters.vararg
@@ -362,6 +368,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                         for param in &mut func_def.parameters.kwonlyargs {
                             if let Some(annotation) = &mut param.parameter.annotation {
                                 self.transform_expr(annotation);
+                            }
+                            if let Some(default) = &mut param.default {
+                                self.transform_expr(default);
                             }
                         }
                         if let Some(kwarg) = &mut func_def.parameters.kwarg
@@ -1206,7 +1215,42 @@ impl<'a> RecursiveImportTransformer<'a> {
                 );
 
                 // Check if this is importing a submodule (like from . import config)
-                if self.bundler.inlined_modules.contains(&full_module_path) {
+                // First check if it's a wrapper submodule, then check if it's inlined
+                if crate::code_generator::module_registry::is_wrapper_submodule(
+                    &full_module_path,
+                    &self.bundler.module_registry,
+                    &self.bundler.inlined_modules,
+                ) {
+                    // This is a wrapper submodule
+                    log::debug!("  '{full_module_path}' is a wrapper submodule");
+
+                    // For wrapper modules importing wrapper submodules from the same package
+                    if self.is_wrapper_init {
+                        // Initialize the wrapper submodule if needed
+                        result_stmts.extend(
+                            self.bundler
+                                .create_module_initialization_for_import(&full_module_path),
+                        );
+
+                        // Create assignment: local_name = parent.submodule
+                        let module_expr =
+                            expressions::module_reference(&full_module_path, ExprContext::Load);
+
+                        result_stmts.push(statements::simple_assign(local_name, module_expr));
+
+                        // Track as local to avoid any accidental rewrites later in this transform pass
+                        self.local_variables.insert(local_name.to_string());
+
+                        log::debug!(
+                            "  Created assignment for wrapper submodule: {local_name} = {full_module_path}"
+                        );
+
+                        // Note: The module attribute assignment (_cribo_module.<local_name> = ...)
+                        // is handled later in create_assignments_for_inlined_imports to avoid duplication
+
+                        handled_any = true;
+                    }
+                } else if self.bundler.inlined_modules.contains(&full_module_path) {
                     log::debug!("  '{full_module_path}' is an inlined module");
 
                     // Check if this module was namespace imported
