@@ -5473,12 +5473,84 @@ impl<'a> Bundler<'a> {
         result
     }
 
+    /// Transform nested functions to use module attributes for module-level variables,
+    /// including lifted variables (they access through module attrs unless they declare global)
+    pub fn transform_nested_function_for_module_vars_with_global_info(
+        &self,
+        func_def: &mut StmtFunctionDef,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
+        global_declarations: &rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>,
+        lifted_names: Option<&FxIndexMap<String, String>>,
+    ) {
+        // First, collect all names in this function scope that must NOT be rewritten
+        // (globals declared here or nonlocals captured from an outer function)
+        let mut global_vars = rustc_hash::FxHashSet::default();
+
+        // Build a reverse map for lifted names to avoid O(n) scans per name
+        let lifted_to_original: Option<FxIndexMap<String, String>> = lifted_names.map(|m| {
+            m.iter()
+                .map(|(orig, lift)| (lift.clone(), orig.clone()))
+                .collect()
+        });
+
+        for stmt in &func_def.body {
+            if let Stmt::Global(global_stmt) = stmt {
+                for name in &global_stmt.names {
+                    let var_name = name.to_string();
+
+                    // The global statement might have already been rewritten to use lifted names
+                    // (e.g., "_cribo_httpx__transports_default_HTTPCORE_EXC_MAP")
+                    // We need to check both the lifted name AND the original name
+
+                    // First check if this is directly a global declaration
+                    if global_declarations.contains_key(&var_name) {
+                        global_vars.insert(var_name.clone());
+                    }
+
+                    // Also check if this is a lifted name via reverse lookup
+                    if let Some(rev) = &lifted_to_original
+                        && let Some(original_name) = rev.get(var_name.as_str())
+                    {
+                        // Exclude both original and lifted names from transformation
+                        global_vars.insert(original_name.clone());
+                        global_vars.insert(var_name.clone());
+                    }
+                }
+            } else if let Stmt::Nonlocal(nonlocal_stmt) = stmt {
+                // Nonlocals are not module-level; exclude them from module attribute rewrites
+                for name in &nonlocal_stmt.names {
+                    global_vars.insert(name.to_string());
+                }
+            }
+        }
+
+        // Now transform the function, but skip variables that are declared as global
+        // Create a modified set of module_level_vars that excludes the global vars
+        let mut filtered_module_vars = module_level_vars.clone();
+        for global_var in &global_vars {
+            filtered_module_vars.remove(global_var);
+        }
+
+        // Transform using the filtered set
+        self.transform_nested_function_for_module_vars(func_def, &filtered_module_vars);
+    }
+
     /// Transform nested functions to use module attributes for module-level variables
     pub fn transform_nested_function_for_module_vars(
         &self,
         func_def: &mut StmtFunctionDef,
         module_level_vars: &rustc_hash::FxHashSet<String>,
     ) {
+        // First, collect all global declarations in this function
+        let mut global_vars = rustc_hash::FxHashSet::default();
+        for stmt in &func_def.body {
+            if let Stmt::Global(global_stmt) = stmt {
+                for name in &global_stmt.names {
+                    global_vars.insert(name.to_string());
+                }
+            }
+        }
+
         // Collect local variables defined in this function
         let mut local_vars = rustc_hash::FxHashSet::default();
 
@@ -5500,7 +5572,8 @@ impl<'a> Bundler<'a> {
         }
 
         // Collect all local variables assigned in the function body
-        collect_local_vars(&func_def.body, &mut local_vars);
+        // Pass global_vars to exclude them from local_vars
+        collect_local_vars_with_globals(&func_def.body, &mut local_vars, &global_vars);
 
         // Transform the function body, excluding local variables
         for stmt in &mut func_def.body {
@@ -5969,6 +6042,63 @@ impl<'a> Bundler<'a> {
                     global_info,
                     current_function_globals,
                 );
+            }
+            Stmt::Try(try_stmt) => {
+                // Transform try block body
+                for stmt in &mut try_stmt.body {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+
+                // Transform exception handlers
+                for handler in &mut try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(eh) = handler;
+
+                    // Transform the exception type expression if present
+                    if let Some(ref mut type_expr) = eh.type_ {
+                        expression_handlers::transform_expr_for_lifted_globals(
+                            self,
+                            type_expr,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
+                    }
+
+                    // Transform the handler body
+                    for stmt in &mut eh.body {
+                        self.transform_stmt_for_lifted_globals(
+                            stmt,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
+                    }
+                }
+
+                // Transform orelse block
+                for stmt in &mut try_stmt.orelse {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+
+                // Transform finally block
+                for stmt in &mut try_stmt.finalbody {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
             }
             _ => {
                 // Other statement types handled as needed
@@ -6714,43 +6844,60 @@ impl<'a> Bundler<'a> {
     }
 }
 
-/// Collect local variables from statements
-fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
+/// Collect local variables from statements, excluding those declared as global
+fn collect_local_vars_with_globals(
+    stmts: &[Stmt],
+    local_vars: &mut rustc_hash::FxHashSet<String>,
+    global_vars: &rustc_hash::FxHashSet<String>,
+) {
     for stmt in stmts {
         match stmt {
             Stmt::Assign(assign) => {
-                // Collect assignment targets as local variables
+                // Collect assignment targets as local variables, but skip if declared global
                 for target in &assign.targets {
                     if let Expr::Name(name) = target {
-                        local_vars.insert(name.id.to_string());
+                        let var_name = name.id.to_string();
+                        // Only add to local_vars if NOT declared as global
+                        if !global_vars.contains(&var_name) {
+                            local_vars.insert(var_name);
+                        }
                     }
                 }
             }
             Stmt::AnnAssign(ann_assign) => {
-                // Collect annotated assignment targets
+                // Collect annotated assignment targets, but skip if declared global
                 if let Expr::Name(name) = ann_assign.target.as_ref() {
-                    local_vars.insert(name.id.to_string());
+                    let var_name = name.id.to_string();
+                    // Only add to local_vars if NOT declared as global
+                    if !global_vars.contains(&var_name) {
+                        local_vars.insert(var_name);
+                    }
                 }
             }
             Stmt::For(for_stmt) => {
                 // Collect for loop targets
                 if let Expr::Name(name) = for_stmt.target.as_ref() {
-                    local_vars.insert(name.id.to_string());
+                    let var_name = name.id.to_string();
+                    // For loop variables are always local even if a global with same name exists
+                    // (unless explicitly declared global in this scope, which would be a SyntaxError)
+                    if !global_vars.contains(&var_name) {
+                        local_vars.insert(var_name);
+                    }
                 }
                 // Recursively collect from body
-                collect_local_vars(&for_stmt.body, local_vars);
-                collect_local_vars(&for_stmt.orelse, local_vars);
+                collect_local_vars_with_globals(&for_stmt.body, local_vars, global_vars);
+                collect_local_vars_with_globals(&for_stmt.orelse, local_vars, global_vars);
             }
             Stmt::If(if_stmt) => {
                 // Recursively collect from branches
-                collect_local_vars(&if_stmt.body, local_vars);
+                collect_local_vars_with_globals(&if_stmt.body, local_vars, global_vars);
                 for clause in &if_stmt.elif_else_clauses {
-                    collect_local_vars(&clause.body, local_vars);
+                    collect_local_vars_with_globals(&clause.body, local_vars, global_vars);
                 }
             }
             Stmt::While(while_stmt) => {
-                collect_local_vars(&while_stmt.body, local_vars);
-                collect_local_vars(&while_stmt.orelse, local_vars);
+                collect_local_vars_with_globals(&while_stmt.body, local_vars, global_vars);
+                collect_local_vars_with_globals(&while_stmt.orelse, local_vars, global_vars);
             }
             Stmt::With(with_stmt) => {
                 // Collect with statement targets
@@ -6758,31 +6905,45 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
                     if let Some(ref optional_vars) = item.optional_vars
                         && let Expr::Name(name) = optional_vars.as_ref()
                     {
-                        local_vars.insert(name.id.to_string());
+                        let var_name = name.id.to_string();
+                        if !global_vars.contains(&var_name) {
+                            local_vars.insert(var_name);
+                        }
                     }
                 }
-                collect_local_vars(&with_stmt.body, local_vars);
+                collect_local_vars_with_globals(&with_stmt.body, local_vars, global_vars);
             }
             Stmt::Try(try_stmt) => {
-                collect_local_vars(&try_stmt.body, local_vars);
+                collect_local_vars_with_globals(&try_stmt.body, local_vars, global_vars);
                 for handler in &try_stmt.handlers {
                     let ExceptHandler::ExceptHandler(eh) = handler;
                     // Collect exception name if present
                     if let Some(ref name) = eh.name {
+                        // Exception names are always local in their handler scope
                         local_vars.insert(name.to_string());
                     }
-                    collect_local_vars(&eh.body, local_vars);
+                    collect_local_vars_with_globals(&eh.body, local_vars, global_vars);
                 }
-                collect_local_vars(&try_stmt.orelse, local_vars);
-                collect_local_vars(&try_stmt.finalbody, local_vars);
+                collect_local_vars_with_globals(&try_stmt.orelse, local_vars, global_vars);
+                collect_local_vars_with_globals(&try_stmt.finalbody, local_vars, global_vars);
             }
             Stmt::FunctionDef(func_def) => {
-                // Function definitions create local names
-                local_vars.insert(func_def.name.to_string());
+                // Function definitions create local names (unless declared global, which would be unusual)
+                let func_name = func_def.name.to_string();
+                if !global_vars.contains(&func_name) {
+                    local_vars.insert(func_name);
+                }
             }
             Stmt::ClassDef(class_def) => {
-                // Class definitions create local names
-                local_vars.insert(class_def.name.to_string());
+                // Class definitions create local names (unless declared global, which would be unusual)
+                let class_name = class_def.name.to_string();
+                if !global_vars.contains(&class_name) {
+                    local_vars.insert(class_name);
+                }
+            }
+            Stmt::Global(_) => {
+                // Global statements themselves don't create local variables
+                // We've already collected these in the parent function
             }
             _ => {}
         }

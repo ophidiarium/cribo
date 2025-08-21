@@ -7,6 +7,7 @@ This script:
 3. Verifies async HTTP functionality works correctly
 """
 
+import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -19,6 +20,10 @@ from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_te
 # Type hint for better IDE support
 if TYPE_CHECKING:
     import httpx as HttpxType
+
+
+# Default timeout for HTTP requests - longer in CI environments
+DEFAULT_TIMEOUT = 40 if os.environ.get("CI") else 30
 
 
 @pytest.fixture(scope="module")
@@ -109,89 +114,82 @@ def test_bundled_module_loading(bundled_httpx):
         assert hasattr(httpx, "AsyncClient")
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_get_request(bundled_httpx):
     """Test basic GET request with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
-        # httpx uses synchronous requests
-        resp = httpx.get("https://httpbin.org/get")
+        # httpx uses synchronous requests with increased timeout
+        resp = httpx.get("https://httpbingo.org/get", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert "headers" in data
         assert "origin" in data
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_post_request(bundled_httpx):
     """Test POST request with JSON data using bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         test_data = {"key": "value", "number": 42}
-        resp = httpx.post("https://httpbin.org/post", json=test_data)
+        resp = httpx.post("https://httpbingo.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_data = resp.json()
         assert response_data["json"] == test_data
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_custom_headers(bundled_httpx):
     """Test custom headers with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         headers = {"User-Agent": "cribo-test/1.0", "X-Test-Header": "test-value"}
-        resp = httpx.get("https://httpbin.org/headers", headers=headers)
+        resp = httpx.get("https://httpbingo.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_headers = resp.json()["headers"]
-        assert response_headers.get("User-Agent") == "cribo-test/1.0"
-        assert response_headers.get("X-Test-Header") == "test-value"
+        assert response_headers.get("User-Agent") == ["cribo-test/1.0"]
+        assert response_headers.get("X-Test-Header") == ["test-value"]
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_query_params(bundled_httpx):
     """Test query parameters with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         params = {"foo": "bar", "baz": "123"}
-        resp = httpx.get("https://httpbin.org/get", params=params)
+        resp = httpx.get("https://httpbingo.org/get", params=params, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         args = resp.json()["args"]
-        assert args == params
+        assert args["foo"] == [params["foo"]]
+        assert args["baz"] == [params["baz"]]
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_client_usage(bundled_httpx):
     """Test Client context manager with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
-        # Test using Client context manager
-        with httpx.Client() as client:
-            resp = client.get("https://httpbin.org/get")
+        # Test using Client context manager with increased timeout
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            resp = client.get("https://httpbingo.org/get")
             assert resp.status_code == 200
 
             # Test persistent headers with client
             client.headers.update({"X-Client-Header": "test"})
-            resp = client.get("https://httpbin.org/headers")
+            resp = client.get("https://httpbingo.org/headers")
             headers = resp.json()["headers"]
-            assert headers.get("X-Client-Header") == "test"
+            assert headers.get("X-Client-Header") == ["test"]
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_timeout(bundled_httpx):
     """Test timeout handling with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         # httpx uses different timeout API than requests
         with pytest.raises(httpx.TimeoutException):
-            httpx.get("https://httpbin.org/delay/10", timeout=1)
+            httpx.get("https://httpbingo.org/delay/10", timeout=2)
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_status_codes(bundled_httpx):
     """Test various status codes with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
-        resp = httpx.get("https://httpbin.org/status/404")
+        resp = httpx.get("https://httpbingo.org/status/404", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 404
 
-        resp = httpx.get("https://httpbin.org/status/500")
+        resp = httpx.get("https://httpbingo.org/status/500", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 500
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_async_client(bundled_httpx):
     """Test AsyncClient functionality with bundled httpx."""
     import asyncio
@@ -199,8 +197,8 @@ def test_bundled_async_client(bundled_httpx):
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
 
         async def async_test():
-            async with httpx.AsyncClient() as client:
-                resp = await client.get("https://httpbin.org/get")
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+                resp = await client.get("https://httpbingo.org/get")
                 assert resp.status_code == 200
                 data = resp.json()
                 assert "headers" in data
@@ -209,13 +207,12 @@ def test_bundled_async_client(bundled_httpx):
         asyncio.run(async_test())
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_http2_support(bundled_httpx):
     """Test HTTP/2 support with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         # httpx supports HTTP/2 when httpcore[http2] is installed
-        # Just verify the option exists
-        client = httpx.Client(http2=True)
+        # Just verify the option exists with increased timeout
+        client = httpx.Client(http2=True, timeout=DEFAULT_TIMEOUT)
         assert client is not None
         client.close()
 

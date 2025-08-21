@@ -531,6 +531,23 @@ pub fn transform_module_to_init_function<'a>(
     );
     debug!("Processed body has {} statements", processed_body.len());
 
+    // Declare lifted globals FIRST if any - they need to be declared before any usage
+    // But we'll initialize them later after the original variables are defined
+    if let Some(ref lifted_names) = lifted_names
+        && !lifted_names.is_empty()
+    {
+        // Declare all lifted globals once (sorted) for deterministic output
+        let mut lifted: Vec<&str> = lifted_names
+            .values()
+            .map(std::string::String::as_str)
+            .collect();
+        lifted.sort_unstable();
+        body.push(ast_builder::statements::global(lifted));
+    }
+
+    // Track which lifted globals we've already initialized to avoid duplicates
+    let mut initialized_lifted_globals = rustc_hash::FxHashSet::default();
+
     // Process each statement from the transformed module body
     for (idx, stmt) in processed_body.into_iter().enumerate() {
         match &stmt {
@@ -604,9 +621,11 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Transform nested functions to use module attributes for module-level vars
                 if let Some(ref global_info) = ctx.global_info {
-                    bundler.transform_nested_function_for_module_vars(
+                    bundler.transform_nested_function_for_module_vars_with_global_info(
                         &mut func_def_clone,
                         &global_info.module_level_vars,
+                        &global_info.global_declarations,
+                        lifted_names.as_ref(),
                     );
                 }
 
@@ -675,14 +694,54 @@ pub fn transform_module_to_init_function<'a>(
 
                     // For simple assignments, also set as module attribute if it should be
                     // exported
-                    body.push(Stmt::Assign(assign_clone));
+                    body.push(Stmt::Assign(assign_clone.clone()));
 
-                    // Check if this assignment came from a transformed import
-                    if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
+                    // If this variable is being lifted to a global, update the global
+                    let mut lifted_var_handled = false;
+                    if let Some(ref lifted_names) = lifted_names
+                        && let Some(name) =
+                            expression_handlers::extract_simple_assign_target(&assign_clone)
+                        && let Some(lifted_name) = lifted_names.get(&name)
+                    {
+                        // Always propagate to the lifted binding to keep it in sync
+                        body.push(ast_builder::statements::assign(
+                            vec![ast_builder::expressions::name(
+                                lifted_name,
+                                ExprContext::Store,
+                            )],
+                            ast_builder::expressions::name(&name, ExprContext::Load),
+                        ));
+
+                        // Keep the module attribute consistent with the current value
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                                MODULE_VAR,
+                                &name,
+                                lifted_name,
+                            ),
+                        );
+
+                        if initialized_lifted_globals.insert(name.clone()) {
+                            debug!("Initialized lifted global '{lifted_name}' from '{name}'");
+                        } else {
+                            debug!(
+                                "Refreshed lifted global '{lifted_name}' after reassignment of '{name}'"
+                            );
+                        }
+                        lifted_var_handled = true;
+                    }
+
+                    // Skip further module attribute handling if this was a lifted variable
+                    if lifted_var_handled {
+                        // Already handled as a lifted variable
+                    } else if let Some(name) =
+                        expression_handlers::extract_simple_assign_target(assign)
+                    {
                         debug!(
                             "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
                             name, ctx.module_name, inlined_import_bindings
                         );
+
                         if inlined_import_bindings.contains(&name) {
                             // This was imported from an inlined module
                             // Module attributes for imports are now handled by import_transformer
@@ -690,35 +749,22 @@ pub fn transform_module_to_init_function<'a>(
                             debug!(
                                 "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
                             );
-                        } else if let Some(name) =
-                            expression_handlers::extract_simple_assign_target(assign)
-                        {
+                        } else if vars_used_by_exported_functions.contains(&name) {
                             // Check if this variable is used by exported functions
-                            if vars_used_by_exported_functions.contains(&name) {
-                                // Use a special case: if no scope info available, include vars used
-                                // by exported functions
-                                let should_include = module_scope_symbols
-                                    .is_none_or(|symbols| symbols.contains(&name));
+                            // Use a special case: if no scope info available, include vars used
+                            // by exported functions
+                            let should_include =
+                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
 
-                                if should_include {
-                                    debug!("Exporting '{name}' as it's used by exported functions");
-                                    body.push(crate::code_generator::module_registry::create_module_attr_assignment(
+                            if should_include {
+                                debug!("Exporting '{name}' as it's used by exported functions");
+                                body.push(crate::code_generator::module_registry::create_module_attr_assignment(
                                     MODULE_VAR,
                                     &name,
                                 ));
-                                }
-                            } else {
-                                // Regular assignment, use the normal export logic
-                                add_module_attr_if_exported(
-                                    bundler,
-                                    assign,
-                                    ctx.module_name,
-                                    &mut body,
-                                    module_scope_symbols,
-                                );
                             }
                         } else {
-                            // Not a simple assignment
+                            // Regular assignment, use the normal export logic
                             add_module_attr_if_exported(
                                 bundler,
                                 assign,
@@ -727,6 +773,15 @@ pub fn transform_module_to_init_function<'a>(
                                 module_scope_symbols,
                             );
                         }
+                    } else {
+                        // Not a simple assignment
+                        add_module_attr_if_exported(
+                            bundler,
+                            assign,
+                            ctx.module_name,
+                            &mut body,
+                            module_scope_symbols,
+                        );
                     }
                 }
             }
@@ -770,22 +825,63 @@ pub fn transform_module_to_init_function<'a>(
                         ctx.python_version,
                     );
 
-                    body.push(Stmt::AnnAssign(ann_assign_clone));
+                    body.push(Stmt::AnnAssign(ann_assign_clone.clone()));
 
-                    // Also set as module attribute if it should be exported
-                    if let Expr::Name(target) = ann_assign.target.as_ref()
-                        && should_include_symbol(
-                            bundler,
-                            &target.id,
-                            ctx.module_name,
-                            module_scope_symbols,
-                        )
+                    // If this variable is being lifted to a global, handle it
+                    if let Some(ref lifted_names) = lifted_names
+                        && let Expr::Name(target) = ann_assign_clone.target.as_ref()
+                        && let Some(lifted_name) = lifted_names.get(target.id.as_str())
                     {
-                        body.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment(
-                                MODULE_VAR, &target.id,
-                            ),
-                        );
+                        // Always propagate to the lifted binding to keep it in sync
+                        body.push(ast_builder::statements::assign(
+                            vec![ast_builder::expressions::name(
+                                lifted_name,
+                                ExprContext::Store,
+                            )],
+                            ast_builder::expressions::name(&target.id, ExprContext::Load),
+                        ));
+
+                        // Keep the module attribute consistent with the current value
+                        body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                            MODULE_VAR,
+                            target.id.as_str(),
+                            lifted_name,
+                        ));
+
+                        if initialized_lifted_globals.insert(target.id.to_string()) {
+                            debug!(
+                                "Initialized lifted global '{lifted_name}' from annotated assignment '{}'",
+                                target.id
+                            );
+                        } else {
+                            debug!(
+                                "Refreshed lifted global '{lifted_name}' after annotated reassignment '{}'",
+                                target.id
+                            );
+                        }
+                    }
+
+                    // Also set as module attribute if it should be exported (for non-lifted vars)
+                    if let Expr::Name(target) = ann_assign.target.as_ref() {
+                        // Check if this is NOT a lifted variable
+                        let is_lifted = lifted_names
+                            .as_ref()
+                            .is_some_and(|names| names.contains_key(target.id.as_str()));
+
+                        if !is_lifted
+                            && should_include_symbol(
+                                bundler,
+                                &target.id,
+                                ctx.module_name,
+                                module_scope_symbols,
+                            )
+                        {
+                            body.push(
+                                crate::code_generator::module_registry::create_module_attr_assignment(
+                                    MODULE_VAR, &target.id,
+                                ),
+                            );
+                        }
                     }
                 } else {
                     // Type annotation without value, just add it
@@ -814,30 +910,16 @@ pub fn transform_module_to_init_function<'a>(
                 } else {
                     rustc_hash::FxHashSet::default()
                 };
-                transform_stmt_for_module_vars(
+                transform_stmt_for_module_vars_with_bundler(
                     &mut stmt_clone,
+                    bundler,
                     &module_level_vars,
+                    ctx.global_info.as_ref().map(|g| &g.global_declarations),
+                    lifted_names.as_ref(),
                     ctx.python_version,
                 );
                 body.push(stmt_clone);
             }
-        }
-    }
-
-    // Initialize lifted globals if any
-    if let Some(ref lifted_names) = lifted_names {
-        for (original_name, lifted_name) in lifted_names {
-            // global __cribo_module_var
-            body.push(ast_builder::statements::global(vec![lifted_name]));
-
-            // __cribo_module_var = original_var
-            body.push(ast_builder::statements::assign(
-                vec![ast_builder::expressions::name(
-                    lifted_name,
-                    ExprContext::Store,
-                )],
-                ast_builder::expressions::name(original_name, ExprContext::Load),
-            ));
         }
     }
 
@@ -1472,6 +1554,39 @@ fn transform_stmt_for_module_vars(
             // These statement types don't contain expressions that need transformation
         }
     }
+}
+
+/// Transform a statement to use module attributes for module-level variables,
+/// with awareness of lifted globals for nested functions
+fn transform_stmt_for_module_vars_with_bundler(
+    stmt: &mut Stmt,
+    bundler: &Bundler,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+    global_declarations: Option<&rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>>,
+    lifted_names: Option<&FxIndexMap<String, String>>,
+    python_version: u8,
+) {
+    if let Stmt::FunctionDef(nested_func) = stmt {
+        // For function definitions, use the global-aware transformation
+        if let Some(globals_map) = global_declarations {
+            bundler.transform_nested_function_for_module_vars_with_global_info(
+                nested_func,
+                module_level_vars,
+                globals_map,
+                lifted_names,
+            );
+        } else {
+            // Fallback to legacy path when no global info is available
+            transform_nested_function_for_module_vars(
+                nested_func,
+                module_level_vars,
+                python_version,
+            );
+        }
+        return;
+    }
+    // Non-function statements: reuse the existing traversal
+    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
 }
 
 /// Transform nested function to use module attributes for module-level variables

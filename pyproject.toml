@@ -47,7 +47,7 @@ fixtures = [
 ]
 # dependencies for ecosystem testing
 ecosystem = [
-    "httpx>=0.28.1",
+    "httpx[http2]>=0.28.1",
     "pyyaml>=6.0.2",
     "requests>=2.32.0",
     "rich>=14.1.0",
