@@ -967,8 +967,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         if let Some(module) = &import_from.module {
             let module_str = module.as_str();
             if import_from.level == 0 && self.should_normalize_stdlib_import(module_str) {
-                // Extract the root module for stdlib imports
-                let _root_module = module_str.split('.').next().unwrap_or(module_str);
+                // Track renaming for imported symbols
 
                 // If we're in a wrapper module, create local assignments
                 if self.is_wrapper_init {
@@ -1012,46 +1011,31 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
 
                     return assignments;
-                } else {
-                    // For non-wrapper modules, create local assignments for from-imported stdlib symbols
-                    let mut assignments = Vec::new();
-
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str();
-                        if imported_name == "*" {
-                            continue; // Skip star imports
-                        }
-
-                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        let full_path = format!("_cribo.{module_str}.{imported_name}");
-
-                        // Track this renaming for expression rewriting
-                        // For importlib.import_module, track it without the _cribo prefix for detection
-                        if module_str == "importlib" && imported_name == "import_module" {
-                            self.import_aliases.insert(
-                                local_name.to_string(),
-                                format!("{module_str}.{imported_name}"),
-                            );
-                        } else {
-                            self.import_aliases
-                                .insert(local_name.to_string(), full_path.clone());
-                        }
-
-                        // Create local assignment: local_name = _cribo.module.symbol
-                        let proxy_parts: Vec<&str> = full_path.split('.').collect();
-                        let value_expr = crate::ast_builder::expressions::dotted_name(
-                            &proxy_parts,
-                            ExprContext::Load,
-                        );
-                        let target =
-                            crate::ast_builder::expressions::name(local_name, ExprContext::Store);
-                        let assign_stmt =
-                            crate::ast_builder::statements::assign(vec![target], value_expr);
-                        assignments.push(assign_stmt);
+                }
+                // For non-wrapper modules, track all imported names for expression rewriting
+                for alias in &import_from.names {
+                    let imported_name = alias.name.as_str();
+                    if imported_name == "*" {
+                        continue; // Skip star imports
                     }
 
-                    return assignments;
+                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                    // For importlib.import_module, track it without the _cribo prefix for detection
+                    if module_str == "importlib" && imported_name == "import_module" {
+                        self.import_aliases.insert(
+                            local_name.to_string(),
+                            format!("{module_str}.{imported_name}"),
+                        );
+                    } else {
+                        let full_path = format!("_cribo.{module_str}.{imported_name}");
+                        self.import_aliases
+                            .insert(local_name.to_string(), full_path);
+                    }
                 }
+
+                // Return empty to remove the import statement
+                return Vec::new();
             }
         }
 
