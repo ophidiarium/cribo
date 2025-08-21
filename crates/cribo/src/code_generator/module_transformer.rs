@@ -2259,9 +2259,7 @@ fn emit_module_attr_if_exportable(
     if let Some(names) = lifted_names
         && names.contains_key(symbol_name)
     {
-        debug!(
-            "Symbol '{symbol_name}' is a lifted variable, skipping module attribute"
-        );
+        debug!("Symbol '{symbol_name}' is a lifted variable, skipping module attribute");
         return;
     }
 
