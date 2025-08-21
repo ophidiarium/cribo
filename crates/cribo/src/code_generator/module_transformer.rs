@@ -91,8 +91,8 @@ pub fn transform_module_to_init_function<'a>(
     let mut imported_symbols = FxIndexSet::default();
 
     // Track stdlib symbols that need to be added to the module namespace
-    // These are symbols imported from stdlib that should be re-exported
-    let mut stdlib_reexports: Vec<(String, String)> = Vec::new();
+    // Use a stable set to dedup and preserve insertion order
+    let mut stdlib_reexports: FxIndexSet<(String, String)> = FxIndexSet::default();
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -165,7 +165,7 @@ pub fn transform_module_to_init_function<'a>(
                                     "Tracking stdlib re-export in wrapper module '{}': {} -> {}",
                                     ctx.module_name, local_name, &proxy_path
                                 );
-                                stdlib_reexports.push((local_name.to_string(), proxy_path));
+                                stdlib_reexports.insert((local_name.to_string(), proxy_path));
                             }
                         }
                     }
