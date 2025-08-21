@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
+use ruff_python_ast::{ModModule, Stmt, StmtImportFrom, visitor::Visitor};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
@@ -679,193 +679,12 @@ impl ImportAnalyzer {
         symbol_name: &str,
         module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
-        Self::module_imports_symbol_recursive(
-            &ast.body,
-            importing_module,
-            target_module,
-            symbol_name,
-            module_exports,
-        )
-    }
-
-    /// Recursively check if statements contain an import of a specific symbol
-    fn module_imports_symbol_recursive(
-        stmts: &[Stmt],
-        importing_module: &str,
-        target_module: &str,
-        symbol_name: &str,
-        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
-    ) -> bool {
-        for stmt in stmts {
-            match stmt {
-                Stmt::ImportFrom(import_from)
-                    if Self::import_matches_module(
-                        import_from,
-                        importing_module,
-                        target_module,
-                    ) =>
-                {
-                    // Check if the symbol is being imported
-                    for alias in &import_from.names {
-                        let alias_name = alias.name.as_str();
-                        if alias_name == symbol_name {
-                            return true;
-                        }
-                        // Handle wildcard imports (from module import *)
-                        if alias_name == "*" {
-                            // If we have module export information, check if the symbol is in __all__
-                            if let Some(exports_map) = module_exports {
-                                if let Some(Some(export_list)) = exports_map.get(target_module) {
-                                    // Module has __all__, check if symbol is in it
-                                    return export_list.iter().any(|s| s == symbol_name);
-                                }
-                                // No __all__ defined, wildcard imports public names only
-                                return !symbol_name.starts_with('_');
-                            }
-                            // No export information available, conservatively treat wildcard
-                            // as importing only public names (non-underscore)
-                            return !symbol_name.starts_with('_');
-                        }
-                    }
-                }
-                Stmt::FunctionDef(f) => {
-                    if Self::module_imports_symbol_recursive(
-                        &f.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                }
-                Stmt::ClassDef(c) => {
-                    if Self::module_imports_symbol_recursive(
-                        &c.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                }
-                Stmt::If(i) => {
-                    if Self::module_imports_symbol_recursive(
-                        &i.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                    for clause in &i.elif_else_clauses {
-                        if Self::module_imports_symbol_recursive(
-                            &clause.body,
-                            importing_module,
-                            target_module,
-                            symbol_name,
-                            module_exports,
-                        ) {
-                            return true;
-                        }
-                    }
-                }
-                Stmt::For(s) => {
-                    if Self::module_imports_symbol_recursive(
-                        &s.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) || Self::module_imports_symbol_recursive(
-                        &s.orelse,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                }
-                Stmt::While(s) => {
-                    if Self::module_imports_symbol_recursive(
-                        &s.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) || Self::module_imports_symbol_recursive(
-                        &s.orelse,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                }
-                Stmt::Try(t) => {
-                    if Self::module_imports_symbol_recursive(
-                        &t.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) || Self::module_imports_symbol_recursive(
-                        &t.orelse,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) || Self::module_imports_symbol_recursive(
-                        &t.finalbody,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                    for handler in &t.handlers {
-                        let ruff_python_ast::ExceptHandler::ExceptHandler(eh) = handler;
-                        if Self::module_imports_symbol_recursive(
-                            &eh.body,
-                            importing_module,
-                            target_module,
-                            symbol_name,
-                            module_exports,
-                        ) {
-                            return true;
-                        }
-                    }
-                }
-                Stmt::With(w) => {
-                    if Self::module_imports_symbol_recursive(
-                        &w.body,
-                        importing_module,
-                        target_module,
-                        symbol_name,
-                        module_exports,
-                    ) {
-                        return true;
-                    }
-                }
-                Stmt::Match(m) => {
-                    for case in &m.cases {
-                        if Self::module_imports_symbol_recursive(
-                            &case.body,
-                            importing_module,
-                            target_module,
-                            symbol_name,
-                            module_exports,
-                        ) {
-                            return true;
-                        }
-                    }
-                }
-                _ => {}
+        let mut visitor =
+            SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
+        for stmt in &ast.body {
+            visitor.visit_stmt(stmt);
+            if visitor.found {
+                return true;
             }
         }
         false
@@ -913,6 +732,94 @@ impl ImportAnalyzer {
             }
         } else {
             false
+        }
+    }
+}
+
+/// Visitor that checks if a specific symbol is imported from a target module
+struct SymbolImportVisitor<'a> {
+    importing_module: &'a str,
+    target_module: &'a str,
+    symbol_name: &'a str,
+    module_exports: Option<&'a FxIndexMap<String, Option<Vec<String>>>>,
+    found: bool,
+}
+
+impl<'a> SymbolImportVisitor<'a> {
+    fn new(
+        importing_module: &'a str,
+        target_module: &'a str,
+        symbol_name: &'a str,
+        module_exports: Option<&'a FxIndexMap<String, Option<Vec<String>>>>,
+    ) -> Self {
+        Self {
+            importing_module,
+            target_module,
+            symbol_name,
+            module_exports,
+            found: false,
+        }
+    }
+
+    fn check_import_from(&mut self, import_from: &StmtImportFrom) {
+        if ImportAnalyzer::import_matches_module(
+            import_from,
+            self.importing_module,
+            self.target_module,
+        ) {
+            // Check if the symbol is being imported
+            for alias in &import_from.names {
+                let alias_name = alias.name.as_str();
+                if alias_name == self.symbol_name {
+                    self.found = true;
+                    return;
+                }
+                // Handle wildcard imports (from module import *)
+                if alias_name == "*" {
+                    // If we have module export information, check if the symbol is in __all__
+                    if let Some(exports_map) = self.module_exports {
+                        if let Some(Some(export_list)) = exports_map.get(self.target_module) {
+                            // Module has __all__, check if symbol is in it
+                            if export_list.iter().any(|s| s == self.symbol_name) {
+                                self.found = true;
+                                return;
+                            }
+                        } else {
+                            // No __all__ defined, wildcard imports public names only
+                            if !self.symbol_name.starts_with('_') {
+                                self.found = true;
+                                return;
+                            }
+                        }
+                    } else {
+                        // No export information available, conservatively treat wildcard
+                        // as importing only public names (non-underscore)
+                        if !self.symbol_name.starts_with('_') {
+                            self.found = true;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<'a> ruff_python_ast::visitor::Visitor<'a> for SymbolImportVisitor<'a> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        // Early exit if we've already found what we're looking for
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::ImportFrom(import_from) => {
+                self.check_import_from(import_from);
+            }
+            _ => {
+                // Continue traversing for other statement types
+                ruff_python_ast::visitor::walk_stmt(self, stmt);
+            }
         }
     }
 }
