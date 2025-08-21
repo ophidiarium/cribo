@@ -490,12 +490,7 @@ impl<'a> Bundler<'a> {
                          copying"
                     );
 
-                    let module_expr = if module_name.contains('.') {
-                        let parts: Vec<&str> = module_name.split('.').collect();
-                        expressions::dotted_name(&parts, ExprContext::Load)
-                    } else {
-                        expressions::name(module_name, ExprContext::Load)
-                    };
+                    let module_expr = expressions::module_reference(module_name, ExprContext::Load);
 
                     // Create: for __cribo_attr in dir(module):
                     //             if not __cribo_attr.startswith('_'):
