@@ -1216,9 +1216,11 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                 // Check if this is importing a submodule (like from . import config)
                 // First check if it's a wrapper submodule, then check if it's inlined
-                if self.bundler.module_registry.contains_key(&full_module_path)
-                    && !self.bundler.inlined_modules.contains(&full_module_path)
-                {
+                if crate::code_generator::module_registry::is_wrapper_submodule(
+                    &full_module_path,
+                    &self.bundler.module_registry,
+                    &self.bundler.inlined_modules,
+                ) {
                     // This is a wrapper submodule
                     log::debug!("  '{full_module_path}' is a wrapper submodule");
 
