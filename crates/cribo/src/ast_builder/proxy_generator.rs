@@ -95,24 +95,24 @@ fn make_params(names: &[&str]) -> Parameters {
 /// - _Cribo class definition
 /// - _cribo instance creation
 pub fn generate_cribo_proxy() -> Vec<Stmt> {
-    let mut statements = Vec::new();
+    let mut stmts = Vec::new();
 
     // import sys as _sys
-    statements.push(statements::import_aliased(SYS_MODULE, SYS_ALIAS));
+    stmts.push(statements::import_aliased(SYS_MODULE, SYS_ALIAS));
 
     // import importlib as _importlib
-    statements.push(statements::import_aliased(
+    stmts.push(statements::import_aliased(
         IMPORTLIB_MODULE,
         IMPORTLIB_ALIAS,
     ));
 
     // Create _CriboModule class
     let cribo_module_class = create_cribo_module_class();
-    statements.push(cribo_module_class);
+    stmts.push(cribo_module_class);
 
     // Create _Cribo class
     let cribo_class = create_cribo_class();
-    statements.push(cribo_class);
+    stmts.push(cribo_class);
 
     // _cribo = _Cribo()
     let cribo_instance = statements::assign(
@@ -123,9 +123,9 @@ pub fn generate_cribo_proxy() -> Vec<Stmt> {
             vec![],
         ),
     );
-    statements.push(cribo_instance);
+    stmts.push(cribo_instance);
 
-    statements
+    stmts
 }
 
 /// Create the _`CriboModule` class AST
