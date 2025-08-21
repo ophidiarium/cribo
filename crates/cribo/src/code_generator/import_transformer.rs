@@ -1238,9 +1238,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         result_stmts.push(statements::simple_assign(local_name, module_expr));
 
+                        // Track as local to avoid any accidental rewrites later in this transform pass
+                        self.local_variables.insert(local_name.to_string());
+
                         log::debug!(
                             "  Created assignment for wrapper submodule: {local_name} = {full_module_path}"
                         );
+
+                        // Note: The module attribute assignment (_cribo_module.<local_name> = ...)
+                        // is handled later in create_assignments_for_inlined_imports to avoid duplication
 
                         handled_any = true;
                     }
