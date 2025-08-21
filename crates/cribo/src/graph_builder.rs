@@ -433,10 +433,23 @@ impl<'a> GraphBuilder<'a> {
                     self.collect_vars_in_expr(&assign.value, &mut read_vars);
                 }
                 Stmt::AnnAssign(ann_assign) => {
-                    // Annotated class-level assignments
+                    // Annotated class-level assignments (immediate deps)
+                    // Read the annotation
+                    self.collect_vars_in_expr_with_attrs(
+                        &ann_assign.annotation,
+                        &mut read_vars,
+                        &mut method_attribute_accesses,
+                    );
+                    // Read the value if present
                     if let Some(value) = &ann_assign.value {
-                        self.collect_vars_in_expr(value, &mut read_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            value,
+                            &mut read_vars,
+                            &mut method_attribute_accesses,
+                        );
                     }
+                    // Reads from attribute/subscript targets (e.g., cfg['x']: T = v)
+                    self.collect_reads_from_assignment_target(&ann_assign.target, &mut read_vars);
                 }
                 _ => {
                     // Other statements in class body (e.g., docstrings)

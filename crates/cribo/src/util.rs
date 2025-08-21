@@ -51,20 +51,6 @@ pub fn is_init_module(module_name: &str) -> bool {
     module_name == "__init__" || module_name.ends_with(".__init__")
 }
 
-/// Extract the package name from an __init__ module name
-/// For "__init__" returns None (bare __init__ without package)
-/// For "pkg.__init__" returns Some("pkg")
-/// For regular modules returns None
-pub fn extract_package_from_init(module_name: &str) -> Option<&str> {
-    if module_name == "__init__" {
-        None
-    } else if let Some(package) = module_name.strip_suffix(".__init__") {
-        Some(package)
-    } else {
-        None
-    }
-}
-
 /// Check if a string is an __init__ or __main__ file name (used for path processing)
 pub fn is_special_module_file(name: &str) -> bool {
     name == "__init__" || name == "__main__"
@@ -82,18 +68,6 @@ mod tests {
         assert!(!is_init_module("__init__.py"));
         assert!(!is_init_module("module"));
         assert!(!is_init_module("pkg.module"));
-    }
-
-    #[test]
-    fn test_extract_package_from_init() {
-        assert_eq!(extract_package_from_init("__init__"), None);
-        assert_eq!(extract_package_from_init("pkg.__init__"), Some("pkg"));
-        assert_eq!(
-            extract_package_from_init("my.package.__init__"),
-            Some("my.package")
-        );
-        assert_eq!(extract_package_from_init("module"), None);
-        assert_eq!(extract_package_from_init("pkg.module"), None);
     }
 
     #[test]
