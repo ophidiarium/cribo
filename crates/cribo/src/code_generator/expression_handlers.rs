@@ -1054,10 +1054,14 @@ fn rewrite_aliases_in_class(
     class_def: &mut StmtClassDef,
     alias_to_canonical: &FxIndexMap<String, String>,
 ) {
-    // Rewrite base classes
+    // Rewrite base classes and keyword arguments
     if let Some(arguments) = &mut class_def.arguments {
         for base in &mut arguments.args {
             rewrite_aliases_in_expr(base, alias_to_canonical);
+        }
+        // Also rewrite keyword arguments (e.g., metaclass=SomeMetaclass)
+        for keyword in &mut arguments.keywords {
+            rewrite_aliases_in_expr(&mut keyword.value, alias_to_canonical);
         }
     }
 

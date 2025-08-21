@@ -360,16 +360,19 @@ impl Bundler<'_> {
                     // Check if this metaclass is from the same module and has a semantic rename
                     if !ctx.import_sources.contains_key(metaclass_name) {
                         // Not imported, so it's from the current module
-                        if let Some(renamed) = ctx
-                            .module_renames
-                            .get(module_name)
-                            .and_then(|renames| renames.get(metaclass_name))
-                        {
+                        // Use resolve_renamed_name to get the pre-computed semantic rename
+                        let resolved_name =
+                            self.resolve_renamed_name(metaclass_name, module_name, ctx);
+                        log::debug!(
+                            "Metaclass '{metaclass_name}' in module '{module_name}' resolves to \
+                             '{resolved_name}'"
+                        );
+                        if resolved_name != metaclass_name {
                             log::debug!(
                                 "Applying semantic rename for metaclass '{metaclass_name}' -> \
-                                 '{renamed}' in module '{module_name}'"
+                                 '{resolved_name}' in module '{module_name}'"
                             );
-                            name_expr.id = renamed.clone().into();
+                            name_expr.id = resolved_name.into();
                             continue;
                         }
                     }

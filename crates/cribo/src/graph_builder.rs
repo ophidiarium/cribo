@@ -404,27 +404,46 @@ impl<'a> GraphBuilder<'a> {
         let mut method_write_vars = FxIndexSet::default();
         let mut method_attribute_accesses = FxIndexMap::default();
         for stmt in &class_def.body {
-            if let Stmt::FunctionDef(method_def) = stmt {
-                // Collect variables from method decorators (execute at class body time)
-                for decorator in &method_def.decorator_list {
-                    self.collect_vars_in_expr(&decorator.expression, &mut method_read_vars);
+            match stmt {
+                Stmt::FunctionDef(method_def) => {
+                    // Collect variables from method decorators (execute at class body time)
+                    for decorator in &method_def.decorator_list {
+                        self.collect_vars_in_expr(&decorator.expression, &mut method_read_vars);
+                    }
+
+                    // Collect variables from method parameter annotations and defaults
+                    self.collect_function_parameter_vars(
+                        &method_def.parameters,
+                        &mut method_read_vars,
+                    );
+
+                    // Collect variables from return type annotation
+                    if let Some(returns) = &method_def.returns {
+                        self.collect_vars_in_expr(returns, &mut method_read_vars);
+                    }
+
+                    // Collect variables used in the method body
+                    self.collect_vars_in_body(
+                        &method_def.body,
+                        &mut method_read_vars,
+                        &mut method_write_vars,
+                        &mut method_attribute_accesses,
+                    );
                 }
-
-                // Collect variables from method parameter annotations and defaults
-                self.collect_function_parameter_vars(&method_def.parameters, &mut method_read_vars);
-
-                // Collect variables from return type annotation
-                if let Some(returns) = &method_def.returns {
-                    self.collect_vars_in_expr(returns, &mut method_read_vars);
+                Stmt::Assign(assign) => {
+                    // Class-level assignments like `yaml_loader = [Loader, FullLoader, UnsafeLoader]`
+                    // These execute at class definition time, so they're immediate dependencies
+                    self.collect_vars_in_expr(&assign.value, &mut read_vars);
                 }
-
-                // Collect variables used in the method body
-                self.collect_vars_in_body(
-                    &method_def.body,
-                    &mut method_read_vars,
-                    &mut method_write_vars,
-                    &mut method_attribute_accesses,
-                );
+                Stmt::AnnAssign(ann_assign) => {
+                    // Annotated class-level assignments
+                    if let Some(value) = &ann_assign.value {
+                        self.collect_vars_in_expr(value, &mut read_vars);
+                    }
+                }
+                _ => {
+                    // Other statements in class body (e.g., docstrings)
+                }
             }
         }
 

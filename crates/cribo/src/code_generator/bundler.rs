@@ -4127,6 +4127,40 @@ impl<'a> Bundler<'a> {
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
 
+            // If the entry module is part of circular dependencies, reorder its statements
+            // The entry module might be named "__init__" while the circular module is tracked as "yaml" (or similar package name)
+            let is_circular = if module_name == "__init__" {
+                // For __init__ modules, check if the package name is in circular modules
+                // Try to find the package name (usually just the non-dotted name from circular modules)
+                self.circular_modules
+                    .iter()
+                    .any(|m| !m.contains('.') && m != "__init__")
+            } else {
+                self.circular_modules.contains(&module_name)
+            };
+
+            if is_circular {
+                log::debug!(
+                    "Entry module '{module_name}' is part of circular dependencies, reordering statements"
+                );
+                // For __init__ modules, use the package name for looking up symbol ordering
+                let lookup_name = if module_name == "__init__" {
+                    // Find the package name from circular modules
+                    self.circular_modules
+                        .iter()
+                        .find(|m| !m.contains('.') && *m != "__init__")
+                        .map(|s| s.as_str())
+                        .unwrap_or(&module_name)
+                } else {
+                    &module_name
+                };
+                ast.body = self.reorder_statements_for_circular_module(
+                    lookup_name,
+                    ast.body,
+                    python_version,
+                );
+            }
+
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
             let entry_module_renames = symbol_renames
