@@ -45,14 +45,8 @@ pub struct NamespaceInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NamespaceContext {
     TopLevel,
-    Attribute {
-        parent: String,
-    },
-    // TODO: These variants will be used in Phase 2 of the migration
-    #[allow(dead_code)]
+    Attribute { parent: String },
     InlinedModule,
-    #[allow(dead_code)]
-    CircularDependencyWrapper,
     ImportedSubmodule,
 }
 
@@ -63,8 +57,7 @@ impl NamespaceContext {
             Self::TopLevel => 0,
             Self::Attribute { .. } => 1,
             Self::InlinedModule => 2,
-            Self::CircularDependencyWrapper => 3,
-            Self::ImportedSubmodule => 4,
+            Self::ImportedSubmodule => 3,
         }
     }
 }
@@ -650,7 +643,7 @@ impl NamespaceParams {
         }
     }
 
-    /// Create params for immediate generation with attributes  
+    /// Create params for immediate generation with attributes
     pub fn immediate_with_attributes(attributes: Vec<(String, Expr)>) -> Self {
         Self {
             immediate: true,
