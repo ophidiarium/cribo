@@ -56,7 +56,9 @@ utils_config.get_config = get_config
 utils_helpers.UtilityClass = UtilityClass
 utils_helpers.helper_function = helper_function
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
+operating_system = _cribo.os
 j = _cribo.json
+system_module = _cribo.sys
 abc_collections = _cribo.collections.abc
 url_parser = _cribo.urllib.parse
 xml_tree = _cribo.xml.etree.ElementTree

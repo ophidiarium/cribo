@@ -457,6 +457,15 @@ pub(super) fn trim_unused_imports_from_modules(
 
         // Get unused imports from the graph
         if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+            // Check if this module has side effects (will become a wrapper module)
+            let has_side_effects = !module_dep_graph.side_effect_items.is_empty();
+
+            if has_side_effects {
+                log::debug!(
+                    "Module '{module_name}' has side effects - skipping stdlib import removal"
+                );
+            }
+
             let mut unused_imports =
                 crate::analyzers::import_analyzer::ImportAnalyzer::find_unused_imports_in_module(
                     module_dep_graph,
@@ -667,17 +676,54 @@ pub(super) fn trim_unused_imports_from_modules(
             }
 
             if !unused_imports.is_empty() {
-                log::debug!(
-                    "Found {} unused imports in {}",
-                    unused_imports.len(),
-                    module_name
-                );
-                // Log unused imports details
-                log_unused_imports_details(&unused_imports);
+                // If this is a wrapper module (has side effects), filter out stdlib imports
+                // from the unused list since they should be preserved as part of the module's API
+                if has_side_effects {
+                    let original_count = unused_imports.len();
+                    unused_imports.retain(|import_info| {
+                        // Check if this is a stdlib import
+                        let root_module = import_info
+                            .module
+                            .split('.')
+                            .next()
+                            .unwrap_or(&import_info.module);
+                        let is_stdlib =
+                            ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
 
-                // Filter out unused imports from the AST
-                ast.body
-                    .retain(|stmt| !should_remove_import_stmt(stmt, &unused_imports));
+                        if is_stdlib {
+                            log::debug!(
+                                "Preserving stdlib import '{}' from '{}' in wrapper module",
+                                import_info.name,
+                                import_info.module
+                            );
+                            false // Remove from unused list (preserve the import)
+                        } else {
+                            true // Keep in unused list (will be removed)
+                        }
+                    });
+
+                    if original_count != unused_imports.len() {
+                        log::debug!(
+                            "Filtered {} stdlib imports from unused list for wrapper module '{}'",
+                            original_count - unused_imports.len(),
+                            module_name
+                        );
+                    }
+                }
+
+                if !unused_imports.is_empty() {
+                    log::debug!(
+                        "Found {} unused imports in {}",
+                        unused_imports.len(),
+                        module_name
+                    );
+                    // Log unused imports details
+                    log_unused_imports_details(&unused_imports);
+
+                    // Filter out unused imports from the AST
+                    ast.body
+                        .retain(|stmt| !should_remove_import_stmt(stmt, &unused_imports));
+                }
             }
         }
 

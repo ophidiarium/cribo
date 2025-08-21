@@ -720,6 +720,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     value_expr,
                                 );
                                 assignments.push(assign_stmt);
+
+                                // Note: The module_transformer will handle adding these to the
+                                // module namespace based on the stdlib_reexports mechanism
                             }
 
                             // If there are non-stdlib imports, keep them and add assignments
@@ -1011,8 +1014,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             crate::ast_builder::statements::assign(vec![target], value_expr);
                         assignments.push(assign_stmt);
 
-                        // Note: The module_transformer will handle adding to _cribo_module namespace
-                        // based on whether the symbol should be exported
+                        // Note: The module_transformer will handle adding these to the
+                        // module namespace based on the stdlib_reexports mechanism
                     }
 
                     return assignments;
