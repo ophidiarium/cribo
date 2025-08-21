@@ -2184,7 +2184,7 @@ fn should_include_symbol(
             )
         {
             log::debug!(
-                "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, including"
+                "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, so including it"
             );
             return true;
         }
