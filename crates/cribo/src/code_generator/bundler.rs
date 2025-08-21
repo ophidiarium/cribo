@@ -5059,6 +5059,7 @@ impl<'a> Bundler<'a> {
                     module_asts,
                     module_name,
                     symbol_name,
+                    Some(&self.module_exports),
                 )
             {
                 log::debug!(

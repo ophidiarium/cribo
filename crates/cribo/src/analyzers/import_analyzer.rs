@@ -634,6 +634,7 @@ impl ImportAnalyzer {
         module_asts: &[(String, ModModule, PathBuf, String)],
         module_name: &str,
         symbol_name: &str,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
         log::debug!(
             "Checking imports for symbol '{}' from module '{}' in {} modules",
@@ -650,7 +651,13 @@ impl ImportAnalyzer {
             }
 
             // Check import statements in the module
-            if Self::module_imports_symbol(ast, other_module_name, module_name, symbol_name) {
+            if Self::module_imports_symbol(
+                ast,
+                other_module_name,
+                module_name,
+                symbol_name,
+                module_exports,
+            ) {
                 log::debug!(
                     "Symbol '{symbol_name}' from module '{module_name}' is imported by module '{other_module_name}'"
                 );
@@ -670,6 +677,7 @@ impl ImportAnalyzer {
         importing_module: &str,
         target_module: &str,
         symbol_name: &str,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
         for stmt in &ast.body {
             if let Stmt::ImportFrom(import_from) = stmt
@@ -677,8 +685,24 @@ impl ImportAnalyzer {
             {
                 // Check if the symbol is being imported
                 for alias in &import_from.names {
-                    if alias.name.as_str() == symbol_name {
+                    let alias_name = alias.name.as_str();
+                    if alias_name == symbol_name {
                         return true;
+                    }
+                    // Handle wildcard imports (from module import *)
+                    if alias_name == "*" {
+                        // If we have module export information, check if the symbol is in __all__
+                        if let Some(exports_map) = module_exports {
+                            if let Some(Some(export_list)) = exports_map.get(target_module) {
+                                // Module has __all__, check if symbol is in it
+                                return export_list.iter().any(|s| s == symbol_name);
+                            }
+                            // No __all__ defined, wildcard imports public names only
+                            return !symbol_name.starts_with('_');
+                        }
+                        // No export information available, conservatively treat wildcard
+                        // as importing only public names (non-underscore)
+                        return !symbol_name.starts_with('_');
                     }
                 }
             }

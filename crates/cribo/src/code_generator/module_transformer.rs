@@ -2210,6 +2210,7 @@ fn should_include_symbol(
                 module_asts,
                 module_name,
                 symbol_name,
+                Some(&bundler.module_exports),
             )
         {
             log::debug!(
