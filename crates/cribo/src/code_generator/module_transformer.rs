@@ -161,7 +161,10 @@ pub fn transform_module_to_init_function<'a>(
                             };
 
                             if should_reexport {
-                                let proxy_path = format!("_cribo.{module}.{imported_name}");
+                                let proxy_path = format!(
+                                    "{}.{module}.{imported_name}",
+                                    crate::ast_builder::CRIBO_PREFIX
+                                );
                                 debug!(
                                     "Tracking stdlib re-export in wrapper module '{}': {} -> {}",
                                     ctx.module_name, local_name, &proxy_path

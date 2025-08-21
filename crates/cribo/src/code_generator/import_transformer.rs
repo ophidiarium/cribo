@@ -698,7 +698,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     module_name.clone()
                                 };
 
-                                let proxy_path = format!("_cribo.{module_name}");
+                                let proxy_path =
+                                    format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
                                 let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
                                 let value_expr = crate::ast_builder::expressions::dotted_name(
                                     &proxy_parts,
@@ -738,7 +739,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         for (module_name, alias) in &stdlib_imports {
                             if let Some(alias_name) = alias {
                                 // Aliased import creates a local binding
-                                let proxy_path = format!("_cribo.{module_name}");
+                                let proxy_path =
+                                    format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
                                 let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
                                 let value_expr = crate::ast_builder::expressions::dotted_name(
                                     &proxy_parts,
@@ -993,7 +995,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
 
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        let full_path = format!("_cribo.{module_str}.{imported_name}");
+                        let full_path = format!(
+                            "{}.{module_str}.{imported_name}",
+                            crate::ast_builder::CRIBO_PREFIX
+                        );
 
                         // Track this renaming for expression rewriting
                         // For importlib.import_module, track it without the _cribo prefix for detection
@@ -1036,7 +1041,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
 
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        let full_path = format!("_cribo.{module_str}.{imported_name}");
+                        let full_path = format!(
+                            "{}.{module_str}.{imported_name}",
+                            crate::ast_builder::CRIBO_PREFIX
+                        );
 
                         // Track this renaming for expression rewriting
                         // For importlib.import_module, track it without the _cribo prefix for detection
@@ -2478,7 +2486,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // Only rewrite if it's not shadowed by a local variable
                 if let Some(rewritten_path) = self.import_aliases.get(name) {
                     // Check if this is a stdlib module reference (starts with _cribo.)
-                    if rewritten_path.starts_with("_cribo.") {
+                    if rewritten_path.starts_with(crate::ast_builder::CRIBO_PREFIX)
+                        && rewritten_path
+                            .chars()
+                            .nth(crate::ast_builder::CRIBO_PREFIX.len())
+                            == Some('.')
+                    {
                         // Use semantic analysis to check if this is shadowed by a local variable
                         let is_shadowed =
                             if let Some(_semantic_bundler) = self.bundler.semantic_bundler {

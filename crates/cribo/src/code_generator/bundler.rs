@@ -4888,7 +4888,7 @@ impl<'a> Bundler<'a> {
 
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
     pub fn get_rewritten_stdlib_path(module_name: &str) -> String {
-        format!("_cribo.{module_name}")
+        format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX)
     }
 
     /// Generate all registered namespaces at once

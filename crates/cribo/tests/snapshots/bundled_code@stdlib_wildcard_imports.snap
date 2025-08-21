@@ -37,9 +37,9 @@ def process_data(data):
 myhelper = _cribo.types.SimpleNamespace(__name__='myhelper', process_data=process_data)
 """Test fixture for stdlib wildcard imports and local shadowing."""
 from collections import *
-counter = Counter(['a', 'b', 'c', 'a', 'b', 'b'])
+counter = Counter(["a", "b", "c", "a", "b", "b"])
 print(f"Counter: {counter}")
-od = OrderedDict([('a', 1), ('b', 2)])
+od = OrderedDict([("a", 1), ("b", 2)])
 print(f"OrderedDict: {od}")
 json = myhelper
 result = json.process_data({"key": "value"})
@@ -52,6 +52,6 @@ pairs = list(combinations([1, 2, 3], 2))
 print(f"Combinations: {pairs}")
 collections = "I'm a local variable, not the module!"
 print(f"Local collections: {collections}")
-another_counter = Counter(['x', 'y', 'z'])
+another_counter = Counter(["x", "y", "z"])
 print(f"Another counter: {another_counter}")
 print("All tests passed!")
