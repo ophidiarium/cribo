@@ -600,20 +600,15 @@ pub fn transform_module_to_init_function<'a>(
                     ast_builder::expressions::string_literal(ctx.module_name),
                 ));
 
-                // Set as module attribute - include all module-scope symbols
-                if should_include_symbol(
+                // Set as module attribute via centralized helper
+                emit_module_attr_if_exportable(
                     bundler,
                     &symbol_name,
                     ctx.module_name,
+                    &mut body,
                     module_scope_symbols,
-                ) {
-                    body.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment(
-                            MODULE_VAR,
-                            &symbol_name,
-                        ),
-                    );
-                }
+                    None, // not a lifted var
+                );
             }
             Stmt::FunctionDef(func_def) => {
                 // Clone the function for transformation
@@ -632,21 +627,16 @@ pub fn transform_module_to_init_function<'a>(
                 // Add transformed function definition
                 body.push(Stmt::FunctionDef(func_def_clone));
 
-                // Set as module attribute - include all module-scope symbols
+                // Set as module attribute via centralized helper
                 let symbol_name = func_def.name.to_string();
-                if should_include_symbol(
+                emit_module_attr_if_exportable(
                     bundler,
                     &symbol_name,
                     ctx.module_name,
+                    &mut body,
                     module_scope_symbols,
-                ) {
-                    body.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment(
-                            MODULE_VAR,
-                            &symbol_name,
-                        ),
-                    );
-                }
+                    None, // not a lifted var
+                );
             }
             Stmt::Assign(assign) => {
                 // Handle __all__ assignments - skip unless it's referenced elsewhere
@@ -863,25 +853,14 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Also set as module attribute if it should be exported (for non-lifted vars)
                     if let Expr::Name(target) = ann_assign.target.as_ref() {
-                        // Check if this is NOT a lifted variable
-                        let is_lifted = lifted_names
-                            .as_ref()
-                            .is_some_and(|names| names.contains_key(target.id.as_str()));
-
-                        if !is_lifted
-                            && should_include_symbol(
-                                bundler,
-                                &target.id,
-                                ctx.module_name,
-                                module_scope_symbols,
-                            )
-                        {
-                            body.push(
-                                crate::code_generator::module_registry::create_module_attr_assignment(
-                                    MODULE_VAR, &target.id,
-                                ),
-                            );
-                        }
+                        emit_module_attr_if_exportable(
+                            bundler,
+                            &target.id,
+                            ctx.module_name,
+                            &mut body,
+                            module_scope_symbols,
+                            lifted_names.as_ref(),
+                        );
                     }
                 } else {
                     // Type annotation without value, just add it
@@ -2178,10 +2157,62 @@ fn should_include_symbol(
     module_name: &str,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) -> bool {
-    module_scope_symbols.map_or_else(
-        || bundler.should_export_symbol(symbol_name, module_name),
-        |symbols| symbols.contains(symbol_name),
-    )
+    // If we have module_scope_symbols, check if the symbol is in that set
+    // But also check special cases
+    if let Some(symbols) = module_scope_symbols {
+        if symbols.contains(symbol_name) {
+            return true;
+        }
+        // Even if not in module_scope_symbols, check if it's a private symbol imported by others
+        if symbol_name.starts_with('_')
+            && let Some(module_asts) = &bundler.module_asts
+            && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
+                module_asts,
+                module_name,
+                symbol_name,
+                Some(&bundler.module_exports),
+            )
+        {
+            log::debug!(
+                "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, so including it"
+            );
+            return true;
+        }
+        // Also include all-caps constants as they're often used internally in comprehensions
+        // and other module-level code. Include digits to handle constants like HTTP2, TLS1_3, etc.
+        let is_constant_like = symbol_name.len() > 1
+            && symbol_name.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
+            && symbol_name
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        if is_constant_like {
+            log::debug!(
+                "Constant '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it appears to be a constant"
+            );
+            return true;
+        }
+
+        // Include common dunder variables that are often expected to be visible on modules
+        const COMMON_DUNDERS: &[&str] = &[
+            "__version__",
+            "__author__",
+            "__license__",
+            "__description__",
+            "__doc__",
+            "__all__",
+        ];
+        if COMMON_DUNDERS.contains(&symbol_name) {
+            log::debug!(
+                "Common dunder '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it's a standard module attribute"
+            );
+            return true;
+        }
+
+        false
+    } else {
+        // No module_scope_symbols provided, use bundler's should_export_symbol
+        bundler.should_export_symbol(symbol_name, module_name)
+    }
 }
 
 /// Add module attribute assignment if the symbol should be exported
@@ -2192,12 +2223,48 @@ fn add_module_attr_if_exported(
     body: &mut Vec<Stmt>,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
-    if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
-        && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
+    if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
+        emit_module_attr_if_exportable(
+            bundler,
+            &name,
+            module_name,
+            body,
+            module_scope_symbols,
+            None, // No lifted_names check needed for regular assigns
+        );
+    }
+}
+
+/// Helper to emit module attribute if a symbol should be exported
+/// This centralizes the logic for both Assign and `AnnAssign` paths
+fn emit_module_attr_if_exportable(
+    bundler: &Bundler,
+    symbol_name: &str,
+    module_name: &str,
+    body: &mut Vec<Stmt>,
+    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    lifted_names: Option<&FxIndexMap<String, String>>,
+) {
+    // Check if this is a lifted variable (only relevant for AnnAssign)
+    if let Some(names) = lifted_names
+        && names.contains_key(symbol_name)
     {
+        debug!("Symbol '{symbol_name}' is a lifted variable, skipping module attribute");
+        return;
+    }
+
+    let should_export =
+        should_include_symbol(bundler, symbol_name, module_name, module_scope_symbols);
+    debug!(
+        "Symbol '{symbol_name}' in module '{module_name}' should_include_symbol returned: {should_export}"
+    );
+
+    if should_export {
+        debug!("Adding module attribute for symbol '{symbol_name}'");
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                MODULE_VAR, &name,
+                MODULE_VAR,
+                symbol_name,
             ),
         );
     }

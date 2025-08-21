@@ -102,7 +102,7 @@ def _cribo_init___cribo_f00e4b_core():
     _cribo_module.validate = validate
     _cribo_module.get_config = get_config
     _cribo_module.set_config_reference = set_config_reference
-    set_config_reference(_config)
+    set_config_reference(_cribo_module._config)
 
     def initialize_core(debug=False):
         """Initialize the core package with configuration."""
@@ -157,7 +157,7 @@ def _cribo_init___cribo_563ea2_models():
         return _cribo_models__base_model
     _cribo_module.get_base_model = get_base_model
     _cribo_module.process_user = process_user
-    DEFAULT_MODEL_CONFIG = {"version": _VERSION, "features": ["user_processing", "lazy_loading"]}
+    DEFAULT_MODEL_CONFIG = {"version": _cribo_module._VERSION, "features": ["user_processing", "lazy_loading"]}
     _cribo_module.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
     try:
         from models.advanced import AdvancedModel
@@ -192,7 +192,7 @@ def _cribo_init___cribo_1f0c3d_core_database_connection():
     _cribo_module.get_base_model = get_base_model
     _connection_types = ["standard", "pooled", "async"]
     _cribo_module._connection_types = _connection_types
-    CONNECTION_METADATA = {"supported_types": _connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
+    CONNECTION_METADATA = {"supported_types": _cribo_module._connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
     _cribo_module.CONNECTION_METADATA = CONNECTION_METADATA
 
     class Connection:
