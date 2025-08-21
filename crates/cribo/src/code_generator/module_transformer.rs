@@ -534,10 +534,10 @@ pub fn transform_module_to_init_function<'a>(
     // Declare lifted globals FIRST if any - they need to be declared before any usage
     // But we'll initialize them later after the original variables are defined
     if let Some(ref lifted_names) = lifted_names {
-        for (_original_name, lifted_name) in lifted_names {
-            // global __cribo_module_var
-            body.push(ast_builder::statements::global(vec![lifted_name]));
-        }
+        // Declare all lifted globals once (sorted) for deterministic output
+        let mut lifted: Vec<&str> = lifted_names.values().map(std::string::String::as_str).collect();
+        lifted.sort_unstable();
+        body.push(ast_builder::statements::global(lifted));
     }
 
     // Track which lifted globals we've already initialized to avoid duplicates

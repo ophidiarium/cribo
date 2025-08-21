@@ -44,8 +44,7 @@ _cribo_module_mixed_patterns_counter = None
 def _cribo_init___cribo_c75306_module_mixed_patterns():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'module_mixed_patterns'
-    global _cribo_module_mixed_patterns_foo
-    global _cribo_module_mixed_patterns_counter
+    global _cribo_module_mixed_patterns_counter, _cribo_module_mixed_patterns_foo
     """Module demonstrating mixed global access patterns."""
     foo = "module3_foo"
     _cribo_module_mixed_patterns_foo = foo

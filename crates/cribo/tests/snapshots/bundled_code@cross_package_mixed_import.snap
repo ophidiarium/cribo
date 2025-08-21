@@ -90,8 +90,7 @@ _cribo_models__base_model = None
 def _cribo_init___cribo_f00e4b_core():
     _cribo_module = _cribo.types.SimpleNamespace()
     _cribo_module.__name__ = 'core'
-    global _cribo_core__initialized
-    global _cribo_core__config
+    global _cribo_core__config, _cribo_core__initialized
     """Core package with initialization logic and cross-package imports."""
     _initialized = False
     _cribo_core__initialized = _initialized
