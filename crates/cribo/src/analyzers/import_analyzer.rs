@@ -636,7 +636,7 @@ impl ImportAnalyzer {
         symbol_name: &str,
         module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
-        log::debug!(
+        debug!(
             "Checking imports for symbol '{}' from module '{}' in {} modules",
             symbol_name,
             module_name,
@@ -658,14 +658,14 @@ impl ImportAnalyzer {
                 symbol_name,
                 module_exports,
             ) {
-                log::debug!(
+                debug!(
                     "Symbol '{symbol_name}' from module '{module_name}' is imported by module '{other_module_name}'"
                 );
                 return true;
             }
         }
 
-        log::debug!(
+        debug!(
             "Symbol '{symbol_name}' from module '{module_name}' is not imported by any other modules"
         );
         false
