@@ -3069,73 +3069,23 @@ impl<'a> Bundler<'a> {
 
             // Analyze dependencies and determine what imports to generate
             for (source_module, deps) in deps_by_source {
-                // Check if we need to import the whole module or specific attributes
-                let first_dep = deps.first().expect("hard_deps should not be empty");
-
-                // Check if this is a submodule import with an alias
-                // This happens when:
-                // 1. We have an alias (e.g., cookielib)
-                // 2. The imported_attr (e.g., cookiejar) forms a valid module path with source_module (e.g., http)
-                // 3. The full module path (e.g., http.cookiejar) is a known module
-                let is_submodule_import_with_alias = if let Some(ref alias) = first_dep.alias {
-                    // Check if source_module.imported_attr is an exact stdlib submodule
-                    // Avoids false positives like "json.dumps" (function) being treated as a module.
-                    let full_module_path = format!("{}.{}", source_module, first_dep.imported_attr);
-                    let is_exact_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
-                        python_version,
-                        &full_module_path,
-                    );
-                    is_exact_stdlib && alias != &first_dep.imported_attr
-                } else {
-                    false
-                };
-
-                if is_submodule_import_with_alias {
-                    // This is a submodule import with an alias (e.g., from http import cookiejar as cookielib)
-                    // Generate: import http.cookiejar as cookielib
-                    let full_module_path = format!("{}.{}", source_module, first_dep.imported_attr);
-                    let alias = first_dep
-                        .alias
-                        .as_ref()
-                        .expect("is_submodule_import_with_alias checked that alias exists")
-                        .clone();
-                    log::debug!(
-                        "Detected submodule import with alias: import {full_module_path} as {alias}"
-                    );
-
-                    // Store first_dep info to check against later
-                    let first_imported_attr = first_dep.imported_attr.clone();
-                    let first_alias = first_dep.alias.clone();
-
-                    // Push the aliased submodule import, but clone so we can still use source_module below
-                    imports_to_generate.push((
-                        source_module.clone(),
-                        vec![(full_module_path, Some(alias))],
-                        true, // Special case flag for submodule imports
-                    ));
-
-                    // Also collect any remaining deps for this source_module
-                    let mut rest: FxIndexMap<String, Option<String>> = FxIndexMap::default();
-                    for dep in deps {
-                        // Skip the one we just handled
-                        if dep.imported_attr == first_imported_attr && dep.alias == first_alias {
-                            continue;
-                        }
-                        if dep.alias_is_mandatory && dep.alias.is_some() {
-                            rest.insert(dep.imported_attr.clone(), dep.alias.clone());
-                        } else {
-                            rest.entry(dep.imported_attr.clone()).or_insert(None);
+                // Find all submodule-with-alias deps (order-insensitive, supports multiple)
+                let mut submodule_aliases: Vec<(usize, String, String)> = Vec::new(); // (idx, full_module_path, alias)
+                for (i, dep) in deps.iter().enumerate() {
+                    if let Some(alias) = &dep.alias {
+                        let full_module_path = format!("{}.{}", source_module, dep.imported_attr);
+                        // Exact stdlib check; avoids "json.dumps" false positives
+                        let is_exact_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
+                            python_version,
+                            &full_module_path,
+                        );
+                        if is_exact_stdlib && alias != &dep.imported_attr {
+                            submodule_aliases.push((i, full_module_path, alias.clone()));
                         }
                     }
-                    if !rest.is_empty() {
-                        // Sort for deterministic output
-                        let mut import_list: Vec<(String, Option<String>)> =
-                            rest.into_iter().collect();
-                        import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
-                        // Emit the remaining attrs as a regular `from source_module import ...`
-                        imports_to_generate.push((source_module, import_list, false));
-                    }
-                } else {
+                }
+
+                if submodule_aliases.is_empty() {
                     // Check if the source module is a bundled module (either inlined or wrapper)
                     // This must be checked before stdlib to handle first-party modules with stdlib
                     // names
@@ -3179,6 +3129,41 @@ impl<'a> Bundler<'a> {
                         let mut import_list: Vec<(String, Option<String>)> =
                             imports_to_make.into_iter().collect();
                         import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
+                        imports_to_generate.push((source_module, import_list, false));
+                    }
+                } else {
+                    // Emit one `import parent.child as alias` per detected submodule-alias
+                    for (_, full_module_path, alias) in &submodule_aliases {
+                        log::debug!(
+                            "Detected submodule import with alias: import {full_module_path} as {alias}"
+                        );
+                        imports_to_generate.push((
+                            source_module.clone(),
+                            vec![(full_module_path.clone(), Some(alias.clone()))],
+                            true, // Special case flag for submodule imports
+                        ));
+                    }
+
+                    // Collect any remaining deps for this source_module
+                    let handled_indices: FxIndexSet<usize> =
+                        submodule_aliases.iter().map(|(i, _, _)| *i).collect();
+                    let mut rest: FxIndexMap<String, Option<String>> = FxIndexMap::default();
+                    for (j, dep) in deps.iter().enumerate() {
+                        if handled_indices.contains(&j) {
+                            continue;
+                        }
+                        if dep.alias_is_mandatory && dep.alias.is_some() {
+                            rest.insert(dep.imported_attr.clone(), dep.alias.clone());
+                        } else {
+                            rest.entry(dep.imported_attr.clone()).or_insert(None);
+                        }
+                    }
+                    if !rest.is_empty() {
+                        // Sort for deterministic output
+                        let mut import_list: Vec<(String, Option<String>)> =
+                            rest.into_iter().collect();
+                        import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
+                        // Emit the remaining attrs as a regular `from source_module import ...`
                         imports_to_generate.push((source_module, import_list, false));
                     }
                 }
