@@ -555,8 +555,6 @@ impl CriboGraph {
     }
 }
 
-// HashSet import moved to top
-
 impl Default for CriboGraph {
     fn default() -> Self {
         Self::new()
