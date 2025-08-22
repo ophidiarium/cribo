@@ -3102,11 +3102,39 @@ impl<'a> Bundler<'a> {
                     log::debug!(
                         "Detected submodule import with alias: import {full_module_path} as {alias}"
                     );
+
+                    // Store first_dep info to check against later
+                    let first_imported_attr = first_dep.imported_attr.clone();
+                    let first_alias = first_dep.alias.clone();
+
+                    // Push the aliased submodule import, but clone so we can still use source_module below
                     imports_to_generate.push((
-                        source_module,
+                        source_module.clone(),
                         vec![(full_module_path, Some(alias))],
                         true, // Special case flag for submodule imports
                     ));
+
+                    // Also collect any remaining deps for this source_module
+                    let mut rest: FxIndexMap<String, Option<String>> = FxIndexMap::default();
+                    for dep in deps {
+                        // Skip the one we just handled
+                        if dep.imported_attr == first_imported_attr && dep.alias == first_alias {
+                            continue;
+                        }
+                        if dep.alias_is_mandatory && dep.alias.is_some() {
+                            rest.insert(dep.imported_attr.clone(), dep.alias.clone());
+                        } else {
+                            rest.entry(dep.imported_attr.clone()).or_insert(None);
+                        }
+                    }
+                    if !rest.is_empty() {
+                        // Sort for deterministic output
+                        let mut import_list: Vec<(String, Option<String>)> =
+                            rest.into_iter().collect();
+                        import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
+                        // Emit the remaining attrs as a regular `from source_module import ...`
+                        imports_to_generate.push((source_module, import_list, false));
+                    }
                 } else {
                     // Check if the source module is a bundled module (either inlined or wrapper)
                     // This must be checked before stdlib to handle first-party modules with stdlib
