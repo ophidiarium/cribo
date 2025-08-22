@@ -4220,31 +4220,39 @@ impl<'a> Bundler<'a> {
 
         // Generate any namespaces that were registered during module processing
         // (e.g., inlined submodules like requests.exceptions)
+        // Only generate if new namespaces were registered since the previous emission
+        let created_before = self.created_namespaces.len();
         log::debug!(
             "Generating late-registered namespaces - registry has {} entries, created_namespaces has {} items",
             self.namespace_registry.len(),
             self.created_namespaces.len()
         );
         let late_namespace_statements = namespace_manager::generate_required_namespaces(self);
-        log::debug!(
-            "Generated {} late namespace statements",
-            late_namespace_statements.len()
-        );
-        final_body.extend(late_namespace_statements);
 
-        // Now generate parent attribute assignments for all namespaces
-        // This ensures parent.child = child assignments for all namespaces
-        log::debug!(
-            "Generating parent attribute assignments for all namespaces - created_namespaces has {} items",
-            self.created_namespaces.len()
-        );
-        let late_parent_assignments =
-            namespace_manager::generate_parent_attribute_assignments(self);
-        log::debug!(
-            "Generated {} late parent attribute assignments",
-            late_parent_assignments.len()
-        );
-        final_body.extend(late_parent_assignments);
+        // Check if any new namespaces were actually created
+        if late_namespace_statements.is_empty() && self.created_namespaces.len() == created_before {
+            log::debug!("No late namespaces to generate; skipping parent assignments as well");
+        } else {
+            log::debug!(
+                "Generated {} late namespace statements",
+                late_namespace_statements.len()
+            );
+            final_body.extend(late_namespace_statements);
+
+            // Now generate parent attribute assignments for all namespaces
+            // This ensures parent.child = child assignments for all namespaces
+            log::debug!(
+                "Generating parent attribute assignments for all namespaces - created_namespaces has {} items",
+                self.created_namespaces.len()
+            );
+            let late_parent_assignments =
+                namespace_manager::generate_parent_attribute_assignments(self);
+            log::debug!(
+                "Generated {} late parent attribute assignments",
+                late_parent_assignments.len()
+            );
+            final_body.extend(late_parent_assignments);
+        }
 
         // Generate module-level exports for all submodules of the entry module
         // This ensures that imports like `requests.exceptions` work in the bundled module
