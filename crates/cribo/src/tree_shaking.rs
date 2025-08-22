@@ -699,6 +699,7 @@ impl TreeShaker {
                         module: from_module,
                         names,
                         level,
+                        is_star,
                         ..
                     } => {
                         // Resolve relative imports
@@ -708,12 +709,40 @@ impl TreeShaker {
                             from_module.clone()
                         };
 
-                        // Mark all imported symbols as used
-                        for (name, _alias) in names {
-                            debug!(
-                                "Marking {resolved_module}::{name} as used (imported in scope {scope_name})"
-                            );
-                            worklist.push_back((resolved_module.clone(), name.clone()));
+                        if *is_star {
+                            // Handle star imports
+                            if let Some(target_items) = self.module_items.get(&resolved_module) {
+                                let has_all = target_items
+                                    .iter()
+                                    .any(|it| it.defined_symbols.contains("__all__"));
+                                if has_all {
+                                    self.mark_all_defined_symbols_as_used(
+                                        target_items,
+                                        &resolved_module,
+                                        worklist,
+                                    );
+                                } else {
+                                    self.mark_non_private_symbols_as_used(
+                                        target_items,
+                                        &resolved_module,
+                                        worklist,
+                                    );
+                                }
+                            }
+                        } else {
+                            // Mark upstream symbols
+                            for (name, _alias) in names {
+                                debug!(
+                                    "Marking {resolved_module}::{name} as used (imported in scope {scope_name})"
+                                );
+                                worklist.push_back((resolved_module.clone(), name.clone()));
+                            }
+                        }
+                        // Always mark the local bindings declared by this import as used,
+                        // so the in-scope import statement is preserved.
+                        for var in &item.var_decls {
+                            debug!("  Adding local imported binding {var} to worklist");
+                            worklist.push_back((module.to_string(), var.clone()));
                         }
                     }
                     _ => {}
