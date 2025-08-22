@@ -1706,6 +1706,24 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Collect import entries from an iterator of hard dependencies
+    /// This helper deduplicates the logic for collecting imports with their aliases
+    fn collect_import_entries<'b>(
+        deps: impl Iterator<Item = &'b HardDependency>,
+    ) -> FxIndexMap<String, Option<String>> {
+        let mut imports: FxIndexMap<String, Option<String>> = FxIndexMap::default();
+        for dep in deps {
+            // If this dependency has a mandatory alias, use it
+            if dep.alias_is_mandatory && dep.alias.is_some() {
+                imports.insert(dep.imported_attr.clone(), dep.alias.clone());
+            } else {
+                // Only insert if we haven't already added this import
+                imports.entry(dep.imported_attr.clone()).or_insert(None);
+            }
+        }
+        imports
+    }
+
     /// Collect symbol renames from semantic analysis
     fn collect_symbol_renames(
         &mut self,
@@ -3069,17 +3087,31 @@ impl<'a> Bundler<'a> {
 
             // Analyze dependencies and determine what imports to generate
             for (source_module, deps) in deps_by_source {
-                // Check if we need to import the whole module or specific attributes
-                let first_dep = deps.first().expect("hard_deps should not be empty");
+                // Find all submodule-with-alias deps (deduped and deterministically ordered)
+                // Use BTreeMap for deterministic ordering by (module_path, alias)
+                let mut submodule_indices: std::collections::BTreeMap<
+                    (String, String),
+                    Vec<usize>,
+                > = std::collections::BTreeMap::new();
 
-                if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
-                    // Special case: import http.cookiejar as cookielib
-                    imports_to_generate.push((
-                        source_module,
-                        vec![("http.cookiejar".to_string(), Some("cookielib".to_string()))],
-                        true,
-                    ));
-                } else {
+                for (i, dep) in deps.iter().enumerate() {
+                    if let Some(alias) = &dep.alias {
+                        let full_module_path = format!("{}.{}", source_module, dep.imported_attr);
+                        // Exact stdlib check; avoids "json.dumps" false positives
+                        let is_exact_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
+                            python_version,
+                            &full_module_path,
+                        );
+                        if is_exact_stdlib && alias != &dep.imported_attr {
+                            submodule_indices
+                                .entry((full_module_path, alias.clone()))
+                                .or_default()
+                                .push(i);
+                        }
+                    }
+                }
+
+                if submodule_indices.is_empty() {
                     // Check if the source module is a bundled module (either inlined or wrapper)
                     // This must be checked before stdlib to handle first-party modules with stdlib
                     // names
@@ -3105,19 +3137,7 @@ impl<'a> Bundler<'a> {
                     }
 
                     // Regular external module - collect unique imports with their aliases
-                    let mut imports_to_make: FxIndexMap<String, Option<String>> =
-                        FxIndexMap::default();
-                    for dep in deps {
-                        // If this dependency has a mandatory alias, use it
-                        if dep.alias_is_mandatory && dep.alias.is_some() {
-                            imports_to_make.insert(dep.imported_attr.clone(), dep.alias.clone());
-                        } else {
-                            // Only insert if we haven't already added this import
-                            imports_to_make
-                                .entry(dep.imported_attr.clone())
-                                .or_insert(None);
-                        }
-                    }
+                    let imports_to_make = Self::collect_import_entries(deps.into_iter());
 
                     if !imports_to_make.is_empty() {
                         let mut import_list: Vec<(String, Option<String>)> =
@@ -3125,25 +3145,70 @@ impl<'a> Bundler<'a> {
                         import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
                         imports_to_generate.push((source_module, import_list, false));
                     }
+                } else {
+                    // Emit one `import parent.child as alias` per unique submodule-alias pair
+                    // BTreeMap ensures deterministic ordering by (module_path, alias)
+                    for (full_module_path, alias) in submodule_indices.keys() {
+                        log::debug!(
+                            "Detected submodule import with alias: import {full_module_path} as {alias}"
+                        );
+                        imports_to_generate.push((
+                            source_module.clone(),
+                            vec![(full_module_path.clone(), Some(alias.clone()))],
+                            true, // Special case flag for submodule imports
+                        ));
+                    }
+
+                    // Collect all indices that were handled as submodule imports
+                    let handled_indices: FxIndexSet<usize> = submodule_indices
+                        .values()
+                        .flat_map(|indices| indices.iter().copied())
+                        .collect();
+
+                    // Collect any remaining deps for this source_module
+                    let rest = Self::collect_import_entries(
+                        deps.iter()
+                            .enumerate()
+                            .filter(|(j, _)| !handled_indices.contains(j))
+                            .map(|(_, dep)| *dep),
+                    );
+                    if !rest.is_empty() {
+                        // Sort for deterministic output
+                        let mut import_list: Vec<(String, Option<String>)> =
+                            rest.into_iter().collect();
+                        import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
+                        // Emit the remaining attrs as a regular `from source_module import ...`
+                        imports_to_generate.push((source_module, import_list, false));
+                    }
                 }
             }
 
             // Now generate the actual import statements
-            for (source_module, imports, is_special_case) in imports_to_generate {
-                if is_special_case {
-                    // Special case: import http.cookiejar as cookielib
-                    let import_stmt = StmtImport {
-                        node_index: self.create_node_index(),
-                        names: vec![ruff_python_ast::Alias {
-                            node_index: self.create_node_index(),
-                            name: Identifier::new("http.cookiejar", TextRange::default()),
-                            asname: Some(Identifier::new("cookielib", TextRange::default())),
-                            range: TextRange::default(),
-                        }],
-                        range: TextRange::default(),
-                    };
-                    final_body.push(Stmt::Import(import_stmt));
-                    log::debug!("Hoisted import http.cookiejar as cookielib");
+            for (source_module, imports, is_submodule_import) in imports_to_generate {
+                if is_submodule_import {
+                    // Submodule import with alias: import full.module.path as alias
+                    // The imports vec should contain exactly one entry with (full_module_path, Some(alias))
+                    if imports.len() == 1 {
+                        if let Some((full_module_path, Some(alias))) = imports.first() {
+                            let import_stmt = StmtImport {
+                                node_index: self.create_node_index(),
+                                names: vec![other::alias(full_module_path, Some(alias.as_str()))],
+                                range: TextRange::default(),
+                            };
+                            final_body.push(Stmt::Import(import_stmt));
+                            log::debug!(
+                                "Hoisted submodule import: import {full_module_path} as {alias}"
+                            );
+                        } else {
+                            log::warn!("Skipping malformed submodule import payload: {imports:?}");
+                        }
+                    } else {
+                        log::warn!(
+                            "Submodule import expected exactly one entry, got {}: {:?}",
+                            imports.len(),
+                            imports
+                        );
+                    }
                 } else {
                     // Generate: from source_module import attr1, attr2 as alias2, ...
                     let names: Vec<Alias> = imports
