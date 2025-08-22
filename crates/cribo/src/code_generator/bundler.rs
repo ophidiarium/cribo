@@ -3078,10 +3078,14 @@ impl<'a> Bundler<'a> {
                 // 2. The imported_attr (e.g., cookiejar) forms a valid module path with source_module (e.g., http)
                 // 3. The full module path (e.g., http.cookiejar) is a known module
                 let is_submodule_import_with_alias = if let Some(ref alias) = first_dep.alias {
-                    // Check if source_module.imported_attr forms a valid stdlib module
+                    // Check if source_module.imported_attr is an exact stdlib submodule
+                    // Avoids false positives like "json.dumps" (function) being treated as a module.
                     let full_module_path = format!("{}.{}", source_module, first_dep.imported_attr);
-                    crate::resolver::is_stdlib_module(&full_module_path, python_version)
-                        && alias != &first_dep.imported_attr
+                    let is_exact_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
+                        python_version,
+                        &full_module_path,
+                    );
+                    is_exact_stdlib && alias != &first_dep.imported_attr
                 } else {
                     false
                 };
