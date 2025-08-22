@@ -15,6 +15,7 @@ use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
     code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
+    cribo_graph::ModuleId,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -920,6 +921,10 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     let mut statements = Vec::new();
     let mut created = FxIndexSet::default();
 
+    // Track which module names share the same physical file
+    // Maps ModuleId -> first created namespace variable name
+    let mut file_to_namespace: FxIndexMap<ModuleId, String> = FxIndexMap::default();
+
     // Track which namespaces were created BEFORE this function was called
     // (e.g., via immediate generation)
     let mut pre_created = FxIndexSet::default();
@@ -977,26 +982,64 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
             continue;
         }
 
-        // a. Generate the namespace creation statement
-        // Generate types.SimpleNamespace with __name__ as keyword
-        let keywords = vec![Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__name__", TextRange::default())),
-            value: expressions::string_literal(&info.original_path),
-            range: TextRange::default(),
-        }];
+        // Check if this module shares a file with another module that already has a namespace
+        let mut use_existing_namespace = None;
+        if let Some(registry) = bundler.module_info_registry
+            && let Some(module_id) = registry.get_id_by_name(&info.original_path)
+        {
+            // Check if we already created a namespace for this file
+            if let Some(existing_namespace) = file_to_namespace.get(&module_id) {
+                // This module shares a file with an already created namespace
+                // Create an alias instead of a new namespace
+                debug!(
+                    "Module '{}' shares file with already created namespace '{}', creating alias",
+                    info.original_path, existing_namespace
+                );
+                use_existing_namespace = Some(existing_namespace.clone());
+            }
+        }
 
-        let creation_stmt = statements::assign(
-            vec![expressions::name(sanitized_name, ExprContext::Store)],
-            expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-        );
-        statements.push(creation_stmt);
+        if let Some(existing_namespace) = use_existing_namespace {
+            // Create an alias to the existing namespace
+            statements.push(statements::simple_assign(
+                sanitized_name,
+                expressions::name(&existing_namespace, ExprContext::Load),
+            ));
 
-        // b. Track that this needs to be marked as created (defer mutation)
-        namespaces_to_mark_created.push(sanitized_name.clone());
-        bundler.created_namespaces.insert(sanitized_name.clone());
-        created.insert(sanitized_name.clone());
-        debug!("Added {sanitized_name} to created_namespaces");
+            // Track that this namespace is created (even though it's an alias)
+            namespaces_to_mark_created.push(sanitized_name.clone());
+            bundler.created_namespaces.insert(sanitized_name.clone());
+            created.insert(sanitized_name.clone());
+            debug!("Created alias {sanitized_name} -> {existing_namespace}");
+        } else {
+            // a. Generate the namespace creation statement
+            // Generate types.SimpleNamespace with __name__ as keyword
+            let keywords = vec![Keyword {
+                node_index: AtomicNodeIndex::dummy(),
+                arg: Some(Identifier::new("__name__", TextRange::default())),
+                value: expressions::string_literal(&info.original_path),
+                range: TextRange::default(),
+            }];
+
+            let creation_stmt = statements::assign(
+                vec![expressions::name(sanitized_name, ExprContext::Store)],
+                expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
+            );
+            statements.push(creation_stmt);
+
+            // Track this namespace for file deduplication
+            if let Some(registry) = bundler.module_info_registry
+                && let Some(module_id) = registry.get_id_by_name(&info.original_path)
+            {
+                file_to_namespace.insert(module_id, sanitized_name.clone());
+            }
+
+            // b. Track that this needs to be marked as created (defer mutation)
+            namespaces_to_mark_created.push(sanitized_name.clone());
+            bundler.created_namespaces.insert(sanitized_name.clone());
+            created.insert(sanitized_name.clone());
+            debug!("Added {sanitized_name} to created_namespaces");
+        }
 
         // c. Generate alias if needed (e.g., compat = pkg_compat)
         if info.needs_alias

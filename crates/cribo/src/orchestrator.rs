@@ -73,11 +73,14 @@ impl ModuleRegistry {
         let name = info.canonical_name.clone();
         let path = info.resolved_path.clone();
 
-        // Check if module already exists and validate consistency
+        // Check if module already exists
         if let Some(existing) = self.modules.get(&id) {
+            // For the same ModuleId, we allow different canonical names
+            // (e.g., "__init__" and "yaml" for the same file)
+            // but the path must be the same
             assert!(
-                !(existing.canonical_name != name || existing.resolved_path != path),
-                "Attempting to register module {:?} with conflicting data. Existing: {} at {}, \
+                existing.resolved_path == path,
+                "Attempting to register module {:?} with conflicting paths. Existing: {} at {}, \
                  New: {} at {}",
                 id,
                 existing.canonical_name,
@@ -85,7 +88,10 @@ impl ModuleRegistry {
                 name,
                 path.display()
             );
-            return; // Module already registered with same data
+
+            // Add this new name as an alias for the same ModuleId
+            self.name_to_id.insert(name, id);
+            return; // Module already registered, just added new name mapping
         }
 
         self.name_to_id.insert(name, id);
@@ -896,18 +902,11 @@ impl BundleOrchestrator {
                 "Discovering module: {module_name} ({})",
                 module_path.display()
             );
-            if processed_modules.contains(&module_name) {
-                debug!("Module {module_name} already discovered, skipping");
-                continue;
-            }
 
             // Check if this is a namespace package (directory without __init__.py)
             if module_path.is_dir() {
-                debug!(
-                    "Module {module_name} is a namespace package (directory), marking as processed"
-                );
-                processed_modules.insert(module_name.clone());
-                // Don't add namespace packages to discovered_modules since they have no code
+                debug!("Module {module_name} is a namespace package (directory), skipping");
+                // Don't track namespace packages as they have no code
                 continue;
             }
 

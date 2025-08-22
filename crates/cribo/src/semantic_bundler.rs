@@ -30,6 +30,8 @@ pub struct SemanticBundler {
     global_symbols: SymbolRegistry,
     /// Import alias tracker for resolving import aliases
     import_alias_tracker: ImportAliasTracker,
+    /// Track which `ModuleIds` have already been analyzed to prevent duplicate processing
+    analyzed_modules: FxIndexSet<ModuleId>,
 }
 
 /// Semantic model builder that properly populates bindings using visitor pattern
@@ -452,6 +454,7 @@ impl SemanticBundler {
             module_semantics: FxIndexMap::default(),
             global_symbols: SymbolRegistry::new(),
             import_alias_tracker: ImportAliasTracker::new(),
+            analyzed_modules: FxIndexSet::default(),
         }
     }
 
@@ -463,6 +466,16 @@ impl SemanticBundler {
         source: &str,
         path: &Path,
     ) -> Result<()> {
+        // Check if this ModuleId has already been analyzed
+        // This prevents duplicate processing when multiple module names map to the same file
+        if !self.analyzed_modules.insert(module_id) {
+            log::debug!(
+                "Module {} already analyzed, skipping duplicate processing",
+                module_id.as_u32()
+            );
+            return Ok(());
+        }
+
         log::debug!(
             "Starting semantic analysis for module {}",
             module_id.as_u32()

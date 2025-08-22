@@ -125,6 +125,8 @@ pub struct ItemData {
     /// NEW: Map of variable -> accessed attributes (for tree-shaking namespace access)
     /// e.g., {"greetings": ["message"]} for greetings.message
     pub attribute_accesses: FxIndexMap<String, FxIndexSet<String>>,
+    /// For scoped items: the containing scope name (function or class name)
+    pub containing_scope: Option<String>,
 }
 
 /// Fine-grained dependency graph for a single module
@@ -154,24 +156,6 @@ impl ModuleDepGraph {
             side_effect_items: Vec::new(),
             var_states: FxIndexMap::default(),
             next_item_id: 0,
-        }
-    }
-
-    /// Create a new module dependency graph that shares items from another graph
-    /// This is used when the same file is imported with different names
-    pub fn new_with_shared_items(
-        module_id: ModuleId,
-        module_name: String,
-        source_graph: &ModuleDepGraph,
-    ) -> Self {
-        Self {
-            module_id,
-            module_name,
-            // Clone all the data from the source graph to share the same items
-            items: source_graph.items.clone(),
-            side_effect_items: source_graph.side_effect_items.clone(),
-            var_states: source_graph.var_states.clone(),
-            next_item_id: source_graph.next_item_id,
         }
     }
 
@@ -372,31 +356,17 @@ impl CriboGraph {
         // Check if this file already has a primary module
         if let Some((primary_name, primary_id)) = self.file_primary_module.get(&canonical_path) {
             log::info!(
-                "File {} already imported as '{primary_name}', adding additional import name \
+                "File {} already imported as '{primary_name}', reusing ModuleId for import name \
                  '{name}'",
                 canonical_path.display()
             );
 
-            // Create a new ModuleId that shares the same dependency graph
-            // This allows different import names to have different dependency relationships
-            // while still pointing to the same file
-            let id = ModuleId::new(self.next_module_id);
-            self.next_module_id += 1;
+            // IMPORTANT: Return the SAME ModuleId for the same physical file
+            // This ensures circular dependency detection and all other processing
+            // operates on physical files, not module names
+            self.module_names.insert(name, *primary_id);
 
-            // Clone the dependency graph structure but with new module name
-            let primary_graph = &self.modules[primary_id];
-            let module = ModuleDepGraph::new_with_shared_items(id, name.clone(), primary_graph);
-
-            // Now the new module shares the same item registry as the primary module
-            self.modules.insert(id, module);
-            self.module_names.insert(name, id);
-            self.module_canonical_paths.insert(id, canonical_path);
-
-            // Add to petgraph
-            let node_idx = self.graph.add_node(id);
-            self.node_indices.insert(id, node_idx);
-
-            return id;
+            return *primary_id;
         }
 
         // This is the first time we're seeing this file
@@ -661,6 +631,7 @@ mod tests {
                 defined_symbols: FxIndexSet::default(),
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
             });
         }
 
@@ -680,6 +651,7 @@ mod tests {
                 defined_symbols: FxIndexSet::default(),
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
             });
         }
 
@@ -706,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cloned_items_for_same_file() {
+    fn test_file_based_deduplication() {
         let mut graph = CriboGraph::new();
 
         // Add a module with a canonical path
@@ -733,40 +705,33 @@ mod tests {
             defined_symbols: ["helper".into()].into_iter().collect(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: None,
         });
 
         // Add the same file with a different import name
+        // This should return the SAME ModuleId due to file-based deduplication
         let alt_utils_id = graph.add_module("src.utils".to_string(), &path);
 
-        // Verify that both modules exist
+        // Verify that both names map to the same ModuleId (file-based deduplication)
+        assert_eq!(utils_id, alt_utils_id, "Same file should get same ModuleId");
+
+        // Verify the module exists
         assert!(graph.modules.contains_key(&utils_id));
-        assert!(graph.modules.contains_key(&alt_utils_id));
 
-        // Verify that they share the same items
+        // Verify that both names are tracked
+        assert_eq!(graph.module_names.get("utils"), Some(&utils_id));
+        assert_eq!(graph.module_names.get("src.utils"), Some(&utils_id));
+
+        // Get the module
         let utils_module = &graph.modules[&utils_id];
-        let alt_utils_module = &graph.modules[&alt_utils_id];
 
-        // Check that the item exists in both modules
+        // Check that the item exists in the module
         assert!(utils_module.items.contains_key(&item1));
-        assert!(alt_utils_module.items.contains_key(&item1));
 
-        // Check that they have the same number of items
-        assert_eq!(utils_module.items.len(), alt_utils_module.items.len());
-
-        // Check that the item data is identical
-        assert_eq!(
-            utils_module.items[&item1].item_type,
-            alt_utils_module.items[&item1].item_type
-        );
-
-        // Verify module names are different
+        // The module should have the primary name (first registered)
         assert_eq!(utils_module.module_name, "utils");
-        assert_eq!(alt_utils_module.module_name, "src.utils");
 
-        // Verify module IDs are different
-        assert_ne!(utils_module.module_id, alt_utils_module.module_id);
-
-        // Test that adding items to one module affects the other
+        // Test that adding items affects the same module (since they share the same ModuleId)
         let item2 = {
             let utils_module = graph
                 .modules
@@ -787,22 +752,17 @@ mod tests {
                 defined_symbols: ["new_helper".into()].into_iter().collect(),
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
             })
         };
 
-        // NOTE: The current implementation uses cloning instead of true sharing.
-        // When multiple modules point to the same file, they get a snapshot of items
-        // at creation time. This is the intended behavior for the bundler, as modules
-        // are processed independently and items are discovered during the initial parse.
-        // True sharing (e.g., Arc<RwLock<>>) would add unnecessary complexity for no
-        // practical benefit in the bundling use case.
-        let alt_utils_module = &graph.modules[&alt_utils_id];
+        // Since alt_utils_id and utils_id are the same, they point to the same module
+        let module = &graph.modules[&alt_utils_id];
 
-        // Verify that items are NOT shared (current and intended behavior)
+        // Verify that the new item is present (they're the same module)
         assert!(
-            !alt_utils_module.items.contains_key(&item2),
-            "With current implementation, new items added to one module should NOT appear in \
-             other modules"
+            module.items.contains_key(&item2),
+            "Items should be present since both IDs point to the same module"
         );
     }
 }

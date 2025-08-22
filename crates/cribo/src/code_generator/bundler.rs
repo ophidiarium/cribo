@@ -6426,6 +6426,14 @@ impl<'a> Bundler<'a> {
         statements: Vec<Stmt>,
         python_version: u8,
     ) -> Vec<Stmt> {
+        log::debug!(
+            "reorder_statements_for_circular_module called for module: '{}' \
+             (entry_module_name: '{}', entry_is_package_init_or_main: {})",
+            module_name,
+            self.entry_module_name,
+            self.entry_is_package_init_or_main
+        );
+
         // Check if this is the entry module - entry modules should not have their
         // statements reordered even if they're part of circular dependencies
         let is_entry_module = if self.entry_is_package_init_or_main {
@@ -6450,6 +6458,10 @@ impl<'a> Bundler<'a> {
             );
             return statements;
         }
+
+        log::debug!(
+            "Proceeding with statement reordering for module: '{module_name}'"
+        );
 
         // Get the ordered symbols for this module from the dependency graph
         let ordered_symbols = self
