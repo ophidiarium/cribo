@@ -946,6 +946,20 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         }
     }
 
+    // Seed dedup map with namespaces created before this function
+    if let Some(registry) = bundler.module_info_registry {
+        for (sanitized, info) in &bundler.namespace_registry {
+            if info.is_created
+                && let Some(module_id) = registry.get_id_by_name(&info.original_path)
+            {
+                file_to_namespace.insert(module_id, sanitized.clone());
+                trace!(
+                    "Seeded dedup: ModuleId({module_id:?}) -> {sanitized} (pre-created)"
+                );
+            }
+        }
+    }
+
     // 1-3. Get sorted namespace keys by depth (parent namespaces first)
     let sorted_keys = get_sorted_namespace_keys(&bundler.namespace_registry);
 
