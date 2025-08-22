@@ -29,6 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
+MyError = None
 class MyError(Exception):
     """Base exception class"""
     pass

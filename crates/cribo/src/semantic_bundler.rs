@@ -14,11 +14,11 @@ use ruff_python_semantic::{
 };
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
-use rustc_hash::{FxHashMap as FxIndexMap, FxHashSet as FxIndexSet};
 
 use crate::{
     cribo_graph::ModuleId,
     import_alias_tracker::{EnhancedFromImport, ImportAliasTracker},
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models

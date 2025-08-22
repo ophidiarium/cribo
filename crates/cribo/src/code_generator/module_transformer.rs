@@ -469,7 +469,7 @@ pub fn transform_module_to_init_function<'a>(
     };
 
     // First, scan the body to find all built-in names that will be assigned as local variables
-    let mut builtin_locals = rustc_hash::FxHashSet::default();
+    let mut builtin_locals = FxIndexSet::default();
     for stmt in &ast.body {
         let target_opt = match stmt {
             Stmt::Assign(assign) if assign.targets.len() == 1 => {
@@ -506,10 +506,10 @@ pub fn transform_module_to_init_function<'a>(
 
     // Helper function to get exported module-level variables
     let get_exported_module_vars =
-        |bundler: &Bundler, ctx: &ModuleTransformContext| -> rustc_hash::FxHashSet<String> {
+        |bundler: &Bundler, ctx: &ModuleTransformContext| -> FxIndexSet<String> {
             if let Some(ref global_info) = ctx.global_info {
                 let all_vars = &global_info.module_level_vars;
-                let mut exported_vars = rustc_hash::FxHashSet::default();
+                let mut exported_vars = FxIndexSet::default();
                 for var in all_vars {
                     if bundler.should_export_symbol(var, ctx.module_name) {
                         exported_vars.insert(var.to_string());
@@ -517,7 +517,7 @@ pub fn transform_module_to_init_function<'a>(
                 }
                 exported_vars
             } else {
-                rustc_hash::FxHashSet::default()
+                FxIndexSet::default()
             }
         };
 
@@ -546,7 +546,7 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Track which lifted globals we've already initialized to avoid duplicates
-    let mut initialized_lifted_globals = rustc_hash::FxHashSet::default();
+    let mut initialized_lifted_globals = FxIndexSet::default();
 
     // Process each statement from the transformed module body
     for (idx, stmt) in processed_body.into_iter().enumerate() {
@@ -879,7 +879,7 @@ pub fn transform_module_to_init_function<'a>(
                 // ones
                 let module_level_vars = if let Some(ref global_info) = ctx.global_info {
                     let all_vars = &global_info.module_level_vars;
-                    let mut exported_vars = rustc_hash::FxHashSet::default();
+                    let mut exported_vars = FxIndexSet::default();
                     for var in all_vars {
                         if bundler.should_export_symbol(var, ctx.module_name) {
                             exported_vars.insert(var.clone());
@@ -887,7 +887,7 @@ pub fn transform_module_to_init_function<'a>(
                     }
                     exported_vars
                 } else {
-                    rustc_hash::FxHashSet::default()
+                    FxIndexSet::default()
                 };
                 transform_stmt_for_module_vars_with_bundler(
                     &mut stmt_clone,
@@ -1118,7 +1118,7 @@ pub fn transform_module_to_init_function<'a>(
 /// Transform an expression to use module attributes for module-level variables
 fn transform_expr_for_module_vars(
     expr: &mut Expr,
-    module_level_vars: &rustc_hash::FxHashSet<String>,
+    module_level_vars: &FxIndexSet<String>,
     python_version: u8,
 ) {
     match expr {
@@ -1328,7 +1328,7 @@ fn transform_expr_for_module_vars(
 /// Transform a statement to use module attributes for module-level variables
 fn transform_stmt_for_module_vars(
     stmt: &mut Stmt,
-    module_level_vars: &rustc_hash::FxHashSet<String>,
+    module_level_vars: &FxIndexSet<String>,
     python_version: u8,
 ) {
     match stmt {
@@ -1540,8 +1540,8 @@ fn transform_stmt_for_module_vars(
 fn transform_stmt_for_module_vars_with_bundler(
     stmt: &mut Stmt,
     bundler: &Bundler,
-    module_level_vars: &rustc_hash::FxHashSet<String>,
-    global_declarations: Option<&rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>>,
+    module_level_vars: &FxIndexSet<String>,
+    global_declarations: Option<&FxIndexMap<String, Vec<ruff_text_size::TextRange>>>,
     lifted_names: Option<&FxIndexMap<String, String>>,
     python_version: u8,
 ) {
@@ -1571,11 +1571,11 @@ fn transform_stmt_for_module_vars_with_bundler(
 /// Transform nested function to use module attributes for module-level variables
 fn transform_nested_function_for_module_vars(
     func_def: &mut StmtFunctionDef,
-    module_level_vars: &rustc_hash::FxHashSet<String>,
+    module_level_vars: &FxIndexSet<String>,
     python_version: u8,
 ) {
     // Collect local variables defined in this function
-    let mut local_vars = rustc_hash::FxHashSet::default();
+    let mut local_vars = FxIndexSet::default();
 
     // Add function parameters to local variables
     for param in &func_def.parameters.args {
@@ -1609,7 +1609,7 @@ fn transform_nested_function_for_module_vars(
 }
 
 /// Collect local variables defined in a list of statements
-fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
+fn collect_local_vars(stmts: &[Stmt], local_vars: &mut FxIndexSet<String>) {
     for stmt in stmts {
         match stmt {
             Stmt::Assign(assign) => {
@@ -1688,8 +1688,8 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 /// Transform a statement with awareness of local variables
 fn transform_stmt_for_module_vars_with_locals(
     stmt: &mut Stmt,
-    module_level_vars: &rustc_hash::FxHashSet<String>,
-    local_vars: &rustc_hash::FxHashSet<String>,
+    module_level_vars: &FxIndexSet<String>,
+    local_vars: &FxIndexSet<String>,
     python_version: u8,
 ) {
     match stmt {
@@ -1817,8 +1817,8 @@ fn transform_stmt_for_module_vars_with_locals(
 /// Transform an expression with awareness of local variables
 fn transform_expr_for_module_vars_with_locals(
     expr: &mut Expr,
-    module_level_vars: &rustc_hash::FxHashSet<String>,
-    local_vars: &rustc_hash::FxHashSet<String>,
+    module_level_vars: &FxIndexSet<String>,
+    local_vars: &FxIndexSet<String>,
     python_version: u8,
 ) {
     match expr {
@@ -1977,10 +1977,7 @@ pub fn transform_ast_with_lifted_globals(
 /// Transform expressions to handle built-in name shadowing in init functions
 /// When a built-in name like 'str' is assigned as a local variable in the function,
 /// any reference to that built-in before the assignment needs to use __builtins__.name
-fn transform_expr_for_builtin_shadowing(
-    expr: &mut Expr,
-    builtin_locals: &rustc_hash::FxHashSet<String>,
-) {
+fn transform_expr_for_builtin_shadowing(expr: &mut Expr, builtin_locals: &FxIndexSet<String>) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
             // If this name refers to a built-in that will be shadowed by a local assignment,
@@ -2155,7 +2152,7 @@ fn should_include_symbol(
     bundler: &Bundler,
     symbol_name: &str,
     module_name: &str,
-    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    module_scope_symbols: Option<&FxIndexSet<String>>,
 ) -> bool {
     // If we have module_scope_symbols, check if the symbol is in that set
     // But also check special cases
@@ -2221,7 +2218,7 @@ fn add_module_attr_if_exported(
     assign: &StmtAssign,
     module_name: &str,
     body: &mut Vec<Stmt>,
-    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    module_scope_symbols: Option<&FxIndexSet<String>>,
 ) {
     if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
         emit_module_attr_if_exportable(
@@ -2242,7 +2239,7 @@ fn emit_module_attr_if_exportable(
     symbol_name: &str,
     module_name: &str,
     body: &mut Vec<Stmt>,
-    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    module_scope_symbols: Option<&FxIndexSet<String>>,
     lifted_names: Option<&FxIndexMap<String, String>>,
 ) {
     // Check if this is a lifted variable (only relevant for AnnAssign)

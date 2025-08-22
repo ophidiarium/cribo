@@ -85,7 +85,7 @@ pub struct Bundler<'a> {
     /// Module export information (for __all__ handling)
     pub(crate) module_exports: FxIndexMap<String, Option<Vec<String>>>,
     /// Semantic export information (includes re-exports from child modules)
-    pub(crate) semantic_exports: FxIndexMap<String, FxHashSet<String>>,
+    pub(crate) semantic_exports: FxIndexMap<String, FxIndexSet<String>>,
     /// Lifted global declarations to add at module top level
     pub(crate) lifted_global_declarations: Vec<Stmt>,
     /// Modules that are imported as namespaces (e.g., from package import module)
@@ -5713,7 +5713,7 @@ impl<'a> Bundler<'a> {
         &self,
         body: Vec<Stmt>,
         module_name: &str,
-        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+        module_scope_symbols: Option<&FxIndexSet<String>>,
     ) -> Vec<Stmt> {
         self.process_body_recursive_impl(body, module_name, module_scope_symbols, false)
     }
@@ -5723,7 +5723,7 @@ impl<'a> Bundler<'a> {
         &self,
         body: Vec<Stmt>,
         module_name: &str,
-        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+        module_scope_symbols: Option<&FxIndexSet<String>>,
         in_conditional_context: bool,
     ) -> Vec<Stmt> {
         let mut result = Vec::new();
@@ -6003,13 +6003,13 @@ impl<'a> Bundler<'a> {
     pub fn transform_nested_function_for_module_vars_with_global_info(
         &self,
         func_def: &mut StmtFunctionDef,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
-        global_declarations: &rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>,
+        module_level_vars: &FxIndexSet<String>,
+        global_declarations: &FxIndexMap<String, Vec<ruff_text_size::TextRange>>,
         lifted_names: Option<&FxIndexMap<String, String>>,
     ) {
         // First, collect all names in this function scope that must NOT be rewritten
         // (globals declared here or nonlocals captured from an outer function)
-        let mut global_vars = rustc_hash::FxHashSet::default();
+        let mut global_vars = FxIndexSet::default();
 
         // Build a reverse map for lifted names to avoid O(n) scans per name
         let lifted_to_original: Option<FxIndexMap<String, String>> = lifted_names.map(|m| {
@@ -6053,7 +6053,7 @@ impl<'a> Bundler<'a> {
         // Create a modified set of module_level_vars that excludes the global vars
         let mut filtered_module_vars = module_level_vars.clone();
         for global_var in &global_vars {
-            filtered_module_vars.remove(global_var);
+            filtered_module_vars.swap_remove(global_var);
         }
 
         // Transform using the filtered set
@@ -6064,10 +6064,10 @@ impl<'a> Bundler<'a> {
     pub fn transform_nested_function_for_module_vars(
         &self,
         func_def: &mut StmtFunctionDef,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
+        module_level_vars: &FxIndexSet<String>,
     ) {
         // First, collect all global declarations in this function
-        let mut global_vars = rustc_hash::FxHashSet::default();
+        let mut global_vars = FxIndexSet::default();
         for stmt in &func_def.body {
             if let Stmt::Global(global_stmt) = stmt {
                 for name in &global_stmt.names {
@@ -6077,7 +6077,7 @@ impl<'a> Bundler<'a> {
         }
 
         // Collect local variables defined in this function
-        let mut local_vars = rustc_hash::FxHashSet::default();
+        let mut local_vars = FxIndexSet::default();
 
         // Add function parameters to local variables
         for param in &func_def.parameters.args {
@@ -6110,8 +6110,8 @@ impl<'a> Bundler<'a> {
     fn transform_stmt_for_module_vars_with_locals(
         &self,
         stmt: &mut Stmt,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
-        local_vars: &rustc_hash::FxHashSet<String>,
+        module_level_vars: &FxIndexSet<String>,
+        local_vars: &FxIndexSet<String>,
     ) {
         match stmt {
             Stmt::FunctionDef(nested_func) => {
@@ -6261,8 +6261,8 @@ impl<'a> Bundler<'a> {
     /// Transform an expression with awareness of local variables
     fn transform_expr_for_module_vars_with_locals(
         expr: &mut Expr,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
-        local_vars: &rustc_hash::FxHashSet<String>,
+        module_level_vars: &FxIndexSet<String>,
+        local_vars: &FxIndexSet<String>,
     ) {
         match expr {
             Expr::Name(name_expr) => {
@@ -7409,8 +7409,8 @@ impl<'a> Bundler<'a> {
 /// Collect local variables from statements, excluding those declared as global
 fn collect_local_vars_with_globals(
     stmts: &[Stmt],
-    local_vars: &mut rustc_hash::FxHashSet<String>,
-    global_vars: &rustc_hash::FxHashSet<String>,
+    local_vars: &mut FxIndexSet<String>,
+    global_vars: &FxIndexSet<String>,
 ) {
     for stmt in stmts {
         match stmt {

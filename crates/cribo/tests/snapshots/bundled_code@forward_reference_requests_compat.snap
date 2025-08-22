@@ -29,7 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 myrequests = _cribo.types.SimpleNamespace(__name__='myrequests')
-InvalidJSONError = None
 class RequestException(Exception):
     """Base exception for all request errors."""
     pass
