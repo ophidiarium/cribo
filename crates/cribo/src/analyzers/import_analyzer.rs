@@ -729,6 +729,29 @@ impl ImportAnalyzer {
             false
         }
     }
+
+    /// Collect all `__future__` imports from a module AST
+    pub fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
+        let mut future_imports = FxIndexSet::default();
+
+        for stmt in &ast.body {
+            let Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
+
+            let Some(ref module) = import_from.module else {
+                continue;
+            };
+
+            if module.as_str() == "__future__" {
+                for alias in &import_from.names {
+                    future_imports.insert(alias.name.to_string());
+                }
+            }
+        }
+
+        future_imports
+    }
 }
 
 /// Visitor that checks if a specific symbol is imported from a target module
