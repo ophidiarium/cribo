@@ -686,10 +686,18 @@ impl TreeShaker {
             {
                 // This import is inside the function/class being marked as used
                 match &item.item_type {
-                    ItemType::Import { module, .. } => {
-                        debug!("Marking import {module} as used (inside scope {scope_name})");
-                        // For direct imports, we need to mark the imported module's symbols
-                        // This is conservative - we don't know which symbols are actually used
+                    ItemType::Import {
+                        module: imported_module,
+                        ..
+                    } => {
+                        debug!(
+                            "Marking import {imported_module} as used (inside scope {scope_name})"
+                        );
+                        // For direct imports, we need to mark the variables they declare as used
+                        for var in &item.var_decls {
+                            debug!("  Adding imported variable {var} to worklist");
+                            worklist.push_back((module.to_string(), var.clone()));
+                        }
                     }
                     ItemType::FromImport {
                         module: from_module,
