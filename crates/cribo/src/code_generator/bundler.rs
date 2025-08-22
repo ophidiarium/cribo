@@ -85,7 +85,7 @@ pub struct Bundler<'a> {
     /// Module export information (for __all__ handling)
     pub(crate) module_exports: FxIndexMap<String, Option<Vec<String>>>,
     /// Semantic export information (includes re-exports from child modules)
-    pub(crate) semantic_exports: FxIndexMap<String, FxHashSet<String>>,
+    pub(crate) semantic_exports: FxIndexMap<String, FxIndexSet<String>>,
     /// Lifted global declarations to add at module top level
     pub(crate) lifted_global_declarations: Vec<Stmt>,
     /// Modules that are imported as namespaces (e.g., from package import module)
@@ -173,6 +173,19 @@ impl<'a> Bundler<'a> {
                 .get(module_name)
                 .is_some_and(|symbols| symbols.contains(symbol_name)),
             None => true, // No tree shaking, all symbols are kept
+        }
+    }
+
+    /// Get the entry package name when entry is a package __init__.py
+    /// Returns None if entry is not a package __init__.py
+    #[inline]
+    fn entry_package_name(&self) -> Option<&str> {
+        if crate::util::is_init_module(&self.entry_module_name) {
+            // Strip the .__init__ suffix if present, otherwise return None
+            // Note: if entry is bare "__init__", we don't have the package name
+            self.entry_module_name.strip_suffix(".__init__")
+        } else {
+            None
         }
     }
 
@@ -799,21 +812,14 @@ impl<'a> Bundler<'a> {
                     let full_submodule_path = format!("{module_name}.{imported_name}");
                     if self.module_registry.contains_key(&full_submodule_path) {
                         // This is importing a wrapper submodule from an inlined parent module
-                        // We should treat it like a submodule import, not an attribute import
-                        log::debug!(
-                            "Importing wrapper submodule '{imported_name}' from inlined module \
-                             '{module_name}'"
+                        // This case should have been handled by the import transformer during inlining
+                        // and deferred. If we get here, something went wrong.
+                        log::warn!(
+                            "Unexpected: importing wrapper submodule '{imported_name}' from inlined module \
+                             '{module_name}' in transform_bundled_import_from_multiple - should have been deferred"
                         );
 
-                        // Initialize the submodule if needed
-                        if !locally_initialized.contains(&full_submodule_path) {
-                            assignments.extend(
-                                self.create_module_initialization_for_import(&full_submodule_path),
-                            );
-                            locally_initialized.insert(full_submodule_path.clone());
-                        }
-
-                        // Create direct assignment to the submodule namespace
+                        // Create direct assignment to where the module will be (fallback)
                         let namespace_expr = if full_submodule_path.contains('.') {
                             let parts: Vec<&str> = full_submodule_path.split('.').collect();
                             expressions::dotted_name(&parts, ExprContext::Load)
@@ -830,10 +836,12 @@ impl<'a> Bundler<'a> {
                 }
 
                 // Ensure the module is initialized first if it's a wrapper module
+                // Only initialize if we're inside a wrapper init OR if the module's init
+                // function has already been defined (to avoid forward references)
                 if self.module_registry.contains_key(module_name)
                     && !locally_initialized.contains(module_name)
-                    && current_module != Some(module_name)
-                // Prevent self-initialization
+                    && current_module != Some(module_name)  // Prevent self-initialization
+                    && (inside_wrapper_init || self.init_functions.contains_key(&self.module_registry[module_name]))
                 {
                     // Check if this module is already initialized in any deferred imports
                     let module_init_exists = assignments.iter().any(|stmt| {
@@ -1731,6 +1739,32 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
+            // Also skip if this is the entry package itself when entry is a package __init__.py
+            // e.g., skip "yaml" when entry is "yaml.__init__"
+            if self.entry_is_package_init_or_main {
+                if let Some(entry_pkg) = self.entry_package_name() {
+                    if module_name == entry_pkg {
+                        log::debug!(
+                            "Skipping module '{module_name}' as it's the package name for entry module '__init__.py'"
+                        );
+                        continue;
+                    }
+                } else if crate::util::is_init_module(entry_module_name)
+                    && entry_module_name == "__init__"
+                {
+                    // Special case: entry is bare "__init__" without package prefix
+                    // In this case, we need to check if the module matches the inferred package name
+                    // This happens when the entry module is discovered as "__init__" without full path context
+                    if !module_name.contains('.') {
+                        // This could be the package, but we need more context to be sure
+                        // For safety, we should NOT skip it unless we're certain
+                        log::debug!(
+                            "Not skipping top-level module '{module_name}' as we cannot confirm it matches entry '__init__'"
+                        );
+                    }
+                }
+            }
+
             // Extract __all__ exports from the module using ExportCollector
             let export_info = ExportCollector::analyze(ast);
             let has_explicit_all = export_info.exported_names.is_some();
@@ -2037,6 +2071,22 @@ impl<'a> Bundler<'a> {
                 }
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
+
+            // If entry module is __init__.py, also remove the entry package from circular modules
+            // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove "yaml"
+            // as they're the same file (yaml/__init__.py)
+            if self.entry_is_package_init_or_main
+                && let Some(entry_pkg) = self.entry_package_name()
+            {
+                let entry_pkg = entry_pkg.to_string(); // Convert to owned string to avoid borrow issues
+                // Remove the specific entry package from circular modules
+                if self.circular_modules.contains(&entry_pkg) {
+                    log::debug!(
+                        "Removing package '{entry_pkg}' from circular modules as it's the same as entry module '__init__.py'"
+                    );
+                    self.circular_modules.swap_remove(&entry_pkg);
+                }
+            }
         } else {
             log::debug!("No circular dependency analysis provided");
         }
@@ -2501,11 +2551,42 @@ impl<'a> Bundler<'a> {
         }
 
         // Before inlining modules, check which wrapper modules they depend on
+        // We only track direct dependencies from inlined modules to wrapper modules
+        // Wrapper-to-wrapper dependencies will be handled through normal init ordering
         let mut wrapper_modules_needed_by_inlined = FxIndexSet::default();
         for (module_name, ast, module_path, _) in &inlinable_modules {
             // Check imports in the module
             for stmt in &ast.body {
                 if let Stmt::ImportFrom(import_from) = stmt {
+                    // Handle "from . import X" pattern where X might be a wrapper module
+                    if import_from.level > 0 && import_from.module.is_none() {
+                        // This is "from . import X" pattern
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str();
+                            // Resolve the parent module
+                            let parent_module =
+                                self.resolver.resolve_relative_to_absolute_module_name(
+                                    import_from.level,
+                                    None, // No module name, just the parent
+                                    module_path,
+                                );
+                            if let Some(parent) = parent_module {
+                                let potential_module = format!("{parent}.{imported_name}");
+                                // Check if this will be a wrapper module (check in wrapper_modules_saved list)
+                                if wrapper_modules_saved
+                                    .iter()
+                                    .any(|(name, _, _, _)| name == &potential_module)
+                                {
+                                    wrapper_modules_needed_by_inlined
+                                        .insert(potential_module.clone());
+                                    log::debug!(
+                                        "Inlined module '{module_name}' imports wrapper module '{potential_module}' via 'from . import'"
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     // Resolve relative imports to absolute module names
                     let resolved_module = if import_from.level > 0 {
                         // This is a relative import, resolve it
@@ -2535,6 +2616,180 @@ impl<'a> Bundler<'a> {
                 }
             }
         }
+
+        // Now we need to find transitive dependencies for wrapper modules needed by inlined modules
+        // If an inlined module needs wrapper A, and wrapper A needs wrapper B, then B must be
+        // initialized before A. We need to build the full dependency chain.
+        let mut wrapper_to_wrapper_deps: FxIndexMap<String, FxIndexSet<String>> =
+            FxIndexMap::default();
+
+        // Collect wrapper-to-wrapper dependencies
+        for (module_name, ast, module_path, _) in &wrapper_modules_saved {
+            for stmt in &ast.body {
+                if let Stmt::ImportFrom(import_from) = stmt {
+                    // Handle "from . import X" pattern
+                    if import_from.level > 0 && import_from.module.is_none() {
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str();
+                            let parent_module =
+                                self.resolver.resolve_relative_to_absolute_module_name(
+                                    import_from.level,
+                                    None,
+                                    module_path,
+                                );
+                            if let Some(parent) = parent_module {
+                                let potential_module = format!("{parent}.{imported_name}");
+                                if wrapper_modules_saved
+                                    .iter()
+                                    .any(|(name, _, _, _)| name == &potential_module)
+                                {
+                                    wrapper_to_wrapper_deps
+                                        .entry(module_name.clone())
+                                        .or_default()
+                                        .insert(potential_module);
+                                }
+                            }
+                        }
+                    }
+
+                    // Handle other imports
+                    let resolved_module = if import_from.level > 0 {
+                        self.resolver.resolve_relative_to_absolute_module_name(
+                            import_from.level,
+                            import_from
+                                .module
+                                .as_ref()
+                                .map(ruff_python_ast::Identifier::as_str),
+                            module_path,
+                        )
+                    } else {
+                        import_from.module.as_ref().map(|m| m.as_str().to_string())
+                    };
+
+                    if let Some(ref resolved) = resolved_module
+                        && wrapper_modules_saved
+                            .iter()
+                            .any(|(name, _, _, _)| name == resolved)
+                    {
+                        wrapper_to_wrapper_deps
+                            .entry(module_name.clone())
+                            .or_default()
+                            .insert(resolved.clone());
+                    }
+                }
+            }
+        }
+
+        // Add transitive dependencies
+        let mut all_needed = wrapper_modules_needed_by_inlined.clone();
+        let mut to_process = wrapper_modules_needed_by_inlined.clone();
+
+        while !to_process.is_empty() {
+            let mut next_to_process = FxIndexSet::default();
+            for module in &to_process {
+                if let Some(deps) = wrapper_to_wrapper_deps.get(module) {
+                    for dep in deps {
+                        if !all_needed.contains(dep) {
+                            all_needed.insert(dep.clone());
+                            next_to_process.insert(dep.clone());
+                            log::debug!("Adding transitive dependency: {dep} (needed by {module})");
+                        }
+                    }
+                }
+            }
+            to_process = next_to_process;
+        }
+
+        // Now we need to filter out wrapper modules that depend on inlined modules
+        // These cannot be initialized before inlining because they reference symbols
+        // from inlined modules that won't be available yet
+        let mut wrapper_depends_on_inlined = FxIndexSet::default();
+
+        for (module_name, ast, module_path, _) in &wrapper_modules_saved {
+            if all_needed.contains(module_name) {
+                // Check if this wrapper module imports from any inlined modules
+                for stmt in &ast.body {
+                    if let Stmt::ImportFrom(import_from) = stmt {
+                        let resolved = if import_from.level > 0 {
+                            if import_from.module.is_none() {
+                                // from . import X
+                                for alias in &import_from.names {
+                                    let parent =
+                                        self.resolver.resolve_relative_to_absolute_module_name(
+                                            import_from.level,
+                                            None,
+                                            module_path,
+                                        );
+                                    if let Some(p) = parent {
+                                        let full = format!("{}.{}", p, alias.name.as_str());
+                                        // Check if this is an inlined module
+                                        if self.inlined_modules.contains(&full) {
+                                            log::debug!(
+                                                "Wrapper module {module_name} depends on inlined module {full}, cannot initialize early"
+                                            );
+                                            wrapper_depends_on_inlined.insert(module_name.clone());
+                                        }
+                                    }
+                                }
+                                None
+                            } else {
+                                self.resolver.resolve_relative_to_absolute_module_name(
+                                    import_from.level,
+                                    import_from
+                                        .module
+                                        .as_ref()
+                                        .map(ruff_python_ast::Identifier::as_str),
+                                    module_path,
+                                )
+                            }
+                        } else {
+                            import_from.module.as_ref().map(|m| m.as_str().to_string())
+                        };
+
+                        if let Some(r) = resolved
+                            && self.inlined_modules.contains(&r)
+                        {
+                            log::debug!(
+                                "Wrapper module {module_name} depends on inlined module {r}, cannot initialize early"
+                            );
+                            wrapper_depends_on_inlined.insert(module_name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also need to propagate this - if A depends on B and B depends on inlined, then A also can't be initialized early
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for module in all_needed.clone() {
+                if !wrapper_depends_on_inlined.contains(&module)
+                    && let Some(deps) = wrapper_to_wrapper_deps.get(&module)
+                {
+                    for dep in deps {
+                        if wrapper_depends_on_inlined.contains(dep) {
+                            wrapper_depends_on_inlined.insert(module.clone());
+                            log::debug!(
+                                "Wrapper module {module} transitively depends on inlined modules via {dep}, cannot initialize early"
+                            );
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove wrapper modules that depend on inlined modules from the early initialization set
+        for module in &wrapper_depends_on_inlined {
+            all_needed.shift_remove(module);
+            log::debug!(
+                "Removing {module} from early initialization set - depends on inlined modules"
+            );
+        }
+
+        wrapper_modules_needed_by_inlined = all_needed;
 
         // Register all inlined submodules that will need namespaces
         {
@@ -2694,6 +2949,8 @@ impl<'a> Bundler<'a> {
             }
         }
 
+        // Note: We no longer initialize modules early to avoid forward reference errors
+
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
         if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
@@ -2757,26 +3014,17 @@ impl<'a> Bundler<'a> {
                     );
                     final_body.push(init_function);
 
-                    // Initialize the wrapper module immediately after defining it
-                    // ONLY for non-module-cache mode
+                    // DO NOT initialize wrapper modules immediately after defining their init functions!
+                    // This causes forward reference errors when wrapper modules have circular dependencies.
+                    // Instead, we'll initialize them later in dependency order after ALL init functions
+                    // have been defined.
                     if use_module_cache_for_wrappers {
-                        // For module cache mode, initialization happens later in dependency order
-                        // But if this wrapper module is a source of hard dependencies, we need to
-                        // handle it specially to avoid forward reference
-                        // errors
-                        let is_hard_dep_source = self
-                            .hard_dependencies
-                            .iter()
-                            .any(|dep| dep.source_module == *module_name);
-                        if is_hard_dep_source {
-                            // Don't initialize here - this would cause a forward reference
-                            // Instead, we'll handle hard dependencies after all init functions are
-                            // defined
-                            log::debug!(
-                                "Module {module_name} is a hard dependency source, deferring \
-                                 initialization"
-                            );
-                        }
+                        // Even in module cache mode, DO NOT initialize these modules now
+                        // We'll initialize them later in the correct order
+                        log::debug!(
+                            "Module {module_name} is needed by inlined modules, will initialize later in dependency order"
+                        );
+                        // Don't initialize here - will be done later
                     } else {
                         let init_stmts =
                             crate::code_generator::module_registry::generate_module_init_call(
@@ -3534,6 +3782,42 @@ impl<'a> Bundler<'a> {
             final_body.extend(wrapper_stmts);
         }
 
+        // Track modules that have been initialized early
+        let mut early_initialized_modules = FxIndexSet::default();
+
+        // Initialize wrapper modules that were needed by inlined modules
+        // These were defined early but not initialized to avoid forward references
+        // Now that ALL init functions have been defined, we can safely initialize them
+        if !wrapper_modules_needed_by_inlined.is_empty() {
+            log::debug!(
+                "Initializing wrapper modules needed by inlined modules: {wrapper_modules_needed_by_inlined:?}"
+            );
+
+            for module_name in &wrapper_modules_needed_by_inlined {
+                if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                    // Generate init call and assignment
+                    let init_func_name = &self.init_functions[synthetic_name];
+                    let init_call = expressions::call(
+                        expressions::name(init_func_name, ExprContext::Load),
+                        vec![],
+                        vec![],
+                    );
+
+                    // Generate the appropriate assignment based on module type
+                    let init_stmts =
+                        self.generate_module_assignment_from_init(module_name, init_call);
+                    final_body.extend(init_stmts);
+
+                    // Track that we initialized this module early
+                    early_initialized_modules.insert(module_name.clone());
+
+                    log::debug!(
+                        "Initialized wrapper module needed by inlined modules: {module_name}"
+                    );
+                }
+            }
+        }
+
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
         if has_wrapper_modules {
             debug!("Creating parent namespaces before module initialization");
@@ -3574,6 +3858,15 @@ impl<'a> Bundler<'a> {
 
                 for module_name in &sorted_wrapped {
                     if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        // Skip if already initialized early (for modules needed by inlined modules)
+                        if early_initialized_modules.contains(module_name) {
+                            log::debug!(
+                                "Skipping module {module_name} - already initialized early for inlined modules"
+                            );
+                            initialized_in_scope.insert(module_name.clone());
+                            continue;
+                        }
+
                         // Skip if already initialized in this scope
                         if initialized_in_scope.contains(module_name) {
                             log::debug!(
@@ -3650,9 +3943,56 @@ impl<'a> Bundler<'a> {
                     }
                 }
             } else {
-                // DO NOT initialize modules here - they should be initialized when imported
-                // This preserves Python's lazy import semantics
-                debug!("Skipping eager module initialization - modules will initialize on import");
+                // Without circular dependencies, only initialize wrapper modules that have
+                // parent packages which are inlined. These modules are accessed via
+                // parent.module syntax and need to be available.
+                debug!("Checking for wrapper modules with inlined parent packages");
+
+                let mut wrapper_modules_with_inlined_parents = FxIndexSet::default();
+                for module_name in &sorted_wrapped {
+                    // Check if this module has a parent package
+                    if let Some(parent_idx) = module_name.rfind('.') {
+                        let parent_package = &module_name[..parent_idx];
+                        // Check if the parent is inlined (not in module_registry)
+                        if !self.module_registry.contains_key(parent_package) {
+                            // Parent is inlined, this wrapper module needs initialization
+                            wrapper_modules_with_inlined_parents.insert(module_name.clone());
+                            log::debug!(
+                                "Wrapper module '{module_name}' has inlined parent '{parent_package}' - will initialize"
+                            );
+                        }
+                    }
+                }
+
+                for module_name in &wrapper_modules_with_inlined_parents {
+                    if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        // Skip if already initialized early
+                        if early_initialized_modules.contains(module_name) {
+                            log::debug!(
+                                "Skipping module {module_name} - already initialized early"
+                            );
+                            continue;
+                        }
+
+                        let init_func_name = &self.init_functions[synthetic_name];
+
+                        // Generate init call and assignment
+                        let init_call = expressions::call(
+                            expressions::name(init_func_name, ExprContext::Load),
+                            vec![],
+                            vec![],
+                        );
+
+                        // Generate the appropriate assignment
+                        let init_stmts =
+                            self.generate_module_assignment_from_init(module_name, init_call);
+                        final_body.extend(init_stmts);
+
+                        log::debug!(
+                            "Initialized wrapper module with inlined parent: {module_name}"
+                        );
+                    }
+                }
             }
 
             // After all modules are initialized, assign temporary variables to their namespace
@@ -3877,6 +4217,139 @@ impl<'a> Bundler<'a> {
             "After generate_submodule_attributes, body length: {}",
             final_body.len()
         );
+
+        // Generate any namespaces that were registered during module processing
+        // (e.g., inlined submodules like requests.exceptions)
+        // Only generate if new namespaces were registered since the previous emission
+        let created_before = self.created_namespaces.len();
+        log::debug!(
+            "Generating late-registered namespaces - registry has {} entries, created_namespaces has {} items",
+            self.namespace_registry.len(),
+            self.created_namespaces.len()
+        );
+        let late_namespace_statements = namespace_manager::generate_required_namespaces(self);
+
+        // Check if any new namespaces were actually created
+        if late_namespace_statements.is_empty() && self.created_namespaces.len() == created_before {
+            log::debug!("No late namespaces to generate; skipping parent assignments as well");
+        } else {
+            log::debug!(
+                "Generated {} late namespace statements",
+                late_namespace_statements.len()
+            );
+            final_body.extend(late_namespace_statements);
+
+            // Now generate parent attribute assignments for all namespaces
+            // This ensures parent.child = child assignments for all namespaces
+            log::debug!(
+                "Generating parent attribute assignments for all namespaces - created_namespaces has {} items",
+                self.created_namespaces.len()
+            );
+            let late_parent_assignments =
+                namespace_manager::generate_parent_attribute_assignments(self);
+            log::debug!(
+                "Generated {} late parent attribute assignments",
+                late_parent_assignments.len()
+            );
+            final_body.extend(late_parent_assignments);
+        }
+
+        // Generate module-level exports for all submodules of the entry module
+        // This ensures that imports like `requests.exceptions` work in the bundled module
+        // For package bundles, the entry is typically "__init__" but we want to export
+        // submodules of the package itself (e.g., "requests.exceptions" not "__init__.exceptions")
+        // So we need to find the package name from the modules
+        let package_name = if params.entry_module_name == "__init__" {
+            // Find the package name from any submodule
+            self.inlined_modules
+                .iter()
+                .chain(self.module_registry.keys())
+                .find_map(|name| {
+                    if name.contains('.') {
+                        name.split('.').next()
+                    } else if name != "__init__" {
+                        Some(name.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("__init__")
+        } else {
+            params.entry_module_name
+        };
+
+        // Collect already-defined symbols to avoid overwriting them
+        // We scan the final_body for assignments to detect what symbols exist
+        let mut already_defined_symbols = FxIndexSet::default();
+        for stmt in &final_body {
+            if let Stmt::Assign(assign) = stmt {
+                for target in &assign.targets {
+                    if let Expr::Name(name) = target {
+                        already_defined_symbols.insert(name.id.to_string());
+                    }
+                }
+            }
+        }
+
+        if package_name != "__init__" {
+            log::debug!("Generating module-level exports for package '{package_name}'");
+
+            // Find all direct submodules of the package
+            let mut submodule_exports = Vec::new();
+
+            // Check both inlined and wrapper modules
+            for module_name in self
+                .inlined_modules
+                .iter()
+                .chain(self.module_registry.keys())
+            {
+                // Check if this is a direct submodule of the package
+                if module_name.starts_with(&format!("{package_name}.")) {
+                    // Extract the first component after the package name
+                    let relative_path = &module_name[package_name.len() + 1..];
+                    if let Some(first_component) = relative_path.split('.').next() {
+                        // Generate: first_component = package.first_component
+                        // e.g., exceptions = requests.exceptions
+                        let export_name = first_component.to_string();
+                        let full_path = format!("{package_name}.{first_component}");
+
+                        // Only add if we haven't already exported this
+                        // AND if this name doesn't already exist as a symbol in the entry module
+                        // This prevents overwriting values like __version__ = "2.32.4" with namespace objects
+                        if !submodule_exports.contains(&export_name) {
+                            // Check if this symbol already exists in the entry module's symbols
+                            // The entry module is always the first to be processed and its symbols
+                            // are the ones that should be preserved at the module level
+                            let symbol_already_exists =
+                                already_defined_symbols.contains(&export_name);
+
+                            if symbol_already_exists {
+                                log::debug!(
+                                    "  Skipping module-level export for '{export_name}' - already exists as a symbol in entry module"
+                                );
+                            } else {
+                                log::debug!(
+                                    "  Adding module-level export: {export_name} = {full_path}"
+                                );
+                                final_body.push(statements::simple_assign(
+                                    &export_name,
+                                    expressions::dotted_name(
+                                        &full_path.split('.').collect::<Vec<_>>(),
+                                        ExprContext::Load,
+                                    ),
+                                ));
+                                submodule_exports.push(export_name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            log::debug!(
+                "Added {} module-level exports for entry module submodules",
+                submodule_exports.len()
+            );
+        }
 
         // Add deferred imports from inlined modules before entry module code
         // This ensures they're available when the entry module code runs
@@ -5248,7 +5721,7 @@ impl<'a> Bundler<'a> {
         &self,
         body: Vec<Stmt>,
         module_name: &str,
-        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+        module_scope_symbols: Option<&FxIndexSet<String>>,
     ) -> Vec<Stmt> {
         self.process_body_recursive_impl(body, module_name, module_scope_symbols, false)
     }
@@ -5258,7 +5731,7 @@ impl<'a> Bundler<'a> {
         &self,
         body: Vec<Stmt>,
         module_name: &str,
-        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+        module_scope_symbols: Option<&FxIndexSet<String>>,
         in_conditional_context: bool,
     ) -> Vec<Stmt> {
         let mut result = Vec::new();
@@ -5538,13 +6011,13 @@ impl<'a> Bundler<'a> {
     pub fn transform_nested_function_for_module_vars_with_global_info(
         &self,
         func_def: &mut StmtFunctionDef,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
-        global_declarations: &rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>,
+        module_level_vars: &FxIndexSet<String>,
+        global_declarations: &FxIndexMap<String, Vec<ruff_text_size::TextRange>>,
         lifted_names: Option<&FxIndexMap<String, String>>,
     ) {
         // First, collect all names in this function scope that must NOT be rewritten
         // (globals declared here or nonlocals captured from an outer function)
-        let mut global_vars = rustc_hash::FxHashSet::default();
+        let mut global_vars = FxIndexSet::default();
 
         // Build a reverse map for lifted names to avoid O(n) scans per name
         let lifted_to_original: Option<FxIndexMap<String, String>> = lifted_names.map(|m| {
@@ -5588,7 +6061,7 @@ impl<'a> Bundler<'a> {
         // Create a modified set of module_level_vars that excludes the global vars
         let mut filtered_module_vars = module_level_vars.clone();
         for global_var in &global_vars {
-            filtered_module_vars.remove(global_var);
+            filtered_module_vars.swap_remove(global_var);
         }
 
         // Transform using the filtered set
@@ -5599,10 +6072,10 @@ impl<'a> Bundler<'a> {
     pub fn transform_nested_function_for_module_vars(
         &self,
         func_def: &mut StmtFunctionDef,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
+        module_level_vars: &FxIndexSet<String>,
     ) {
         // First, collect all global declarations in this function
-        let mut global_vars = rustc_hash::FxHashSet::default();
+        let mut global_vars = FxIndexSet::default();
         for stmt in &func_def.body {
             if let Stmt::Global(global_stmt) = stmt {
                 for name in &global_stmt.names {
@@ -5612,7 +6085,7 @@ impl<'a> Bundler<'a> {
         }
 
         // Collect local variables defined in this function
-        let mut local_vars = rustc_hash::FxHashSet::default();
+        let mut local_vars = FxIndexSet::default();
 
         // Add function parameters to local variables
         for param in &func_def.parameters.args {
@@ -5645,8 +6118,8 @@ impl<'a> Bundler<'a> {
     fn transform_stmt_for_module_vars_with_locals(
         &self,
         stmt: &mut Stmt,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
-        local_vars: &rustc_hash::FxHashSet<String>,
+        module_level_vars: &FxIndexSet<String>,
+        local_vars: &FxIndexSet<String>,
     ) {
         match stmt {
             Stmt::FunctionDef(nested_func) => {
@@ -5796,8 +6269,8 @@ impl<'a> Bundler<'a> {
     /// Transform an expression with awareness of local variables
     fn transform_expr_for_module_vars_with_locals(
         expr: &mut Expr,
-        module_level_vars: &rustc_hash::FxHashSet<String>,
-        local_vars: &rustc_hash::FxHashSet<String>,
+        module_level_vars: &FxIndexSet<String>,
+        local_vars: &FxIndexSet<String>,
     ) {
         match expr {
             Expr::Name(name_expr) => {
@@ -6391,6 +6864,43 @@ impl<'a> Bundler<'a> {
         statements: Vec<Stmt>,
         python_version: u8,
     ) -> Vec<Stmt> {
+        log::debug!(
+            "reorder_statements_for_circular_module called for module: '{}' \
+             (entry_module_name: '{}', entry_is_package_init_or_main: {})",
+            module_name,
+            self.entry_module_name,
+            self.entry_is_package_init_or_main
+        );
+
+        // Check if this is the entry module - entry modules should not have their
+        // statements reordered even if they're part of circular dependencies
+        let is_entry_module = if self.entry_is_package_init_or_main {
+            // If entry is __init__.py or __main__.py, the module might be identified
+            // by its package name (e.g., 'yaml' instead of '__init__')
+            if let Some(entry_pkg) = self.entry_package_name() {
+                // Check if this module is the entry package
+                module_name == entry_pkg
+            } else {
+                // Direct comparison when we don't have package context
+                module_name == self.entry_module_name
+            }
+        } else {
+            // Direct comparison for regular entry modules
+            module_name == self.entry_module_name
+        };
+
+        if is_entry_module {
+            log::debug!(
+                "Skipping statement reordering for entry module: '{module_name}' \
+                 (entry_module_name: '{}', entry_is_package_init_or_main: {})",
+                self.entry_module_name,
+                self.entry_is_package_init_or_main
+            );
+            return statements;
+        }
+
+        log::debug!("Proceeding with statement reordering for module: '{module_name}'");
+
         // Get the ordered symbols for this module from the dependency graph
         let ordered_symbols = self
             .symbol_dep_graph
@@ -6907,8 +7417,8 @@ impl<'a> Bundler<'a> {
 /// Collect local variables from statements, excluding those declared as global
 fn collect_local_vars_with_globals(
     stmts: &[Stmt],
-    local_vars: &mut rustc_hash::FxHashSet<String>,
-    global_vars: &rustc_hash::FxHashSet<String>,
+    local_vars: &mut FxIndexSet<String>,
+    global_vars: &FxIndexSet<String>,
 ) {
     for stmt in stmts {
         match stmt {

@@ -29,6 +29,16 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 wildcard_pkg = _cribo.types.SimpleNamespace(__name__='wildcard_pkg')
+class WildcardMetaclass(type):
+    """Metaclass that adds yaml_tag"""
+
+    def __init__(cls, name, bases, kwds):
+        super(WildcardMetaclass, cls).__init__(name, bases, kwds)
+        if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
+            cls.yaml_tag = f"!{name}"
+WildcardMetaclass.__module__ = 'wildcard_pkg.meta'
+wildcard_pkg_meta = _cribo.types.SimpleNamespace(__name__='wildcard_pkg.meta')
+wildcard_pkg.meta = wildcard_pkg_meta
 @_cribo.functools.cache
 def _cribo_init___cribo_5d409b_wildcard_pkg_base():
     _cribo_module = _cribo.types.SimpleNamespace()
@@ -44,16 +54,6 @@ def _cribo_init___cribo_5d409b_wildcard_pkg_base():
     WildcardObject.__module__ = 'wildcard_pkg.base'
     _cribo_module.WildcardObject = WildcardObject
     return _cribo_module
-class WildcardMetaclass(type):
-    """Metaclass that adds yaml_tag"""
-
-    def __init__(cls, name, bases, kwds):
-        super(WildcardMetaclass, cls).__init__(name, bases, kwds)
-        if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
-            cls.yaml_tag = f"!{name}"
-WildcardMetaclass.__module__ = 'wildcard_pkg.meta'
-wildcard_pkg_meta = _cribo.types.SimpleNamespace(__name__='wildcard_pkg.meta')
-wildcard_pkg.meta = wildcard_pkg_meta
 wildcard_pkg.base = _cribo_init___cribo_5d409b_wildcard_pkg_base()
 WildcardObject = wildcard_pkg.base.WildcardObject
 WildcardMetaclass = wildcard_pkg.base.WildcardMetaclass

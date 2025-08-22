@@ -29,6 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
+MyError = None
 class MyError(Exception):
     """Base exception class"""
     pass
@@ -66,6 +67,7 @@ mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions
 mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
 exceptions = mypkg_exceptions
+compat = mypkg.compat
 mypkg_exceptions.MyError = MyError
 mypkg_exceptions.MyJSONError = MyJSONError
 try:

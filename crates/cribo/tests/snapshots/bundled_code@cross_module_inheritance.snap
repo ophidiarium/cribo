@@ -28,7 +28,6 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-auth = _cribo.types.SimpleNamespace(__name__='auth')
 class HTTPBasicAuth_2:
     """Basic HTTP authentication."""
 
@@ -66,6 +65,8 @@ HTTPBasicAuth_2.__module__ = 'auth'
 HTTPBasicAuth_2.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_2.__qualname__ = 'HTTPBasicAuth'
 """First auth module with HTTPBasicAuth."""
+auth = _cribo.types.SimpleNamespace(__name__='auth')
+auth.HTTPBasicAuth = HTTPBasicAuth_2
 """Test cross-module inheritance with symbol collision.\n\nThis reproduces the exact error from requests where HTTPBasicAuth\nis renamed to HTTPBasicAuth_1 in one module but another module\ntries to inherit from HTTPBasicAuth.\n"""
 proxy = HTTPProxyAuth("user", "pass")
 print(f"Created proxy auth: {proxy}")

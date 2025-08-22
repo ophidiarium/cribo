@@ -29,42 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 pkg = _cribo.types.SimpleNamespace(__name__='pkg')
-@_cribo.functools.cache
-def _cribo_init___cribo_2353ad_pkg_pretty():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pkg.pretty'
-    """Pretty printing module with circular dependency on console."""
-    Any = _cribo.typing.Any
-    _cribo_module.Any = Any
-    _cribo_module.RichRenderable = RichRenderable
-    _cribo_module.Console = Console
-
-    class PrettyPrinter(RichRenderable):
-        """Pretty printer that implements RichRenderable."""
-
-        def __init__(self):
-            self._indent = 2
-
-        def render(self, console: Console) -> str:
-            """Render for console output."""
-            return f"PrettyPrinter(indent={self._indent})"
-
-        def pretty_print(self, obj: _cribo.typing.Any) -> None:
-            """Pretty print an object."""
-            console = Console()
-            formatted = format_pretty(obj, console)
-            print(formatted)
-    PrettyPrinter.__module__ = 'pkg.pretty'
-    _cribo_module.PrettyPrinter = PrettyPrinter
-
-    def format_pretty(obj: _cribo.typing.Any, console: Console) -> str:
-        """Format object for pretty printing."""
-        if console.is_renderable(obj):
-            return f"<Renderable: {obj}>"
-        return repr(obj)
-    _cribo_module.format_pretty = format_pretty
-    _cribo_module.Any = _cribo.typing.Any
-    return _cribo_module
 class RichRenderable(_cribo.abc.ABC):
     """Abstract base class for renderables."""
 
@@ -162,6 +126,42 @@ pkg_color = _cribo.types.SimpleNamespace(__name__='pkg.color')
 pkg.color = pkg_color
 pkg_style = _cribo.types.SimpleNamespace(__name__='pkg.style')
 pkg.style = pkg_style
+@_cribo.functools.cache
+def _cribo_init___cribo_2353ad_pkg_pretty():
+    _cribo_module = _cribo.types.SimpleNamespace()
+    _cribo_module.__name__ = 'pkg.pretty'
+    """Pretty printing module with circular dependency on console."""
+    Any = _cribo.typing.Any
+    _cribo_module.Any = Any
+    _cribo_module.RichRenderable = RichRenderable
+    _cribo_module.Console = Console
+
+    class PrettyPrinter(RichRenderable):
+        """Pretty printer that implements RichRenderable."""
+
+        def __init__(self):
+            self._indent = 2
+
+        def render(self, console: Console) -> str:
+            """Render for console output."""
+            return f"PrettyPrinter(indent={self._indent})"
+
+        def pretty_print(self, obj: _cribo.typing.Any) -> None:
+            """Pretty print an object."""
+            console = Console()
+            formatted = format_pretty(obj, console)
+            print(formatted)
+    PrettyPrinter.__module__ = 'pkg.pretty'
+    _cribo_module.PrettyPrinter = PrettyPrinter
+
+    def format_pretty(obj: _cribo.typing.Any, console: Console) -> str:
+        """Format object for pretty printing."""
+        if console.is_renderable(obj):
+            return f"<Renderable: {obj}>"
+        return repr(obj)
+    _cribo_module.format_pretty = format_pretty
+    _cribo_module.Any = _cribo.typing.Any
+    return _cribo_module
 pkg.pretty = _cribo_init___cribo_2353ad_pkg_pretty()
 pkg_abc.RichRenderable = RichRenderable
 pkg_console.format_with_pretty = format_with_pretty

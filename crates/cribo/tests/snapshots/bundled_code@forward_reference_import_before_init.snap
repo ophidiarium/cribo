@@ -60,7 +60,6 @@ CustomJSONError.__module__ = 'mypkg.exceptions'
 mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions
 mypkg.compat = _cribo_init___cribo_4089db_mypkg_compat()
-JSONDecodeError = mypkg.compat.JSONDecodeError
 mypkg_exceptions.BaseException = BaseException
 mypkg_exceptions.CustomJSONError = CustomJSONError
 mypkg.CustomJSONError = CustomJSONError

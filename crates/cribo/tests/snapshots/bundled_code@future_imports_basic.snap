@@ -92,8 +92,8 @@ def _cribo_init___cribo_41d36f_mypackage_core():
     _cribo_module.Any = _cribo.typing.Any
     return _cribo_module
 mypackage.core = _cribo_init___cribo_41d36f_mypackage_core()
-process_data = mypackage.core.process_data
 mypackage.submodule.utils = _cribo_init___cribo_c3d681_mypackage_submodule_utils()
+process_data = mypackage.core.process_data
 validate_input = mypackage.submodule.utils.validate_input
 def main() -> None:
     """Main function with type annotations that require future import."""
