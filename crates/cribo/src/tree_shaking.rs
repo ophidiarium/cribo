@@ -649,9 +649,7 @@ impl TreeShaker {
                 item.item_type,
                 ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
             ) {
-                debug!(
-                    "Symbol {symbol} is a function/class, checking for scoped imports"
-                );
+                debug!("Symbol {symbol} is a function/class, checking for scoped imports");
                 self.mark_scoped_imports_as_used(module, symbol, worklist);
             }
 
@@ -689,9 +687,7 @@ impl TreeShaker {
                 // This import is inside the function/class being marked as used
                 match &item.item_type {
                     ItemType::Import { module, .. } => {
-                        debug!(
-                            "Marking import {module} as used (inside scope {scope_name})"
-                        );
+                        debug!("Marking import {module} as used (inside scope {scope_name})");
                         // For direct imports, we need to mark the imported module's symbols
                         // This is conservative - we don't know which symbols are actually used
                     }

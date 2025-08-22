@@ -1249,6 +1249,28 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // is handled later in create_assignments_for_inlined_imports to avoid duplication
 
                         handled_any = true;
+                    } else if !self.is_entry_module
+                        && self.bundler.inlined_modules.contains(self.module_name)
+                    {
+                        // This is an inlined module importing a wrapper submodule
+                        // We need to defer this import because the wrapper module may not be initialized yet
+                        log::debug!(
+                            "  Inlined module '{}' importing wrapper submodule '{}' - deferring",
+                            self.module_name,
+                            full_module_path
+                        );
+
+                        // Create a deferred assignment to the wrapper module
+                        // This will be executed after all modules are initialized
+                        self.deferred_imports.push(statements::simple_assign(
+                            local_name,
+                            expressions::module_reference(&full_module_path, ExprContext::Load),
+                        ));
+
+                        // Track as local to avoid any accidental rewrites later in this transform pass
+                        self.local_variables.insert(local_name.to_string());
+
+                        handled_any = true;
                     }
                 } else if self.bundler.inlined_modules.contains(&full_module_path) {
                     log::debug!("  '{full_module_path}' is an inlined module");

@@ -254,12 +254,13 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     }
 
     // Step 2: Create top-level namespace modules and wrapper module references
-    let mut created_namespaces = FxIndexSet::default();
+    // NOTE: Use bundler.created_namespaces directly to track namespace creation globally
 
     // Add all namespaces that were already created via the centralized registry
-    for (_sanitized, info) in &bundler.namespace_registry {
+    for (sanitized, info) in &bundler.namespace_registry {
         if info.is_created {
-            created_namespaces.insert(info.original_path.clone());
+            // Insert the sanitized name, not the original path, for consistency
+            bundler.created_namespaces.insert(sanitized.clone());
         }
     }
 
@@ -277,14 +278,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         // Skip if this module is imported in the entry module
         if exclusions.contains(&wrapper) {
             debug!("Skipping top-level wrapper '{wrapper}' - imported in entry module");
-            created_namespaces.insert(wrapper);
+            let sanitized_wrapper = sanitize_module_name_for_identifier(&wrapper);
+            bundler.created_namespaces.insert(sanitized_wrapper);
             continue;
         }
 
         debug!("Top-level wrapper '{wrapper}' already initialized, skipping assignment");
         // Top-level wrapper modules are already initialized via their init functions
         // No need to create any assignment - the module already exists
-        created_namespaces.insert(wrapper);
+        let sanitized_wrapper = sanitize_module_name_for_identifier(&wrapper);
+        bundler.created_namespaces.insert(sanitized_wrapper);
     }
 
     // Then, create namespace modules
@@ -302,14 +305,14 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             debug!(
                 "Skipping top-level namespace '{namespace}' - already created via namespace index"
             );
-            created_namespaces.insert(namespace);
+            bundler.created_namespaces.insert(sanitized.clone());
             continue;
         }
 
         // Check if this namespace was already created globally
-        if bundler.created_namespaces.contains(&namespace) {
+        if bundler.created_namespaces.contains(&sanitized) {
             debug!("Skipping top-level namespace '{namespace}' - already created globally");
-            created_namespaces.insert(namespace);
+            bundler.created_namespaces.insert(sanitized.clone());
             continue;
         }
 
@@ -330,7 +333,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 keywords,
             ),
         ));
-        created_namespaces.insert(namespace);
+        bundler.created_namespaces.insert(sanitized);
     }
 
     // Step 3: Sort module assignments by depth to ensure parents exist before children
@@ -350,7 +353,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         debug!("Processing assignment: {parent}.{attr} = {module_name} (depth={depth})");
 
         // Check if parent exists or will exist
-        let parent_exists = created_namespaces.contains(&parent)
+        let parent_exists = bundler.created_namespaces.contains(&parent)
             || bundler.module_registry.contains_key(&parent)
             || parent.is_empty(); // Empty parent means top-level
 
@@ -455,14 +458,15 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                     "Skipping intermediate namespace '{module_name}' - already created via \
                      namespace index"
                 );
-                created_namespaces.insert(module_name);
+                bundler.created_namespaces.insert(sanitized_mod);
                 continue;
             }
 
             // Also skip if this is an inlined module - it will be handled elsewhere
             if bundler.inlined_modules.contains(&module_name) {
                 debug!("Skipping intermediate namespace '{module_name}' - it's an inlined module");
-                created_namespaces.insert(module_name);
+                let sanitized_mod = sanitize_module_name_for_identifier(&module_name);
+                bundler.created_namespaces.insert(sanitized_mod);
                 continue;
             }
 
@@ -490,7 +494,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 ast_builder::expressions::name(&sanitized_name, ExprContext::Load),
             ));
 
-            created_namespaces.insert(module_name);
+            bundler.created_namespaces.insert(sanitized_name);
         }
     }
 }
@@ -1038,7 +1042,10 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
             namespaces_to_mark_created.push(sanitized_name.clone());
             bundler.created_namespaces.insert(sanitized_name.clone());
             created.insert(sanitized_name.clone());
-            debug!("Added {sanitized_name} to created_namespaces");
+            debug!(
+                "Added {sanitized_name} to created_namespaces (size now: {})",
+                bundler.created_namespaces.len()
+            );
         }
 
         // c. Generate alias if needed (e.g., compat = pkg_compat)
