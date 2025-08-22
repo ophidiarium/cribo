@@ -3189,20 +3189,27 @@ impl<'a> Bundler<'a> {
                 if is_submodule_import {
                     // Submodule import with alias: import full.module.path as alias
                     // The imports vec should contain exactly one entry with (full_module_path, Some(alias))
-                    if let Some((full_module_path, Some(alias))) = imports.first() {
-                        let import_stmt = StmtImport {
-                            node_index: self.create_node_index(),
-                            names: vec![ruff_python_ast::Alias {
+                    if imports.len() == 1 {
+                        if let Some((full_module_path, Some(alias))) = imports.first() {
+                            let import_stmt = StmtImport {
                                 node_index: self.create_node_index(),
-                                name: Identifier::new(full_module_path, TextRange::default()),
-                                asname: Some(Identifier::new(alias, TextRange::default())),
+                                names: vec![other::alias(full_module_path, Some(alias.as_str()))],
                                 range: TextRange::default(),
-                            }],
-                            range: TextRange::default(),
-                        };
-                        final_body.push(Stmt::Import(import_stmt));
-                        log::debug!(
-                            "Hoisted submodule import: import {full_module_path} as {alias}"
+                            };
+                            final_body.push(Stmt::Import(import_stmt));
+                            log::debug!(
+                                "Hoisted submodule import: import {full_module_path} as {alias}"
+                            );
+                        } else {
+                            log::warn!(
+                                "Skipping malformed submodule import payload: {imports:?}"
+                            );
+                        }
+                    } else {
+                        log::warn!(
+                            "Submodule import expected exactly one entry, got {}: {:?}",
+                            imports.len(),
+                            imports
                         );
                     }
                 } else {
