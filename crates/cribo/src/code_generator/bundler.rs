@@ -3072,12 +3072,36 @@ impl<'a> Bundler<'a> {
                 // Check if we need to import the whole module or specific attributes
                 let first_dep = deps.first().expect("hard_deps should not be empty");
 
-                if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
-                    // Special case: import http.cookiejar as cookielib
+                // Check if this is a submodule import with an alias
+                // This happens when:
+                // 1. We have an alias (e.g., cookielib)
+                // 2. The imported_attr (e.g., cookiejar) forms a valid module path with source_module (e.g., http)
+                // 3. The full module path (e.g., http.cookiejar) is a known module
+                let is_submodule_import_with_alias = if let Some(ref alias) = first_dep.alias {
+                    // Check if source_module.imported_attr forms a valid stdlib module
+                    let full_module_path = format!("{}.{}", source_module, first_dep.imported_attr);
+                    crate::resolver::is_stdlib_module(&full_module_path, python_version)
+                        && alias != &first_dep.imported_attr
+                } else {
+                    false
+                };
+
+                if is_submodule_import_with_alias {
+                    // This is a submodule import with an alias (e.g., from http import cookiejar as cookielib)
+                    // Generate: import http.cookiejar as cookielib
+                    let full_module_path = format!("{}.{}", source_module, first_dep.imported_attr);
+                    let alias = first_dep
+                        .alias
+                        .as_ref()
+                        .expect("is_submodule_import_with_alias checked that alias exists")
+                        .clone();
+                    log::debug!(
+                        "Detected submodule import with alias: import {full_module_path} as {alias}"
+                    );
                     imports_to_generate.push((
                         source_module,
-                        vec![("http.cookiejar".to_string(), Some("cookielib".to_string()))],
-                        true,
+                        vec![(full_module_path, Some(alias))],
+                        true, // Special case flag for submodule imports
                     ));
                 } else {
                     // Check if the source module is a bundled module (either inlined or wrapper)
@@ -3129,21 +3153,26 @@ impl<'a> Bundler<'a> {
             }
 
             // Now generate the actual import statements
-            for (source_module, imports, is_special_case) in imports_to_generate {
-                if is_special_case {
-                    // Special case: import http.cookiejar as cookielib
-                    let import_stmt = StmtImport {
-                        node_index: self.create_node_index(),
-                        names: vec![ruff_python_ast::Alias {
+            for (source_module, imports, is_submodule_import) in imports_to_generate {
+                if is_submodule_import {
+                    // Submodule import with alias: import full.module.path as alias
+                    // The imports vec should contain exactly one entry with (full_module_path, Some(alias))
+                    if let Some((full_module_path, Some(alias))) = imports.first() {
+                        let import_stmt = StmtImport {
                             node_index: self.create_node_index(),
-                            name: Identifier::new("http.cookiejar", TextRange::default()),
-                            asname: Some(Identifier::new("cookielib", TextRange::default())),
+                            names: vec![ruff_python_ast::Alias {
+                                node_index: self.create_node_index(),
+                                name: Identifier::new(full_module_path, TextRange::default()),
+                                asname: Some(Identifier::new(alias, TextRange::default())),
+                                range: TextRange::default(),
+                            }],
                             range: TextRange::default(),
-                        }],
-                        range: TextRange::default(),
-                    };
-                    final_body.push(Stmt::Import(import_stmt));
-                    log::debug!("Hoisted import http.cookiejar as cookielib");
+                        };
+                        final_body.push(Stmt::Import(import_stmt));
+                        log::debug!(
+                            "Hoisted submodule import: import {full_module_path} as {alias}"
+                        );
+                    }
                 } else {
                     // Generate: from source_module import attr1, attr2 as alias2, ...
                     let names: Vec<Alias> = imports
