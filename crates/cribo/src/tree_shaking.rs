@@ -594,13 +594,9 @@ impl TreeShaker {
 
         // First check if this symbol is actually defined in this module
         // (not just imported/re-exported)
-        let mut symbol_is_defined_here = false;
-        for item in items {
-            if item.defined_symbols.contains(symbol) {
-                symbol_is_defined_here = true;
-                break;
-            }
-        }
+        let symbol_is_defined_here = items
+            .iter()
+            .any(|item| item.defined_symbols.contains(symbol));
 
         // Only check for re-exports if the symbol is not defined here
         if !symbol_is_defined_here {
