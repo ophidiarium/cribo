@@ -176,6 +176,19 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Get the entry package name when entry is a package __init__.py
+    /// Returns None if entry is not a package __init__.py
+    #[inline]
+    fn entry_package_name(&self) -> Option<&str> {
+        if crate::util::is_init_module(&self.entry_module_name) {
+            // Strip the .__init__ suffix if present, otherwise return None
+            // Note: if entry is bare "__init__", we don't have the package name
+            self.entry_module_name.strip_suffix(".__init__")
+        } else {
+            None
+        }
+    }
+
     /// Create a new bundler instance
     pub fn new(
         module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
@@ -1726,17 +1739,30 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
-            // Also skip if this is the package name when entry is __init__.py
-            // For example, if entry is "__init__" and this module is "yaml", skip it
-            // as they're the same file (yaml/__init__.py)
-            if self.entry_is_package_init_or_main
-                && crate::util::is_init_module(entry_module_name)
-                && !module_name.contains('.')
-            {
-                log::debug!(
-                    "Skipping module '{module_name}' as it's the package name for entry module '__init__.py'"
-                );
-                continue;
+            // Also skip if this is the entry package itself when entry is a package __init__.py
+            // e.g., skip "yaml" when entry is "yaml.__init__"
+            if self.entry_is_package_init_or_main {
+                if let Some(entry_pkg) = self.entry_package_name() {
+                    if module_name == entry_pkg {
+                        log::debug!(
+                            "Skipping module '{module_name}' as it's the package name for entry module '__init__.py'"
+                        );
+                        continue;
+                    }
+                } else if crate::util::is_init_module(entry_module_name)
+                    && entry_module_name == "__init__"
+                {
+                    // Special case: entry is bare "__init__" without package prefix
+                    // In this case, we need to check if the module matches the inferred package name
+                    // This happens when the entry module is discovered as "__init__" without full path context
+                    if !module_name.contains('.') {
+                        // This could be the package, but we need more context to be sure
+                        // For safety, we should NOT skip it unless we're certain
+                        log::debug!(
+                            "Not skipping top-level module '{module_name}' as we cannot confirm it matches entry '__init__'"
+                        );
+                    }
+                }
             }
 
             // Extract __all__ exports from the module using ExportCollector
@@ -2046,25 +2072,19 @@ impl<'a> Bundler<'a> {
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
 
-            // If entry module is __init__.py, also remove the package name from circular modules
-            // For example, if entry is "__init__" and "yaml" is in circular modules, remove "yaml"
+            // If entry module is __init__.py, also remove the entry package from circular modules
+            // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove "yaml"
             // as they're the same file (yaml/__init__.py)
             if self.entry_is_package_init_or_main
-                && crate::util::is_init_module(&self.entry_module_name)
+                && let Some(entry_pkg) = self.entry_package_name()
             {
-                // Find and remove the package name (top-level module without dots)
-                let package_names: Vec<String> = self
-                    .circular_modules
-                    .iter()
-                    .filter(|m| !m.contains('.'))
-                    .cloned()
-                    .collect();
-
-                for package_name in package_names {
+                let entry_pkg = entry_pkg.to_string(); // Convert to owned string to avoid borrow issues
+                // Remove the specific entry package from circular modules
+                if self.circular_modules.contains(&entry_pkg) {
                     log::debug!(
-                        "Removing package '{package_name}' from circular modules as it's the same as entry module '__init__.py'"
+                        "Removing package '{entry_pkg}' from circular modules as it's the same as entry module '__init__.py'"
                     );
-                    self.circular_modules.swap_remove(&package_name);
+                    self.circular_modules.swap_remove(&entry_pkg);
                 }
             }
         } else {
@@ -6849,11 +6869,13 @@ impl<'a> Bundler<'a> {
         let is_entry_module = if self.entry_is_package_init_or_main {
             // If entry is __init__.py or __main__.py, the module might be identified
             // by its package name (e.g., 'yaml' instead of '__init__')
-            // Check if this is a top-level module without dots
-            !module_name.contains('.')
-                && (module_name == self.entry_module_name ||
-                // Also check if entry_module_name is __init__ and this is the package
-                (crate::util::is_init_module(&self.entry_module_name) && !module_name.contains('.')))
+            if let Some(entry_pkg) = self.entry_package_name() {
+                // Check if this module is the entry package
+                module_name == entry_pkg
+            } else {
+                // Direct comparison when we don't have package context
+                module_name == self.entry_module_name
+            }
         } else {
             // Direct comparison for regular entry modules
             module_name == self.entry_module_name
