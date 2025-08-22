@@ -823,10 +823,12 @@ impl<'a> Bundler<'a> {
                 }
 
                 // Ensure the module is initialized first if it's a wrapper module
+                // Only initialize if we're inside a wrapper init OR if the module's init
+                // function has already been defined (to avoid forward references)
                 if self.module_registry.contains_key(module_name)
                     && !locally_initialized.contains(module_name)
-                    && current_module != Some(module_name)
-                // Prevent self-initialization
+                    && current_module != Some(module_name)  // Prevent self-initialization
+                    && (inside_wrapper_init || self.init_functions.contains_key(&self.module_registry[module_name]))
                 {
                     // Check if this module is already initialized in any deferred imports
                     let module_init_exists = assignments.iter().any(|stmt| {
@@ -2634,7 +2636,10 @@ impl<'a> Bundler<'a> {
                     let resolved_module = if import_from.level > 0 {
                         self.resolver.resolve_relative_to_absolute_module_name(
                             import_from.level,
-                            import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                            import_from
+                                .module
+                                .as_ref()
+                                .map(ruff_python_ast::Identifier::as_str),
                             module_path,
                         )
                     } else {
@@ -2645,12 +2650,12 @@ impl<'a> Bundler<'a> {
                         && wrapper_modules_saved
                             .iter()
                             .any(|(name, _, _, _)| name == resolved)
-                        {
-                            wrapper_to_wrapper_deps
-                                .entry(module_name.clone())
-                                .or_default()
-                                .insert(resolved.clone());
-                        }
+                    {
+                        wrapper_to_wrapper_deps
+                            .entry(module_name.clone())
+                            .or_default()
+                            .insert(resolved.clone());
+                    }
                 }
             }
         }
@@ -2667,9 +2672,7 @@ impl<'a> Bundler<'a> {
                         if !all_needed.contains(dep) {
                             all_needed.insert(dep.clone());
                             next_to_process.insert(dep.clone());
-                            log::debug!(
-                                "Adding transitive dependency: {dep} (needed by {module})"
-                            );
+                            log::debug!("Adding transitive dependency: {dep} (needed by {module})");
                         }
                     }
                 }
@@ -2712,7 +2715,10 @@ impl<'a> Bundler<'a> {
                             } else {
                                 self.resolver.resolve_relative_to_absolute_module_name(
                                     import_from.level,
-                                    import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                                    import_from
+                                        .module
+                                        .as_ref()
+                                        .map(ruff_python_ast::Identifier::as_str),
                                     module_path,
                                 )
                             }
@@ -2721,12 +2727,13 @@ impl<'a> Bundler<'a> {
                         };
 
                         if let Some(r) = resolved
-                            && self.inlined_modules.contains(&r) {
-                                log::debug!(
-                                    "Wrapper module {module_name} depends on inlined module {r}, cannot initialize early"
-                                );
-                                wrapper_depends_on_inlined.insert(module_name.clone());
-                            }
+                            && self.inlined_modules.contains(&r)
+                        {
+                            log::debug!(
+                                "Wrapper module {module_name} depends on inlined module {r}, cannot initialize early"
+                            );
+                            wrapper_depends_on_inlined.insert(module_name.clone());
+                        }
                     }
                 }
             }
@@ -2738,18 +2745,19 @@ impl<'a> Bundler<'a> {
             changed = false;
             for module in all_needed.clone() {
                 if !wrapper_depends_on_inlined.contains(&module)
-                    && let Some(deps) = wrapper_to_wrapper_deps.get(&module) {
-                        for dep in deps {
-                            if wrapper_depends_on_inlined.contains(dep) {
-                                wrapper_depends_on_inlined.insert(module.clone());
-                                log::debug!(
-                                    "Wrapper module {module} transitively depends on inlined modules via {dep}, cannot initialize early"
-                                );
-                                changed = true;
-                                break;
-                            }
+                    && let Some(deps) = wrapper_to_wrapper_deps.get(&module)
+                {
+                    for dep in deps {
+                        if wrapper_depends_on_inlined.contains(dep) {
+                            wrapper_depends_on_inlined.insert(module.clone());
+                            log::debug!(
+                                "Wrapper module {module} transitively depends on inlined modules via {dep}, cannot initialize early"
+                            );
+                            changed = true;
+                            break;
                         }
                     }
+                }
             }
         }
 
@@ -2921,8 +2929,7 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        // Track which modules we initialize early (needs to be outside the if block)
-        let mut early_initialized_modules = FxIndexSet::default();
+        // Note: We no longer initialize modules early to avoid forward reference errors
 
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
@@ -2987,31 +2994,17 @@ impl<'a> Bundler<'a> {
                     );
                     final_body.push(init_function);
 
-                    // These wrapper modules are needed by inlined modules, so we MUST initialize
-                    // them immediately, even in module cache mode, to avoid forward reference errors
-                    // when the inlined module code references them.
+                    // DO NOT initialize wrapper modules immediately after defining their init functions!
+                    // This causes forward reference errors when wrapper modules have circular dependencies.
+                    // Instead, we'll initialize them later in dependency order after ALL init functions
+                    // have been defined.
                     if use_module_cache_for_wrappers {
-                        // Even in module cache mode, we must initialize these specific modules now
-                        // because inlined modules will reference them
+                        // Even in module cache mode, DO NOT initialize these modules now
+                        // We'll initialize them later in the correct order
                         log::debug!(
-                            "Module {module_name} is needed by inlined modules, must initialize immediately"
+                            "Module {module_name} is needed by inlined modules, will initialize later in dependency order"
                         );
-
-                        // Generate init call and assignment
-                        let init_func_name = &self.init_functions[&synthetic_name];
-                        let init_call = expressions::call(
-                            expressions::name(init_func_name, ExprContext::Load),
-                            vec![],
-                            vec![],
-                        );
-
-                        // Generate the appropriate assignment based on module type
-                        let init_stmts =
-                            self.generate_module_assignment_from_init(module_name, init_call);
-                        final_body.extend(init_stmts);
-
-                        // Track that we initialized this module early
-                        early_initialized_modules.insert(module_name.clone());
+                        // Don't initialize here - will be done later
                     } else {
                         let init_stmts =
                             crate::code_generator::module_registry::generate_module_init_call(
@@ -3769,6 +3762,42 @@ impl<'a> Bundler<'a> {
             final_body.extend(wrapper_stmts);
         }
 
+        // Track modules that have been initialized early
+        let mut early_initialized_modules = FxIndexSet::default();
+
+        // Initialize wrapper modules that were needed by inlined modules
+        // These were defined early but not initialized to avoid forward references
+        // Now that ALL init functions have been defined, we can safely initialize them
+        if !wrapper_modules_needed_by_inlined.is_empty() {
+            log::debug!(
+                "Initializing wrapper modules needed by inlined modules: {wrapper_modules_needed_by_inlined:?}"
+            );
+
+            for module_name in &wrapper_modules_needed_by_inlined {
+                if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                    // Generate init call and assignment
+                    let init_func_name = &self.init_functions[synthetic_name];
+                    let init_call = expressions::call(
+                        expressions::name(init_func_name, ExprContext::Load),
+                        vec![],
+                        vec![],
+                    );
+
+                    // Generate the appropriate assignment based on module type
+                    let init_stmts =
+                        self.generate_module_assignment_from_init(module_name, init_call);
+                    final_body.extend(init_stmts);
+
+                    // Track that we initialized this module early
+                    early_initialized_modules.insert(module_name.clone());
+
+                    log::debug!(
+                        "Initialized wrapper module needed by inlined modules: {module_name}"
+                    );
+                }
+            }
+        }
+
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
         if has_wrapper_modules {
             debug!("Creating parent namespaces before module initialization");
@@ -3894,9 +3923,56 @@ impl<'a> Bundler<'a> {
                     }
                 }
             } else {
-                // DO NOT initialize modules here - they should be initialized when imported
-                // This preserves Python's lazy import semantics
-                debug!("Skipping eager module initialization - modules will initialize on import");
+                // Without circular dependencies, only initialize wrapper modules that have
+                // parent packages which are inlined. These modules are accessed via
+                // parent.module syntax and need to be available.
+                debug!("Checking for wrapper modules with inlined parent packages");
+
+                let mut wrapper_modules_with_inlined_parents = FxIndexSet::default();
+                for module_name in &sorted_wrapped {
+                    // Check if this module has a parent package
+                    if let Some(parent_idx) = module_name.rfind('.') {
+                        let parent_package = &module_name[..parent_idx];
+                        // Check if the parent is inlined (not in module_registry)
+                        if !self.module_registry.contains_key(parent_package) {
+                            // Parent is inlined, this wrapper module needs initialization
+                            wrapper_modules_with_inlined_parents.insert(module_name.clone());
+                            log::debug!(
+                                "Wrapper module '{module_name}' has inlined parent '{parent_package}' - will initialize"
+                            );
+                        }
+                    }
+                }
+
+                for module_name in &wrapper_modules_with_inlined_parents {
+                    if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        // Skip if already initialized early
+                        if early_initialized_modules.contains(module_name) {
+                            log::debug!(
+                                "Skipping module {module_name} - already initialized early"
+                            );
+                            continue;
+                        }
+
+                        let init_func_name = &self.init_functions[synthetic_name];
+
+                        // Generate init call and assignment
+                        let init_call = expressions::call(
+                            expressions::name(init_func_name, ExprContext::Load),
+                            vec![],
+                            vec![],
+                        );
+
+                        // Generate the appropriate assignment
+                        let init_stmts =
+                            self.generate_module_assignment_from_init(module_name, init_call);
+                        final_body.extend(init_stmts);
+
+                        log::debug!(
+                            "Initialized wrapper module with inlined parent: {module_name}"
+                        );
+                    }
+                }
             }
 
             // After all modules are initialized, assign temporary variables to their namespace
@@ -4162,7 +4238,7 @@ impl<'a> Bundler<'a> {
                 .chain(self.module_registry.keys())
                 .find_map(|name| {
                     if name.contains('.') {
-                        Some(name.split('.').next().unwrap())
+                        name.split('.').next()
                     } else if name != "__init__" {
                         Some(name.as_str())
                     } else {
@@ -4188,9 +4264,7 @@ impl<'a> Bundler<'a> {
         }
 
         if package_name != "__init__" {
-            log::debug!(
-                "Generating module-level exports for package '{package_name}'"
-            );
+            log::debug!("Generating module-level exports for package '{package_name}'");
 
             // Find all direct submodules of the package
             let mut submodule_exports = Vec::new();

@@ -99,6 +99,7 @@ def validate_age(age: _cribo.typing.Union[int, str]) -> bool:
 utils = _cribo.types.SimpleNamespace(__name__='utils')
 utils_validation = _cribo.types.SimpleNamespace(__name__='utils.validation')
 utils.validation = utils_validation
+schemas.user = _cribo_init___cribo_f275a8_schemas_user()
 utils_validation.validate_email = validate_email
 utils_validation.sanitize_input = sanitize_input
 utils_validation.validate_age = validate_age

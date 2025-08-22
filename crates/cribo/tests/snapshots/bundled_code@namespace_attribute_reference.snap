@@ -29,6 +29,9 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
+class MyError(Exception):
+    """Base exception class"""
+    pass
 @_cribo.functools.cache
 def _cribo_init___cribo_19d82f_mypkg_compat():
     _cribo_module = _cribo.types.SimpleNamespace()
@@ -51,9 +54,6 @@ def _cribo_init___cribo_19d82f_mypkg_compat():
     _cribo_module.basestring = basestring
     return _cribo_module
 mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
-class MyError(Exception):
-    """Base exception class"""
-    pass
 class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
     """JSON error that inherits from compat JSONDecodeError"""
 
@@ -64,6 +64,7 @@ MyError.__module__ = 'mypkg.exceptions'
 MyJSONError.__module__ = 'mypkg.exceptions'
 mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions
+mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
 exceptions = mypkg_exceptions
 compat = mypkg.compat
 mypkg_exceptions.MyError = MyError

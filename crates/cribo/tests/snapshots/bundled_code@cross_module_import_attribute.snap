@@ -53,6 +53,8 @@ def _cribo_init___cribo_1f0580_my_package_utils():
         return __version__
     _cribo_module.get_version = get_version
     return _cribo_module
+my_package.__version__ = _cribo_init___cribo_699da1_my_package___version__()
+my_package.utils = _cribo_init___cribo_1f0580_my_package_utils()
 """Test cross-module attribute imports like requests.__version__"""
 my_package.utils = _cribo_init___cribo_1f0580_my_package_utils()
 utils = my_package.utils

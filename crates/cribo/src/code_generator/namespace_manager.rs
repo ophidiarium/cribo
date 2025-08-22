@@ -436,9 +436,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                             debug!(
                                 "Skipping redundant self-assignment: {parent}.{attr} = {module_name}"
                             );
+                        } else if bundler.module_registry.contains_key(&module_name) {
+                            // This is a wrapper module - skip parent assignment
+                            // Wrapper modules are initialized on-demand via their init functions
+                            debug!(
+                                "Skipping wrapper module assignment: {parent}.{attr} = {module_name} - \
+                                 wrapper modules are initialized on-demand"
+                            );
                         } else {
-                            // This is a wrapper module without a namespace - assign direct reference
-                            debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
+                            // This is not a wrapper module - create direct assignment
+                            debug!("Assigning module: {parent}.{attr} = {module_name}");
 
                             // Use centralized assignment creation
                             let assignment =

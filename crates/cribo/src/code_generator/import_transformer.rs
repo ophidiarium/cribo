@@ -1827,15 +1827,17 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // First, ensure the wrapper module is initialized
                     // This is crucial for lazy imports inside functions
-                    let mut init_stmts = Vec::new();
+                    let init_stmts = Vec::new();
 
                     // Check if the parent module needs handling
                     if let Some((parent, child)) = resolved.rsplit_once('.') {
-                        // If the parent is also a wrapper module, initialize it first
+                        // If the parent is also a wrapper module, DO NOT initialize it here
+                        // It will be initialized when accessed
                         if self.bundler.module_registry.contains_key(parent) {
-                            init_stmts.extend(
-                                self.bundler.create_module_initialization_for_import(parent),
+                            log::debug!(
+                                "  Parent '{parent}' is a wrapper module - skipping immediate initialization"
                             );
+                            // Don't initialize parent wrapper module here
                         }
 
                         // If the parent is an inlined module, the submodule assignment is handled
@@ -1852,13 +1854,17 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let is_wildcard =
                         import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
 
-                    // Initialize the wrapper module
+                    // DO NOT initialize the wrapper module here!
+                    // When an inlined module imports from a wrapper module, the wrapper will be
+                    // initialized later when it's actually accessed (lazy initialization).
+                    // Initializing it here would cause forward reference errors if the wrapper
+                    // module depends on other modules that haven't been defined yet.
                     // For wildcard imports, we'll handle this specially to ensure proper ordering
                     if !is_wildcard {
-                        init_stmts.extend(
-                            self.bundler
-                                .create_module_initialization_for_import(resolved),
+                        log::debug!(
+                            "  Skipping immediate initialization of wrapper module '{resolved}' - will be initialized lazily"
                         );
+                        // Don't create initialization here - wrapper modules are initialized on-demand
                     }
 
                     // Handle wildcard import export assignments

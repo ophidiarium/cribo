@@ -33,7 +33,6 @@ pkg_submodule = _cribo.types.SimpleNamespace(__name__='pkg.submodule')
 pkg.submodule = pkg_submodule
 def create_object():
     """Factory function that imports from parent."""
-    pkg = _cribo_init___cribo_9c0ae3_pkg()
     return pkg.MyObject()
 @_cribo.functools.cache
 def _cribo_init___cribo_9c0ae3_pkg():
