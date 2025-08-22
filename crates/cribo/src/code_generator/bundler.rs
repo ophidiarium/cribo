@@ -1706,6 +1706,24 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Collect import entries from an iterator of hard dependencies
+    /// This helper deduplicates the logic for collecting imports with their aliases
+    fn collect_import_entries<'b>(
+        deps: impl Iterator<Item = &'b HardDependency>,
+    ) -> FxIndexMap<String, Option<String>> {
+        let mut imports: FxIndexMap<String, Option<String>> = FxIndexMap::default();
+        for dep in deps {
+            // If this dependency has a mandatory alias, use it
+            if dep.alias_is_mandatory && dep.alias.is_some() {
+                imports.insert(dep.imported_attr.clone(), dep.alias.clone());
+            } else {
+                // Only insert if we haven't already added this import
+                imports.entry(dep.imported_attr.clone()).or_insert(None);
+            }
+        }
+        imports
+    }
+
     /// Collect symbol renames from semantic analysis
     fn collect_symbol_renames(
         &mut self,
@@ -3119,19 +3137,7 @@ impl<'a> Bundler<'a> {
                     }
 
                     // Regular external module - collect unique imports with their aliases
-                    let mut imports_to_make: FxIndexMap<String, Option<String>> =
-                        FxIndexMap::default();
-                    for dep in deps {
-                        // If this dependency has a mandatory alias, use it
-                        if dep.alias_is_mandatory && dep.alias.is_some() {
-                            imports_to_make.insert(dep.imported_attr.clone(), dep.alias.clone());
-                        } else {
-                            // Only insert if we haven't already added this import
-                            imports_to_make
-                                .entry(dep.imported_attr.clone())
-                                .or_insert(None);
-                        }
-                    }
+                    let imports_to_make = Self::collect_import_entries(deps.into_iter());
 
                     if !imports_to_make.is_empty() {
                         let mut import_list: Vec<(String, Option<String>)> =
@@ -3160,17 +3166,12 @@ impl<'a> Bundler<'a> {
                         .collect();
 
                     // Collect any remaining deps for this source_module
-                    let mut rest: FxIndexMap<String, Option<String>> = FxIndexMap::default();
-                    for (j, dep) in deps.iter().enumerate() {
-                        if handled_indices.contains(&j) {
-                            continue;
-                        }
-                        if dep.alias_is_mandatory && dep.alias.is_some() {
-                            rest.insert(dep.imported_attr.clone(), dep.alias.clone());
-                        } else {
-                            rest.entry(dep.imported_attr.clone()).or_insert(None);
-                        }
-                    }
+                    let rest = Self::collect_import_entries(
+                        deps.iter()
+                            .enumerate()
+                            .filter(|(j, _)| !handled_indices.contains(j))
+                            .map(|(_, dep)| *dep),
+                    );
                     if !rest.is_empty() {
                         // Sort for deterministic output
                         let mut import_list: Vec<(String, Option<String>)> =
