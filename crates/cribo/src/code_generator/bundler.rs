@@ -3069,8 +3069,13 @@ impl<'a> Bundler<'a> {
 
             // Analyze dependencies and determine what imports to generate
             for (source_module, deps) in deps_by_source {
-                // Find all submodule-with-alias deps (order-insensitive, supports multiple)
-                let mut submodule_aliases: Vec<(usize, String, String)> = Vec::new(); // (idx, full_module_path, alias)
+                // Find all submodule-with-alias deps (deduped and deterministically ordered)
+                // Use BTreeMap for deterministic ordering by (module_path, alias)
+                let mut submodule_indices: std::collections::BTreeMap<
+                    (String, String),
+                    Vec<usize>,
+                > = std::collections::BTreeMap::new();
+
                 for (i, dep) in deps.iter().enumerate() {
                     if let Some(alias) = &dep.alias {
                         let full_module_path = format!("{}.{}", source_module, dep.imported_attr);
@@ -3080,12 +3085,15 @@ impl<'a> Bundler<'a> {
                             &full_module_path,
                         );
                         if is_exact_stdlib && alias != &dep.imported_attr {
-                            submodule_aliases.push((i, full_module_path, alias.clone()));
+                            submodule_indices
+                                .entry((full_module_path, alias.clone()))
+                                .or_default()
+                                .push(i);
                         }
                     }
                 }
 
-                if submodule_aliases.is_empty() {
+                if submodule_indices.is_empty() {
                     // Check if the source module is a bundled module (either inlined or wrapper)
                     // This must be checked before stdlib to handle first-party modules with stdlib
                     // names
@@ -3132,8 +3140,9 @@ impl<'a> Bundler<'a> {
                         imports_to_generate.push((source_module, import_list, false));
                     }
                 } else {
-                    // Emit one `import parent.child as alias` per detected submodule-alias
-                    for (_, full_module_path, alias) in &submodule_aliases {
+                    // Emit one `import parent.child as alias` per unique submodule-alias pair
+                    // BTreeMap ensures deterministic ordering by (module_path, alias)
+                    for (full_module_path, alias) in submodule_indices.keys() {
                         log::debug!(
                             "Detected submodule import with alias: import {full_module_path} as {alias}"
                         );
@@ -3144,9 +3153,13 @@ impl<'a> Bundler<'a> {
                         ));
                     }
 
+                    // Collect all indices that were handled as submodule imports
+                    let handled_indices: FxIndexSet<usize> = submodule_indices
+                        .values()
+                        .flat_map(|indices| indices.iter().copied())
+                        .collect();
+
                     // Collect any remaining deps for this source_module
-                    let handled_indices: FxIndexSet<usize> =
-                        submodule_aliases.iter().map(|(i, _, _)| *i).collect();
                     let mut rest: FxIndexMap<String, Option<String>> = FxIndexMap::default();
                     for (j, dep) in deps.iter().enumerate() {
                         if handled_indices.contains(&j) {
