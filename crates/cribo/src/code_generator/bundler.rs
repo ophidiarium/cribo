@@ -3201,9 +3201,7 @@ impl<'a> Bundler<'a> {
                                 "Hoisted submodule import: import {full_module_path} as {alias}"
                             );
                         } else {
-                            log::warn!(
-                                "Skipping malformed submodule import payload: {imports:?}"
-                            );
+                            log::warn!("Skipping malformed submodule import payload: {imports:?}");
                         }
                     } else {
                         log::warn!(
