@@ -353,7 +353,9 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         debug!("Processing assignment: {parent}.{attr} = {module_name} (depth={depth})");
 
         // Check if parent exists or will exist
-        let parent_exists = bundler.created_namespaces.contains(&parent)
+        // created_namespaces stores sanitized identifiers
+        let sanitized_parent = sanitize_module_name_for_identifier(&parent);
+        let parent_exists = bundler.created_namespaces.contains(&sanitized_parent)
             || bundler.module_registry.contains_key(&parent)
             || parent.is_empty(); // Empty parent means top-level
 
@@ -953,9 +955,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
                 && let Some(module_id) = registry.get_id_by_name(&info.original_path)
             {
                 file_to_namespace.insert(module_id, sanitized.clone());
-                trace!(
-                    "Seeded dedup: ModuleId({module_id:?}) -> {sanitized} (pre-created)"
-                );
+                trace!("Seeded dedup: ModuleId({module_id:?}) -> {sanitized} (pre-created)");
             }
         }
     }
