@@ -6,9 +6,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use ruff_linter::source_kind::SourceKind;
-use ruff_python_ast::{Expr, ModModule, PySourceType, Stmt};
-use ruff_python_parser::parse_unchecked_source;
+use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_python_semantic::{
     BindingFlags, BindingId, BindingKind, Module, ModuleKind, ModuleSource, SemanticModel,
 };
@@ -44,14 +42,10 @@ struct SemanticModelBuilder<'a> {
 impl<'a> SemanticModelBuilder<'a> {
     /// Create and populate a semantic model for a module
     fn build_semantic_model(
-        source: &'a str,
         file_path: &'a Path,
         ast: &'a ModModule,
     ) -> (SemanticModel<'a>, Vec<EnhancedFromImport>) {
-        // Step 1: Parse source and create infrastructure
-        let source_kind = SourceKind::Python(source.to_string());
-        let source_type = PySourceType::from(file_path);
-        let _parsed = parse_unchecked_source(source_kind.source_code(), source_type);
+        // Step 1: We already have the parsed AST; no need to re-parse the source here.
 
         // Step 2: Determine module kind
         let kind = if file_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py") {
@@ -463,7 +457,6 @@ impl SemanticBundler {
         &mut self,
         module_id: ModuleId,
         ast: &ModModule,
-        source: &str,
         path: &Path,
     ) -> Result<()> {
         // Check if this ModuleId has already been analyzed
@@ -482,8 +475,7 @@ impl SemanticBundler {
         );
 
         // Build semantic model and extract information
-        let (semantic_model, from_imports) =
-            SemanticModelBuilder::build_semantic_model(source, path, ast);
+        let (semantic_model, from_imports) = SemanticModelBuilder::build_semantic_model(path, ast);
 
         // Extract exported symbols (public API)
         let exported_symbols =

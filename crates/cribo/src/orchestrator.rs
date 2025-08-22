@@ -230,12 +230,8 @@ impl BundleOrchestrator {
                     let module_id = graph.add_module(module_name.to_string(), module_path);
 
                     // Perform semantic analysis
-                    self.semantic_bundler.analyze_module(
-                        module_id,
-                        &cached.ast,
-                        &cached.source,
-                        module_path,
-                    )?;
+                    self.semantic_bundler
+                        .analyze_module(module_id, &cached.ast, module_path)?;
 
                     // Add to module registry
                     let module_info = ModuleInfo {
@@ -280,7 +276,7 @@ impl BundleOrchestrator {
 
             // Semantic analysis on raw AST
             self.semantic_bundler
-                .analyze_module(module_id, &ast, &source, module_path)?;
+                .analyze_module(module_id, &ast, module_path)?;
 
             // Add to module registry
             let module_info = ModuleInfo {
