@@ -333,17 +333,23 @@ impl CriboGraph {
             // Verify it's the same file
             if let Some(existing_canonical) = self.module_canonical_paths.get(&existing_id) {
                 if existing_canonical == &canonical_path {
-                    return existing_id; // Same import name, same file - reuse
+                    // Same import name, same file - track and reuse
+                    self.file_to_import_names
+                        .entry(canonical_path.clone())
+                        .or_default()
+                        .insert(name.clone());
+                    return existing_id;
                 }
-                // Error: same import name but different files
-                // This shouldn't happen with proper PYTHONPATH management
-                log::error!(
-                    "Import name '{name}' refers to different files: {} and {}. This may indicate \
-                     a PYTHONPATH configuration issue or naming conflict. Consider using unique \
-                     module names or adjusting your Python path configuration.",
+                // Same import name but different files: reuse existing mapping deterministically.
+                // Prevents alias flapping and preserves previously built edges.
+                log::warn!(
+                    "Import name '{name}' refers to different files: {} and {}. \
+                     Reusing existing ModuleId {} to keep mapping stable.",
                     existing_canonical.display(),
-                    canonical_path.display()
+                    canonical_path.display(),
+                    existing_id.as_u32()
                 );
+                return existing_id;
             }
         }
 
