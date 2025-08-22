@@ -1731,6 +1731,19 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
+            // Also skip if this is the package name when entry is __init__.py
+            // For example, if entry is "__init__" and this module is "yaml", skip it
+            // as they're the same file (yaml/__init__.py)
+            if self.entry_is_package_init_or_main
+                && crate::util::is_init_module(entry_module_name)
+                && !module_name.contains('.')
+            {
+                log::debug!(
+                    "Skipping module '{module_name}' as it's the package name for entry module '__init__.py'"
+                );
+                continue;
+            }
+
             // Extract __all__ exports from the module using ExportCollector
             let export_info = ExportCollector::analyze(ast);
             let has_explicit_all = export_info.exported_names.is_some();
@@ -2037,6 +2050,28 @@ impl<'a> Bundler<'a> {
                 }
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
+
+            // If entry module is __init__.py, also remove the package name from circular modules
+            // For example, if entry is "__init__" and "yaml" is in circular modules, remove "yaml"
+            // as they're the same file (yaml/__init__.py)
+            if self.entry_is_package_init_or_main
+                && crate::util::is_init_module(&self.entry_module_name)
+            {
+                // Find and remove the package name (top-level module without dots)
+                let package_names: Vec<String> = self
+                    .circular_modules
+                    .iter()
+                    .filter(|m| !m.contains('.'))
+                    .cloned()
+                    .collect();
+
+                for package_name in package_names {
+                    log::debug!(
+                        "Removing package '{package_name}' from circular modules as it's the same as entry module '__init__.py'"
+                    );
+                    self.circular_modules.swap_remove(&package_name);
+                }
+            }
         } else {
             log::debug!("No circular dependency analysis provided");
         }
@@ -6391,6 +6426,31 @@ impl<'a> Bundler<'a> {
         statements: Vec<Stmt>,
         python_version: u8,
     ) -> Vec<Stmt> {
+        // Check if this is the entry module - entry modules should not have their
+        // statements reordered even if they're part of circular dependencies
+        let is_entry_module = if self.entry_is_package_init_or_main {
+            // If entry is __init__.py or __main__.py, the module might be identified
+            // by its package name (e.g., 'yaml' instead of '__init__')
+            // Check if this is a top-level module without dots
+            !module_name.contains('.')
+                && (module_name == self.entry_module_name ||
+                // Also check if entry_module_name is __init__ and this is the package
+                (crate::util::is_init_module(&self.entry_module_name) && !module_name.contains('.')))
+        } else {
+            // Direct comparison for regular entry modules
+            module_name == self.entry_module_name
+        };
+
+        if is_entry_module {
+            log::debug!(
+                "Skipping statement reordering for entry module: '{module_name}' \
+                 (entry_module_name: '{}', entry_is_package_init_or_main: {})",
+                self.entry_module_name,
+                self.entry_is_package_init_or_main
+            );
+            return statements;
+        }
+
         // Get the ordered symbols for this module from the dependency graph
         let ordered_symbols = self
             .symbol_dep_graph
