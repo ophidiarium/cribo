@@ -82,16 +82,25 @@ impl<'a> ModuleClassifier<'a> {
                     // Handle relative imports within the same package
                     let resolved_module = if import_from.level > 0 {
                         // This is a relative import - resolve it based on the current module
-                        if let Some((parent, _)) = module_name.rsplit_once('.') {
-                            if let Some(module) = &import_from.module {
-                                // from .submodule import something
-                                format!("{parent}.{module}")
+                        // Handle multiple levels properly
+                        let mut current_package = module_name.to_string();
+
+                        // Go up the package hierarchy based on the level
+                        for _ in 0..import_from.level {
+                            if let Some((parent, _)) = current_package.rsplit_once('.') {
+                                current_package = parent.to_string();
                             } else {
-                                // from . import something
-                                parent.to_string()
+                                // Can't go up any further
+                                continue;
                             }
+                        }
+
+                        if let Some(module) = &import_from.module {
+                            // from ..submodule import something
+                            format!("{current_package}.{module}")
                         } else {
-                            continue; // Can't resolve relative import
+                            // from .. import something
+                            current_package
                         }
                     } else if let Some(module) = &import_from.module {
                         module.to_string()
