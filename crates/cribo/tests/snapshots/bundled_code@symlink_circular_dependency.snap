@@ -36,7 +36,16 @@ def funcA():
     return f"A calls {funcB()}"
 def funcB():
     return f"B calls {funcC()}"
+def funcA_moduleC():
+    return f"A calls {funcB()}"
+def get_chain_moduleC():
+    return "A -> B -> C(symlink to A)"
+def funcC_moduleC():
+    return "Actually funcA pretending to be funcC"
 moduleC = _cribo.types.SimpleNamespace(__name__='moduleC')
+moduleC.funcA = funcA_moduleC
+moduleC.get_chain = get_chain_moduleC
+moduleC.funcC = funcC_moduleC
 print("Testing symlink circular dependency handling")
 print(f"funcA result: {funcA()}")
 print(f"Chain: {get_chain()}")

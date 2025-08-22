@@ -851,9 +851,18 @@ impl TreeShaker {
         &self,
         module_name: &str,
     ) -> crate::types::FxIndexSet<String> {
+        // Normalize module name to primary if this is an alias
+        let normalized = if let Some(&id) = self.module_name_to_id.get(module_name) {
+            self._module_names
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| module_name.to_string())
+        } else {
+            module_name.to_string()
+        };
         self.used_symbols
             .iter()
-            .filter(|(module, _)| module == module_name)
+            .filter(|(module, _)| module == &normalized)
             .map(|(_, symbol)| symbol.clone())
             .collect()
     }

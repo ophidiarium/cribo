@@ -40,6 +40,25 @@ def continue_chain():
     return from_d()
 def from_b():
     return f"B -> {from_c()} -> {continue_chain()}"
+def start_chain_link_e():
+    return f"A -> {from_b()}"
+def from_c_link_e():
+    return "C(->A)"
+def from_e_link_e():
+    return "E(->A)"
+def from_b_link_d():
+    return f"B -> {from_c()} -> {continue_chain()}"
+def continue_chain_link_d():
+    return from_d()
+def from_d_link_d():
+    return f"D(->B) -> {from_e()}"
+def start_chain_link_c():
+    return f"A -> {from_b()}"
+def from_c_link_c():
+    return "C(->A)"
+def from_e_link_c():
+    return "E(->A)"
+from_e = from_e_link_e
 print("Testing multi-symlink circular dependency")
 result = start_chain()
 print(f"Chain result: {result}")
