@@ -29,6 +29,16 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 yaml_pkg = _cribo.types.SimpleNamespace(__name__='yaml_pkg')
+class YAMLObjectMetaclass(type):
+    """Metaclass that adds yaml_tag"""
+
+    def __init__(cls, name, bases, kwds):
+        super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
+        if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
+            cls.yaml_tag = f"!{name}"
+YAMLObjectMetaclass.__module__ = 'yaml_pkg.meta'
+yaml_pkg_meta = _cribo.types.SimpleNamespace(__name__='yaml_pkg.meta')
+yaml_pkg.meta = yaml_pkg_meta
 @_cribo.functools.cache
 def _cribo_init___cribo_6d74f2_yaml_pkg_base():
     _cribo_module = _cribo.types.SimpleNamespace()
@@ -44,16 +54,6 @@ def _cribo_init___cribo_6d74f2_yaml_pkg_base():
     YAMLObject.__module__ = 'yaml_pkg.base'
     _cribo_module.YAMLObject = YAMLObject
     return _cribo_module
-class YAMLObjectMetaclass(type):
-    """Metaclass that adds yaml_tag"""
-
-    def __init__(cls, name, bases, kwds):
-        super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
-        if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
-            cls.yaml_tag = f"!{name}"
-YAMLObjectMetaclass.__module__ = 'yaml_pkg.meta'
-yaml_pkg_meta = _cribo.types.SimpleNamespace(__name__='yaml_pkg.meta')
-yaml_pkg.meta = yaml_pkg_meta
 yaml_pkg.base = _cribo_init___cribo_6d74f2_yaml_pkg_base()
 yaml_pkg_meta.YAMLObjectMetaclass = YAMLObjectMetaclass
 yaml_pkg.YO = yaml_pkg.base.YAMLObject

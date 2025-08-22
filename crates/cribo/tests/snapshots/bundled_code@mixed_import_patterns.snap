@@ -28,9 +28,6 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-config = _cribo.types.SimpleNamespace(__name__='config')
-logger = _cribo.types.SimpleNamespace(__name__='logger')
-utils = _cribo.types.SimpleNamespace(__name__='utils')
 _logger = None
 _config = None
 class Application:
@@ -116,6 +113,17 @@ Logger.__module__ = 'logger'
 Config.__module__ = 'config'
 """\nConfiguration module that logs its initialization process.\nThis creates a circular dependency: config -> logger -> config\n"""
 """\nUtility module with no dependencies on other modules in this package.\nThis can be safely imported at module level by everyone.\n"""
+config = _cribo.types.SimpleNamespace(__name__='config')
+logger = _cribo.types.SimpleNamespace(__name__='logger')
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+logger.get_logger = get_logger
+logger._logger = _logger
+logger.Logger = Logger
+config.get_log_level = get_log_level
+config.get_config = get_config
+config._config = _config
+config.Config = Config
+utils.format_message = format_message
 """\nSimulates a software architecture with:\n- A logger that needs configuration\n- A configuration system that logs its initialization\n- An application that uses both\n- Utilities that are used everywhere (no circular deps)\n"""
 def main():
     print(format_message("=== Application Starting ==="))

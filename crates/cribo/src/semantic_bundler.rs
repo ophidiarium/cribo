@@ -6,19 +6,17 @@
 use std::path::Path;
 
 use anyhow::Result;
-use ruff_linter::source_kind::SourceKind;
-use ruff_python_ast::{Expr, ModModule, PySourceType, Stmt};
-use ruff_python_parser::parse_unchecked_source;
+use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_python_semantic::{
     BindingFlags, BindingId, BindingKind, Module, ModuleKind, ModuleSource, SemanticModel,
 };
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
-use rustc_hash::{FxHashMap as FxIndexMap, FxHashSet as FxIndexSet};
 
 use crate::{
     cribo_graph::ModuleId,
     import_alias_tracker::{EnhancedFromImport, ImportAliasTracker},
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
@@ -30,6 +28,8 @@ pub struct SemanticBundler {
     global_symbols: SymbolRegistry,
     /// Import alias tracker for resolving import aliases
     import_alias_tracker: ImportAliasTracker,
+    /// Track which `ModuleIds` have already been analyzed to prevent duplicate processing
+    analyzed_modules: FxIndexSet<ModuleId>,
 }
 
 /// Semantic model builder that properly populates bindings using visitor pattern
@@ -42,14 +42,10 @@ struct SemanticModelBuilder<'a> {
 impl<'a> SemanticModelBuilder<'a> {
     /// Create and populate a semantic model for a module
     fn build_semantic_model(
-        source: &'a str,
         file_path: &'a Path,
         ast: &'a ModModule,
     ) -> (SemanticModel<'a>, Vec<EnhancedFromImport>) {
-        // Step 1: Parse source and create infrastructure
-        let source_kind = SourceKind::Python(source.to_string());
-        let source_type = PySourceType::from(file_path);
-        let _parsed = parse_unchecked_source(source_kind.source_code(), source_type);
+        // Step 1: We already have the parsed AST; no need to re-parse the source here.
 
         // Step 2: Determine module kind
         let kind = if file_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py") {
@@ -452,6 +448,7 @@ impl SemanticBundler {
             module_semantics: FxIndexMap::default(),
             global_symbols: SymbolRegistry::new(),
             import_alias_tracker: ImportAliasTracker::new(),
+            analyzed_modules: FxIndexSet::default(),
         }
     }
 
@@ -460,17 +457,25 @@ impl SemanticBundler {
         &mut self,
         module_id: ModuleId,
         ast: &ModModule,
-        source: &str,
         path: &Path,
     ) -> Result<()> {
+        // Check if this ModuleId has already been analyzed
+        // This prevents duplicate processing when multiple module names map to the same file
+        if !self.analyzed_modules.insert(module_id) {
+            log::debug!(
+                "Module {} already analyzed, skipping duplicate processing",
+                module_id.as_u32()
+            );
+            return Ok(());
+        }
+
         log::debug!(
             "Starting semantic analysis for module {}",
             module_id.as_u32()
         );
 
         // Build semantic model and extract information
-        let (semantic_model, from_imports) =
-            SemanticModelBuilder::build_semantic_model(source, path, ast);
+        let (semantic_model, from_imports) = SemanticModelBuilder::build_semantic_model(path, ast);
 
         // Extract exported symbols (public API)
         let exported_symbols =

@@ -37,29 +37,6 @@ pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models')
 pkg._models = pkg__models
 pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types')
 pkg._types = pkg__types
-@_cribo.functools.cache
-def _cribo_init___cribo_1fb248_pkg():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pkg'
-    global AsyncStream, SyncStream
-    _cribo_module.AsyncStream = AsyncStream
-    _cribo_module.SyncStream = SyncStream
-    """Package that sets __module__ on all exported items, like httpx does."""
-    _cribo_module.Client = Client
-    _cribo_module.Request = Request
-    _cribo_module.Response = Response
-    _cribo_module.main = main
-    __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
-    __locals = vars(_cribo_module)
-    _cribo_module.__locals = __locals
-    for __name in __all__:
-        if not __name.startswith("__"):
-            setattr(_cribo_module.__locals[__name], "__module__", "pkg")
-    _cribo_module._main = pkg__main
-    _cribo_module._models = pkg__models
-    _cribo_module._client = pkg__client
-    _cribo_module._types = pkg__types
-    return _cribo_module
 class Request:
     """Request model."""
 
@@ -103,6 +80,29 @@ Client.__module__ = 'pkg._client'
 AsyncStream.__module__ = 'pkg._types'
 SyncStream.__module__ = 'pkg._types'
 """Types module with stream classes."""
+@_cribo.functools.cache
+def _cribo_init___cribo_1fb248_pkg():
+    _cribo_module = _cribo.types.SimpleNamespace()
+    _cribo_module.__name__ = 'pkg'
+    global AsyncStream, SyncStream
+    _cribo_module.AsyncStream = AsyncStream
+    _cribo_module.SyncStream = SyncStream
+    """Package that sets __module__ on all exported items, like httpx does."""
+    _cribo_module.Client = Client
+    _cribo_module.Request = Request
+    _cribo_module.Response = Response
+    _cribo_module.main = main
+    __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
+    __locals = vars(_cribo_module)
+    _cribo_module.__locals = __locals
+    for __name in __all__:
+        if not __name.startswith("__"):
+            setattr(_cribo_module.__locals[__name], "__module__", "pkg")
+    _cribo_module._main = pkg__main
+    _cribo_module._models = pkg__models
+    _cribo_module._client = pkg__client
+    _cribo_module._types = pkg__types
+    return _cribo_module
 pkg = _cribo_init___cribo_1fb248_pkg()
 pkg__main.main = main
 pkg__models.Request = Request

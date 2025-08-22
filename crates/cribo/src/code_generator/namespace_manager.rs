@@ -15,6 +15,7 @@ use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
     code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
+    cribo_graph::ModuleId,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -253,12 +254,13 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     }
 
     // Step 2: Create top-level namespace modules and wrapper module references
-    let mut created_namespaces = FxIndexSet::default();
+    // NOTE: Use bundler.created_namespaces directly to track namespace creation globally
 
     // Add all namespaces that were already created via the centralized registry
-    for (_sanitized, info) in &bundler.namespace_registry {
+    for (sanitized, info) in &bundler.namespace_registry {
         if info.is_created {
-            created_namespaces.insert(info.original_path.clone());
+            // Insert the sanitized name, not the original path, for consistency
+            bundler.created_namespaces.insert(sanitized.clone());
         }
     }
 
@@ -276,14 +278,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         // Skip if this module is imported in the entry module
         if exclusions.contains(&wrapper) {
             debug!("Skipping top-level wrapper '{wrapper}' - imported in entry module");
-            created_namespaces.insert(wrapper);
+            let sanitized_wrapper = sanitize_module_name_for_identifier(&wrapper);
+            bundler.created_namespaces.insert(sanitized_wrapper);
             continue;
         }
 
         debug!("Top-level wrapper '{wrapper}' already initialized, skipping assignment");
         // Top-level wrapper modules are already initialized via their init functions
         // No need to create any assignment - the module already exists
-        created_namespaces.insert(wrapper);
+        let sanitized_wrapper = sanitize_module_name_for_identifier(&wrapper);
+        bundler.created_namespaces.insert(sanitized_wrapper);
     }
 
     // Then, create namespace modules
@@ -301,14 +305,14 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             debug!(
                 "Skipping top-level namespace '{namespace}' - already created via namespace index"
             );
-            created_namespaces.insert(namespace);
+            bundler.created_namespaces.insert(sanitized.clone());
             continue;
         }
 
         // Check if this namespace was already created globally
-        if bundler.created_namespaces.contains(&namespace) {
+        if bundler.created_namespaces.contains(&sanitized) {
             debug!("Skipping top-level namespace '{namespace}' - already created globally");
-            created_namespaces.insert(namespace);
+            bundler.created_namespaces.insert(sanitized.clone());
             continue;
         }
 
@@ -329,7 +333,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 keywords,
             ),
         ));
-        created_namespaces.insert(namespace);
+        bundler.created_namespaces.insert(sanitized);
     }
 
     // Step 3: Sort module assignments by depth to ensure parents exist before children
@@ -349,7 +353,9 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         debug!("Processing assignment: {parent}.{attr} = {module_name} (depth={depth})");
 
         // Check if parent exists or will exist
-        let parent_exists = created_namespaces.contains(&parent)
+        // created_namespaces stores sanitized identifiers
+        let sanitized_parent = sanitize_module_name_for_identifier(&parent);
+        let parent_exists = bundler.created_namespaces.contains(&sanitized_parent)
             || bundler.module_registry.contains_key(&parent)
             || parent.is_empty(); // Empty parent means top-level
 
@@ -432,9 +438,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                             debug!(
                                 "Skipping redundant self-assignment: {parent}.{attr} = {module_name}"
                             );
+                        } else if bundler.module_registry.contains_key(&module_name) {
+                            // This is a wrapper module - skip parent assignment
+                            // Wrapper modules are initialized on-demand via their init functions
+                            debug!(
+                                "Skipping wrapper module assignment: {parent}.{attr} = {module_name} - \
+                                 wrapper modules are initialized on-demand"
+                            );
                         } else {
-                            // This is a wrapper module without a namespace - assign direct reference
-                            debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
+                            // This is not a wrapper module - create direct assignment
+                            debug!("Assigning module: {parent}.{attr} = {module_name}");
 
                             // Use centralized assignment creation
                             let assignment =
@@ -454,14 +467,15 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                     "Skipping intermediate namespace '{module_name}' - already created via \
                      namespace index"
                 );
-                created_namespaces.insert(module_name);
+                bundler.created_namespaces.insert(sanitized_mod);
                 continue;
             }
 
             // Also skip if this is an inlined module - it will be handled elsewhere
             if bundler.inlined_modules.contains(&module_name) {
                 debug!("Skipping intermediate namespace '{module_name}' - it's an inlined module");
-                created_namespaces.insert(module_name);
+                let sanitized_mod = sanitize_module_name_for_identifier(&module_name);
+                bundler.created_namespaces.insert(sanitized_mod);
                 continue;
             }
 
@@ -489,7 +503,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 ast_builder::expressions::name(&sanitized_name, ExprContext::Load),
             ));
 
-            created_namespaces.insert(module_name);
+            bundler.created_namespaces.insert(sanitized_name);
         }
     }
 }
@@ -920,6 +934,10 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     let mut statements = Vec::new();
     let mut created = FxIndexSet::default();
 
+    // Track which module names share the same physical file
+    // Maps ModuleId -> first created namespace variable name
+    let mut file_to_namespace: FxIndexMap<ModuleId, String> = FxIndexMap::default();
+
     // Track which namespaces were created BEFORE this function was called
     // (e.g., via immediate generation)
     let mut pre_created = FxIndexSet::default();
@@ -927,6 +945,18 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         if info.is_created {
             pre_created.insert(sanitized_name.clone());
             created.insert(sanitized_name.clone());
+        }
+    }
+
+    // Seed dedup map with namespaces created before this function
+    if let Some(registry) = bundler.module_info_registry {
+        for (sanitized, info) in &bundler.namespace_registry {
+            if info.is_created
+                && let Some(module_id) = registry.get_id_by_name(&info.original_path)
+            {
+                file_to_namespace.insert(module_id, sanitized.clone());
+                trace!("Seeded dedup: ModuleId({module_id:?}) -> {sanitized} (pre-created)");
+            }
         }
     }
 
@@ -977,26 +1007,67 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
             continue;
         }
 
-        // a. Generate the namespace creation statement
-        // Generate types.SimpleNamespace with __name__ as keyword
-        let keywords = vec![Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__name__", TextRange::default())),
-            value: expressions::string_literal(&info.original_path),
-            range: TextRange::default(),
-        }];
+        // Check if this module shares a file with another module that already has a namespace
+        let mut use_existing_namespace = None;
+        if let Some(registry) = bundler.module_info_registry
+            && let Some(module_id) = registry.get_id_by_name(&info.original_path)
+        {
+            // Check if we already created a namespace for this file
+            if let Some(existing_namespace) = file_to_namespace.get(&module_id) {
+                // This module shares a file with an already created namespace
+                // Create an alias instead of a new namespace
+                debug!(
+                    "Module '{}' shares file with already created namespace '{}', creating alias",
+                    info.original_path, existing_namespace
+                );
+                use_existing_namespace = Some(existing_namespace.clone());
+            }
+        }
 
-        let creation_stmt = statements::assign(
-            vec![expressions::name(sanitized_name, ExprContext::Store)],
-            expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-        );
-        statements.push(creation_stmt);
+        if let Some(existing_namespace) = use_existing_namespace {
+            // Create an alias to the existing namespace
+            statements.push(statements::simple_assign(
+                sanitized_name,
+                expressions::name(&existing_namespace, ExprContext::Load),
+            ));
 
-        // b. Track that this needs to be marked as created (defer mutation)
-        namespaces_to_mark_created.push(sanitized_name.clone());
-        bundler.created_namespaces.insert(sanitized_name.clone());
-        created.insert(sanitized_name.clone());
-        debug!("Added {sanitized_name} to created_namespaces");
+            // Track that this namespace is created (even though it's an alias)
+            namespaces_to_mark_created.push(sanitized_name.clone());
+            bundler.created_namespaces.insert(sanitized_name.clone());
+            created.insert(sanitized_name.clone());
+            debug!("Created alias {sanitized_name} -> {existing_namespace}");
+        } else {
+            // a. Generate the namespace creation statement
+            // Generate types.SimpleNamespace with __name__ as keyword
+            let keywords = vec![Keyword {
+                node_index: AtomicNodeIndex::dummy(),
+                arg: Some(Identifier::new("__name__", TextRange::default())),
+                value: expressions::string_literal(&info.original_path),
+                range: TextRange::default(),
+            }];
+
+            let creation_stmt = statements::assign(
+                vec![expressions::name(sanitized_name, ExprContext::Store)],
+                expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
+            );
+            statements.push(creation_stmt);
+
+            // Track this namespace for file deduplication
+            if let Some(registry) = bundler.module_info_registry
+                && let Some(module_id) = registry.get_id_by_name(&info.original_path)
+            {
+                file_to_namespace.insert(module_id, sanitized_name.clone());
+            }
+
+            // b. Track that this needs to be marked as created (defer mutation)
+            namespaces_to_mark_created.push(sanitized_name.clone());
+            bundler.created_namespaces.insert(sanitized_name.clone());
+            created.insert(sanitized_name.clone());
+            debug!(
+                "Added {sanitized_name} to created_namespaces (size now: {})",
+                bundler.created_namespaces.len()
+            );
+        }
 
         // c. Generate alias if needed (e.g., compat = pkg_compat)
         if info.needs_alias

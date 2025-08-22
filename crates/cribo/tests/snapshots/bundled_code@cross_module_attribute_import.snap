@@ -29,20 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
-@_cribo.functools.cache
-def _cribo_init___cribo_35f1d1_mypackage_utils():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypackage.utils'
-    """Utils module that imports from __version__ module and uses it at module level."""
-    _cribo_module.__version__ = __version__
-    VERSION_PREFIX = f"v{__version__}"
-    _cribo_module.VERSION_PREFIX = VERSION_PREFIX
-
-    def get_version_info():
-        """Return version information using the imported __version__ variable."""
-        return _cribo_module.VERSION_PREFIX
-    _cribo_module.get_version_info = get_version_info
-    return _cribo_module
 __version__ = "1.0.0"
 def get_full_info():
     """Combine version and processed data."""
@@ -58,6 +44,20 @@ mypackage_core = _cribo.types.SimpleNamespace(__name__='mypackage.core')
 mypackage.core = mypackage_core
 mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
 mypackage.__version__ = mypackage___version__
+@_cribo.functools.cache
+def _cribo_init___cribo_35f1d1_mypackage_utils():
+    _cribo_module = _cribo.types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypackage.utils'
+    """Utils module that imports from __version__ module and uses it at module level."""
+    _cribo_module.__version__ = __version__
+    VERSION_PREFIX = f"v{__version__}"
+    _cribo_module.VERSION_PREFIX = VERSION_PREFIX
+
+    def get_version_info():
+        """Return version information using the imported __version__ variable."""
+        return _cribo_module.VERSION_PREFIX
+    _cribo_module.get_version_info = get_version_info
+    return _cribo_module
 mypackage.utils = _cribo_init___cribo_35f1d1_mypackage_utils()
 mypackage_core.process_data = process_data
 mypackage___version__.__version__ = __version__

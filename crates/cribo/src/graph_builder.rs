@@ -26,6 +26,8 @@ pub struct GraphBuilder<'a> {
     /// "`importlib.import_module`")
     import_aliases: FxIndexMap<String, String>,
     python_version: u8,
+    /// When inside a function or class, track the scope name
+    scope_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,6 +44,7 @@ impl<'a> GraphBuilder<'a> {
             current_scope: ScopeType::Module,
             import_aliases: FxIndexMap::default(),
             python_version,
+            scope_name: None,
         }
     }
 
@@ -187,6 +190,7 @@ impl<'a> GraphBuilder<'a> {
                 defined_symbols: FxIndexSet::default(),
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses: FxIndexMap::default(),
+                containing_scope: self.scope_name.clone(),
             };
 
             self.graph.add_item(item_data);
@@ -286,6 +290,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -346,20 +351,24 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: [func_name].into_iter().collect(),
+            defined_symbols: [func_name.clone()].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
 
         // Process the function body in function scope
         let old_scope = self.current_scope;
+        let old_scope_name = self.scope_name.clone();
         self.current_scope = ScopeType::Function;
+        self.scope_name = Some(func_name.clone());
         for stmt in &func_def.body {
             self.process_statement(stmt)?;
         }
         self.current_scope = old_scope;
+        self.scope_name = old_scope_name;
 
         Ok(())
     }
@@ -483,20 +492,24 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: [class_name].into_iter().collect(),
+            defined_symbols: [class_name.clone()].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
 
         // Process the class body in class scope
         let old_scope = self.current_scope;
+        let old_scope_name = self.scope_name.clone();
         self.current_scope = ScopeType::Class;
+        self.scope_name = Some(class_name.clone());
         for stmt in &class_def.body {
             self.process_statement(stmt)?;
         }
         self.current_scope = old_scope;
+        self.scope_name = old_scope_name;
 
         Ok(())
     }
@@ -560,6 +573,7 @@ impl<'a> GraphBuilder<'a> {
                     defined_symbols: [target.clone()].into_iter().collect(),
                     symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses: FxIndexMap::default(),
+                    containing_scope: self.scope_name.clone(),
                 };
 
                 self.graph.add_item(item_data);
@@ -601,6 +615,7 @@ impl<'a> GraphBuilder<'a> {
                 defined_symbols: var_decls,
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses,
+                containing_scope: self.scope_name.clone(),
             };
 
             self.graph.add_item(item_data);
@@ -643,6 +658,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: var_decls,
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -685,6 +701,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -726,6 +743,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -752,6 +770,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -800,6 +819,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -835,6 +855,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -873,6 +894,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -920,6 +942,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -945,6 +968,7 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
+            containing_scope: self.scope_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -982,6 +1006,7 @@ impl<'a> GraphBuilder<'a> {
                     defined_symbols: FxIndexSet::default(),
                     symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses,
+                    containing_scope: self.scope_name.clone(),
                 };
                 self.graph.add_item(item_data);
             }

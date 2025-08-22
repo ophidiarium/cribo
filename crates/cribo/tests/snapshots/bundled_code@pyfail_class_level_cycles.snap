@@ -28,8 +28,6 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-admin_class = _cribo.types.SimpleNamespace(__name__='admin_class')
-user_class = _cribo.types.SimpleNamespace(__name__='user_class')
 User = None
 class User:
     """User class that references Admin class."""
@@ -55,6 +53,10 @@ Admin.__module__ = 'admin_class'
 """Admin class module with circular dependency."""
 User.__module__ = 'user_class'
 """User class module with circular dependency."""
+admin_class = _cribo.types.SimpleNamespace(__name__='admin_class')
+user_class = _cribo.types.SimpleNamespace(__name__='user_class')
+admin_class.Admin = Admin
+user_class.User = User
 """Test case with class-level circular dependencies."""
 def main():
     user = User("Alice")

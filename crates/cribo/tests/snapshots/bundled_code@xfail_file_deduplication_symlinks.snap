@@ -31,29 +31,29 @@ _cribo = _Cribo()
 lib = _cribo.types.SimpleNamespace(__name__='lib')
 shared = _cribo.types.SimpleNamespace(__name__='shared')
 lib_helpers = _cribo.types.SimpleNamespace(__name__='lib.helpers')
-shared_common = _cribo.types.SimpleNamespace(__name__='shared.common')
+shared_common = lib_helpers
 lib.helpers = lib_helpers
 shared.common = shared_common
-counter_1 = 0
-counter_2 = 0
-def get_location_1():
+counter = 0
+counter_lib_helpers = 0
+def get_location():
     return "lib/helpers.py"
-def increment_counter_1():
-    global counter_1
-    counter_1 += 1
-    return counter_1
-def get_location_2():
+def increment_counter():
+    global counter
+    counter += 1
+    return counter
+def get_location_lib_helpers():
     return "lib/helpers.py"
-def increment_counter_2():
-    global counter_2
-    counter_2 += 1
-    return counter_2
-shared_common.counter = counter_1
-shared_common.get_location = get_location_1
-shared_common.increment_counter = increment_counter_1
-lib_helpers.counter = counter_2
-lib_helpers.get_location = get_location_2
-lib_helpers.increment_counter = increment_counter_2
+def increment_counter_lib_helpers():
+    global counter_lib_helpers
+    counter_lib_helpers += 1
+    return counter_lib_helpers
+shared_common.counter = counter
+shared_common.get_location = get_location
+shared_common.increment_counter = increment_counter
+lib_helpers.counter = counter_lib_helpers
+lib_helpers.get_location = get_location_lib_helpers
+lib_helpers.increment_counter = increment_counter_lib_helpers
 helpers = lib_helpers
 common = shared_common
 print(f"helpers location: {helpers.get_location()}")

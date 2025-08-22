@@ -2,7 +2,6 @@ use std::{path::Path, process::Command};
 
 #[test]
 #[ignore = "ecosystem test - run with --ignored"]
-#[should_panic(expected = "Ecosystem test failed")] // TODO: Remove once relative import bug is fixed
 fn test_ecosystem_requests() {
     // Get the workspace root
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))

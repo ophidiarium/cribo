@@ -73,6 +73,7 @@ def validate_header(header_type, header_data):
 """Consumer module that imports private variables from _internal module."""
 pkg_consumer = _cribo.types.SimpleNamespace(__name__='pkg.consumer')
 pkg.consumer = pkg_consumer
+pkg._internal = _cribo_init___cribo_73cafd_pkg__internal()
 pkg_consumer.get_validators = get_validators
 pkg_consumer.validate_header = validate_header
 """Test case for bundling modules that have private module variables accessed by other modules."""

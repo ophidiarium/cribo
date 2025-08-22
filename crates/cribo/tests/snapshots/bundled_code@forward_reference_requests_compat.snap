@@ -29,7 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 myrequests = _cribo.types.SimpleNamespace(__name__='myrequests')
-InvalidJSONError = None
 class RequestException(Exception):
     """Base exception for all request errors."""
     pass
@@ -134,12 +133,10 @@ myrequests.exceptions = myrequests_exceptions
 myrequests_cookies = _cribo.types.SimpleNamespace(__name__='myrequests.cookies')
 myrequests.cookies = myrequests_cookies
 myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
-CompatJSONDecodeError = myrequests.compat.JSONDecodeError
-cookielib = myrequests.compat.cookielib
-MutableMapping = myrequests.compat.MutableMapping
 cookies = myrequests_cookies
 exceptions = myrequests_exceptions
 utils = myrequests_utils
+compat = myrequests.compat
 myrequests_cookies.CookieJar = CookieJar
 myrequests_exceptions.InvalidJSONError = InvalidJSONError
 myrequests_exceptions.JSONDecodeError = JSONDecodeError
