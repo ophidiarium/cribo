@@ -70,11 +70,21 @@ impl<'a> ModuleClassifier<'a> {
             match stmt {
                 Stmt::Import(import_stmt) => {
                     for alias in &import_stmt.names {
-                        let imported_as = alias.asname.as_ref().unwrap_or(&alias.name);
-                        let imported_module = &alias.name;
+                        let imported_module = alias.name.as_str();
+                        // In Python, `import a.b` binds `a`; `import a.b as x` binds `x`
+                        let imported_as: String = if let Some(asname) = &alias.asname {
+                            asname.as_str().to_string()
+                        } else {
+                            // For "import a.b.c", only "a" is bound in the namespace
+                            imported_module
+                                .split('.')
+                                .next()
+                                .unwrap_or(imported_module)
+                                .to_string()
+                        };
                         // Check if this imported module is in the circular dependency
-                        if self.circular_modules.contains(imported_module.as_str()) {
-                            imported_module_names.insert(imported_as.to_string());
+                        if self.circular_modules.contains(imported_module) {
+                            imported_module_names.insert(imported_as);
                         }
                     }
                 }
