@@ -906,19 +906,39 @@ impl ModuleResolver {
         }
     }
 
-    /// Resolve a relative import given a package name (not path)
-    /// This is used when we have a package string like "foo.bar" instead of a file path
+    /// Resolve a relative import given a module or package name (not path)
+    /// This is used when we have a module string like "foo.bar.baz" instead of a file path
+    ///
+    /// For relative imports:
+    /// - level=1 (from . import x): Import from the same package as the current module
+    /// - level=2 (from .. import x): Import from the parent package
+    /// - level=3 (from ... import x): Import from the grandparent package, etc.
     pub fn resolve_relative_import_from_package_name(
         &self,
         level: u32,
         name: Option<&str>,
-        package_name: &str,
+        current_module_name: &str,
     ) -> String {
-        let mut package_parts: Vec<&str> = package_name.split('.').collect();
+        let mut package_parts: Vec<&str> = current_module_name.split('.').collect();
 
-        // Go up 'level - 1' levels (one dot means current package)
-        if level > 1 && package_parts.len() >= (level as usize) - 1 {
-            package_parts.truncate(package_parts.len() - ((level as usize) - 1));
+        // For relative imports, we need to determine the base package
+        // If current_module_name has multiple parts (e.g., "pkg.mod"), pop the last part to get the package
+        // If it has only one part (e.g., "pkg"), it's already a package, don't pop
+        // This handles both regular modules and package __init__ files correctly
+        if package_parts.len() > 1 {
+            // Multi-part name like "my_package.mod_a" - pop to get package
+            package_parts.pop();
+        }
+
+        // Now go up additional levels based on the import level
+        // level=1 means current package (we already handled this above)
+        // level=2 means parent package (pop one more)
+        // level=3 means grandparent package (pop two more), etc.
+        for _ in 1..level {
+            if package_parts.is_empty() {
+                break; // Can't go up any further
+            }
+            package_parts.pop();
         }
 
         // Append the name part if provided
@@ -928,7 +948,13 @@ impl ModuleResolver {
             package_parts.push(name_part);
         }
 
-        package_parts.join(".")
+        let result = package_parts.join(".");
+
+        debug!(
+            "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' → '{result}'"
+        );
+
+        result
     }
 
     /// Convert a filesystem path to module path components

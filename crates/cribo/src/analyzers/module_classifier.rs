@@ -89,31 +89,15 @@ impl<'a> ModuleClassifier<'a> {
                     }
                 }
                 Stmt::ImportFrom(import_from) => {
-                    // Handle relative imports within the same package
+                    // Handle relative and absolute imports via the resolver for correctness
                     let resolved_module = if import_from.level > 0 {
-                        // This is a relative import - resolve it based on the current module
-                        // Handle multiple levels properly
-                        let mut current_package = module_name.to_string();
-
-                        // Go up the package hierarchy based on the level
-                        for _ in 0..import_from.level {
-                            if let Some((parent, _)) = current_package.rsplit_once('.') {
-                                current_package = parent.to_string();
-                            } else {
-                                // Can't go up any further
-                                continue;
-                            }
-                        }
-
-                        if let Some(module) = &import_from.module {
-                            // from ..submodule import something
-                            format!("{current_package}.{module}")
-                        } else {
-                            // from .. import something
-                            current_package
-                        }
+                        self.resolver.resolve_relative_import_from_package_name(
+                            import_from.level,
+                            import_from.module.as_deref(),
+                            module_name,
+                        )
                     } else if let Some(module) = &import_from.module {
-                        module.to_string()
+                        module.as_str().to_string()
                     } else {
                         continue; // Invalid import
                     };
