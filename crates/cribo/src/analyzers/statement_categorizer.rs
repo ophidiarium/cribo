@@ -199,10 +199,33 @@ impl StatementCategorizationVisitor {
             if self.dependency_symbols.contains(target.id.as_str()) {
                 // Check if the value looks like it could be a class
                 match assign.value.as_ref() {
-                    Expr::Attribute(_) => true, // e.g., json.JSONDecodeError
-                    Expr::Name(name) => {
-                        // Check if it looks like a class name (starts with uppercase)
-                        name.id.chars().next().is_some_and(char::is_uppercase)
+                    // e.g., json.JSONDecodeError
+                    Expr::Attribute(_) => true,
+                    // e.g., BaseClass, Exception (uppercase names typically indicate classes)
+                    Expr::Name(name) => name.id.chars().next().is_some_and(char::is_uppercase),
+                    // e.g., NamedTuple("Point", ...), type("MyClass", ...), TypedDict(...)
+                    Expr::Call(call) => {
+                        match call.func.as_ref() {
+                            // Constructor calls like module.NamedTuple(...)
+                            Expr::Attribute(_) => true,
+                            // Constructor calls like NamedTuple(...), type(...), etc.
+                            Expr::Name(name) => {
+                                name.id.chars().next().is_some_and(char::is_uppercase)
+                            }
+                            _ => false,
+                        }
+                    }
+                    // e.g., Protocol[T], Generic[T], TypeVar[...]
+                    Expr::Subscript(sub) => {
+                        match sub.value.as_ref() {
+                            // Subscripted attributes like typing.Protocol[...]
+                            Expr::Attribute(_) => true,
+                            // Subscripted names like Protocol[...], Generic[...]
+                            Expr::Name(name) => {
+                                name.id.chars().next().is_some_and(char::is_uppercase)
+                            }
+                            _ => false,
+                        }
                     }
                     _ => false,
                 }
