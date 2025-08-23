@@ -6,8 +6,10 @@
 
 pub mod dependency_analyzer;
 pub mod import_analyzer;
+pub mod module_classifier;
 pub mod symbol_analyzer;
 pub mod types;
 
 pub use import_analyzer::ImportAnalyzer;
+pub use module_classifier::ModuleClassifier;
 pub use symbol_analyzer::SymbolAnalyzer;
