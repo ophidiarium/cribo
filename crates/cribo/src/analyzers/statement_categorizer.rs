@@ -5,7 +5,7 @@
 //! various Python constructs including class inheritance, decorators, metaclasses,
 //! and module namespaces.
 
-use indexmap::IndexSet as FxIndexSet;
+use crate::types::FxIndexSet;
 use ruff_python_ast::{Expr, Stmt};
 
 /// Result of analyzing statements for reordering

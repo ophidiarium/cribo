@@ -1,4 +1,4 @@
-use indexmap::IndexSet as FxIndexSet;
+use crate::types::FxIndexSet;
 use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
 use ruff_python_ast::{Arguments, Decorator, Expr, Stmt};
 
