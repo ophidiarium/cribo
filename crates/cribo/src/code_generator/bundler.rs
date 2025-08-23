@@ -6665,19 +6665,9 @@ impl<'a> Bundler<'a> {
         let mut functions: Vec<Stmt> = Vec::new();
         let mut other_stmts: Vec<Stmt> = Vec::new();
 
-        // First pass: identify all symbols used as base classes
-        let mut base_class_symbols = FxIndexSet::default();
-        for stmt in &statements {
-            if let Stmt::ClassDef(class_def) = stmt
-                && let Some(arguments) = &class_def.arguments
-            {
-                for base_expr in &arguments.args {
-                    if let Expr::Name(name_expr) = base_expr {
-                        base_class_symbols.insert(name_expr.id.to_string());
-                    }
-                }
-            }
-        }
+        // First pass: identify all symbols used as dependencies (base classes, metaclasses, decorators)
+        let base_class_symbols =
+            crate::visitors::ClassDefDependencyCollector::collect_from_statements(&statements);
 
         // Separate assignments that define base classes from other assignments
         let mut base_class_assignments: Vec<Stmt> = Vec::new();
@@ -6860,20 +6850,9 @@ impl<'a> Bundler<'a> {
         let mut functions_and_classes = Vec::new();
         let mut other_stmts = Vec::new();
 
-        // First pass: identify all symbols used as base classes
-        let mut base_class_symbols = FxIndexSet::default();
-        for stmt in &statements {
-            if let Stmt::ClassDef(class_def) = stmt {
-                // Collect all base class names
-                if let Some(arguments) = &class_def.arguments {
-                    for base_expr in &arguments.args {
-                        if let Expr::Name(name_expr) = base_expr {
-                            base_class_symbols.insert(name_expr.id.to_string());
-                        }
-                    }
-                }
-            }
-        }
+        // First pass: identify all symbols used as dependencies (base classes, metaclasses, decorators)
+        let dependency_symbols =
+            crate::visitors::ClassDefDependencyCollector::collect_from_statements(&statements);
 
         // Separate assignments that define base classes from other assignments
         let mut base_class_assignments = Vec::new();
@@ -6913,7 +6892,7 @@ impl<'a> Bundler<'a> {
                                 // Only consider it a base class assignment if:
                                 // 1. The target is used as a base class
                                 // 2. The value looks like it could be a class (attribute access)
-                                if base_class_symbols.contains(target.id.as_str()) {
+                                if dependency_symbols.contains(target.id.as_str()) {
                                     // Check if the value is an attribute access (e.g.,
                                     // json.JSONDecodeError)
                                     // or a simple name that could be a class
@@ -6966,7 +6945,7 @@ impl<'a> Bundler<'a> {
                     // Check if this annotated assignment defines a base class symbol
                     let defines_base_class = if let Expr::Name(target) = ann_assign.target.as_ref()
                     {
-                        base_class_symbols.contains(target.id.as_str())
+                        dependency_symbols.contains(target.id.as_str())
                     } else {
                         false
                     };
