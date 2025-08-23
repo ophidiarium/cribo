@@ -101,7 +101,28 @@ impl ForwardReferenceAnalyzer {
                                  later at position {} (class at {})",
                                 class_name,
                                 base_path,
-                                attr_expr.attr,
+                                attr_expr.attr.as_str(),
+                                base_path,
+                                init_pos,
+                                class_pos
+                            );
+                            return true;
+                        }
+                    }
+                    // Handle generics like "typing.Generic[T]" where base is Subscript(Attribute(...))
+                    else if let Expr::Subscript(sub) = base
+                        && let Expr::Attribute(attr_expr) = sub.value.as_ref()
+                    {
+                        let base_path = expr_to_dotted_name(&attr_expr.value);
+                        if let Some(&init_pos) = namespace_init_positions.get(&base_path)
+                            && init_pos > class_pos
+                        {
+                            log::debug!(
+                                "Class '{}' inherits from {}.{}[...] but namespace '{}' is initialized \
+                                 later at position {} (class at {})",
+                                class_name,
+                                base_path,
+                                attr_expr.attr.as_str(),
                                 base_path,
                                 init_pos,
                                 class_pos
