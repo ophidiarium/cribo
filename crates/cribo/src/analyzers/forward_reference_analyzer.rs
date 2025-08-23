@@ -34,7 +34,10 @@ impl ForwardReferenceAnalyzer {
         for (idx, stmt) in statements.iter().enumerate() {
             match stmt {
                 Stmt::ClassDef(class_def) => {
-                    class_positions.insert(class_def.name.to_string(), idx);
+                    // Use entry().or_insert() to keep only the earliest position
+                    class_positions
+                        .entry(class_def.name.to_string())
+                        .or_insert(idx);
                 }
                 Stmt::Assign(assign) => {
                     if assign.targets.len() == 1 {
@@ -43,7 +46,10 @@ impl ForwardReferenceAnalyzer {
                         {
                             // Check if this is a simple alias assignment like HTTPBasicAuth = HTTPBasicAuth_2
                             // Only track when RHS is Name or Attribute (actual aliases), not literals
-                            assignment_positions.insert(target.id.to_string(), idx);
+                            // Use entry().or_insert() to keep only the earliest position
+                            assignment_positions
+                                .entry(target.id.to_string())
+                                .or_insert(idx);
                         } else if let Expr::Attribute(_) = &assign.targets[0] {
                             // Also check for namespace init assignments like:
                             // mypkg.compat = __cribo_init_...()
@@ -53,7 +59,12 @@ impl ForwardReferenceAnalyzer {
                             {
                                 // Extract the namespace path (e.g., "mypkg.compat")
                                 let namespace_path = expr_to_dotted_name(&assign.targets[0]);
-                                namespace_init_positions.insert(namespace_path, idx);
+                                // Skip empty namespace paths and use entry().or_insert() for earliest position
+                                if !namespace_path.is_empty() {
+                                    namespace_init_positions
+                                        .entry(namespace_path)
+                                        .or_insert(idx);
+                                }
                             }
                         }
                     }
