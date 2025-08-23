@@ -6,6 +6,7 @@
 mod class_def_dependencies;
 mod export_collector;
 mod import_discovery;
+mod local_var_collector;
 mod side_effect_detector;
 pub mod symbol_collector;
 pub mod utils;
@@ -16,5 +17,6 @@ pub use export_collector::ExportCollector;
 pub use import_discovery::{
     DiscoveredImport, ImportDiscoveryVisitor, ImportLocation, ImportType, ScopeElement,
 };
+pub use local_var_collector::LocalVarCollector;
 pub use side_effect_detector::{ExpressionSideEffectDetector, SideEffectDetector};
 pub use variable_collector::VariableCollector;
