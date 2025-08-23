@@ -39,28 +39,7 @@ impl ClassDefDependencyCollector {
 
 impl<'a> SourceOrderVisitor<'a> for ClassDefDependencyCollector {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        match stmt {
-            Stmt::ClassDef(class_def) => {
-                // Collect decorator dependencies
-                for decorator in &class_def.decorator_list {
-                    self.visit_decorator(decorator);
-                }
-
-                // Collect base class and metaclass dependencies
-                if let Some(arguments) = &class_def.arguments {
-                    self.visit_arguments(arguments);
-                }
-            }
-            Stmt::FunctionDef(func_def) => {
-                // Collect decorator dependencies for functions too
-                for decorator in &func_def.decorator_list {
-                    self.visit_decorator(decorator);
-                }
-            }
-            _ => {}
-        }
-
-        // Continue visiting nested statements
+        // Let the visitor pattern handle all traversal
         source_order::walk_stmt(self, stmt);
     }
 
