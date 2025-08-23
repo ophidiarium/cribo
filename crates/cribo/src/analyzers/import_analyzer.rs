@@ -732,25 +732,22 @@ impl ImportAnalyzer {
 
     /// Collect all `__future__` imports from a module AST
     pub fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
-        let mut future_imports = FxIndexSet::default();
-
-        for stmt in &ast.body {
-            let Stmt::ImportFrom(import_from) = stmt else {
-                continue;
-            };
-
-            let Some(ref module) = import_from.module else {
-                continue;
-            };
-
-            if module.as_str() == "__future__" {
-                for alias in &import_from.names {
-                    future_imports.insert(alias.name.to_string());
+        ast.body
+            .iter()
+            .filter_map(|stmt| {
+                if let Stmt::ImportFrom(import_from) = stmt
+                    && import_from
+                        .module
+                        .as_deref()
+                        .is_some_and(|m| m == "__future__")
+                {
+                    return Some(&import_from.names);
                 }
-            }
-        }
-
-        future_imports
+                None
+            })
+            .flatten()
+            .map(|alias| alias.name.to_string())
+            .collect()
     }
 }
 
