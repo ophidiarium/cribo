@@ -1,20 +1,20 @@
-//! Local variable collector that respects global and nonlocal declarations
+//! Local variable collector that respects `global` and `nonlocal` declarations
 //!
 //! This visitor traverses the AST in source order to collect local variable
-//! declarations while excluding variables that have been declared as global,
-//! and including variables declared as nonlocal.
+//! names, excluding names declared as `global`, and treating names
+//! declared `nonlocal` as locals for collection (to prevent module-attr rewrites).
 
 use crate::types::FxIndexSet;
 use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
 use ruff_python_ast::{ExceptHandler, Expr, Stmt};
 
-/// Visitor that collects local variable declarations in source order,
-/// excluding variables that have been declared as global and including
-/// variables declared as nonlocal
+/// Visitor that collects local variable names in source order,
+/// excluding names declared as `global`, and treating `nonlocal` names as locals
+/// for the purposes of collection
 pub struct LocalVarCollector<'a> {
-    /// Set to collect local variables
+    /// Set to collect local variable names
     local_vars: &'a mut FxIndexSet<String>,
-    /// Set of global variables to exclude from local collection
+    /// Set of global names to exclude from collection
     global_vars: &'a FxIndexSet<String>,
 }
 
@@ -30,19 +30,19 @@ impl<'a> LocalVarCollector<'a> {
         }
     }
 
-    /// Collect local variables from a list of statements
+    /// Collect local variable names from a list of statements
     pub fn collect_from_stmts(&mut self, stmts: &'a [Stmt]) {
         source_order::walk_body(self, stmts);
     }
 
-    /// Helper to check and insert a variable name if it's not global
+    /// Helper to check and insert a name if it's not global
     fn insert_if_not_global(&mut self, var_name: &str) {
         if !self.global_vars.contains(var_name) {
             self.local_vars.insert(var_name.to_string());
         }
     }
 
-    /// Extract variable name from assignment target
+    /// Extract variable names from assignment target
     fn collect_from_target(&mut self, target: &Expr) {
         match target {
             Expr::Name(name) => {
@@ -71,17 +71,17 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::Assign(assign) => {
-                // Collect assignment targets as local variables
+                // Collect names from assignment targets
                 for target in &assign.targets {
                     self.collect_from_target(target);
                 }
             }
             Stmt::AnnAssign(ann_assign) => {
-                // Collect annotated assignment targets
+                // Collect names from annotated assignment targets
                 self.collect_from_target(&ann_assign.target);
             }
             Stmt::AugAssign(aug_assign) => {
-                // Augmented assignments (x += 1) bind variables in current scope
+                // Augmented assignments (x += 1) bind names in current scope
                 self.collect_from_target(&aug_assign.target);
                 // Continue default traversal
                 source_order::walk_stmt(self, stmt);
