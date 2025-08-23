@@ -6660,172 +6660,23 @@ impl<'a> Bundler<'a> {
         statements: Vec<Stmt>,
         python_version: u8,
     ) -> Vec<Stmt> {
-        let mut imports: Vec<Stmt> = Vec::new();
-        let mut classes: Vec<Stmt> = Vec::new();
-        let mut functions: Vec<Stmt> = Vec::new();
-        let mut other_stmts: Vec<Stmt> = Vec::new();
+        // Use the categorizer to categorize statements
+        let categorizer = crate::analyzers::StatementCategorizer::new(python_version);
+        let categories = categorizer.analyze_cross_module_statements(statements);
 
-        // First pass: identify all symbols used as base classes
-        let mut base_class_symbols = FxIndexSet::default();
-        for stmt in &statements {
-            if let Stmt::ClassDef(class_def) = stmt
-                && let Some(arguments) = &class_def.arguments
-            {
-                for base_expr in &arguments.args {
-                    if let Expr::Name(name_expr) = base_expr {
-                        base_class_symbols.insert(name_expr.id.to_string());
-                    }
-                }
-            }
-        }
-
-        // Separate assignments that define base classes from other assignments
-        let mut base_class_assignments: Vec<Stmt> = Vec::new();
-        let mut regular_assignments: Vec<Stmt> = Vec::new();
-        let mut builtin_restorations: Vec<Stmt> = Vec::new();
-        let mut namespace_builtin_assignments: Vec<Stmt> = Vec::new();
-
-        // Categorize statements
-        for stmt in statements {
-            match &stmt {
-                Stmt::Import(_) | Stmt::ImportFrom(_) => {
-                    imports.push(stmt);
-                }
-                Stmt::Assign(assign) => {
-                    // Check if this is an attribute assignment
-                    let is_attribute_assignment = if assign.targets.len() == 1 {
-                        matches!(&assign.targets[0], Expr::Attribute(_))
-                    } else {
-                        false
-                    };
-
-                    if is_attribute_assignment {
-                        debug!("Found attribute assignment: {stmt:?}");
-
-                        // Check if this is a namespace attribute assignment of a built-in type
-                        // e.g., compat.bytes = bytes
-                        let is_namespace_builtin_assignment =
-                            if let (Expr::Attribute(_attr), Expr::Name(value_name)) =
-                                (&assign.targets[0], assign.value.as_ref())
-                            {
-                                // Check if the value is a built-in type
-                                ruff_python_stdlib::builtins::is_python_builtin(
-                                    value_name.id.as_str(),
-                                    python_version,
-                                    false,
-                                )
-                            } else {
-                                false
-                            };
-
-                        if is_namespace_builtin_assignment {
-                            log::debug!("Found namespace builtin assignment: {stmt:?}");
-                            namespace_builtin_assignments.push(stmt);
-                            continue;
-                        }
-
-                        // Check if this is a module namespace assignment (e.g., parent.child =
-                        // child_namespace) These need to be ordered with
-                        // regular assignments, not deferred
-                        let is_module_namespace_assignment =
-                            if let Expr::Attribute(attr) = &assign.targets[0] {
-                                // Check if the right-hand side references a module or namespace
-                                if let Expr::Name(name) = &attr.value.as_ref() {
-                                    // Check if this looks like a parent-child module relationship
-                                    let parent_name = name.id.as_str();
-                                    let child_name = attr.attr.as_str();
-
-                                    // Check if the value being assigned matches the child name
-                                    if let Expr::Name(value_name) = assign.value.as_ref() {
-                                        value_name.id.as_str() == child_name
-                                            || value_name.id.as_str()
-                                                == format!("{parent_name}_{child_name}")
-                                            || value_name
-                                                .id
-                                                .as_str()
-                                                .starts_with(&format!("{child_name}_"))
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            };
-
-                        if is_module_namespace_assignment {
-                            // Module namespace assignments should be ordered with regular
-                            // assignments
-                            regular_assignments.push(stmt);
-                        } else {
-                            // Other attribute assignments (like class attributes) come after class
-                            // definitions
-                            debug!("Adding attribute assignment to other_stmts: {stmt:?}");
-                            other_stmts.push(stmt);
-                        }
-                    } else {
-                        // Check if this is a built-in type restoration (e.g., bytes = bytes)
-                        let is_builtin_restoration =
-                            if let ([Expr::Name(target)], Expr::Name(value)) =
-                                (assign.targets.as_slice(), assign.value.as_ref())
-                            {
-                                // Check if it's a self-assignment of a built-in type
-                                target.id == value.id
-                                    && ruff_python_stdlib::builtins::is_python_builtin(
-                                        target.id.as_str(),
-                                        python_version,
-                                        false,
-                                    )
-                            } else {
-                                false
-                            };
-
-                        if is_builtin_restoration {
-                            builtin_restorations.push(stmt);
-                        } else {
-                            // Check if this assignment defines a base class symbol
-                            let defines_base_class = if assign.targets.len() == 1 {
-                                if let Expr::Name(target) = &assign.targets[0] {
-                                    // Only consider it a base class assignment if:
-                                    // 1. The target is used as a base class
-                                    // 2. The value is an attribute access (e.g.,
-                                    //    json.JSONDecodeError)
-                                    if base_class_symbols.contains(target.id.as_str()) {
-                                        match assign.value.as_ref() {
-                                            Expr::Attribute(_) => true, /* e.g., json. */
-                                            // JSONDecodeError
-                                            _ => false,
-                                        }
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            };
-
-                            if defines_base_class {
-                                base_class_assignments.push(stmt);
-                            } else {
-                                regular_assignments.push(stmt);
-                            }
-                        }
-                    }
-                }
-                Stmt::ClassDef(_) => {
-                    classes.push(stmt);
-                }
-                Stmt::FunctionDef(_) => {
-                    functions.push(stmt);
-                }
-                _ => {
-                    other_stmts.push(stmt);
-                }
-            }
-        }
+        log::debug!(
+            "Cross-module categorize: imports={}, builtin_restorations={}, \
+             namespace_builtin_assignments={}, base_class_assignments={}, regular_assignments={}, \
+             classes={}, functions={}, other_statements={}",
+            categories.imports.len(),
+            categories.builtin_restorations.len(),
+            categories.namespace_builtin_assignments.len(),
+            categories.base_class_assignments.len(),
+            categories.regular_assignments.len(),
+            categories.classes.len(),
+            categories.functions.len(),
+            categories.other_statements.len(),
+        );
 
         // Build the reordered list:
         // 1. Imports first
@@ -6836,15 +6687,24 @@ impl<'a> Bundler<'a> {
         // 6. Classes (must come before functions that might use them)
         // 7. Functions (may depend on classes)
         // 8. Other statements (including class attribute assignments)
-        let mut reordered = Vec::new();
-        reordered.extend(imports);
-        reordered.extend(builtin_restorations);
-        reordered.extend(namespace_builtin_assignments);
-        reordered.extend(base_class_assignments);
-        reordered.extend(regular_assignments);
-        reordered.extend(classes);
-        reordered.extend(functions);
-        reordered.extend(other_stmts);
+        let mut reordered = Vec::with_capacity(
+            categories.imports.len()
+                + categories.builtin_restorations.len()
+                + categories.namespace_builtin_assignments.len()
+                + categories.base_class_assignments.len()
+                + categories.regular_assignments.len()
+                + categories.classes.len()
+                + categories.functions.len()
+                + categories.other_statements.len(),
+        );
+        reordered.extend(categories.imports);
+        reordered.extend(categories.builtin_restorations);
+        reordered.extend(categories.namespace_builtin_assignments);
+        reordered.extend(categories.base_class_assignments);
+        reordered.extend(categories.regular_assignments);
+        reordered.extend(categories.classes);
+        reordered.extend(categories.functions);
+        reordered.extend(categories.other_statements);
 
         reordered
     }
@@ -6853,196 +6713,50 @@ impl<'a> Bundler<'a> {
     pub(crate) fn reorder_statements_for_proper_declaration_order(
         &self,
         statements: Vec<Stmt>,
+        python_version: u8,
     ) -> Vec<Stmt> {
         log::debug!("Reordering {} statements", statements.len());
-        let mut imports = Vec::new();
-        let mut self_assignments = Vec::new();
-        let mut functions_and_classes = Vec::new();
-        let mut other_stmts = Vec::new();
 
-        // First pass: identify all symbols used as base classes
-        let mut base_class_symbols = FxIndexSet::default();
-        for stmt in &statements {
-            if let Stmt::ClassDef(class_def) = stmt {
-                // Collect all base class names
-                if let Some(arguments) = &class_def.arguments {
-                    for base_expr in &arguments.args {
-                        if let Expr::Name(name_expr) = base_expr {
-                            base_class_symbols.insert(name_expr.id.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Separate assignments that define base classes from other assignments
-        let mut base_class_assignments = Vec::new();
-        let mut regular_assignments = Vec::new();
-
-        // Categorize statements
-        for stmt in statements {
-            match &stmt {
-                Stmt::Import(_) | Stmt::ImportFrom(_) => {
-                    imports.push(stmt);
-                }
-                Stmt::Assign(assign) => {
-                    // Check if this is a class attribute assignment (e.g., MyClass.__module__ =
-                    // 'foo')
-                    let is_class_attribute = if assign.targets.len() == 1 {
-                        if let Expr::Attribute(attr) = &assign.targets[0] {
-                            if let Expr::Name(_) = attr.value.as_ref() {
-                                // This is an attribute assignment like MyClass.__module__
-                                true
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-
-                    if is_class_attribute {
-                        // Class attribute assignments should stay after their class definitions
-                        other_stmts.push(stmt);
-                    } else {
-                        // Check if this assignment defines a base class symbol
-                        let defines_base_class = if assign.targets.len() == 1 {
-                            if let Expr::Name(target) = &assign.targets[0] {
-                                // Only consider it a base class assignment if:
-                                // 1. The target is used as a base class
-                                // 2. The value looks like it could be a class (attribute access)
-                                if base_class_symbols.contains(target.id.as_str()) {
-                                    // Check if the value is an attribute access (e.g.,
-                                    // json.JSONDecodeError)
-                                    // or a simple name that could be a class
-                                    match assign.value.as_ref() {
-                                        Expr::Attribute(_) => true, // e.g., json.JSONDecodeError
-                                        Expr::Name(name) => {
-                                            // Check if it looks like a class name (starts with
-                                            // uppercase)
-                                            name.id.chars().next().is_some_and(char::is_uppercase)
-                                        }
-                                        _ => false,
-                                    }
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-
-                        // Check if this is a self-assignment (e.g., validate = validate)
-                        let is_self_assignment = if assign.targets.len() == 1 {
-                            if let (Expr::Name(target), Expr::Name(value)) =
-                                (&assign.targets[0], assign.value.as_ref())
-                            {
-                                target.id == value.id
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-
-                        if is_self_assignment {
-                            // Self-assignments should come after function definitions
-                            self_assignments.push(stmt);
-                        } else if defines_base_class {
-                            // Assignments that define base classes must come before class
-                            // definitions
-                            base_class_assignments.push(stmt);
-                        } else {
-                            // Regular assignments
-                            regular_assignments.push(stmt);
-                        }
-                    }
-                }
-                Stmt::AnnAssign(ann_assign) => {
-                    // Check if this annotated assignment defines a base class symbol
-                    let defines_base_class = if let Expr::Name(target) = ann_assign.target.as_ref()
-                    {
-                        base_class_symbols.contains(target.id.as_str())
-                    } else {
-                        false
-                    };
-
-                    if defines_base_class {
-                        base_class_assignments.push(stmt);
-                    } else {
-                        regular_assignments.push(stmt);
-                    }
-                }
-                Stmt::FunctionDef(_) => {
-                    // Functions need to come after classes they might reference
-                    // We'll sort these later
-                    functions_and_classes.push(stmt);
-                }
-                Stmt::ClassDef(_) => {
-                    // Classes can have forward references in type annotations
-                    // so they can go first among functions/classes
-                    functions_and_classes.push(stmt);
-                }
-                _ => {
-                    other_stmts.push(stmt);
-                }
-            }
-        }
-
-        // Separate functions and classes, then order them: classes first, functions second
-        // This ensures functions that depend on classes are defined after those classes
-        let mut classes = Vec::new();
-        let mut functions = Vec::new();
-
-        for stmt in functions_and_classes {
-            match &stmt {
-                Stmt::ClassDef(_) => classes.push(stmt),
-                Stmt::FunctionDef(_) => functions.push(stmt),
-                _ => unreachable!("Only functions and classes should be in this list"),
-            }
-        }
-
-        // Combine: classes first, then functions
-        let mut ordered_functions_and_classes = Vec::new();
-        ordered_functions_and_classes.extend(classes);
-        ordered_functions_and_classes.extend(functions);
+        // Use the categorizer to categorize statements
+        let categorizer = crate::analyzers::StatementCategorizer::new(python_version);
+        let categories = categorizer.analyze_statements(statements);
 
         log::debug!(
-            "Reordered: {} imports, {} base class assignments, {} regular assignments, {} \
-             classes, {} functions, {} self assignments, {} other statements",
-            imports.len(),
-            base_class_assignments.len(),
-            regular_assignments.len(),
-            ordered_functions_and_classes
-                .iter()
-                .filter(|s| matches!(s, Stmt::ClassDef(_)))
-                .count(),
-            ordered_functions_and_classes
-                .iter()
-                .filter(|s| matches!(s, Stmt::FunctionDef(_)))
-                .count(),
-            self_assignments.len(),
-            other_stmts.len()
+            "Reordered: imports={}, dependency_assignments={}, regular_assignments={}, \
+             classes={}, functions={}, self_assignments={}, other_statements={}",
+            categories.imports.len(),
+            categories.dependency_assignments.len(),
+            categories.regular_assignments.len(),
+            categories.classes.len(),
+            categories.functions.len(),
+            categories.self_assignments.len(),
+            categories.other_statements.len()
         );
 
         // Build the reordered list:
         // 1. Imports first
-        // 2. Base class assignments (must come before class definitions)
-        // 3. Other module-level assignments (variables) - but not self-assignments
-        // 4. Functions and classes (ordered by inheritance)
-        // 5. Self-assignments (after functions are defined)
-        // 6. Other statements
-        let mut reordered = Vec::new();
-        reordered.extend(imports);
-        reordered.extend(base_class_assignments);
-        reordered.extend(regular_assignments);
-        reordered.extend(ordered_functions_and_classes);
-        reordered.extend(self_assignments);
-        reordered.extend(other_stmts);
+        // 2. Dependency assignments (base classes, decorators, metaclasses)
+        // 3. Regular assignments
+        // 4. Classes (before functions that might use them)
+        // 5. Functions
+        // 6. Self-assignments (after functions are defined)
+        // 7. Other statements
+        let mut reordered = Vec::with_capacity(
+            categories.imports.len()
+                + categories.dependency_assignments.len()
+                + categories.regular_assignments.len()
+                + categories.classes.len()
+                + categories.functions.len()
+                + categories.self_assignments.len()
+                + categories.other_statements.len(),
+        );
+        reordered.extend(categories.imports);
+        reordered.extend(categories.dependency_assignments);
+        reordered.extend(categories.regular_assignments);
+        reordered.extend(categories.classes);
+        reordered.extend(categories.functions);
+        reordered.extend(categories.self_assignments);
+        reordered.extend(categories.other_statements);
 
         reordered
     }
