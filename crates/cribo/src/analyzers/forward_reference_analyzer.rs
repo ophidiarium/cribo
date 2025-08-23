@@ -37,23 +37,22 @@ impl ForwardReferenceAnalyzer {
                     class_positions.insert(class_def.name.to_string(), idx);
                 }
                 Stmt::Assign(assign) => {
-                    // Check if this is a simple assignment like HTTPBasicAuth = HTTPBasicAuth_2
-                    if assign.targets.len() == 1
-                        && let Expr::Name(target) = &assign.targets[0]
-                    {
-                        assignment_positions.insert(target.id.to_string(), idx);
-                    }
-                    // Also check for namespace init assignments like:
-                    // mypkg.compat = __cribo_init_...()
-                    if assign.targets.len() == 1
-                        && let Expr::Attribute(attr) = &assign.targets[0]
-                        && let Expr::Call(call) = assign.value.as_ref()
-                        && let Expr::Name(func_name) = call.func.as_ref()
-                        && is_init_function(func_name.id.as_str())
-                    {
-                        // Extract the namespace path (e.g., "mypkg.compat")
-                        let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
-                        namespace_init_positions.insert(namespace_path, idx);
+                    if assign.targets.len() == 1 {
+                        if let Expr::Name(target) = &assign.targets[0] {
+                            // Check if this is a simple assignment like HTTPBasicAuth = HTTPBasicAuth_2
+                            assignment_positions.insert(target.id.to_string(), idx);
+                        } else if let Expr::Attribute(_) = &assign.targets[0] {
+                            // Also check for namespace init assignments like:
+                            // mypkg.compat = __cribo_init_...()
+                            if let Expr::Call(call) = assign.value.as_ref()
+                                && let Expr::Name(func_name) = call.func.as_ref()
+                                && is_init_function(func_name.id.as_str())
+                            {
+                                // Extract the namespace path (e.g., "mypkg.compat")
+                                let namespace_path = expr_to_dotted_name(&assign.targets[0]);
+                                namespace_init_positions.insert(namespace_path, idx);
+                            }
+                        }
                     }
                 }
                 _ => {}
