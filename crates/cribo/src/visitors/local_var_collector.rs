@@ -164,10 +164,10 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
 
     fn visit_except_handler(&mut self, handler: &'a ExceptHandler) {
         let ExceptHandler::ExceptHandler(eh) = handler;
-        // Collect exception name if present
+        // Collect exception name if present, respecting global declarations
         if let Some(ref name) = eh.name {
-            // Exception names are always local in their handler scope
-            self.local_vars.insert(name.to_string());
+            // Exception names can be global if previously declared
+            self.insert_if_not_global(name);
         }
         // Continue default traversal for the handler body
         source_order::walk_except_handler(self, handler);
@@ -267,6 +267,8 @@ try:
     x = 1
 except Exception as e:
     y = 2
+finally:
+    z = 3
 ";
         let module = parse_test_module(source);
         let mut local_vars = FxIndexSet::default();
@@ -278,6 +280,7 @@ except Exception as e:
         assert!(local_vars.contains("x"));
         assert!(local_vars.contains("e"));
         assert!(local_vars.contains("y"));
+        assert!(local_vars.contains("z"));
     }
 
     #[test]
@@ -503,5 +506,34 @@ from sys import argv
         // But specific imports do
         assert!(local_vars.contains("path"));
         assert!(local_vars.contains("argv"));
+    }
+
+    #[test]
+    fn test_exception_with_global() {
+        let source = r"
+global e
+try:
+    x = 1
+except Exception as e:
+    y = 2
+except ValueError as v:
+    z = 3
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let mut global_vars = FxIndexSet::default();
+        global_vars.insert("e".to_string());
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        // e is global, so it shouldn't be collected
+        assert!(!local_vars.contains("e"));
+        // v is not global, so it should be collected
+        assert!(local_vars.contains("v"));
+        // Regular assignments are collected
+        assert!(local_vars.contains("x"));
+        assert!(local_vars.contains("y"));
+        assert!(local_vars.contains("z"));
     }
 }
