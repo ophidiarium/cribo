@@ -38,8 +38,11 @@ impl ForwardReferenceAnalyzer {
                 }
                 Stmt::Assign(assign) => {
                     if assign.targets.len() == 1 {
-                        if let Expr::Name(target) = &assign.targets[0] {
-                            // Check if this is a simple assignment like HTTPBasicAuth = HTTPBasicAuth_2
+                        if let Expr::Name(target) = &assign.targets[0]
+                            && matches!(assign.value.as_ref(), Expr::Name(_) | Expr::Attribute(_))
+                        {
+                            // Check if this is a simple alias assignment like HTTPBasicAuth = HTTPBasicAuth_2
+                            // Only track when RHS is Name or Attribute (actual aliases), not literals
                             assignment_positions.insert(target.id.to_string(), idx);
                         } else if let Expr::Attribute(_) = &assign.targets[0] {
                             // Also check for namespace init assignments like:
