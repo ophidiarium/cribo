@@ -7552,11 +7552,11 @@ impl Bundler<'_> {
             return statements;
         }
 
-        // Use the same detection logic as ForwardReferenceAnalyzer
-        // to ensure consistency
-        if !ForwardReferenceAnalyzer::has_cross_module_inheritance_forward_refs(&statements) {
-            return statements;
-        }
+        // Already gated at the call-site; keep a cheap debug assertion to catch regressions.
+        debug_assert!(
+            ForwardReferenceAnalyzer::has_cross_module_inheritance_forward_refs(&statements),
+            "fix_forward_references_in_statements should be called only when forward refs exist"
+        );
 
         log::debug!("Fixing forward references in statements");
 
