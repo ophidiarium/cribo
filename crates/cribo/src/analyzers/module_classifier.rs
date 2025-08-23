@@ -286,10 +286,7 @@ impl<'a> ModuleClassifier<'a> {
                                 expanded_exports = Some(Vec::new());
                             }
 
-                            // We'll resolve this in the second pass - for now, exclude '*' from the exports
-                            if let Some(ref mut exports) = expanded_exports {
-                                exports.retain(|s| s != "*");
-                            }
+                            // We'll resolve this in the second pass
                         }
                     }
                 }
