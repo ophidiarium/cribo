@@ -6665,8 +6665,9 @@ impl<'a> Bundler<'a> {
         let categories = categorizer.analyze_cross_module_statements(statements);
 
         log::debug!(
-            "Cross-module categorize: {} imports, {} builtin_restorations, {} namespace_builtins, \
-             {} base_class_assignments, {} regular_assignments, {} classes, {} functions, {} others",
+            "Cross-module categorize: imports={}, builtin_restorations={}, \
+             namespace_builtin_assignments={}, base_class_assignments={}, regular_assignments={}, \
+             classes={}, functions={}, other_statements={}",
             categories.imports.len(),
             categories.builtin_restorations.len(),
             categories.namespace_builtin_assignments.len(),
@@ -6721,8 +6722,8 @@ impl<'a> Bundler<'a> {
         let categories = categorizer.analyze_statements(statements);
 
         log::debug!(
-            "Reordered: {} imports, {} dependency assignments, {} regular assignments, {} \
-             classes, {} functions, {} self assignments, {} other statements",
+            "Reordered: imports={}, dependency_assignments={}, regular_assignments={}, \
+             classes={}, functions={}, self_assignments={}, other_statements={}",
             categories.imports.len(),
             categories.dependency_assignments.len(),
             categories.regular_assignments.len(),
