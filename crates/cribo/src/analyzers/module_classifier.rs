@@ -351,7 +351,7 @@ impl<'a> ModuleClassifier<'a> {
         }
 
         // Second pass: resolve wildcard imports now that all modules have been processed
-        let mut wildcard_imports: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+        let mut wildcard_imports: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
 
         for (module_name, ast, _, _) in modules {
             // Look for wildcard imports in this module
@@ -376,7 +376,7 @@ impl<'a> ModuleClassifier<'a> {
                         wildcard_imports
                             .entry(module_name.clone())
                             .or_default()
-                            .push(imported);
+                            .insert(imported);
                     }
                 }
             }
