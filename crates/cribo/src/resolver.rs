@@ -14,6 +14,54 @@ use ruff_python_stdlib::sys;
 
 use crate::config::Config;
 
+/// Resolve a relative import based on module name (standalone utility)
+///
+/// This is a pure function that resolves relative imports based on module names alone,
+/// without requiring a resolver instance. Used by both `ModuleResolver` and `ImportAnalyzer`.
+///
+/// # Arguments
+/// * `level` - The number of leading dots in the relative import
+/// * `name` - The module name after the dots (if any)
+/// * `current_module_name` - The name of the module performing the import
+///
+/// # Returns
+/// The resolved absolute module name
+pub fn resolve_relative_import_from_name(
+    level: u32,
+    name: Option<&str>,
+    current_module_name: &str,
+) -> String {
+    let mut package_parts: Vec<&str> = current_module_name.split('.').collect();
+
+    // For modules (not packages), we need to remove the module itself first
+    // then go up additional levels
+    // Check if this is likely a package (__init__) or a regular module
+    let is_likely_package = package_parts.last().is_some_and(|part| *part == "__init__");
+
+    if !is_likely_package && package_parts.len() > 1 {
+        // Remove the module name itself for regular modules
+        package_parts.pop();
+    }
+
+    // Go up additional levels based on the import level
+    // Level 1 means current package, level 2 means parent, etc.
+    for _ in 1..level {
+        if package_parts.is_empty() {
+            break; // Can't go up any further
+        }
+        package_parts.pop();
+    }
+
+    // Append the name part if provided
+    if let Some(name_part) = name
+        && !name_part.is_empty()
+    {
+        package_parts.push(name_part);
+    }
+
+    package_parts.join(".")
+}
+
 /// Check if a module is part of the Python standard library using `ruff_python_stdlib`
 pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     // Check direct match using ruff_python_stdlib
@@ -312,23 +360,19 @@ impl ModuleResolver {
         let resolved_name = if let Some(package) = package_context {
             if module_name.starts_with('.') {
                 // Count the number of leading dots
-                let level = module_name.chars().take_while(|&c| c == '.').count();
+                let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
                 let name_part = module_name.trim_start_matches('.');
 
-                // Split the package to handle parent navigation
-                let mut package_parts: Vec<&str> = package.split('.').collect();
-
-                // Go up 'level - 1' levels (one dot means current package)
-                if level > 1 && package_parts.len() >= level - 1 {
-                    package_parts.truncate(package_parts.len() - (level - 1));
-                }
-
-                // Append the name part if it's not empty
-                if !name_part.is_empty() {
-                    package_parts.push(name_part);
-                }
-
-                package_parts.join(".")
+                // Use the centralized helper for relative import resolution
+                self.resolve_relative_import_from_package_name(
+                    level,
+                    if name_part.is_empty() {
+                        None
+                    } else {
+                        Some(name_part)
+                    },
+                    package,
+                )
             } else {
                 // Absolute import, use as-is
                 module_name.to_string()
@@ -919,36 +963,7 @@ impl ModuleResolver {
         name: Option<&str>,
         current_module_name: &str,
     ) -> String {
-        let mut package_parts: Vec<&str> = current_module_name.split('.').collect();
-
-        // For relative imports, we need to determine the base package
-        // If current_module_name has multiple parts (e.g., "pkg.mod"), pop the last part to get the package
-        // If it has only one part (e.g., "pkg"), it's already a package, don't pop
-        // This handles both regular modules and package __init__ files correctly
-        if package_parts.len() > 1 {
-            // Multi-part name like "my_package.mod_a" - pop to get package
-            package_parts.pop();
-        }
-
-        // Now go up additional levels based on the import level
-        // level=1 means current package (we already handled this above)
-        // level=2 means parent package (pop one more)
-        // level=3 means grandparent package (pop two more), etc.
-        for _ in 1..level {
-            if package_parts.is_empty() {
-                break; // Can't go up any further
-            }
-            package_parts.pop();
-        }
-
-        // Append the name part if provided
-        if let Some(name_part) = name
-            && !name_part.is_empty()
-        {
-            package_parts.push(name_part);
-        }
-
-        let result = package_parts.join(".");
+        let result = resolve_relative_import_from_name(level, name, current_module_name);
 
         debug!(
             "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' → '{result}'"

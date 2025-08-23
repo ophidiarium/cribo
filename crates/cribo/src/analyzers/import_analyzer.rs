@@ -699,31 +699,13 @@ impl ImportAnalyzer {
                 // Absolute import: "from rich.cells import ..."
                 import_module_str == target_module
             } else {
-                // Relative import: "from .cells import ...", "from ..utils import ...", etc.
-                // Get the package of the importing module
-                if let Some(mut package_prefix) = importing_module
-                    .rsplit_once('.')
-                    .map(|(pkg, _)| pkg.to_string())
-                {
-                    // For relative imports with level > 1, traverse up the package hierarchy
-                    // level 1: from .foo import ... (stay at current package)
-                    // level 2: from ..foo import ... (go up one level)
-                    // level 3: from ...foo import ... (go up two levels)
-                    for _ in 1..import_from.level {
-                        if let Some((parent, _)) = package_prefix.rsplit_once('.') {
-                            package_prefix = parent.to_string();
-                        } else {
-                            // Attempted to go above top-level package
-                            return false;
-                        }
-                    }
-
-                    let resolved_module = format!("{package_prefix}.{import_module_str}");
-                    resolved_module == target_module
-                } else {
-                    // The importing module is a top-level module, can't do relative imports
-                    false
-                }
+                // Relative import: use the centralized helper
+                let resolved_module = crate::resolver::resolve_relative_import_from_name(
+                    import_from.level,
+                    Some(import_module_str),
+                    importing_module,
+                );
+                resolved_module == target_module
             }
         } else {
             false
