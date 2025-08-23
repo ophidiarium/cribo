@@ -1735,9 +1735,8 @@ impl<'a> Bundler<'a> {
             self.namespace_imported_modules.clone(),
             self.circular_modules.clone(),
         );
-        let (classification, modules_with_explicit_all) =
-            classifier.classify_modules(&modules, python_version);
-        self.modules_with_explicit_all = modules_with_explicit_all;
+        let classification = classifier.classify_modules(&modules, python_version);
+        self.modules_with_explicit_all = classification.modules_with_explicit_all.clone();
         let inlinable_modules = classification.inlinable_modules;
         let wrapper_modules = classification.wrapper_modules;
         let module_exports_map = classification.module_exports_map;

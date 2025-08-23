@@ -15,6 +15,7 @@ pub struct ClassificationResult {
     pub inlinable_modules: Vec<(String, ModModule, PathBuf, String)>,
     pub wrapper_modules: Vec<(String, ModModule, PathBuf, String)>,
     pub module_exports_map: FxIndexMap<String, Option<Vec<String>>>,
+    pub modules_with_explicit_all: FxIndexSet<String>,
 }
 
 /// Analyzes and classifies modules for bundling
@@ -182,7 +183,7 @@ impl<'a> ModuleClassifier<'a> {
         mut self,
         modules: &[(String, ModModule, PathBuf, String)],
         python_version: u8,
-    ) -> (ClassificationResult, FxIndexSet<String>) {
+    ) -> ClassificationResult {
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
         let mut module_exports_map = FxIndexMap::default();
@@ -432,12 +433,11 @@ impl<'a> ModuleClassifier<'a> {
             }
         }
 
-        let result = ClassificationResult {
+        ClassificationResult {
             inlinable_modules,
             wrapper_modules,
             module_exports_map,
-        };
-
-        (result, self.modules_with_explicit_all)
+            modules_with_explicit_all: self.modules_with_explicit_all,
+        }
     }
 }
