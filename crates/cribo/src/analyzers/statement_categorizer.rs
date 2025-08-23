@@ -98,7 +98,13 @@ impl StatementCategorizer {
     /// This performs two passes:
     /// 1. First pass: Collect symbols used as dependencies (base classes, metaclasses, decorators)
     /// 2. Second pass: Categorize statements based on their role and dependencies
-    pub fn analyze_statements(&self, statements: Vec<Stmt>) -> StatementCategories {
+    pub fn analyze_statements<I>(&self, statements_iter: I) -> StatementCategories
+    where
+        I: IntoIterator<Item = Stmt>,
+    {
+        // Materialize once for the two-pass analysis
+        let statements: Vec<Stmt> = statements_iter.into_iter().collect();
+
         // First pass: identify all symbols used as dependencies
         let dependency_symbols =
             crate::visitors::ClassDefDependencyCollector::collect_from_statements(&statements);
@@ -120,10 +126,16 @@ impl StatementCategorizer {
     ///
     /// This handles additional categories needed when combining statements from multiple modules,
     /// such as built-in type restorations and namespace assignments.
-    pub fn analyze_cross_module_statements(
+    pub fn analyze_cross_module_statements<I>(
         &self,
-        statements: Vec<Stmt>,
-    ) -> CrossModuleStatementCategories {
+        statements_iter: I,
+    ) -> CrossModuleStatementCategories
+    where
+        I: IntoIterator<Item = Stmt>,
+    {
+        // Materialize once for the two-pass analysis
+        let statements: Vec<Stmt> = statements_iter.into_iter().collect();
+
         // First pass: identify all symbols used as dependencies
         let dependency_symbols =
             crate::visitors::ClassDefDependencyCollector::collect_from_statements(&statements);
