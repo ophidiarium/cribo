@@ -37,7 +37,6 @@ def helper():
     return "I am from app.utils"
 app_utils.get_name = get_name
 app_utils.helper = helper
-app.utils = _cribo.types.SimpleNamespace()
 app.utils.get_name = get_name
 app.utils.helper = helper
 app_utils = app_utils

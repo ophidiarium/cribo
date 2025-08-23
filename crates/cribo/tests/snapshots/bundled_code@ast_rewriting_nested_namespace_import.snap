@@ -37,7 +37,6 @@ greetings_greeting = _cribo.types.SimpleNamespace(__name__='greetings.greeting')
 greetings.greeting = greetings_greeting
 greetings_greeting.get_greeting = get_greeting
 """Test nested namespace imports"""
-greetings.greeting = _cribo.types.SimpleNamespace()
 greetings.greeting.get_greeting = get_greeting
 message = greetings.greeting.get_greeting("Python")
 print(message)
