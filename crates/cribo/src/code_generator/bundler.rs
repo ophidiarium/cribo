@@ -31,6 +31,7 @@ use crate::{
     resolver::ModuleResolver,
     transformation_context::TransformationContext,
     types::{FxHashSet, FxIndexMap, FxIndexSet},
+    visitors::LocalVarCollector,
 };
 
 /// Type alias for complex import generation data structure
@@ -5768,7 +5769,8 @@ impl<'a> Bundler<'a> {
 
         // Collect all local variables assigned in the function body
         // Pass global_vars to exclude them from local_vars
-        collect_local_vars_with_globals(&func_def.body, &mut local_vars, &global_vars);
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&func_def.body);
 
         // Transform the function body, excluding local variables
         for stmt in &mut func_def.body {
@@ -6784,112 +6786,6 @@ impl<'a> Bundler<'a> {
                 if let Some(value) = &mut ret_stmt.value {
                     expression_handlers::resolve_import_aliases_in_expr(value, import_aliases);
                 }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Collect local variables from statements, excluding those declared as global
-fn collect_local_vars_with_globals(
-    stmts: &[Stmt],
-    local_vars: &mut FxIndexSet<String>,
-    global_vars: &FxIndexSet<String>,
-) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::Assign(assign) => {
-                // Collect assignment targets as local variables, but skip if declared global
-                for target in &assign.targets {
-                    if let Expr::Name(name) = target {
-                        let var_name = name.id.to_string();
-                        // Only add to local_vars if NOT declared as global
-                        if !global_vars.contains(&var_name) {
-                            local_vars.insert(var_name);
-                        }
-                    }
-                }
-            }
-            Stmt::AnnAssign(ann_assign) => {
-                // Collect annotated assignment targets, but skip if declared global
-                if let Expr::Name(name) = ann_assign.target.as_ref() {
-                    let var_name = name.id.to_string();
-                    // Only add to local_vars if NOT declared as global
-                    if !global_vars.contains(&var_name) {
-                        local_vars.insert(var_name);
-                    }
-                }
-            }
-            Stmt::For(for_stmt) => {
-                // Collect for loop targets
-                if let Expr::Name(name) = for_stmt.target.as_ref() {
-                    let var_name = name.id.to_string();
-                    // For loop variables are always local even if a global with same name exists
-                    // (unless explicitly declared global in this scope, which would be a SyntaxError)
-                    if !global_vars.contains(&var_name) {
-                        local_vars.insert(var_name);
-                    }
-                }
-                // Recursively collect from body
-                collect_local_vars_with_globals(&for_stmt.body, local_vars, global_vars);
-                collect_local_vars_with_globals(&for_stmt.orelse, local_vars, global_vars);
-            }
-            Stmt::If(if_stmt) => {
-                // Recursively collect from branches
-                collect_local_vars_with_globals(&if_stmt.body, local_vars, global_vars);
-                for clause in &if_stmt.elif_else_clauses {
-                    collect_local_vars_with_globals(&clause.body, local_vars, global_vars);
-                }
-            }
-            Stmt::While(while_stmt) => {
-                collect_local_vars_with_globals(&while_stmt.body, local_vars, global_vars);
-                collect_local_vars_with_globals(&while_stmt.orelse, local_vars, global_vars);
-            }
-            Stmt::With(with_stmt) => {
-                // Collect with statement targets
-                for item in &with_stmt.items {
-                    if let Some(ref optional_vars) = item.optional_vars
-                        && let Expr::Name(name) = optional_vars.as_ref()
-                    {
-                        let var_name = name.id.to_string();
-                        if !global_vars.contains(&var_name) {
-                            local_vars.insert(var_name);
-                        }
-                    }
-                }
-                collect_local_vars_with_globals(&with_stmt.body, local_vars, global_vars);
-            }
-            Stmt::Try(try_stmt) => {
-                collect_local_vars_with_globals(&try_stmt.body, local_vars, global_vars);
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(eh) = handler;
-                    // Collect exception name if present
-                    if let Some(ref name) = eh.name {
-                        // Exception names are always local in their handler scope
-                        local_vars.insert(name.to_string());
-                    }
-                    collect_local_vars_with_globals(&eh.body, local_vars, global_vars);
-                }
-                collect_local_vars_with_globals(&try_stmt.orelse, local_vars, global_vars);
-                collect_local_vars_with_globals(&try_stmt.finalbody, local_vars, global_vars);
-            }
-            Stmt::FunctionDef(func_def) => {
-                // Function definitions create local names (unless declared global, which would be unusual)
-                let func_name = func_def.name.to_string();
-                if !global_vars.contains(&func_name) {
-                    local_vars.insert(func_name);
-                }
-            }
-            Stmt::ClassDef(class_def) => {
-                // Class definitions create local names (unless declared global, which would be unusual)
-                let class_name = class_def.name.to_string();
-                if !global_vars.contains(&class_name) {
-                    local_vars.insert(class_name);
-                }
-            }
-            Stmt::Global(_) => {
-                // Global statements themselves don't create local variables
-                // We've already collected these in the parent function
             }
             _ => {}
         }
