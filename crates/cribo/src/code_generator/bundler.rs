@@ -6664,6 +6664,19 @@ impl<'a> Bundler<'a> {
         let categorizer = crate::analyzers::StatementCategorizer::new(python_version);
         let categories = categorizer.analyze_cross_module_statements(statements);
 
+        log::debug!(
+            "Cross-module categorize: {} imports, {} builtin_restorations, {} namespace_builtins, \
+             {} base_class_assignments, {} regular_assignments, {} classes, {} functions, {} others",
+            categories.imports.len(),
+            categories.builtin_restorations.len(),
+            categories.namespace_builtin_assignments.len(),
+            categories.base_class_assignments.len(),
+            categories.regular_assignments.len(),
+            categories.classes.len(),
+            categories.functions.len(),
+            categories.other_statements.len(),
+        );
+
         // Build the reordered list:
         // 1. Imports first
         // 2. Built-in type restorations (must come very early to restore types)
