@@ -6686,7 +6686,16 @@ impl<'a> Bundler<'a> {
         // 6. Classes (must come before functions that might use them)
         // 7. Functions (may depend on classes)
         // 8. Other statements (including class attribute assignments)
-        let mut reordered = Vec::new();
+        let mut reordered = Vec::with_capacity(
+            categories.imports.len()
+                + categories.builtin_restorations.len()
+                + categories.namespace_builtin_assignments.len()
+                + categories.base_class_assignments.len()
+                + categories.regular_assignments.len()
+                + categories.classes.len()
+                + categories.functions.len()
+                + categories.other_statements.len(),
+        );
         reordered.extend(categories.imports);
         reordered.extend(categories.builtin_restorations);
         reordered.extend(categories.namespace_builtin_assignments);
@@ -6731,7 +6740,15 @@ impl<'a> Bundler<'a> {
         // 5. Functions
         // 6. Self-assignments (after functions are defined)
         // 7. Other statements
-        let mut reordered = Vec::new();
+        let mut reordered = Vec::with_capacity(
+            categories.imports.len()
+                + categories.dependency_assignments.len()
+                + categories.regular_assignments.len()
+                + categories.classes.len()
+                + categories.functions.len()
+                + categories.self_assignments.len()
+                + categories.other_statements.len(),
+        );
         reordered.extend(categories.imports);
         reordered.extend(categories.dependency_assignments);
         reordered.extend(categories.regular_assignments);
