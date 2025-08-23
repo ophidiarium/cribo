@@ -173,6 +173,9 @@ impl StatementCategorizationVisitor {
 
     fn is_class_attribute_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
         // Assumes single target (checked in categorize_statement)
+        // Note: This currently matches any Name.attr assignment pattern, which includes
+        // module attributes like compat.bytes = bytes. This broad matching is intentional
+        // to ensure proper ordering of all attribute assignments after their base definitions.
         if let Expr::Attribute(attr) = &assign.targets[0] {
             matches!(attr.value.as_ref(), Expr::Name(_))
         } else {
