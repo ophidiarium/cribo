@@ -11,8 +11,11 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::{ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer},
-    ast_builder::{self, expressions, other, statements},
+    analyzers::{
+        ForwardReferenceAnalyzer, ImportAnalyzer, SymbolAnalyzer,
+        dependency_analyzer::DependencyAnalyzer,
+    },
+    ast_builder::{self, expressions, expressions::expr_to_dotted_name, other, statements},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
@@ -4918,7 +4921,7 @@ impl<'a> Bundler<'a> {
 
         // Post-process: Fix forward reference issues in cross-module inheritance
         // Only apply reordering if we detect actual inheritance-based forward references
-        if self.has_cross_module_inheritance_forward_refs(&final_body) {
+        if ForwardReferenceAnalyzer::has_cross_module_inheritance_forward_refs(&final_body) {
             final_body = self.fix_forward_references_in_statements(final_body);
         }
 
@@ -7415,101 +7418,6 @@ impl Bundler<'_> {
         }
     }
 
-    /// Check if there are cross-module inheritance forward references
-    fn has_cross_module_inheritance_forward_refs(&self, statements: &[Stmt]) -> bool {
-        // Look for classes that inherit from base classes that are defined later
-        // This can happen when symbol renaming creates forward references
-
-        // First, collect all class positions and assignment positions
-        let mut class_positions = FxIndexMap::default();
-        let mut assignment_positions = FxIndexMap::default();
-        let mut namespace_init_positions = FxIndexMap::default();
-
-        for (idx, stmt) in statements.iter().enumerate() {
-            match stmt {
-                Stmt::ClassDef(class_def) => {
-                    class_positions.insert(class_def.name.to_string(), idx);
-                }
-                Stmt::Assign(assign) => {
-                    // Check if this is a simple assignment like HTTPBasicAuth = HTTPBasicAuth_2
-                    if assign.targets.len() == 1
-                        && let Expr::Name(target) = &assign.targets[0]
-                    {
-                        assignment_positions.insert(target.id.to_string(), idx);
-                    }
-                    // Also check for namespace init assignments like:
-                    // mypkg.compat = __cribo_init_...()
-                    if assign.targets.len() == 1
-                        && let Expr::Attribute(attr) = &assign.targets[0]
-                        && let Expr::Call(call) = assign.value.as_ref()
-                        && let Expr::Name(func_name) = call.func.as_ref()
-                        && is_init_function(func_name.id.as_str())
-                    {
-                        // Extract the namespace path (e.g., "mypkg.compat")
-                        let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
-                        namespace_init_positions.insert(namespace_path, idx);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Now check for forward references
-        for (idx, stmt) in statements.iter().enumerate() {
-            if let Stmt::ClassDef(class_def) = stmt
-                && let Some(arguments) = &class_def.arguments
-            {
-                let class_name = class_def.name.as_str();
-                let class_pos = idx;
-
-                for base in &arguments.args {
-                    // Check simple name references
-                    if let Expr::Name(name_expr) = base {
-                        let base_name = name_expr.id.as_str();
-
-                        // Check if the base class is defined via assignment later
-                        if let Some(&assign_pos) = assignment_positions.get(base_name)
-                            && assign_pos > class_pos
-                        {
-                            return true;
-                        }
-
-                        // Check if the base class itself is defined later as a class
-                        // This covers both regular and renamed classes
-                        if let Some(&base_pos) = class_positions.get(base_name)
-                            && base_pos > class_pos
-                        {
-                            return true;
-                        }
-                    }
-                    // Check attribute references (e.g., mypkg.compat.JSONDecodeError)
-                    else if let Expr::Attribute(attr_expr) = base {
-                        // Extract the base module path (e.g., "mypkg.compat" from
-                        // "mypkg.compat.JSONDecodeError")
-                        let base_path = expr_to_dotted_name(&attr_expr.value);
-                        // Check if this namespace is initialized later
-                        if let Some(&init_pos) = namespace_init_positions.get(&base_path)
-                            && init_pos > class_pos
-                        {
-                            log::debug!(
-                                "Class '{}' inherits from {}.{} but namespace '{}' is initialized \
-                                 later at position {} (class at {})",
-                                class_name,
-                                base_path,
-                                attr_expr.attr,
-                                base_path,
-                                init_pos,
-                                class_pos
-                            );
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
     /// Deduplicate namespace creation statements (var = `types.SimpleNamespace()`)
     /// and namespace attribute assignments (var.__name__ = '...')
     /// This removes duplicates created by different parts of the bundling process
@@ -7644,11 +7552,11 @@ impl Bundler<'_> {
             return statements;
         }
 
-        // Use the same detection logic as has_cross_module_inheritance_forward_refs
-        // to ensure consistency
-        if !self.has_cross_module_inheritance_forward_refs(&statements) {
-            return statements;
-        }
+        // Already gated at the call-site; keep a cheap debug assertion to catch regressions.
+        debug_assert!(
+            ForwardReferenceAnalyzer::has_cross_module_inheritance_forward_refs(&statements),
+            "fix_forward_references_in_statements should be called only when forward refs exist"
+        );
 
         log::debug!("Fixing forward references in statements");
 
@@ -8001,17 +7909,5 @@ impl Bundler<'_> {
         } else {
             false
         }
-    }
-}
-
-/// Convert an expression to a dotted name string
-fn expr_to_dotted_name(expr: &Expr) -> String {
-    match expr {
-        Expr::Name(name) => name.id.as_str().to_string(),
-        Expr::Attribute(attr) => {
-            let base = expr_to_dotted_name(&attr.value);
-            format!("{}.{}", base, attr.attr.as_str())
-        }
-        _ => String::new(),
     }
 }
