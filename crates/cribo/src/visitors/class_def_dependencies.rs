@@ -25,7 +25,10 @@ impl ClassDefDependencyCollector {
     }
 
     /// Collect class dependencies from a list of statements
-    pub fn collect_from_statements(statements: &[Stmt]) -> FxIndexSet<String> {
+    pub fn collect_from_statements<'a, I>(statements: I) -> FxIndexSet<String>
+    where
+        I: IntoIterator<Item = &'a Stmt>,
+    {
         let mut collector = Self::new();
         for stmt in statements {
             collector.visit_stmt(stmt);
