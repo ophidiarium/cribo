@@ -144,9 +144,14 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
             Stmt::ImportFrom(from_stmt) => {
                 // From imports bind the imported names or their aliases
                 for alias in &from_stmt.names {
+                    // Skip wildcard imports (from m import *)
+                    if alias.name.as_str() == "*" {
+                        continue;
+                    }
                     let binding = alias
                         .asname
-                        .as_ref().map_or_else(|| alias.name.to_string(), ToString::to_string);
+                        .as_ref()
+                        .map_or_else(|| alias.name.to_string(), ToString::to_string);
                     self.insert_if_not_global(&binding);
                 }
             }
@@ -477,5 +482,26 @@ y += 2
         assert!(!local_vars.contains("x"));
         // y is not global, so it should be collected
         assert!(local_vars.contains("y"));
+    }
+
+    #[test]
+    fn test_wildcard_imports() {
+        let source = r"
+from math import *
+from os import path
+from sys import argv
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let global_vars = FxIndexSet::default();
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        // Wildcard imports don't bind any names
+        assert!(!local_vars.contains("*"));
+        // But specific imports do
+        assert!(local_vars.contains("path"));
+        assert!(local_vars.contains("argv"));
     }
 }
