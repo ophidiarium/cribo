@@ -38,11 +38,6 @@ impl ClassDefDependencyCollector {
 }
 
 impl<'a> SourceOrderVisitor<'a> for ClassDefDependencyCollector {
-    fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        // Let the visitor pattern handle all traversal
-        source_order::walk_stmt(self, stmt);
-    }
-
     fn visit_decorator(&mut self, decorator: &'a Decorator) {
         // Collect symbols from the decorator expression
         self.collect_decorator_symbols(decorator);
@@ -54,8 +49,8 @@ impl<'a> SourceOrderVisitor<'a> for ClassDefDependencyCollector {
     fn visit_arguments(&mut self, arguments: &'a Arguments) {
         // Collect base class symbols
         for base_expr in &arguments.args {
-            if let Expr::Name(name_expr) = base_expr {
-                self.dependency_symbols.insert(name_expr.id.to_string());
+            if let Some(name) = Self::head_name(base_expr) {
+                self.dependency_symbols.insert(name.to_string());
             }
         }
 
@@ -63,9 +58,9 @@ impl<'a> SourceOrderVisitor<'a> for ClassDefDependencyCollector {
         for keyword in &arguments.keywords {
             if let Some(arg) = &keyword.arg
                 && arg.as_str() == "metaclass"
-                && let Expr::Name(name_expr) = &keyword.value
+                && let Some(name) = Self::head_name(&keyword.value)
             {
-                self.dependency_symbols.insert(name_expr.id.to_string());
+                self.dependency_symbols.insert(name.to_string());
             }
         }
 
@@ -77,17 +72,31 @@ impl<'a> SourceOrderVisitor<'a> for ClassDefDependencyCollector {
 impl ClassDefDependencyCollector {
     /// Collect symbols from decorators
     fn collect_decorator_symbols(&mut self, decorator: &Decorator) {
-        // Collect simple decorator names (e.g., @my_decorator)
-        if let Expr::Name(name_expr) = &decorator.expression {
-            self.dependency_symbols.insert(name_expr.id.to_string());
+        if let Some(name) = Self::head_name(&decorator.expression) {
+            self.dependency_symbols.insert(name.to_string());
         }
-        // For decorator calls (e.g., @my_decorator(args)), collect the function name
-        else if let Expr::Call(call) = &decorator.expression
-            && let Expr::Name(name_expr) = call.func.as_ref()
-        {
-            self.dependency_symbols.insert(name_expr.id.to_string());
+    }
+
+    /// Return the head identifier of a name/attribute/call chain:
+    /// - `Name` -> that name
+    /// - `pkg.attr.sub` -> `pkg`
+    /// - `call_or_attr(...)` -> head of `func`
+    fn head_name(expr: &Expr) -> Option<&str> {
+        match expr {
+            Expr::Name(n) => Some(n.id.as_str()),
+            Expr::Attribute(a) => {
+                let mut cur = a.value.as_ref();
+                loop {
+                    match cur {
+                        Expr::Name(n) => break Some(n.id.as_str()),
+                        Expr::Attribute(inner) => cur = inner.value.as_ref(),
+                        _ => break None,
+                    }
+                }
+            }
+            Expr::Call(c) => Self::head_name(c.func.as_ref()),
+            Expr::Subscript(s) => Self::head_name(s.value.as_ref()),
+            _ => None,
         }
-        // Note: We don't collect attribute decorators like @module.decorator
-        // as those don't need reordering
     }
 }
