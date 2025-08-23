@@ -1,14 +1,16 @@
-//! Local variable collector that respects global declarations
+//! Local variable collector that respects global and nonlocal declarations
 //!
 //! This visitor traverses the AST in source order to collect local variable
-//! declarations while excluding variables that have been declared as global.
+//! declarations while excluding variables that have been declared as global,
+//! and including variables declared as nonlocal.
 
 use crate::types::FxIndexSet;
 use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
 use ruff_python_ast::{ExceptHandler, Expr, Stmt};
 
 /// Visitor that collects local variable declarations in source order,
-/// excluding variables that have been declared as global
+/// excluding variables that have been declared as global and including
+/// variables declared as nonlocal
 pub struct LocalVarCollector<'a> {
     /// Set to collect local variables
     local_vars: &'a mut FxIndexSet<String>,
@@ -99,6 +101,15 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 // Class definitions create local names (unless declared global)
                 self.insert_if_not_global(&class_def.name);
                 // Don't walk into the class body - we're only collecting local vars at the current scope
+            }
+            Stmt::Nonlocal(nonlocal_stmt) => {
+                // Nonlocal declarations create local names in the enclosing scope
+                // This prevents incorrect module attribute rewrites in nested functions
+                for name in &nonlocal_stmt.names {
+                    self.insert_if_not_global(name);
+                }
+                // Continue default traversal
+                source_order::walk_stmt(self, stmt);
             }
             _ => {
                 // For all other statement types, use default traversal
@@ -245,5 +256,54 @@ a, b = 1, 2
         assert!(local_vars.contains("d"));
         assert!(local_vars.contains("e"));
         assert!(local_vars.contains("f"));
+    }
+
+    #[test]
+    fn test_nonlocal_declarations() {
+        let source = r"
+def outer():
+    x = 1
+    def inner():
+        nonlocal x
+        x = 2
+nonlocal y
+y = 3
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let global_vars = FxIndexSet::default();
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        // The function definition creates a local name
+        assert!(local_vars.contains("outer"));
+        // Nonlocal y at module level creates a local name
+        assert!(local_vars.contains("y"));
+        // x is not collected because it's inside the function definition
+        assert!(!local_vars.contains("x"));
+    }
+
+    #[test]
+    fn test_nonlocal_with_globals() {
+        let source = r"
+global x
+nonlocal x
+x = 1
+nonlocal y
+y = 2
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let mut global_vars = FxIndexSet::default();
+        global_vars.insert("x".to_string());
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        // x is global, so even though it's declared nonlocal, it shouldn't be collected
+        assert!(!local_vars.contains("x"));
+        // y is nonlocal and not global, so it should be collected
+        assert!(local_vars.contains("y"));
     }
 }
