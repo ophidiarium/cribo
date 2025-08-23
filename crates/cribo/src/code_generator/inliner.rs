@@ -99,7 +99,7 @@ impl Bundler<'_> {
         } else {
             // Even for non-circular modules, ensure module-level variables are declared
             // before functions that might use them
-            self.reorder_statements_for_proper_declaration_order(ast.body)
+            self.reorder_statements_for_proper_declaration_order(ast.body, ctx.python_version)
         };
 
         // Build a map of imported symbols to their source modules
