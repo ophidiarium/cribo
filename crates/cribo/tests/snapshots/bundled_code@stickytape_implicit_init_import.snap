@@ -33,5 +33,4 @@ greetings = _cribo.types.SimpleNamespace(__name__='greetings')
 greetings_irrelevant = _cribo.types.SimpleNamespace(__name__='greetings.irrelevant')
 greetings.irrelevant = greetings_irrelevant
 greetings.message = message
-greetings.irrelevant = _cribo.types.SimpleNamespace()
 print(greetings.message)
