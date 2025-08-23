@@ -123,6 +123,13 @@ impl StatementCategorizationVisitor {
                 self.categories.imports.push(stmt);
             }
             Stmt::Assign(ref assign) => {
+                // Multi-target assignments are treated as regular assignments
+                if assign.targets.len() != 1 {
+                    self.categories.regular_assignments.push(stmt);
+                    return;
+                }
+
+                // Now we can assume a single target for all checks
                 // Check if this is a class attribute assignment (e.g., MyClass.__module__ = 'foo')
                 if self.is_class_attribute_assignment(assign) {
                     self.categories.other_statements.push(stmt);
@@ -165,10 +172,7 @@ impl StatementCategorizationVisitor {
     }
 
     fn is_class_attribute_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        if assign.targets.len() != 1 {
-            return false;
-        }
-
+        // Assumes single target (checked in categorize_statement)
         if let Expr::Attribute(attr) = &assign.targets[0] {
             matches!(attr.value.as_ref(), Expr::Name(_))
         } else {
@@ -177,10 +181,7 @@ impl StatementCategorizationVisitor {
     }
 
     fn is_self_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        if assign.targets.len() != 1 {
-            return false;
-        }
-
+        // Assumes single target (checked in categorize_statement)
         if let (Expr::Name(target), Expr::Name(value)) = (&assign.targets[0], assign.value.as_ref())
         {
             target.id == value.id
@@ -190,10 +191,7 @@ impl StatementCategorizationVisitor {
     }
 
     fn defines_dependency(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        if assign.targets.len() != 1 {
-            return false;
-        }
-
+        // Assumes single target (checked in categorize_statement)
         if let Expr::Name(target) = &assign.targets[0] {
             if self.dependency_symbols.contains(target.id.as_str()) {
                 // Check if the value looks like it could be a class
@@ -228,6 +226,13 @@ impl CrossModuleCategorizationVisitor {
                 self.categories.imports.push(stmt);
             }
             Stmt::Assign(ref assign) => {
+                // Multi-target assignments are treated as regular assignments
+                if assign.targets.len() != 1 {
+                    self.categories.regular_assignments.push(stmt);
+                    return;
+                }
+
+                // Now we can assume a single target for all checks
                 // Check if this is an attribute assignment
                 if self.is_attribute_assignment(assign) {
                     // Check for namespace built-in assignment (e.g., compat.bytes = bytes)
@@ -273,7 +278,8 @@ impl CrossModuleCategorizationVisitor {
     }
 
     fn is_attribute_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        assign.targets.len() == 1 && matches!(&assign.targets[0], Expr::Attribute(_))
+        // Assumes single target (checked in categorize_statement)
+        matches!(&assign.targets[0], Expr::Attribute(_))
     }
 
     fn is_namespace_builtin_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
@@ -330,10 +336,7 @@ impl CrossModuleCategorizationVisitor {
     }
 
     fn defines_base_class_for_cross_module(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        if assign.targets.len() != 1 {
-            return false;
-        }
-
+        // Assumes single target (checked in categorize_statement)
         if let Expr::Name(target) = &assign.targets[0] {
             if self.dependency_symbols.contains(target.id.as_str()) {
                 // Only check for attribute access patterns
