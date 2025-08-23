@@ -55,6 +55,38 @@ pub struct StatementCategorizer {
     python_version: u8,
 }
 
+/// Check if an expression looks like it could be a class-like value
+/// (base class, metaclass, or other class-producing expression)
+fn is_class_like_expr(expr: &Expr) -> bool {
+    match expr {
+        // e.g., json.JSONDecodeError
+        Expr::Attribute(_) => true,
+        // e.g., BaseClass, Exception (uppercase names typically indicate classes)
+        Expr::Name(name) => name.id.chars().next().is_some_and(char::is_uppercase),
+        // e.g., NamedTuple("Point", ...), type("MyClass", ...), TypedDict(...)
+        Expr::Call(call) => {
+            match call.func.as_ref() {
+                // Constructor calls like module.NamedTuple(...)
+                Expr::Attribute(_) => true,
+                // Constructor calls like NamedTuple(...), type(...), etc.
+                Expr::Name(name) => name.id.chars().next().is_some_and(char::is_uppercase),
+                _ => false,
+            }
+        }
+        // e.g., Protocol[T], Generic[T], TypeVar[...]
+        Expr::Subscript(sub) => {
+            match sub.value.as_ref() {
+                // Subscripted attributes like typing.Protocol[...]
+                Expr::Attribute(_) => true,
+                // Subscripted names like Protocol[...], Generic[...]
+                Expr::Name(name) => name.id.chars().next().is_some_and(char::is_uppercase),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 impl StatementCategorizer {
     /// Create a new categorizer
     pub fn new(python_version: u8) -> Self {
@@ -199,37 +231,7 @@ impl StatementCategorizationVisitor {
         if let Expr::Name(target) = &assign.targets[0] {
             if self.dependency_symbols.contains(target.id.as_str()) {
                 // Check if the value looks like it could be a class
-                match assign.value.as_ref() {
-                    // e.g., json.JSONDecodeError
-                    Expr::Attribute(_) => true,
-                    // e.g., BaseClass, Exception (uppercase names typically indicate classes)
-                    Expr::Name(name) => name.id.chars().next().is_some_and(char::is_uppercase),
-                    // e.g., NamedTuple("Point", ...), type("MyClass", ...), TypedDict(...)
-                    Expr::Call(call) => {
-                        match call.func.as_ref() {
-                            // Constructor calls like module.NamedTuple(...)
-                            Expr::Attribute(_) => true,
-                            // Constructor calls like NamedTuple(...), type(...), etc.
-                            Expr::Name(name) => {
-                                name.id.chars().next().is_some_and(char::is_uppercase)
-                            }
-                            _ => false,
-                        }
-                    }
-                    // e.g., Protocol[T], Generic[T], TypeVar[...]
-                    Expr::Subscript(sub) => {
-                        match sub.value.as_ref() {
-                            // Subscripted attributes like typing.Protocol[...]
-                            Expr::Attribute(_) => true,
-                            // Subscripted names like Protocol[...], Generic[...]
-                            Expr::Name(name) => {
-                                name.id.chars().next().is_some_and(char::is_uppercase)
-                            }
-                            _ => false,
-                        }
-                    }
-                    _ => false,
-                }
+                is_class_like_expr(assign.value.as_ref())
             } else {
                 false
             }
@@ -366,8 +368,8 @@ impl CrossModuleCategorizationVisitor {
         // Assumes single target (checked in categorize_statement)
         if let Expr::Name(target) = &assign.targets[0] {
             if self.dependency_symbols.contains(target.id.as_str()) {
-                // Only check for attribute access patterns
-                matches!(assign.value.as_ref(), Expr::Attribute(_))
+                // Check if the value looks like it could be a class
+                is_class_like_expr(assign.value.as_ref())
             } else {
                 false
             }
