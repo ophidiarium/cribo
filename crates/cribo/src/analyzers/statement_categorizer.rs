@@ -49,6 +49,7 @@ pub struct CrossModuleStatementCategories {
 }
 
 /// Categorizer for analyzing and grouping statements by type and dependencies
+#[derive(Copy, Clone, Debug)]
 pub struct StatementCategorizer {
     /// Python version for built-in detection
     python_version: u8,
