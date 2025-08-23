@@ -58,6 +58,10 @@ impl<'a> LocalVarCollector<'a> {
                     self.collect_from_target(elt);
                 }
             }
+            Expr::Starred(starred) => {
+                // Handle starred expressions like *rest in (a, *rest) = ...
+                self.collect_from_target(&starred.value);
+            }
             _ => {}
         }
     }
@@ -76,14 +80,22 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 // Collect annotated assignment targets
                 self.collect_from_target(&ann_assign.target);
             }
+            Stmt::AugAssign(aug_assign) => {
+                // Augmented assignments (x += 1) bind variables in current scope
+                self.collect_from_target(&aug_assign.target);
+                // Continue default traversal
+                source_order::walk_stmt(self, stmt);
+            }
             Stmt::For(for_stmt) => {
-                // Collect for loop targets
+                // Collect for loop targets (including async for)
+                // Note: is_async is a flag on For, not a separate statement type
                 self.collect_from_target(&for_stmt.target);
                 // Continue default traversal for body
                 source_order::walk_stmt(self, stmt);
             }
             Stmt::With(with_stmt) => {
-                // Collect with statement targets
+                // Collect with statement targets (including async with)
+                // Note: is_async is a flag on With, not a separate statement type
                 for item in &with_stmt.items {
                     if let Some(ref optional_vars) = item.optional_vars {
                         self.collect_from_target(optional_vars);
@@ -93,7 +105,8 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 source_order::walk_stmt(self, stmt);
             }
             Stmt::FunctionDef(func_def) => {
-                // Function definitions create local names (unless declared global)
+                // Function definitions (including async) create local names (unless declared global)
+                // Note: is_async is a flag on FunctionDef, not a separate statement type
                 self.insert_if_not_global(&func_def.name);
                 // Don't walk into the function body - we're only collecting local vars at the current scope
             }
@@ -110,6 +123,32 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 }
                 // Continue default traversal
                 source_order::walk_stmt(self, stmt);
+            }
+            Stmt::Import(import_stmt) => {
+                // Import statements bind names in the current scope
+                for alias in &import_stmt.names {
+                    let name = if let Some(asname) = &alias.asname {
+                        asname.to_string()
+                    } else {
+                        // For dotted imports like 'import a.b.c', bind only the top-level package 'a'
+                        let full_name = alias.name.to_string();
+                        full_name
+                            .split('.')
+                            .next()
+                            .unwrap_or(&full_name)
+                            .to_string()
+                    };
+                    self.insert_if_not_global(&name);
+                }
+            }
+            Stmt::ImportFrom(from_stmt) => {
+                // From imports bind the imported names or their aliases
+                for alias in &from_stmt.names {
+                    let binding = alias
+                        .asname
+                        .as_ref().map_or_else(|| alias.name.to_string(), ToString::to_string);
+                    self.insert_if_not_global(&binding);
+                }
             }
             _ => {
                 // For all other statement types, use default traversal
@@ -304,6 +343,139 @@ y = 2
         // x is global, so even though it's declared nonlocal, it shouldn't be collected
         assert!(!local_vars.contains("x"));
         // y is nonlocal and not global, so it should be collected
+        assert!(local_vars.contains("y"));
+    }
+
+    #[test]
+    fn test_augmented_assignment() {
+        let source = r"
+x = 0
+x += 1
+y -= 2
+z *= 3
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let global_vars = FxIndexSet::default();
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        assert!(local_vars.contains("x"));
+        assert!(local_vars.contains("y"));
+        assert!(local_vars.contains("z"));
+    }
+
+    #[test]
+    fn test_async_constructs() {
+        let source = r"
+async def async_func():
+    pass
+
+async with open('file') as f:
+    pass
+
+async for i in range(10):
+    pass
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let global_vars = FxIndexSet::default();
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        assert!(local_vars.contains("async_func"));
+        assert!(local_vars.contains("f"));
+        assert!(local_vars.contains("i"));
+    }
+
+    #[test]
+    fn test_import_statements() {
+        let source = r"
+import os
+import sys as system
+import a.b.c
+from math import sin
+from math import cos as cosine
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let global_vars = FxIndexSet::default();
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        assert!(local_vars.contains("os"));
+        assert!(local_vars.contains("system")); // alias for sys
+        assert!(local_vars.contains("a")); // top-level package for a.b.c
+        assert!(local_vars.contains("sin"));
+        assert!(local_vars.contains("cosine")); // alias for cos
+    }
+
+    #[test]
+    fn test_import_with_globals() {
+        let source = r"
+global os
+import os
+from math import sin
+global sin
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let mut global_vars = FxIndexSet::default();
+        global_vars.insert("os".to_string());
+        global_vars.insert("sin".to_string());
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        // Both os and sin are global, so they shouldn't be collected
+        assert!(!local_vars.contains("os"));
+        assert!(!local_vars.contains("sin"));
+    }
+
+    #[test]
+    fn test_starred_targets() {
+        let source = r"
+a, *rest = [1, 2, 3]
+[*xs, y] = [1, 2, 3]
+for *items, last in [[1, 2, 3]]:
+    pass
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let global_vars = FxIndexSet::default();
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        assert!(local_vars.contains("a"));
+        assert!(local_vars.contains("rest"));
+        assert!(local_vars.contains("xs"));
+        assert!(local_vars.contains("y"));
+        assert!(local_vars.contains("items"));
+        assert!(local_vars.contains("last"));
+    }
+
+    #[test]
+    fn test_augmented_assignment_with_globals() {
+        let source = r"
+global x
+x += 1
+y += 2
+";
+        let module = parse_test_module(source);
+        let mut local_vars = FxIndexSet::default();
+        let mut global_vars = FxIndexSet::default();
+        global_vars.insert("x".to_string());
+
+        let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
+        collector.collect_from_stmts(&module.body);
+
+        // x is global, so it shouldn't be collected even with augmented assignment
+        assert!(!local_vars.contains("x"));
+        // y is not global, so it should be collected
         assert!(local_vars.contains("y"));
     }
 }
