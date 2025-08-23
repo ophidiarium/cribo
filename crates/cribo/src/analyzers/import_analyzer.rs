@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
+use ruff_python_ast::{Expr, ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
@@ -699,35 +699,72 @@ impl ImportAnalyzer {
                 // Absolute import: "from rich.cells import ..."
                 import_module_str == target_module
             } else {
-                // Relative import: "from .cells import ...", "from ..utils import ...", etc.
-                // Get the package of the importing module
-                if let Some(mut package_prefix) = importing_module
-                    .rsplit_once('.')
-                    .map(|(pkg, _)| pkg.to_string())
-                {
-                    // For relative imports with level > 1, traverse up the package hierarchy
-                    // level 1: from .foo import ... (stay at current package)
-                    // level 2: from ..foo import ... (go up one level)
-                    // level 3: from ...foo import ... (go up two levels)
-                    for _ in 1..import_from.level {
-                        if let Some((parent, _)) = package_prefix.rsplit_once('.') {
-                            package_prefix = parent.to_string();
-                        } else {
-                            // Attempted to go above top-level package
-                            return false;
-                        }
-                    }
-
-                    let resolved_module = format!("{package_prefix}.{import_module_str}");
-                    resolved_module == target_module
-                } else {
-                    // The importing module is a top-level module, can't do relative imports
-                    false
-                }
+                // Relative import: use the centralized helper
+                let resolved_module = crate::resolver::resolve_relative_import_from_name(
+                    import_from.level,
+                    Some(import_module_str),
+                    importing_module,
+                );
+                resolved_module == target_module
             }
         } else {
             false
         }
+    }
+
+    /// Collect module-level absolute `from __future__ import ...` names
+    ///
+    /// Ignores invalid wildcard imports and any non-absolute (level > 0) forms.
+    ///
+    /// Performance optimization: Returns early when encountering non-import/non-docstring
+    /// statements, as `__future__` imports must appear at the top of the file per Python's
+    /// specification (after module docstring but before any other code).
+    pub fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
+        let mut future_imports = FxIndexSet::default();
+        let mut seen_docstring = false;
+
+        for stmt in &ast.body {
+            match stmt {
+                // Module docstring can appear before __future__ imports
+                Stmt::Expr(expr_stmt) if !seen_docstring => {
+                    // Check if this is a string literal (docstring)
+                    if matches!(expr_stmt.value.as_ref(), Expr::StringLiteral(_)) {
+                        seen_docstring = true;
+                        continue;
+                    }
+                    // Non-docstring expression - no more __future__ imports allowed
+                    break;
+                }
+
+                // Process import statements
+                Stmt::ImportFrom(import_from) => {
+                    // Only process absolute __future__ imports
+                    if import_from.level == 0
+                        && import_from
+                            .module
+                            .as_deref()
+                            .is_some_and(|m| m == "__future__")
+                    {
+                        for alias in &import_from.names {
+                            let name = alias.name.as_str();
+                            // Ignore wildcard imports (invalid for __future__)
+                            if name != "*" {
+                                future_imports.insert(name.to_string());
+                            }
+                        }
+                    }
+                    // Continue checking - there might be more imports
+                }
+
+                // Regular imports are allowed before/after __future__ imports
+                Stmt::Import(_) => continue,
+
+                // Any other statement type means no more __future__ imports are allowed
+                _ => break,
+            }
+        }
+
+        future_imports
     }
 }
 
@@ -1034,5 +1071,78 @@ from pkg.sub import module_b
                 .expect("pkg.sub.module_b should be in namespace_imported")
                 .contains("test_module")
         );
+    }
+
+    #[test]
+    fn test_collect_future_imports_basic() {
+        let src = r"
+from __future__ import annotations
+from __future__ import generator_stop, unicode_literals
+from something import else_
+";
+        let ast = parse_module(src).expect("Should parse").into_syntax();
+
+        let got = ImportAnalyzer::collect_future_imports(&ast);
+        assert_eq!(got.len(), 3);
+        assert!(got.contains("annotations"));
+        assert!(got.contains("generator_stop"));
+        assert!(got.contains("unicode_literals"));
+    }
+
+    #[test]
+    fn test_collect_future_imports_ignores_invalid_cases() {
+        // Test that wildcard imports and relative imports are ignored
+        let src = r"
+from __future__ import annotations
+from __future__ import *
+from .__future__ import division
+from ..__future__ import print_function
+";
+        let ast = parse_module(src).expect("Should parse").into_syntax();
+
+        let got = ImportAnalyzer::collect_future_imports(&ast);
+        // Should only contain 'annotations', wildcards and relative imports are ignored
+        assert_eq!(got.len(), 1);
+        assert!(got.contains("annotations"));
+        assert!(!got.contains("*"));
+        assert!(!got.contains("division"));
+        assert!(!got.contains("print_function"));
+    }
+
+    #[test]
+    fn test_collect_future_imports_with_docstring() {
+        // Test that __future__ imports after module docstring are collected
+        let src = r#"
+"""Module docstring."""
+from __future__ import annotations, print_function
+import sys
+from __future__ import division
+"#;
+        let ast = parse_module(src).expect("Should parse").into_syntax();
+
+        let got = ImportAnalyzer::collect_future_imports(&ast);
+        // Should collect both annotations and print_function
+        assert_eq!(got.len(), 3);
+        assert!(got.contains("annotations"));
+        assert!(got.contains("print_function"));
+        assert!(got.contains("division"));
+    }
+
+    #[test]
+    fn test_collect_future_imports_early_return() {
+        // Test that collection stops at first non-import statement
+        let src = r"
+from __future__ import annotations
+import sys
+x = 1  # This stops future import scanning
+from __future__ import division  # This won't be collected
+";
+        let ast = parse_module(src).expect("Should parse").into_syntax();
+
+        let got = ImportAnalyzer::collect_future_imports(&ast);
+        // Should only contain 'annotations' - stops at x = 1
+        assert_eq!(got.len(), 1);
+        assert!(got.contains("annotations"));
+        assert!(!got.contains("division"));
     }
 }
