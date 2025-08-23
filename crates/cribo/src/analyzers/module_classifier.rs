@@ -84,7 +84,14 @@ impl<'a> ModuleClassifier<'a> {
                                 .to_string()
                         };
                         // Check if this imported module is in the circular dependency
-                        if self.circular_modules.contains(imported_module) {
+                        // Also check if any circular module is a child of this imported module
+                        // e.g., if we import `pkg` and `pkg.sub` is circular
+                        let is_circular_or_parent = self.circular_modules.contains(imported_module)
+                            || self
+                                .circular_modules
+                                .iter()
+                                .any(|m| m.starts_with(&format!("{imported_module}.")));
+                        if is_circular_or_parent {
                             imported_module_names.insert(imported_as);
                         }
                     }
