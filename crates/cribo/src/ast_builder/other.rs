@@ -4,8 +4,22 @@
 //! aliases, keywords, arguments, and exception handlers. All nodes are created with
 //! `TextRange::default()` and `AtomicNodeIndex::dummy()` to indicate their synthetic nature.
 
-use ruff_python_ast::{Alias, AtomicNodeIndex};
+use ruff_python_ast::{Alias, AtomicNodeIndex, Identifier};
 use ruff_text_size::TextRange;
+
+/// Creates a synthetic identifier node.
+///
+/// # Arguments
+/// * `name` - The identifier name
+///
+/// # Example
+/// ```rust
+/// // Creates an identifier: `foo`
+/// let id = identifier("foo");
+/// ```
+pub fn identifier(name: &str) -> Identifier {
+    Identifier::new(name, TextRange::default())
+}
 
 /// Creates an alias node for import statements.
 ///
@@ -22,10 +36,9 @@ use ruff_text_size::TextRange;
 /// let alias = alias("baz", None);
 /// ```
 pub fn alias(name: &str, asname: Option<&str>) -> Alias {
-    use ruff_python_ast::Identifier;
     Alias {
-        name: Identifier::new(name, TextRange::default()),
-        asname: asname.map(|s| Identifier::new(s, TextRange::default())),
+        name: identifier(name),
+        asname: asname.map(identifier),
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     }

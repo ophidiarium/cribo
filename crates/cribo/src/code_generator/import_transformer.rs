@@ -4,8 +4,8 @@ use std::path::Path;
 
 use cow_utils::CowUtils;
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString,
-    ExprName, FString, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprCall, ExprContext, ExprFString, ExprName, FString,
+    FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
     InterpolatedStringElements, Keyword, ModModule, Stmt, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
@@ -2040,24 +2040,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                             let attr_ctx = attr_expr.ctx;
                             let attr_range = attr_expr.range;
 
-                            *expr = Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(Expr::Attribute(ExprAttribute {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    value: Box::new(Expr::Name(ExprName {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        id: crate::ast_builder::CRIBO_PREFIX.into(),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                    })),
-                                    attr: Identifier::new(name, TextRange::default()),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                attr: Identifier::new(&attr_name, TextRange::default()),
-                                ctx: attr_ctx,
-                                range: attr_range,
-                            });
+                            // Create _cribo.name.attr_name
+                            let base = expressions::name_attribute(
+                                crate::ast_builder::CRIBO_PREFIX,
+                                name,
+                                ExprContext::Load,
+                            );
+                            let mut new_expr = expressions::attribute(base, &attr_name, attr_ctx);
+                            // Preserve the original range
+                            if let Expr::Attribute(attr) = &mut new_expr {
+                                attr.range = attr_range;
+                            }
+                            *expr = new_expr;
                             return;
                         }
                     }
@@ -2077,24 +2071,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                         );
 
                         // Create wrapper_module.imported_name.attr
-                        *expr = Expr::Attribute(ExprAttribute {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: wrapper_module.into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                attr: Identifier::new(imported_name, TextRange::default()),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: attr_expr.attr.clone(),
-                            ctx: attr_expr.ctx,
-                            range: attr_expr.range,
-                        });
+                        let base = expressions::name_attribute(
+                            wrapper_module,
+                            imported_name,
+                            ExprContext::Load,
+                        );
+                        let mut new_expr =
+                            expressions::attribute(base, attr_expr.attr.as_str(), attr_expr.ctx);
+                        // Preserve the original range
+                        if let Expr::Attribute(attr) = &mut new_expr {
+                            attr.range = attr_expr.range;
+                        }
+                        *expr = new_expr;
                         return; // Don't process further
                     }
                 }
@@ -2641,18 +2629,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                     log::debug!("Rewriting name '{name}' to '{wrapper_module}.{imported_name}'");
 
                     // Create wrapper_module.imported_name attribute access
-                    *expr = Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: wrapper_module.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new(imported_name, TextRange::default()),
-                        ctx: name_expr.ctx,
-                        range: name_expr.range,
-                    });
+                    // Create wrapper_module.imported_name attribute access
+                    let mut new_expr =
+                        expressions::name_attribute(wrapper_module, imported_name, name_expr.ctx);
+                    // Preserve the original range
+                    if let Expr::Attribute(attr) = &mut new_expr {
+                        attr.range = name_expr.range;
+                    }
+                    *expr = new_expr;
                 }
             }
             // Constants, etc. don't need transformation
