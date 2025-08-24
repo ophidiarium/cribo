@@ -120,8 +120,6 @@ pub struct Bundler<'a> {
     /// Module/symbol pairs that should be kept after tree shaking
     /// Maps module name to set of symbols to keep in that module
     pub(crate) tree_shaking_keep_symbols: Option<FxIndexMap<String, FxIndexSet<String>>>,
-    /// Whether to use the module cache model for circular dependencies
-    pub(crate) use_module_cache: bool,
     /// Track namespaces that were created with initial symbols
     /// These don't need symbol population via
     /// `populate_namespace_with_module_symbols_with_renames`
@@ -219,8 +217,6 @@ impl<'a> Bundler<'a> {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
-            use_module_cache: true, /* Enable module cache by default for circular
-                                     * dependencies */
             namespaces_with_initial_symbols: FxIndexSet::default(),
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
@@ -1722,9 +1718,6 @@ impl<'a> Bundler<'a> {
         // Prepare modules: trim imports, index ASTs, detect circular dependencies
         let modules = self.prepare_modules(params);
 
-        // Check if entry module requires namespace types for its imports
-        let needs_types_for_entry_imports = self.check_entry_needs_namespace_types(params);
-
         // Determine if we have circular dependencies
         let has_circular_dependencies = !self.circular_modules.is_empty();
 
@@ -1862,28 +1855,6 @@ impl<'a> Bundler<'a> {
             );
         }
 
-        // If we have wrapper modules, inject types as stdlib dependency.
-        // Also add functools, as wrapper init functions are cached with @functools.cache.
-        if !wrapper_modules.is_empty() {
-            log::debug!("Adding types and functools imports for wrapper modules");
-            // Types import will be handled by _cribo proxy
-            // Functools import will be handled by _cribo proxy
-        }
-
-        // If we have namespace imports, inject types as stdlib dependency
-        if !self.namespace_imported_modules.is_empty() {
-            log::debug!("Adding types import for namespace imports");
-            // Types import will be handled by _cribo proxy
-        }
-
-        // If entry module has direct imports or dotted imports that need namespace objects
-        if needs_types_for_entry_imports {
-            log::debug!("Adding types import for namespace objects in entry module");
-            // Types import will be handled by _cribo proxy
-        }
-
-        // We'll add types import later if we actually create namespace objects for importlib
-
         // Register wrapper modules
         for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
             self.module_exports.insert(
@@ -1909,9 +1880,6 @@ impl<'a> Bundler<'a> {
         // Check if we have wrapper modules
         let has_wrapper_modules = !wrapper_modules.is_empty();
 
-        // Check if we need types import (for namespace imports)
-        let _need_types_import = !self.namespace_imported_modules.is_empty();
-
         // Create semantic context
         let semantic_ctx = SemanticContext {
             graph: params.graph,
@@ -1933,12 +1901,6 @@ impl<'a> Bundler<'a> {
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
-
-        // If we have any namespace objects to create, we need types
-        if !self.namespace_registry.is_empty() {
-            log::debug!("Adding types import for namespace objects");
-            // Types import will be handled by _cribo proxy
-        }
 
         // Now that all namespace requirements have been registered, generate the namespace statements
         // and parent attribute assignments at the beginning of the bundle
@@ -2039,24 +2001,17 @@ impl<'a> Bundler<'a> {
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
 
-        // Decide early if we need module cache for circular dependencies
-        let use_module_cache_for_wrappers =
-            has_wrapper_modules && has_circular_dependencies && self.use_module_cache;
-        if use_module_cache_for_wrappers {
+        // Check if we have wrapped modules (modules with side effects) that are also in circular dependencies
+        // This affects initialization order and hard dependency handling
+        let has_circular_wrapped_modules = has_wrapper_modules && has_circular_dependencies;
+        if has_circular_wrapped_modules {
             log::info!(
-                "Detected circular dependencies in wrapper modules - will use module cache \
-                 approach"
+                "Detected circular dependencies in modules with side effects - special handling \
+                 required"
             );
         }
 
-        // Add functools import for module cache decorators when we have wrapper modules to
-        // transform
-        if has_wrapper_modules {
-            log::debug!("Adding functools import for module cache decorators");
-            // Functools import will be handled by _cribo proxy
-        }
-
-        if use_module_cache_for_wrappers {
+        if has_circular_wrapped_modules {
             // Detect hard dependencies in circular modules
             log::debug!("Scanning for hard dependencies in circular modules");
 
@@ -2493,11 +2448,6 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        // If we're using module cache, add the infrastructure early
-        if use_module_cache_for_wrappers {
-            // Note: Module cache infrastructure removed - we don't use sys.modules anymore
-        }
-
         // CRITICAL FIX: Create namespace objects for ALL inlined submodules of wrapper modules
         // This must happen BEFORE any wrapper module init functions are defined
         // Otherwise wrapper init functions will reference undefined namespace variables
@@ -2621,8 +2571,8 @@ impl<'a> Bundler<'a> {
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
-                    // Always use cached init functions to ensure modules are only initialized once
-                    let init_function = module_transformer::transform_module_to_cache_init_function(
+                    // Transform module to init function with @functools.cache decorator
+                    let init_function = module_transformer::transform_module_to_init_function(
                         self,
                         &ctx,
                         ast.clone(),
@@ -2634,8 +2584,8 @@ impl<'a> Bundler<'a> {
                     // This causes forward reference errors when wrapper modules have circular dependencies.
                     // Instead, we'll initialize them later in dependency order after ALL init functions
                     // have been defined.
-                    if use_module_cache_for_wrappers {
-                        // Even in module cache mode, DO NOT initialize these modules now
+                    if has_circular_wrapped_modules {
+                        // DO NOT initialize these modules now
                         // We'll initialize them later in the correct order
                         log::debug!(
                             "Module {module_name} is needed by inlined modules, will initialize later in dependency order"
@@ -3302,8 +3252,6 @@ impl<'a> Bundler<'a> {
         // NOTE: Namespace population moved to after deferred imports are added to avoid forward
         // reference errors
 
-        // Module cache infrastructure was already added earlier if needed
-
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
@@ -3510,10 +3458,12 @@ impl<'a> Bundler<'a> {
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
-            // When using module cache, we must initialize all modules immediately
+            // When we have circular wrapped modules, we must initialize all modules immediately
             // to populate their namespaces
-            if use_module_cache_for_wrappers {
-                log::info!("Using module cache - initializing all modules immediately");
+            if has_circular_wrapped_modules {
+                log::info!(
+                    "Circular wrapped modules detected - initializing all modules immediately"
+                );
 
                 // Call all init functions in sorted order
                 // Track which modules have been initialized in this scope
@@ -3721,7 +3671,7 @@ impl<'a> Bundler<'a> {
             let mut processed_hard_deps: FxIndexSet<(String, String)> = FxIndexSet::default();
 
             // Mark hard dependencies that were processed during module initialization
-            if use_module_cache_for_wrappers {
+            if has_circular_wrapped_modules {
                 let sorted_wrapped_set: crate::types::FxIndexSet<_> =
                     sorted_wrapped.iter().cloned().collect();
                 for dep in &self.hard_dependencies {
@@ -3763,7 +3713,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Now handle deferred hard dependencies from bundled wrapper modules
-            if !self.hard_dependencies.is_empty() && use_module_cache_for_wrappers {
+            if !self.hard_dependencies.is_empty() && has_circular_wrapped_modules {
                 log::debug!("Processing deferred hard dependencies from bundled wrapper modules");
 
                 // Group hard dependencies by source module again
@@ -5083,49 +5033,6 @@ impl<'a> Bundler<'a> {
             self.namespace_imported_modules.len(),
             self.namespace_imported_modules
         );
-    }
-
-    /// Check if the entry module requires namespace types for its imports
-    fn check_entry_needs_namespace_types(&self, params: &BundleParams<'_>) -> bool {
-        // Find the entry module AST from the pre-parsed modules
-        if let Some((_, ast, _, _)) = params
-            .modules
-            .iter()
-            .find(|(name, _, _, _)| name == params.entry_module_name)
-        {
-            ast.body.iter().any(|stmt| {
-                if let Stmt::Import(import_stmt) = stmt {
-                    import_stmt.names.iter().any(|alias| {
-                        let module_name = alias.name.as_str();
-                        // Check for dotted imports - but only first-party ones
-                        if module_name.contains('.') {
-                            // Check if this dotted import refers to a first-party module
-                            // by checking if any bundled module matches this dotted path
-                            let is_first_party_dotted =
-                                params.modules.iter().any(|(name, _, _, _)| {
-                                    name == module_name
-                                        || module_name.starts_with(&format!("{name}."))
-                                });
-                            if is_first_party_dotted {
-                                log::debug!(
-                                    "Found first-party dotted import '{module_name}' that \
-                                     requires namespace"
-                                );
-                                return true;
-                            }
-                        }
-                        // NOTE: We can't check for direct imports of inlined modules here
-                        // because self.inlined_modules isn't populated yet. That check
-                        // happens later when we actually determine which modules to inline.
-                        false
-                    })
-                } else {
-                    false
-                }
-            })
-        } else {
-            false
-        }
     }
 
     /// Check if a symbol should be exported from a module
