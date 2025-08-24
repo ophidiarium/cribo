@@ -1,0 +1,5 @@
+{
+    "hooks": {
+        "preToolUse": "./.claude-code/hooks/prevent-main-commit.sh"
+    }
+}
