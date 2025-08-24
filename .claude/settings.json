@@ -40,13 +40,13 @@
     "hooks": {
         "PreToolUse": [
             {
-                "matcher": "Bash(*git commit*)",
                 "hooks": [
                     {
-                        "type": "command",
-                        "command": "./.claude/hooks/prevent-main-commit.sh"
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/prevent-main-commit.sh",
+                        "type": "command"
                     }
-                ]
+                ],
+                "matcher": "Bash"
             }
         ]
     }
