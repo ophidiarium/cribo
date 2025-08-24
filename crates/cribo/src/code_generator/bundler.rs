@@ -3457,18 +3457,28 @@ impl<'a> Bundler<'a> {
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
-            // When we have circular wrapped modules, we must initialize all modules immediately
-            // to populate their namespaces
+            // When we have circular wrapped modules, initialize only wrappers that are in cycles
+            // (still in dependency order) to populate their namespaces without extra work
             if has_circular_wrapped_modules {
                 log::info!(
-                    "Circular wrapped modules detected - initializing all modules immediately"
+                    "Circular wrapped modules detected - initializing participating modules immediately"
                 );
 
                 // Call all init functions in sorted order
                 // Track which modules have been initialized in this scope
                 let mut initialized_in_scope = FxIndexSet::default();
 
+                // Precompute the participating set, but iterate using sorted_wrapped to keep order
+                let wrappers_in_cycles: FxIndexSet<String> = sorted_wrapped
+                    .iter()
+                    .filter(|m| self.circular_modules.contains(m.as_str()))
+                    .cloned()
+                    .collect();
+
                 for module_name in &sorted_wrapped {
+                    if !wrappers_in_cycles.contains(module_name) {
+                        continue;
+                    }
                     if let Some(synthetic_name) = self.module_registry.get(module_name) {
                         // Skip if already initialized early (for modules needed by inlined modules)
                         if early_initialized_modules.contains(module_name) {
