@@ -2025,81 +2025,82 @@ impl<'a> Bundler<'a> {
                 )
                 .collect();
 
-            for (module_name, ast, module_path, _) in &all_modules {
-                if self.circular_modules.contains(module_name.as_str()) {
-                    // Build import map for this module
-                    let mut import_map = FxIndexMap::default();
+            for (module_name, ast, module_path, _) in all_modules
+                .iter()
+                .filter(|(name, _, _, _)| self.circular_modules.contains(name.as_str()))
+            {
+                // Build import map for this module
+                let mut import_map = FxIndexMap::default();
 
-                    // Scan imports in the module
-                    for stmt in &ast.body {
-                        match stmt {
-                            Stmt::Import(import_stmt) => {
-                                for alias in &import_stmt.names {
+                // Scan imports in the module
+                for stmt in &ast.body {
+                    match stmt {
+                        Stmt::Import(import_stmt) => {
+                            for alias in &import_stmt.names {
+                                let imported_name = alias.name.as_str();
+                                let local_name = alias
+                                    .asname
+                                    .as_ref()
+                                    .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+                                import_map.insert(
+                                    local_name.to_string(),
+                                    (
+                                        imported_name.to_string(),
+                                        alias.asname.as_ref().map(|n| n.as_str().to_string()),
+                                    ),
+                                );
+                            }
+                        }
+                        Stmt::ImportFrom(import_from) => {
+                            // Handle relative imports
+                            let resolved_module = if import_from.level > 0 {
+                                // Resolve relative import to absolute
+                                self.resolver.resolve_relative_to_absolute_module_name(
+                                    import_from.level,
+                                    import_from
+                                        .module
+                                        .as_ref()
+                                        .map(ruff_python_ast::Identifier::as_str),
+                                    module_path,
+                                )
+                            } else {
+                                import_from.module.as_ref().map(|m| m.as_str().to_string())
+                            };
+
+                            if let Some(module_str) = resolved_module {
+                                for alias in &import_from.names {
                                     let imported_name = alias.name.as_str();
                                     let local_name = alias
                                         .asname
                                         .as_ref()
                                         .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+
+                                    // For "from X import Y", track the mapping
+                                    let (actual_source, actual_import) =
+                                        (module_str.clone(), Some(imported_name.to_string()));
+
+                                    // Handle the alias if present
                                     import_map.insert(
                                         local_name.to_string(),
-                                        (
-                                            imported_name.to_string(),
-                                            alias.asname.as_ref().map(|n| n.as_str().to_string()),
-                                        ),
+                                        (actual_source, actual_import),
                                     );
                                 }
                             }
-                            Stmt::ImportFrom(import_from) => {
-                                // Handle relative imports
-                                let resolved_module = if import_from.level > 0 {
-                                    // Resolve relative import to absolute
-                                    self.resolver.resolve_relative_to_absolute_module_name(
-                                        import_from.level,
-                                        import_from
-                                            .module
-                                            .as_ref()
-                                            .map(ruff_python_ast::Identifier::as_str),
-                                        module_path,
-                                    )
-                                } else {
-                                    import_from.module.as_ref().map(|m| m.as_str().to_string())
-                                };
-
-                                if let Some(module_str) = resolved_module {
-                                    for alias in &import_from.names {
-                                        let imported_name = alias.name.as_str();
-                                        let local_name = alias.asname.as_ref().map_or(
-                                            imported_name,
-                                            ruff_python_ast::Identifier::as_str,
-                                        );
-
-                                        // For "from X import Y", track the mapping
-                                        let (actual_source, actual_import) =
-                                            (module_str.clone(), Some(imported_name.to_string()));
-
-                                        // Handle the alias if present
-                                        import_map.insert(
-                                            local_name.to_string(),
-                                            (actual_source, actual_import),
-                                        );
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
+                        _ => {}
                     }
+                }
 
-                    // Detect hard dependencies
-                    let hard_deps =
-                        SymbolAnalyzer::detect_hard_dependencies(module_name, ast, &import_map);
-                    if !hard_deps.is_empty() {
-                        log::info!(
-                            "Found {} hard dependencies in module {}",
-                            hard_deps.len(),
-                            module_name
-                        );
-                        self.hard_dependencies.extend(hard_deps);
-                    }
+                // Detect hard dependencies
+                let hard_deps =
+                    SymbolAnalyzer::detect_hard_dependencies(module_name, ast, &import_map);
+                if !hard_deps.is_empty() {
+                    log::info!(
+                        "Found {} hard dependencies in module {}",
+                        hard_deps.len(),
+                        module_name
+                    );
+                    self.hard_dependencies.extend(hard_deps);
                 }
             }
 
