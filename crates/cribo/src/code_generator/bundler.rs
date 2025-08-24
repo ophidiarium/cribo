@@ -891,11 +891,20 @@ impl<'a> Bundler<'a> {
                             module_name
                         );
 
-                        let assignment = statements::simple_assign(
-                            target_name.as_str(),
-                            expressions::name(&global_name, ExprContext::Load),
-                        );
-                        assignments.push(assignment);
+                        // Only create assignment if the names differ (avoid X = X)
+                        if target_name.as_str() == global_name {
+                            log::debug!(
+                                "Skipping self-referential assignment: {} = {}",
+                                target_name.as_str(),
+                                global_name
+                            );
+                        } else {
+                            let assignment = statements::simple_assign(
+                                target_name.as_str(),
+                                expressions::name(&global_name, ExprContext::Load),
+                            );
+                            assignments.push(assignment);
+                        }
                         continue; // Skip the normal attribute assignment
                     }
                 }

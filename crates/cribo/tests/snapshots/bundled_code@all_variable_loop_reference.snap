@@ -55,8 +55,6 @@ def _cribo_init___cribo_4c9561_mypkg():
 mypkg__internal.MyClass = MyClass
 mypkg__internal.my_func = my_func
 mypkg = _cribo_init___cribo_4c9561_mypkg()
-MyClass = MyClass
-my_func = my_func
 obj = MyClass()
 print(obj.value)
 print(my_func())
