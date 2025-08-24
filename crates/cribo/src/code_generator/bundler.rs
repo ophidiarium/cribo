@@ -3727,8 +3727,9 @@ impl<'a> Bundler<'a> {
                 log::debug!("Processing deferred hard dependencies from bundled wrapper modules");
 
                 // Group hard dependencies by source module again
-                let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
-                    FxIndexMap::default();
+                // Use BTreeMap for deterministic ordering of source modules
+                let mut deps_by_source: std::collections::BTreeMap<String, Vec<&HardDependency>> =
+                    std::collections::BTreeMap::new();
                 for dep in &self.hard_dependencies {
                     // Only process dependencies from bundled wrapper modules
                     if wrapper_modules_saved
@@ -3763,11 +3764,14 @@ impl<'a> Bundler<'a> {
                 }
 
                 // Generate attribute assignments for bundled wrapper module dependencies
-                for (source_module, deps) in deps_by_source {
+                for (source_module, mut deps) in deps_by_source {
                     log::debug!(
                         "Generating assignments for hard dependencies from bundled module \
                          {source_module}"
                     );
+
+                    // Sort dependencies by (imported_attr, alias) for deterministic ordering
+                    deps.sort_by_key(|dep| (dep.imported_attr.as_str(), dep.alias.as_deref()));
 
                     for dep in deps {
                         // Use the same logic as hard dependency rewriting
