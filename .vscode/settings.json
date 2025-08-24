@@ -97,5 +97,9 @@
     },
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": false,
-    "coderabbit.autoReviewMode": "disabled"
+    "coderabbit.autoReviewMode": "disabled",
+    "git.branchProtection": [
+        "main"
+    ],
+    "git.branchProtectionPrompt": "alwaysPrompt"
 }
