@@ -1718,9 +1718,6 @@ impl<'a> Bundler<'a> {
         // Prepare modules: trim imports, index ASTs, detect circular dependencies
         let modules = self.prepare_modules(params);
 
-        // Determine if we have circular dependencies
-        let has_circular_dependencies = !self.circular_modules.is_empty();
-
         // Classify modules into inlinable and wrapper modules
         let classifier = crate::analyzers::ModuleClassifier::new(
             self.resolver,
@@ -2001,9 +1998,11 @@ impl<'a> Bundler<'a> {
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
 
-        // Check if we have wrapped modules (modules with side effects) that are also in circular dependencies
+        // Check if at least one wrapper module participates in a circular dependency
         // This affects initialization order and hard dependency handling
-        let has_circular_wrapped_modules = has_wrapper_modules && has_circular_dependencies;
+        let has_circular_wrapped_modules = sorted_wrapper_modules
+            .iter()
+            .any(|(name, _, _, _)| self.circular_modules.contains(name.as_str()));
         if has_circular_wrapped_modules {
             log::info!(
                 "Detected circular dependencies in modules with side effects - special handling \

@@ -29,12 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 myrequests = _cribo.types.SimpleNamespace(__name__='myrequests')
-class RequestException(Exception):
-    """Base exception for all request errors."""
-    pass
-class InvalidJSONError(RequestException):
-    """A JSON error occurred."""
-    pass
 @_cribo.functools.cache
 def _cribo_init___cribo_5ad29b_myrequests_compat():
     _cribo_module = _cribo.types.SimpleNamespace()
@@ -76,6 +70,12 @@ def _cribo_init___cribo_5ad29b_myrequests_compat():
     _cribo_module.urljoin = _cribo.urllib.parse.urljoin
     return _cribo_module
 myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
+class RequestException(Exception):
+    """Base exception for all request errors."""
+    pass
+class InvalidJSONError(RequestException):
+    """A JSON error occurred."""
+    pass
 class JSONDecodeError(InvalidJSONError, myrequests.compat.JSONDecodeError):
     """Couldn't decode the text into json."""
     pass
