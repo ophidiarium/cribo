@@ -1094,7 +1094,7 @@ pub fn transform_module_to_init_function<'a>(
         ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
     )));
 
-    // Create the init function WITHOUT decorator - we're not using module cache
+    // Create the init function parameters
     let parameters = ruff_python_ast::Parameters {
         node_index: AtomicNodeIndex::dummy(),
         posonlyargs: vec![],
@@ -1105,13 +1105,23 @@ pub fn transform_module_to_init_function<'a>(
         range: TextRange::default(),
     };
 
+    // Add the @functools.cache decorator to ensure modules are only initialized once
+    let decorator = Decorator {
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+        expression: ast_builder::expressions::dotted_name(
+            &[crate::ast_builder::CRIBO_PREFIX, "functools", "cache"],
+            ExprContext::Load,
+        ),
+    };
+
     ast_builder::statements::function_def(
         init_func_name,
         parameters,
         body,
-        vec![], // No decorator for non-cache mode
-        None,   // No return type annotation
-        false,  // Not async
+        vec![decorator], // Always add @functools.cache decorator
+        None,            // No return type annotation
+        false,           // Not async
     )
 }
 
@@ -2661,41 +2671,6 @@ fn symbol_comes_from_wrapper_module(
     false
 }
 
-/// Transform module to cache init function by adding @functools.cache decorator
-pub fn transform_module_to_cache_init_function(
-    bundler: &Bundler,
-    ctx: &ModuleTransformContext,
-    ast: ModModule,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-) -> Stmt {
-    // Call the regular transform_module_to_init_function to get the function
-    let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames);
-
-    // Add the @_cribo.functools.cache decorator
-    if let Stmt::FunctionDef(mut func_def) = stmt {
-        func_def.decorator_list = vec![Decorator {
-            range: TextRange::default(),
-            node_index: AtomicNodeIndex::dummy(),
-            expression: ast_builder::expressions::attribute(
-                ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(
-                        crate::ast_builder::CRIBO_PREFIX,
-                        ExprContext::Load,
-                    ),
-                    "functools",
-                    ExprContext::Load,
-                ),
-                "cache",
-                ExprContext::Load,
-            ),
-        }];
-        return Stmt::FunctionDef(func_def);
-    }
-
-    // Should not happen
-    unreachable!("transform_module_to_init_function should return a FunctionDef")
-}
-
 /// Sort wrapper modules by dependencies
 pub fn sort_wrapper_modules_by_dependencies(
     wrapper_modules: &[(String, ModModule, PathBuf, String)],
@@ -2792,9 +2767,9 @@ pub fn process_wrapper_modules(
             is_wrapper_body: true, // This is for wrapper modules
         };
 
-        // Always use cached init functions to ensure modules are only initialized once
+        // Transform module to init function with @functools.cache decorator
         let init_function =
-            transform_module_to_cache_init_function(bundler, &ctx, ast.clone(), symbol_renames);
+            transform_module_to_init_function(bundler, &ctx, ast.clone(), symbol_renames);
 
         result.push(init_function);
     }

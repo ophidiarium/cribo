@@ -3,7 +3,7 @@
 //! This module implements the hybrid static bundling approach which:
 //! - Pre-processes and hoists safe stdlib imports
 //! - Wraps first-party modules in init functions to manage initialization order
-//! - Uses a module cache to handle circular dependencies
+//! - Uses @functools.cache decorator to ensure modules are initialized only once
 //! - Preserves Python semantics while avoiding forward reference issues
 
 pub mod bundler;

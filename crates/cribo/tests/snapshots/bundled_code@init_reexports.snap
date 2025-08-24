@@ -94,7 +94,6 @@ def _cribo_init___cribo_a81151_mypackage():
     _cribo_module.formatter = mypackage_formatter
     _cribo_module.data_processor = mypackage_data_processor
     return _cribo_module
-mypackage.config = _cribo_init___cribo_de6c46_mypackage_config()
 __cribo_init_result = _cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
