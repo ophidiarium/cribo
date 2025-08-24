@@ -1291,9 +1291,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                             crate::resolver::is_stdlib_module(local_name, self.python_version);
 
                         // Only create the assignment if:
-                        // 1. We're in the entry module (where user expects the shadowing), OR
-                        // 2. The name doesn't conflict with stdlib
-                        if self.is_entry_module || !shadows_stdlib {
+                        // 1. The local name differs from the namespace variable (avoid X = X), AND
+                        // 2. We're in the entry module (where user expects the shadowing), OR
+                        // 3. The name doesn't conflict with stdlib
+                        if local_name != namespace_var && (self.is_entry_module || !shadows_stdlib)
+                        {
                             log::debug!(
                                 "  Creating namespace assignment: {local_name} = {namespace_var}"
                             );
@@ -1301,8 +1303,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 local_name,
                                 expressions::name(&namespace_var, ExprContext::Load),
                             ));
+                        } else if local_name == namespace_var {
+                            log::debug!(
+                                "  Skipping self-referential namespace assignment: {local_name} = {namespace_var}"
+                            );
+                        }
 
-                            // Track this as a local variable to prevent it from being transformed as a stdlib module
+                        // Track this as a local variable regardless of whether we created an assignment
+                        // to prevent it from being transformed as a stdlib module
+                        if self.is_entry_module || !shadows_stdlib {
                             self.local_variables.insert(local_name.to_string());
                             log::debug!(
                                 "  Tracked '{local_name}' as local variable to prevent stdlib transformation"

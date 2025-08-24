@@ -891,11 +891,20 @@ impl<'a> Bundler<'a> {
                             module_name
                         );
 
-                        let assignment = statements::simple_assign(
-                            target_name.as_str(),
-                            expressions::name(&global_name, ExprContext::Load),
-                        );
-                        assignments.push(assignment);
+                        // Only create assignment if the names differ (avoid X = X)
+                        if target_name.as_str() == global_name {
+                            log::debug!(
+                                "Skipping self-referential assignment: {} = {}",
+                                target_name.as_str(),
+                                global_name
+                            );
+                        } else {
+                            let assignment = statements::simple_assign(
+                                target_name.as_str(),
+                                expressions::name(&global_name, ExprContext::Load),
+                            );
+                            assignments.push(assignment);
+                        }
                         continue; // Skip the normal attribute assignment
                     }
                 }
@@ -1061,16 +1070,21 @@ impl<'a> Bundler<'a> {
                 }
 
                 if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(module_id, symbol) {
-                    module_renames.insert(symbol.to_string(), new_name.to_string());
-                    log::debug!(
-                        "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
-                    );
+                    // Only add to rename map if the name actually changes
+                    if new_name == symbol {
+                        log::debug!(
+                            "Module '{module_name}': symbol '{symbol}' has rename to same name, skipping"
+                        );
+                    } else {
+                        module_renames.insert(symbol.to_string(), new_name.to_string());
+                        log::debug!(
+                            "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
+                        );
+                    }
                 } else {
-                    // Include non-renamed symbols too - they still need to be in the namespace
-                    module_renames.insert(symbol.to_string(), symbol.to_string());
+                    // No rename needed - don't add to rename map
                     log::debug!(
-                        "Module '{module_name}': symbol '{symbol}' has no rename, using original \
-                         name"
+                        "Module '{module_name}': symbol '{symbol}' has no rename, using original name"
                     );
                 }
             }
@@ -1105,11 +1119,9 @@ impl<'a> Bundler<'a> {
                                 continue;
                             }
 
-                            // This is a re-exported symbol - use the original name
-                            module_renames.insert(export.clone(), export.clone());
+                            // This is a re-exported symbol with no rename - don't add to rename map
                             log::debug!(
-                                "Module '{module_name}': adding re-exported symbol '{export}' \
-                                 from __all__"
+                                "Module '{module_name}': re-exported symbol '{export}' from __all__ has no rename"
                             );
                         }
                     }
