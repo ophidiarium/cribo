@@ -7728,8 +7728,9 @@ impl Bundler<'_> {
             if let Stmt::ClassDef(class_def) = &block.class_stmt {
                 let class_node = block_indices[&block.class_name];
 
-                // Check each base class
+                // Check each base class and metaclass
                 if let Some(arguments) = &class_def.arguments {
+                    // Check base classes
                     for base in &arguments.args {
                         if let Expr::Name(name_expr) = base {
                             let base_name = name_expr.id.to_string();
@@ -7745,6 +7746,28 @@ impl Bundler<'_> {
                                 );
                             }
                         }
+                    }
+
+                    // Check for metaclass keyword argument
+                    for keyword in &arguments.keywords {
+                        if let Some(arg) = &keyword.arg
+                            && arg.as_str() == "metaclass"
+                                && let Expr::Name(name_expr) = &keyword.value {
+                                    let metaclass_name = name_expr.id.to_string();
+
+                                    // Only add edge if the metaclass is defined in this module
+                                    if let Some(&metaclass_node) =
+                                        block_indices.get(&metaclass_name)
+                                    {
+                                        // Add edge from metaclass to class (metaclass must come before class)
+                                        graph.add_edge(metaclass_node, class_node, ());
+                                        log::debug!(
+                                            "Added metaclass edge: {} -> {}",
+                                            metaclass_name,
+                                            block.class_name
+                                        );
+                                    }
+                                }
                     }
                 }
             }
