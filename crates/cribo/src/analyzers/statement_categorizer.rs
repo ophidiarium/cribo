@@ -8,25 +8,6 @@
 use crate::types::FxIndexSet;
 use ruff_python_ast::{Expr, Stmt};
 
-/// Result of analyzing statements for reordering
-#[derive(Debug, Default, Clone)]
-pub struct StatementCategories {
-    /// Import statements (import and from...import)
-    pub imports: Vec<Stmt>,
-    /// Assignments that define symbols used as base classes, metaclasses, or decorators
-    pub dependency_assignments: Vec<Stmt>,
-    /// Regular assignments (variables, non-class attributes)
-    pub regular_assignments: Vec<Stmt>,
-    /// Self-assignments (e.g., validate = validate)
-    pub self_assignments: Vec<Stmt>,
-    /// Class definitions
-    pub classes: Vec<Stmt>,
-    /// Function definitions
-    pub functions: Vec<Stmt>,
-    /// Other statements (class attribute assignments, expressions, etc.)
-    pub other_statements: Vec<Stmt>,
-}
-
 /// Extended categories for cross-module statement reordering
 #[derive(Debug, Default, Clone)]
 pub struct CrossModuleStatementCategories {
@@ -93,35 +74,6 @@ impl StatementCategorizer {
         Self { python_version }
     }
 
-    /// Analyze and categorize statements for proper declaration order
-    ///
-    /// This performs two passes:
-    /// 1. First pass: Collect symbols used as dependencies (base classes, metaclasses, decorators)
-    /// 2. Second pass: Categorize statements based on their role and dependencies
-    pub fn analyze_statements<I>(&self, statements_iter: I) -> StatementCategories
-    where
-        I: IntoIterator<Item = Stmt>,
-    {
-        // Materialize once for the two-pass analysis
-        let statements: Vec<Stmt> = statements_iter.into_iter().collect();
-
-        // First pass: identify all symbols used as dependencies
-        let dependency_symbols =
-            crate::visitors::ClassDefDependencyCollector::collect_from_statements(&statements);
-
-        // Second pass: categorize statements using visitor
-        let mut visitor = StatementCategorizationVisitor {
-            categories: StatementCategories::default(),
-            dependency_symbols,
-        };
-
-        for stmt in statements {
-            visitor.categorize_statement(stmt);
-        }
-
-        visitor.categories
-    }
-
     /// Analyze statements for cross-module reordering
     ///
     /// This handles additional categories needed when combining statements from multiple modules,
@@ -152,104 +104,6 @@ impl StatementCategorizer {
         }
 
         visitor.categories
-    }
-}
-
-/// Internal visitor for categorizing statements
-struct StatementCategorizationVisitor {
-    categories: StatementCategories,
-    dependency_symbols: FxIndexSet<String>,
-}
-
-impl StatementCategorizationVisitor {
-    fn categorize_statement(&mut self, stmt: Stmt) {
-        match stmt {
-            Stmt::Import(_) | Stmt::ImportFrom(_) => {
-                self.categories.imports.push(stmt);
-            }
-            Stmt::Assign(ref assign) => {
-                // Multi-target assignments are treated as regular assignments
-                if assign.targets.len() != 1 {
-                    self.categories.regular_assignments.push(stmt);
-                    return;
-                }
-
-                // Now we can assume a single target for all checks
-                // Check if this is a class attribute assignment (e.g., MyClass.__module__ = 'foo')
-                if self.is_class_attribute_assignment(assign) {
-                    self.categories.other_statements.push(stmt);
-                    return;
-                }
-
-                // Check if this is a self-assignment (e.g., validate = validate)
-                if self.is_self_assignment(assign) {
-                    self.categories.self_assignments.push(stmt);
-                    return;
-                }
-
-                // Check if this assignment defines a dependency symbol
-                if self.defines_dependency(assign) {
-                    self.categories.dependency_assignments.push(stmt);
-                } else {
-                    self.categories.regular_assignments.push(stmt);
-                }
-            }
-            Stmt::AnnAssign(ref ann_assign) => {
-                // Check if this annotated assignment defines a dependency symbol
-                if let Expr::Name(target) = ann_assign.target.as_ref()
-                    && self.dependency_symbols.contains(target.id.as_str())
-                {
-                    self.categories.dependency_assignments.push(stmt);
-                    return;
-                }
-                self.categories.regular_assignments.push(stmt);
-            }
-            Stmt::FunctionDef(_) => {
-                self.categories.functions.push(stmt);
-            }
-            Stmt::ClassDef(_) => {
-                self.categories.classes.push(stmt);
-            }
-            _ => {
-                self.categories.other_statements.push(stmt);
-            }
-        }
-    }
-
-    fn is_class_attribute_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        // Assumes single target (checked in categorize_statement)
-        // Note: This currently matches any Name.attr assignment pattern, which includes
-        // module attributes like compat.bytes = bytes. This broad matching is intentional
-        // to ensure proper ordering of all attribute assignments after their base definitions.
-        if let Expr::Attribute(attr) = &assign.targets[0] {
-            matches!(attr.value.as_ref(), Expr::Name(_))
-        } else {
-            false
-        }
-    }
-
-    fn is_self_assignment(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        // Assumes single target (checked in categorize_statement)
-        if let (Expr::Name(target), Expr::Name(value)) = (&assign.targets[0], assign.value.as_ref())
-        {
-            target.id == value.id
-        } else {
-            false
-        }
-    }
-
-    fn defines_dependency(&self, assign: &ruff_python_ast::StmtAssign) -> bool {
-        // Assumes single target (checked in categorize_statement)
-        if let Expr::Name(target) = &assign.targets[0] {
-            if self.dependency_symbols.contains(target.id.as_str()) {
-                // Check if the value looks like it could be a class
-                is_class_like_expr(assign.value.as_ref())
-            } else {
-                false
-            }
-        } else {
-            false
-        }
     }
 }
 
