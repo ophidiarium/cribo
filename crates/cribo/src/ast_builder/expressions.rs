@@ -55,6 +55,29 @@ pub fn attribute(value: Expr, attr: &str, ctx: ExprContext) -> Expr {
     })
 }
 
+/// Creates an attribute access expression from a name.
+///
+/// This is a convenience function for the common pattern of accessing
+/// an attribute on a simple name expression.
+///
+/// # Arguments
+/// * `base_name` - The name of the base object
+/// * `attr` - The attribute name
+/// * `ctx` - The expression context (Load, Store, Del) for the attribute access
+///
+/// # Example
+/// ```rust
+/// // Creates: `module.attribute`
+/// let expr = name_attribute("module", "attribute", ExprContext::Load);
+/// ```
+///
+/// # Note
+/// The base name is always loaded (`ExprContext::Load`) regardless of the
+/// context of the attribute access, as per Python AST semantics.
+pub fn name_attribute(base_name: &str, attr: &str, ctx: ExprContext) -> Expr {
+    attribute(name(base_name, ExprContext::Load), attr, ctx)
+}
+
 /// Creates a string literal expression node.
 ///
 /// # Arguments

@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use log::debug;
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
-    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
-    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
+    Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, Keyword, ModModule, Stmt,
+    StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
+    visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -5286,7 +5286,7 @@ impl<'a> Bundler<'a> {
         let func_name = func_def.name.to_string();
         let needs_reassignment = if let Some(new_name) = entry_module_renames.get(&func_name) {
             log::debug!("Renaming function '{func_name}' to '{new_name}' in entry module");
-            func_def.name = Identifier::new(new_name, TextRange::default());
+            func_def.name = other::identifier(new_name);
             true
         } else {
             false
@@ -5314,7 +5314,7 @@ impl<'a> Bundler<'a> {
         let class_name = class_def.name.to_string();
         let needs_reassignment = if let Some(new_name) = entry_module_renames.get(&class_name) {
             log::debug!("Renaming class '{class_name}' to '{new_name}' in entry module");
-            class_def.name = Identifier::new(new_name, TextRange::default());
+            class_def.name = other::identifier(new_name);
             true
         } else {
             false
@@ -6082,17 +6082,13 @@ impl<'a> Bundler<'a> {
                             &func_def.body,
                         );
 
-                    // Create initialization statements for lifted globals
-                    let init_stmts =
-                        self.create_global_init_statements(&function_globals, lifted_names);
-
                     // Transform the function body
                     let params = TransformFunctionParams {
                         lifted_names,
                         global_info,
                         function_globals: &function_globals,
                     };
-                    self.transform_function_body_for_lifted_globals(func_def, &params, &init_stmts);
+                    self.transform_function_body_for_lifted_globals(func_def, &params);
                 }
             }
             Stmt::Assign(assign) => {
@@ -6375,18 +6371,11 @@ impl<'a> Bundler<'a> {
                 class_name
             );
 
-            Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: hard_dep.source_module.clone().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new(&hard_dep.imported_attr, TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })
+            expressions::name_attribute(
+                &hard_dep.source_module,
+                &hard_dep.imported_attr,
+                ExprContext::Load,
+            )
         } else {
             // Use the alias if it's mandatory, otherwise use the imported attr
             let name_to_use = if hard_dep.alias_is_mandatory && hard_dep.alias.is_some() {
@@ -6479,21 +6468,11 @@ impl<'a> Bundler<'a> {
                                             };
 
                                             // Create module.attr expression
-                                            *arg = Expr::Attribute(ExprAttribute {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: name_to_use.clone().into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    parts[1],
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            });
+                                            *arg = expressions::name_attribute(
+                                                &name_to_use,
+                                                parts[1],
+                                                ExprContext::Load,
+                                            );
                                             log::info!(
                                                 "Rewrote base class {} to {}.{} for class {} in \
                                                  inlined module",
@@ -7083,7 +7062,7 @@ impl Bundler<'_> {
                     // Create: parent_path = types.SimpleNamespace(__name__='parent_path')
                     let keywords = vec![Keyword {
                         node_index: AtomicNodeIndex::dummy(),
-                        arg: Some(Identifier::new("__name__", TextRange::default())),
+                        arg: Some(other::identifier("__name__")),
                         value: expressions::string_literal(&parent_path),
                         range: TextRange::default(),
                     }];
@@ -7286,42 +7265,23 @@ impl Bundler<'_> {
         statements.push(for_loop);
     }
 
-    /// Create initialization statements for lifted globals
-    fn create_global_init_statements(
-        &self,
-        _function_globals: &FxIndexSet<String>,
-        _lifted_names: &FxIndexMap<String, String>,
-    ) -> Vec<Stmt> {
-        // No initialization statements needed - global declarations mean
-        // we use the lifted names directly, not through local variables
-        Vec::new()
-    }
-
     /// Transform function body for lifted globals
     fn transform_function_body_for_lifted_globals(
         &self,
         func_def: &mut StmtFunctionDef,
         params: &TransformFunctionParams,
-        init_stmts: &[Stmt],
     ) {
         let mut new_body = Vec::new();
-        let mut added_init = false;
 
         for body_stmt in &mut func_def.body {
             if let Stmt::Global(global_stmt) = body_stmt {
                 // Rewrite global statement to use lifted names
                 for name in &mut global_stmt.names {
                     if let Some(lifted_name) = params.lifted_names.get(name.as_str()) {
-                        *name = Identifier::new(lifted_name, TextRange::default());
+                        *name = crate::ast_builder::other::identifier(lifted_name);
                     }
                 }
                 new_body.push(body_stmt.clone());
-
-                // Add initialization statements after global declarations
-                if !added_init && !init_stmts.is_empty() {
-                    new_body.extend_from_slice(init_stmts);
-                    added_init = true;
-                }
             } else {
                 // Transform other statements recursively with function context
                 self.transform_stmt_for_lifted_globals(
