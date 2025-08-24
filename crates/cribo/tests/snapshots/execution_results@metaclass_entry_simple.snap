@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/metaclass_entry_simple/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Metaclass __init__ for YAMLObject\nTesting YAMLObject...\nYAMLObject created: YAMLObject(loaders=2)\nYAMLObject has metaclass: YAMLObjectMetaclass\nAll tests passed!",
+    stderr: "",
+}

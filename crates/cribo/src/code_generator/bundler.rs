@@ -6611,58 +6611,6 @@ impl<'a> Bundler<'a> {
         reordered
     }
 
-    /// Reorder statements to ensure proper declaration order
-    pub(crate) fn reorder_statements_for_proper_declaration_order(
-        &self,
-        statements: Vec<Stmt>,
-        python_version: u8,
-    ) -> Vec<Stmt> {
-        log::debug!("Reordering {} statements", statements.len());
-
-        // Use the categorizer to categorize statements
-        let categorizer = crate::analyzers::StatementCategorizer::new(python_version);
-        let categories = categorizer.analyze_statements(statements);
-
-        log::debug!(
-            "Reordered: imports={}, dependency_assignments={}, regular_assignments={}, \
-             classes={}, functions={}, self_assignments={}, other_statements={}",
-            categories.imports.len(),
-            categories.dependency_assignments.len(),
-            categories.regular_assignments.len(),
-            categories.classes.len(),
-            categories.functions.len(),
-            categories.self_assignments.len(),
-            categories.other_statements.len()
-        );
-
-        // Build the reordered list:
-        // 1. Imports first
-        // 2. Dependency assignments (base classes, decorators, metaclasses)
-        // 3. Regular assignments
-        // 4. Classes (before functions that might use them)
-        // 5. Functions
-        // 6. Self-assignments (after functions are defined)
-        // 7. Other statements
-        let mut reordered = Vec::with_capacity(
-            categories.imports.len()
-                + categories.dependency_assignments.len()
-                + categories.regular_assignments.len()
-                + categories.classes.len()
-                + categories.functions.len()
-                + categories.self_assignments.len()
-                + categories.other_statements.len(),
-        );
-        reordered.extend(categories.imports);
-        reordered.extend(categories.dependency_assignments);
-        reordered.extend(categories.regular_assignments);
-        reordered.extend(categories.classes);
-        reordered.extend(categories.functions);
-        reordered.extend(categories.self_assignments);
-        reordered.extend(categories.other_statements);
-
-        reordered
-    }
-
     /// Resolve import aliases in a statement
     pub(crate) fn resolve_import_aliases_in_stmt(
         stmt: &mut Stmt,
@@ -7752,22 +7700,21 @@ impl Bundler<'_> {
                     for keyword in &arguments.keywords {
                         if let Some(arg) = &keyword.arg
                             && arg.as_str() == "metaclass"
-                                && let Expr::Name(name_expr) = &keyword.value {
-                                    let metaclass_name = name_expr.id.to_string();
+                            && let Expr::Name(name_expr) = &keyword.value
+                        {
+                            let metaclass_name = name_expr.id.to_string();
 
-                                    // Only add edge if the metaclass is defined in this module
-                                    if let Some(&metaclass_node) =
-                                        block_indices.get(&metaclass_name)
-                                    {
-                                        // Add edge from metaclass to class (metaclass must come before class)
-                                        graph.add_edge(metaclass_node, class_node, ());
-                                        log::debug!(
-                                            "Added metaclass edge: {} -> {}",
-                                            metaclass_name,
-                                            block.class_name
-                                        );
-                                    }
-                                }
+                            // Only add edge if the metaclass is defined in this module
+                            if let Some(&metaclass_node) = block_indices.get(&metaclass_name) {
+                                // Add edge from metaclass to class (metaclass must come before class)
+                                graph.add_edge(metaclass_node, class_node, ());
+                                log::debug!(
+                                    "Added metaclass edge: {} -> {}",
+                                    metaclass_name,
+                                    block.class_name
+                                );
+                            }
+                        }
                     }
                 }
             }

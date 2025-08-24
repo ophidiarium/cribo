@@ -48,11 +48,11 @@ def increment_counter_lib_helpers():
     global counter_lib_helpers
     counter_lib_helpers += 1
     return counter_lib_helpers
-shared_common.counter = counter
 shared_common.get_location = get_location
+shared_common.counter = counter
 shared_common.increment_counter = increment_counter
-lib_helpers.counter = counter_lib_helpers
 lib_helpers.get_location = get_location_lib_helpers
+lib_helpers.counter = counter_lib_helpers
 lib_helpers.increment_counter = increment_counter_lib_helpers
 helpers = lib_helpers
 common = shared_common

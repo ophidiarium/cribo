@@ -53,14 +53,14 @@ class BaseClass:
         self.base_value = "base"
 """Parent module that re-exports child module symbols."""
 """Subpackage with wildcard export."""
-SubpkgClass.__module__ = 'parent.subpkg.submodule'
 """Submodule in subpackage."""
-MyClass.__module__ = 'parent.child'
+SubpkgClass.__module__ = 'parent.subpkg.submodule'
 """Child module that defines the actual symbols."""
-AnotherClass.__module__ = 'parent.another'
+MyClass.__module__ = 'parent.child'
 """Another module."""
-BaseClass.__module__ = 'parent.base'
+AnotherClass.__module__ = 'parent.another'
 """Base module defining base classes."""
+BaseClass.__module__ = 'parent.base'
 parent = _cribo.types.SimpleNamespace(__name__='parent')
 parent_subpkg = _cribo.types.SimpleNamespace(__name__='parent.subpkg')
 parent.subpkg = parent_subpkg

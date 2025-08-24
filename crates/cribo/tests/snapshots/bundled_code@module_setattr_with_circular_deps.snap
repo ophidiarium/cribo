@@ -72,14 +72,14 @@ def main():
     client = Client()
     return client.make_request()
 """Main module that imports client which imports back to parent."""
+"""Models module that also imports from parent."""
 Request.__module__ = 'pkg._models'
 Response.__module__ = 'pkg._models'
-"""Models module that also imports from parent."""
 Client.__module__ = 'pkg._client'
 """Client module with circular import and other dependencies."""
+"""Types module with stream classes."""
 AsyncStream.__module__ = 'pkg._types'
 SyncStream.__module__ = 'pkg._types'
-"""Types module with stream classes."""
 @_cribo.functools.cache
 def _cribo_init___cribo_1fb248_pkg():
     _cribo_module = _cribo.types.SimpleNamespace()

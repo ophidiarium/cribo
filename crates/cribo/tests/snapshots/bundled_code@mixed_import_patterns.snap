@@ -106,8 +106,8 @@ def get_config():
 def format_message(message):
     """Format a message with decorative borders"""
     return f">>> {message} <<<"
-Application.__module__ = 'app'
 """\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
+Application.__module__ = 'app'
 Logger.__module__ = 'logger'
 """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""
 Config.__module__ = 'config'

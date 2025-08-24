@@ -51,8 +51,8 @@ def calculate(a: _cribo.typing.Union[int, float], b: _cribo.typing.Union[int, fl
     """Calculate the sum of two numbers."""
     return a + b
 """Models package initialization."""
-User.__module__ = 'models.user'
 """User model for the test project."""
+User.__module__ = 'models.user'
 """Utils package initialization."""
 """Utility functions for the test project."""
 models = _cribo.types.SimpleNamespace(__name__='models')

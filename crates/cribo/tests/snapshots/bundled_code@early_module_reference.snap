@@ -54,8 +54,8 @@ def request(method, url, **kwargs):
     with session_ref.Session() as session:
         return session.request(method=method, url=url, **kwargs)
 """Package that demonstrates early module reference issue."""
-Session.__module__ = 'mypkg.sessions'
 """Sessions module with Session class."""
+Session.__module__ = 'mypkg.sessions'
 """API module that references sessions module early.\n\nThis reproduces the issue where a module-level variable references\nanother module before it's fully initialized.\n"""
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
 mypkg_sessions = _cribo.types.SimpleNamespace(__name__='mypkg.sessions')

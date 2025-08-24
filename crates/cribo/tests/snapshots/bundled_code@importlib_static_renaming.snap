@@ -45,11 +45,11 @@ def get_value():
     return 42
 Calculator.__module__ = 'bar'
 il = _cribo.importlib
-foo = _cribo.types.SimpleNamespace(MESSAGE=MESSAGE, greet=greet, get_value=get_value)
-bar_module = _cribo.types.SimpleNamespace(VERSION=VERSION, Calculator=Calculator, process=process)
+foo = _cribo.types.SimpleNamespace(greet=greet, get_value=get_value, MESSAGE=MESSAGE)
+bar_module = _cribo.types.SimpleNamespace(process=process, Calculator=Calculator, VERSION=VERSION)
 im = _cribo.importlib.import_module
-also_foo = _cribo.types.SimpleNamespace(MESSAGE=MESSAGE, greet=greet, get_value=get_value)
-also_bar = _cribo.types.SimpleNamespace(VERSION=VERSION, Calculator=Calculator, process=process)
+also_foo = _cribo.types.SimpleNamespace(greet=greet, get_value=get_value, MESSAGE=MESSAGE)
+also_bar = _cribo.types.SimpleNamespace(process=process, Calculator=Calculator, VERSION=VERSION)
 print(f"foo.greet('World'): {greet('World')}")
 print(f"foo.get_value(): {get_value()}")
 print(f"foo.MESSAGE: {MESSAGE}")

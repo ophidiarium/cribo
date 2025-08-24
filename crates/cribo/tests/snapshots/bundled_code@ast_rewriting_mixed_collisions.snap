@@ -338,6 +338,7 @@ Logger_1.__name__ = 'Logger'
 Logger_1.__qualname__ = 'Logger'
 BaseModel.__module__ = 'models.base'
 """\nBase model functionality with relative import conflicts\n"""
+"""\nUser model with extensive naming conflicts across the project\n"""
 Logger_2.__module__ = 'models.user'
 Logger_2.__name__ = 'Logger'
 Logger_2.__qualname__ = 'Logger'
@@ -347,18 +348,17 @@ User_2.__qualname__ = 'User'
 Connection_2.__module__ = 'models.user'
 Connection_2.__name__ = 'Connection'
 Connection_2.__qualname__ = 'Connection'
-"""\nUser model with extensive naming conflicts across the project\n"""
+"""\nUtility helpers module with extensive naming conflicts\n"""
 Logger_4.__module__ = 'core.utils.helpers'
 Logger_4.__name__ = 'Logger'
 Logger_4.__qualname__ = 'Logger'
 Connection_5.__module__ = 'core.utils.helpers'
 Connection_5.__name__ = 'Connection'
 Connection_5.__qualname__ = 'Connection'
-"""\nUtility helpers module with extensive naming conflicts\n"""
+"""\nDatabase connection module with naming conflicts\n"""
 Connection_6.__module__ = 'core.database.connection'
 Connection_6.__name__ = 'Connection'
 Connection_6.__qualname__ = 'Connection'
-"""\nDatabase connection module with naming conflicts\n"""
 models_base.shadow_test = shadow_test
 models_base.connect = connect_1
 models_base.Logger = Logger_1
@@ -531,18 +531,18 @@ models_user.result = result_3
 models_user.connection = connection_3
 models_user.Logger = Logger_2
 models_user.User = User_2
-models_user.Connection = Connection_2
 models_user.process_user = process_user
 models_user.validate = validate_4
 models_user.process = process_4
+models_user.Connection = Connection_2
 models_user.connect = connect_2
 models_user.complex_operation = complex_operation
 core_utils_helpers.result = result_6
 core_utils_helpers.User = User_4
 core_utils_helpers.Logger = Logger_4
-core_utils_helpers.Connection = Connection_5
 core_utils_helpers.process = process_6
 core_utils_helpers.validate = validate_6
+core_utils_helpers.Connection = Connection_5
 core_utils_helpers.connect = connect_4
 core_utils_helpers.process_with_conflicts = process_with_conflicts
 core_database_connection.result = result_8

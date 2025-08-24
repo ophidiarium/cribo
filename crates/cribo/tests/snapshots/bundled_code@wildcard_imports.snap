@@ -61,16 +61,16 @@ def unique_a_function():
 def safe_function():
     """A function that will be exported via __all__."""
     return "safe_function_result"
+"""Second module with potentially clashing names (no side-effects)."""
 SharedClass_1.__module__ = 'clash_module_b'
 SharedClass_1.__name__ = 'SharedClass'
 SharedClass_1.__qualname__ = 'SharedClass'
-"""Second module with potentially clashing names (no side-effects)."""
+"""First module with potentially clashing names (no side-effects)."""
 SharedClass_2.__module__ = 'clash_module_a'
 SharedClass_2.__name__ = 'SharedClass'
 SharedClass_2.__qualname__ = 'SharedClass'
-"""First module with potentially clashing names (no side-effects)."""
-SafeClass.__module__ = 'explicit_all'
 """Module with no side-effects and explicit __all__."""
+SafeClass.__module__ = 'explicit_all'
 @_cribo.functools.cache
 def _cribo_init___cribo_9a9871_with_side_effects():
     _cribo_module = _cribo.types.SimpleNamespace()
@@ -120,9 +120,6 @@ def _cribo_init___cribo_9a9871_with_side_effects():
         print(f"Module state initialized with {len(_module_state)} items")
     return _cribo_module
 """Main module demonstrating various wildcard import patterns."""
-safe_function = safe_function
-SafeClass = SafeClass
-SAFE_CONSTANT = SAFE_CONSTANT
 with_side_effects = _cribo_init___cribo_9a9871_with_side_effects()
 EFFECT_CONSTANT = with_side_effects.EFFECT_CONSTANT
 EffectClass = with_side_effects.EffectClass
@@ -132,11 +129,9 @@ registered_function = with_side_effects.registered_function
 shared_function = shared_function_2
 SharedClass = SharedClass_2
 SHARED_CONSTANT = SHARED_CONSTANT_2
-unique_a_function = unique_a_function
 shared_function = shared_function_1
 SharedClass = SharedClass_1
 SHARED_CONSTANT = SHARED_CONSTANT_1
-unique_b_function = unique_b_function
 def main():
     """Test all imported symbols."""
     results = []

@@ -3409,25 +3409,14 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 
             // For wildcard imports, create assignments only when necessary
             if renamed_symbol == *symbol_name {
-                // Symbol wasn't renamed
-                // In wrapper modules, the symbol will be accessed via global declaration,
-                // so we don't need a self-referential assignment
-                if is_wrapper_init {
-                    log::debug!(
-                        "Skipping self-referential assignment for non-renamed symbol '{symbol_name}' in wrapper init function"
-                    );
-                } else {
-                    // In regular inlined modules, we might need the assignment for "last import wins" semantics
-                    // But only if we're potentially overriding a previous import
-                    result_stmts.push(statements::simple_assign(
-                        symbol_name,
-                        expressions::name(&renamed_symbol, ExprContext::Load),
-                    ));
-                    log::debug!(
-                        "Created wildcard import assignment for non-renamed symbol: {symbol_name} = \
-                         {renamed_symbol}"
-                    );
-                }
+                // Symbol wasn't renamed - skip creating self-referential assignments
+                // When importing from an inlined module, the symbols are already
+                // defined in the current scope from the inlining process.
+                // Creating assignments like `BaseLoader = BaseLoader` is unnecessary
+                // and can cause forward reference errors.
+                log::debug!(
+                    "Skipping self-referential assignment for non-renamed symbol '{symbol_name}' from inlined module"
+                );
             } else {
                 // Symbol was renamed, create an alias assignment
                 result_stmts.push(statements::simple_assign(
