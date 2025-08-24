@@ -106,8 +106,6 @@ __cribo_init_result = _cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-format_data = format_data
-process_data = process_data
 config = mypackage.config
 def main():
     """Main function demonstrating usage of re-exported functions."""

@@ -300,8 +300,6 @@ __cribo_init_result = _cribo_init___cribo_f00e4b_core()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(core, attr, getattr(__cribo_init_result, attr))
-validate = validate
-get_config = get_config
 def demonstrate_import_patterns():
     """Demonstrate various import pattern behaviors."""
     print("=== Import Pattern Demonstration ===")
