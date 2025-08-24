@@ -37,6 +37,6 @@ if [[ $tool_input_command =~ "git commit" ]]; then
 
   # see https://docs.anthropic.com/en/docs/claude-code/hooks#advanced%3A-json-output
   if [[ "$CURRENT_BRANCH" =~ ^(main|master)$ ]]; then
-    output_json "ask" "You are about to commit directly to the $CURRENT_BRANCH branch. Are you sure?"
+    output_json "ask" " ⚠️ You are about to commit directly to the $CURRENT_BRANCH branch. Are you sure?"
   fi
 fi
