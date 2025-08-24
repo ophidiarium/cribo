@@ -1109,13 +1109,8 @@ pub fn transform_module_to_init_function<'a>(
     let decorator = Decorator {
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
-        expression: ast_builder::expressions::attribute(
-            ast_builder::expressions::attribute(
-                ast_builder::expressions::name(crate::ast_builder::CRIBO_PREFIX, ExprContext::Load),
-                "functools",
-                ExprContext::Load,
-            ),
-            "cache",
+        expression: ast_builder::expressions::dotted_name(
+            &[crate::ast_builder::CRIBO_PREFIX, "functools", "cache"],
             ExprContext::Load,
         ),
     };
