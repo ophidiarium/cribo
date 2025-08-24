@@ -62,8 +62,8 @@ class CaseInsensitiveDict(compat.MutableMapping):
 
     def __len__(self):
         return len(self._store)
-CaseInsensitiveDict.__module__ = 'structures'
 """structures.py - Contains data structures."""
+CaseInsensitiveDict.__module__ = 'structures'
 compat = _cribo_init___cribo_f0aa89_compat()
 """Test case for collections.abc imports in wrapper modules."""
 d = CaseInsensitiveDict()

@@ -97,12 +97,12 @@ def format_message(greeting: str, name: str) -> str:
 def calculate_total(values: _cribo.typing.List[int]) -> int:
     """Calculate the sum of a list of integers."""
     return sum(values)
+"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 DatabaseConnection.__module__ = 'services.database'
 DatabaseService.__module__ = 'services.database'
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 UserRole.__module__ = 'models.user'
 User.__module__ = 'models.user'
-"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
 services = _cribo.types.SimpleNamespace(__name__='services')
 services_database = _cribo.types.SimpleNamespace(__name__='services.database')

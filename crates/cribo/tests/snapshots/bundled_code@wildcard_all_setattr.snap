@@ -41,8 +41,8 @@ def my_function():
     return "from module_b"
 """Subpackage that re-exports from modules using wildcards."""
 """Module B with my_function."""
-MyClass.__module__ = 'package._subpackage.module_a'
 """Module A with MyClass."""
+MyClass.__module__ = 'package._subpackage.module_a'
 package__subpackage.MyClass = MyClass
 package__subpackage.my_function = my_function
 package__subpackage_module_b = _cribo.types.SimpleNamespace(__name__='package._subpackage.module_b')

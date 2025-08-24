@@ -52,9 +52,9 @@ class Connection:
 
     def __repr__(self):
         return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+"""Models module containing classes that will be shadowed by parameters."""
 User.__module__ = 'models'
 Connection.__module__ = 'models'
-"""Models module containing classes that will be shadowed by parameters."""
 """Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""
 result = "global_result"
 def process_user(User: "User") -> str:

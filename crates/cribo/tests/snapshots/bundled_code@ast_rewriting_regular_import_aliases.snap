@@ -44,8 +44,8 @@ def helper_function():
     """A simple helper function."""
     return "helper_result"
 """Configuration module for testing regular import aliases."""
-UtilityClass.__module__ = 'utils.helpers'
 """Utility module for testing regular import aliases."""
+UtilityClass.__module__ = 'utils.helpers'
 utils = _cribo.types.SimpleNamespace(__name__='utils')
 utils_config = _cribo.types.SimpleNamespace(__name__='utils.config')
 utils.config = utils_config
@@ -53,8 +53,8 @@ utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
 utils.helpers = utils_helpers
 utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
 utils_config.get_config = get_config
-utils_helpers.UtilityClass = UtilityClass
 utils_helpers.helper_function = helper_function
+utils_helpers.UtilityClass = UtilityClass
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
 operating_system = _cribo.os
 j = _cribo.json

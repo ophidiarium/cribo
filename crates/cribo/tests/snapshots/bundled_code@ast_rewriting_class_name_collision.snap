@@ -68,20 +68,20 @@ class Product_2:
 
     def __str__(self) -> str:
         return f"Model Product(name='{self.name}', price={self.price})"
+"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
 User_1.__module__ = 'entities'
 User_1.__name__ = 'User'
 User_1.__qualname__ = 'User'
 Product_1.__module__ = 'entities'
 Product_1.__name__ = 'Product'
 Product_1.__qualname__ = 'Product'
-"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
+"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
 User_2.__module__ = 'models'
 User_2.__name__ = 'User'
 User_2.__qualname__ = 'User'
 Product_2.__module__ = 'models'
 Product_2.__name__ = 'Product'
 Product_2.__qualname__ = 'Product'
-"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
 """\nClass name collision test.\nBoth modules define classes with the same names.\n"""
 ModelUser = User_2
 ModelProduct = Product_2

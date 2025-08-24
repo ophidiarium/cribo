@@ -40,8 +40,8 @@ def format_object(obj: MyClass) -> str:
     """Format an object from the local abc module."""
     return f"Formatted: {obj}"
 """Module that imports from local abc module."""
-MyClass.__module__ = 'mypackage.abc'
 """Local module named 'abc' - should not be confused with stdlib abc."""
+MyClass.__module__ = 'mypackage.abc'
 mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
 mypackage_pretty = _cribo.types.SimpleNamespace(__name__='mypackage.pretty')
 mypackage.pretty = mypackage_pretty

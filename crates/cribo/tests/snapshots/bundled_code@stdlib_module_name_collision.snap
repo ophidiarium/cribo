@@ -48,8 +48,8 @@ def create_object():
     return TestObject()
 """Package with modules including one named 'abc' (same as stdlib)."""
 """Console module that imports various stdlib modules."""
-MyBaseClass.__module__ = 'mypkg.abc'
 """Local 'abc' module that imports from stdlib 'abc'."""
+MyBaseClass.__module__ = 'mypkg.abc'
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
 mypkg_console = _cribo.types.SimpleNamespace(__name__='mypkg.console')
 mypkg.console = mypkg_console

@@ -73,16 +73,16 @@ def make_auth(auth_type, username, password):
         return HTTPProxyAuth(username, password)
     else:
         return AuthBase()
+"""Another module that exports HTTPBasicAuth to create a collision."""
 HTTPBasicAuth_1.__module__ = 'colliding_module'
 HTTPBasicAuth_1.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_1.__qualname__ = 'HTTPBasicAuth'
-"""Another module that exports HTTPBasicAuth to create a collision."""
+"""Module with classes that will have naming collision."""
 AuthBase.__module__ = 'auth_module'
 HTTPBasicAuth_2.__module__ = 'auth_module'
 HTTPBasicAuth_2.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_2.__qualname__ = 'HTTPBasicAuth'
 HTTPProxyAuth.__module__ = 'auth_module'
-"""Module with classes that will have naming collision."""
 """Test symbol collision with class inheritance."""
 HTTPBasicAuth = HTTPBasicAuth_2
 proxy_auth = HTTPProxyAuth("user", "pass")

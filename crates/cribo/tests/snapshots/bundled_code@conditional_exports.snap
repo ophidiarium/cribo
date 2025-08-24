@@ -31,8 +31,8 @@ _cribo = _Cribo()
 class BaseError(Exception):
     """Base error class."""
     pass
-BaseError.__module__ = 'exceptions_module'
 """Module that uses imports from compat_module (like requests.exceptions)."""
+BaseError.__module__ = 'exceptions_module'
 exceptions_module = _cribo.types.SimpleNamespace(__name__='exceptions_module', BaseError=BaseError)
 @_cribo.functools.cache
 def _cribo_init___cribo_244765_compat_module():

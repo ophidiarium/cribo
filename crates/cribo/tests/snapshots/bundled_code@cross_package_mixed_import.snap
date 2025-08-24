@@ -74,8 +74,8 @@ def validate(value: str) -> bool:
     """Validate a string value.\n\n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
     return bool(value and not value.startswith("_"))
 """User model providing cross-package functionality."""
-BaseModel.__module__ = 'models.base'
 """Base model module."""
+BaseModel.__module__ = 'models.base'
 """Configuration utilities for the core package."""
 """Version module separate from __init__ to avoid circular imports."""
 """Helper utilities for the core package."""

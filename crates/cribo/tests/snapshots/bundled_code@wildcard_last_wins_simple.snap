@@ -40,9 +40,7 @@ def unique_first():
 """First module with shared and unique symbols."""
 """Test that 'last import wins' semantics work with wildcard imports."""
 shared_value = shared_value_2
-unique_first = unique_first
 shared_value = shared_value_1
-unique_second = unique_second
 def main():
     assert shared_value() == "from_second", f"Expected 'from_second', got {shared_value()}"
     assert unique_first() == "unique_to_first"
