@@ -50,13 +50,6 @@ def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
 CONSTANT = 42
-nested_package_submodule.sub_function = sub_function
-nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
-nested_package.exported_from_init = exported_from_init
-nested_package_utils.helper_func = helper_func
-simple_module.public_func = public_func
-simple_module.CONSTANT = CONSTANT
-conflict_module.message = message_1
 message = message_1
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")
@@ -67,6 +60,8 @@ print(f"sub_function() = {sub_function()}")
 print("\nTesting conflict resolution:")
 print(f"message = {message}")
 simple_module.__all__ = ['public_func', 'CONSTANT']
+simple_module.public_func = public_func
+simple_module.CONSTANT = CONSTANT
 print(f"\n'public_func' in simple_module.__all__ = {'public_func' in simple_module.__all__}")
 print(f"'CONSTANT' in simple_module.__all__ = {'CONSTANT' in simple_module.__all__}")
 sub = _cribo.types.SimpleNamespace()

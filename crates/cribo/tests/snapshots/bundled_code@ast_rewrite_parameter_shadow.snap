@@ -56,8 +56,6 @@ class Connection:
     def __repr__(self):
         return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
 Connection.__module__ = 'models'
-models.User = User
-models.Connection = Connection
 """Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""
 result = "global_result"
 def process_user(User: "User") -> str:

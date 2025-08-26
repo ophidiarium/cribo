@@ -61,9 +61,6 @@ def greet(name: str) -> str:
 def calculate(a: _cribo.typing.Union[int, float], b: _cribo.typing.Union[int, float]) -> _cribo.typing.Union[int, float]:
     """Calculate the sum of two numbers."""
     return a + b
-models_user.User = User
-utils_helpers.greet = greet
-utils_helpers.calculate = calculate
 """Simple test project entry point."""
 def main():
     """Main function."""
