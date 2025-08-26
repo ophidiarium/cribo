@@ -1189,19 +1189,30 @@ pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt>
                         reg_info.parent_assignment_done = true;
                     }
                 } else {
-                    debug!(
-                        "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
-                    );
+                    // Check if this is a wrapper module that needs initialization
+                    if bundler.module_registry.contains_key(&info.original_path) {
+                        // This is a wrapper module - skip it for now
+                        // It will be handled later after its init function is defined
+                        debug!(
+                            "Skipping parent attribute assignment for wrapper module {sanitized_name} - will be handled after init function is defined"
+                        );
+                        // Don't mark as done - it will be handled later
+                    } else {
+                        // Regular namespace assignment
+                        debug!(
+                            "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
+                        );
 
-                    statements.push(statements::assign_attribute(
-                        &parent_sanitized,
-                        attr_name,
-                        expressions::name(&sanitized_name, ExprContext::Load),
-                    ));
-
-                    // Mark as done in the registry
-                    if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
-                        reg_info.parent_assignment_done = true;
+                        statements.push(statements::assign_attribute(
+                            &parent_sanitized,
+                            attr_name,
+                            expressions::name(&sanitized_name, ExprContext::Load),
+                        ));
+                        
+                        // Mark as done in the registry
+                        if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+                            reg_info.parent_assignment_done = true;
+                        }
                     }
                 }
             }

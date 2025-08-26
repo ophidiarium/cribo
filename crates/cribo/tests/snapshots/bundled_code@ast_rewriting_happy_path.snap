@@ -28,6 +28,10 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+services = _cribo.types.SimpleNamespace(__name__='services')
+services_database = _cribo.types.SimpleNamespace(__name__='services.database')
+services.database = services_database
+"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 class DatabaseConnection:
     """Represents a database connection."""
 
@@ -43,6 +47,7 @@ class DatabaseConnection:
     def disconnect(self) -> None:
         """Disconnect from the database."""
         self.is_connected = False
+DatabaseConnection.__module__ = 'services.database'
 class DatabaseService:
     """Service for database operations."""
 
@@ -64,11 +69,17 @@ class DatabaseService:
     def close(self) -> None:
         """Close the database connection."""
         self.connection.disconnect()
+DatabaseService.__module__ = 'services.database'
+models = _cribo.types.SimpleNamespace(__name__='models')
+models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models.user = models_user
+"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 class UserRole(_cribo.enum.Enum):
     """User role enumeration."""
     ADMIN = "admin"
     USER = "user"
     GUEST = "guest"
+UserRole.__module__ = 'models.user'
 class User:
     """Simple user model."""
 
@@ -91,28 +102,17 @@ class User:
     def deactivate(self) -> None:
         """Deactivate the user."""
         self.active = False
+User.__module__ = 'models.user'
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils.helpers = utils_helpers
+"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
 def format_message(greeting: str, name: str) -> str:
     """Format a greeting message."""
     return f"{greeting}, {name}!"
 def calculate_total(values: _cribo.typing.List[int]) -> int:
     """Calculate the sum of a list of integers."""
     return sum(values)
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
-DatabaseConnection.__module__ = 'services.database'
-DatabaseService.__module__ = 'services.database'
-"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
-UserRole.__module__ = 'models.user'
-User.__module__ = 'models.user'
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
-services = _cribo.types.SimpleNamespace(__name__='services')
-services_database = _cribo.types.SimpleNamespace(__name__='services.database')
-services.database = services_database
-models = _cribo.types.SimpleNamespace(__name__='models')
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
-models.user = models_user
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 services_database.DatabaseConnection = DatabaseConnection
 services_database.DatabaseService = DatabaseService
 models_user.UserRole = UserRole

@@ -28,38 +28,43 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-package = _cribo.types.SimpleNamespace(__name__='package')
+package = _cribo.types.SimpleNamespace(__name__='package', __initializing__=False, __initialized__=False, __path__=[])
 package___version__ = _cribo.types.SimpleNamespace(__name__='package.__version__')
 package.__version__ = package___version__
 package_module_a = _cribo.types.SimpleNamespace(__name__='package.module_a')
 package.module_a = package_module_a
-__version__ = "1.0.0"
-__title__ = "Test Package"
 def func_a():
+    package = _cribo_init___cribo_a4c23d_package(package)
     return "func_a"
 """Module A that creates circular dependency"""
 """Version information for the package"""
-@_cribo.functools.cache
-def _cribo_init___cribo_a4c23d_package():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'package'
+__version__ = "1.0.0"
+__title__ = "Test Package"
+def _cribo_init___cribo_a4c23d_package(self):
+    if self.__initialized__:
+        return self
+    if self.__initializing__:
+        self.__initializing__ = False
+        return self
     """Package with circular dependency and __version__ import"""
-    _cribo_module.__version__ = __version__
-    _cribo_module.__title__ = __title__
-    _cribo_module.func_a = func_a
+    package.__version__ = __version__
+    package.__title__ = __title__
+    package.func_a = func_a
 
     def package_func():
         return func_a() + " from package"
-    _cribo_module.package_func = package_func
+    self.package_func = package_func
     print(f"Package initialized with version {__version__}")
-    _cribo_module.module_a = package_module_a
-    return _cribo_module
-package = _cribo_init___cribo_a4c23d_package()
+    self.module_a = package_module_a
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+package.__init__ = _cribo_init___cribo_a4c23d_package
 package_module_a.func_a = func_a
 package___version__.__version__ = __version__
 package___version__.__title__ = __title__
 """Test case for circular dependency with __version__ module import"""
-package = _cribo_init___cribo_a4c23d_package()
+package = _cribo_init___cribo_a4c23d_package(package)
 print(f"Package version: {package.__version__}")
 print(f"Package title: {package.__title__}")
 print("Success!")

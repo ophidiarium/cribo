@@ -28,31 +28,31 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils.helpers = utils_helpers
+"""\nHelper utilities module.\nUsed to test mixed from-import scenarios (some aliased, some not).\n"""
 def helper_func(input_str):
     """A helper function that processes a string."""
     return f"Processed: {input_str.upper()}"
 def debug_print(message):
     """Debug printing function (will be imported with alias)."""
     print(f"[DEBUG] {message}")
+utils_config_manager = _cribo.types.SimpleNamespace(__name__='utils.config_manager')
+utils.config_manager = utils_config_manager
+"""\nConfiguration management utilities.\nUsed to test from-import alias transformations.\n"""
 def load_config(config_file):
     """Load configuration from a file (simulated)."""
     return {"file": config_file, "loaded": True, "settings": {"debug": False}}
+utils_data_processor = _cribo.types.SimpleNamespace(__name__='utils.data_processor')
+utils.data_processor = utils_data_processor
+"""\nData processing utilities module.\nUsed to test from-import alias transformations.\n"""
 def process_data(data_list):
     """Process a list of data by doubling each element."""
     return [x * 2 for x in data_list]
 def format_output(processed_data):
     """Format processed data as a comma-separated string."""
     return ", ".join(map(str, processed_data))
-"""\nHelper utilities module.\nUsed to test mixed from-import scenarios (some aliased, some not).\n"""
-"""\nConfiguration management utilities.\nUsed to test from-import alias transformations.\n"""
-"""\nData processing utilities module.\nUsed to test from-import alias transformations.\n"""
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
-utils_config_manager = _cribo.types.SimpleNamespace(__name__='utils.config_manager')
-utils.config_manager = utils_config_manager
-utils_data_processor = _cribo.types.SimpleNamespace(__name__='utils.data_processor')
-utils.data_processor = utils_data_processor
 utils_helpers.helper_func = helper_func
 utils_helpers.debug_print = debug_print
 utils_config_manager.load_config = load_config

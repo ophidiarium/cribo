@@ -43,9 +43,11 @@ def _cribo_init___cribo_4089db_mypkg_compat():
     _cribo_module.MutableMapping = MutableMapping
     return _cribo_module
 mypkg.compat = _cribo_init___cribo_4089db_mypkg_compat()
+mypkg.compat = _cribo_init___cribo_4089db_mypkg_compat()
 class BaseException(Exception):
     """Base exception class"""
     pass
+BaseException.__module__ = 'mypkg.exceptions'
 class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
     """Custom JSON error that inherits from compat's JSONDecodeError"""
 
@@ -55,7 +57,6 @@ class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
 
     def __reduce__(self):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
-BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
 mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions

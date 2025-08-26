@@ -573,13 +573,34 @@ impl BundleOrchestrator {
         graph: &CriboGraph,
         circular_dep_analysis: Option<&CircularDependencyAnalysis>,
     ) -> Result<Vec<(String, PathBuf, Vec<String>)>> {
-        let module_ids = if let Some(analysis) = circular_dep_analysis {
+        debug!("get_sorted_modules_from_graph called with circular_dep_analysis: {}", 
+               circular_dep_analysis.is_some());
+        
+        let mut module_ids = if let Some(analysis) = circular_dep_analysis {
             // We have circular dependencies but they're potentially resolvable
             // Use a custom ordering that attempts to break cycles
+            debug!("Using custom cycle resolution for {} cycles", 
+                   analysis.resolvable_cycles.len() + analysis.unresolvable_cycles.len());
             self.get_modules_with_cycle_resolution(graph, analysis)
         } else {
+            debug!("Using standard topological sort");
             graph.topological_sort()?
         };
+        
+        // IMPORTANT: For bundling, we need to reverse the topological sort!
+        // The topological sort gives us an order where dependents come before dependencies
+        // (i.e., modules that import come before modules that are imported from).
+        // But for bundling, we need to define modules before they're used,
+        // so we need dependencies to come before dependents.
+        module_ids.reverse();
+        
+        debug!("Final module order after reversal:");
+        for &module_id in &module_ids {
+            if let Some(module) = graph.modules.get(&module_id) {
+                debug!("  - {}", module.module_name);
+            }
+        }
+        
         // Convert module IDs to module data tuples
         let mut sorted_modules = Vec::new();
         for module_id in module_ids {
@@ -733,6 +754,7 @@ impl BundleOrchestrator {
         graph: &CriboGraph,
         analysis: &crate::analyzers::types::CircularDependencyAnalysis,
     ) -> Vec<crate::cribo_graph::ModuleId> {
+        debug!("get_modules_with_cycle_resolution called with {} resolvable cycles", analysis.resolvable_cycles.len());
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components
 
@@ -748,7 +770,7 @@ impl BundleOrchestrator {
         }
 
         // Split modules into non-cycle and cycle modules
-        let (mut cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) =
+        let (cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) =
             all_module_ids.into_iter().partition(|&module_id| {
                 if let Some(module) = graph.modules.get(&module_id) {
                     cycle_module_names.contains(module.module_name.as_str())
@@ -757,38 +779,80 @@ impl BundleOrchestrator {
                 }
             });
 
+        debug!("Modules in cycle: {:?}", cycle_module_names);
+        debug!("Number of cycle modules: {}, non-cycle modules: {}", cycle_ids.len(), non_cycle_ids.len());
+        
         // For non-cycle modules, we can still use topological sorting on the subgraph
         let mut result = Vec::new();
 
         // Add non-cycle modules first (they should sort topologically)
         result.extend(non_cycle_ids);
 
-        // For cycle modules, try to maintain dependency order where possible
-        // Sort cycle modules by name to get deterministic output
-        cycle_ids.sort_by(|&a_id, &b_id| {
-            let a_name = &graph.modules[&a_id].module_name;
-            let b_name = &graph.modules[&b_id].module_name;
-
-            // For package hierarchies like mypackage.utils vs mypackage,
-            // put the deeper/more specific modules first (dependencies before dependents)
-            let a_depth = a_name.matches('.').count();
-            let b_depth = b_name.matches('.').count();
-
-            // If one is a submodule of the other, put the submodule first
-            if a_name.starts_with(&format!("{b_name}.")) {
-                std::cmp::Ordering::Less // a (submodule) before b (parent)
-            } else if b_name.starts_with(&format!("{a_name}.")) {
-                std::cmp::Ordering::Greater // b (submodule) before a (parent)
-            } else {
-                // Otherwise sort by depth (deeper modules first), then by name
-                match a_depth.cmp(&b_depth) {
-                    std::cmp::Ordering::Equal => a_name.cmp(b_name),
-                    other => other.reverse(), // Deeper modules first
+        // For cycle modules, use actual dependency information to order them
+        // We'll do a best-effort topological sort that ignores function-level circular imports
+        let mut cycle_module_order = Vec::new();
+        let mut visited = IndexSet::new();
+        let mut stack = IndexSet::new();
+        
+        // Helper closure for DFS-based topological sort on cycle modules
+        fn visit_cycle_module(
+            module_id: crate::cribo_graph::ModuleId,
+            graph: &CriboGraph,
+            cycle_ids: &[crate::cribo_graph::ModuleId],
+            visited: &mut IndexSet<crate::cribo_graph::ModuleId>,
+            stack: &mut IndexSet<crate::cribo_graph::ModuleId>,
+            result: &mut Vec<crate::cribo_graph::ModuleId>,
+        ) {
+            if visited.contains(&module_id) {
+                return;
+            }
+            if stack.contains(&module_id) {
+                // We hit a cycle - this is expected for circular deps
+                // Just skip this edge
+                return;
+            }
+            
+            stack.insert(module_id);
+            
+            // Visit dependencies that are also in the cycle
+            // Get all modules that this module depends on
+            let dependencies = graph.get_dependencies(module_id);
+            for dep_module_id in dependencies {
+                if cycle_ids.contains(&dep_module_id) {
+                    visit_cycle_module(dep_module_id, graph, cycle_ids, visited, stack, result);
                 }
             }
-        });
-
-        result.extend(cycle_ids);
+            
+            stack.shift_remove(&module_id);
+            visited.insert(module_id);
+            result.push(module_id);
+        }
+        
+        // Visit all cycle modules
+        // ALL modules in a circular dependency cycle are wrapper modules
+        // We need to process them using DFS to get the right order
+        debug!("Processing {} cycle modules", cycle_ids.len());
+        
+        for &module_id in &cycle_ids {
+            visit_cycle_module(
+                module_id,
+                graph,
+                &cycle_ids,
+                &mut visited,
+                &mut stack,
+                &mut cycle_module_order,
+            );
+        }
+        
+        // Debug log the cycle module order
+        debug!("Cycle module order (before reversal):");
+        for &module_id in &cycle_module_order {
+            if let Some(module) = graph.modules.get(&module_id) {
+                debug!("  - {}", module.module_name);
+            }
+        }
+        
+        result.extend(cycle_module_order);
 
         result
     }

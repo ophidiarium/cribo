@@ -28,7 +28,20 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+utils_config = _cribo.types.SimpleNamespace(__name__='utils.config')
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils.config = utils_config
+"""Configuration module for testing regular import aliases."""
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}
+def get_config():
+    """Get the default configuration."""
+    return DEFAULT_CONFIG.copy()
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils.helpers = utils_helpers
+"""Utility module for testing regular import aliases."""
+def helper_function():
+    """A simple helper function."""
+    return "helper_result"
 class UtilityClass:
     """A simple utility class."""
 
@@ -37,20 +50,7 @@ class UtilityClass:
 
     def get_value(self):
         return self.value
-def get_config():
-    """Get the default configuration."""
-    return DEFAULT_CONFIG.copy()
-def helper_function():
-    """A simple helper function."""
-    return "helper_result"
-"""Configuration module for testing regular import aliases."""
-"""Utility module for testing regular import aliases."""
 UtilityClass.__module__ = 'utils.helpers'
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_config = _cribo.types.SimpleNamespace(__name__='utils.config')
-utils.config = utils_config
-utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
 utils_config.get_config = get_config
 utils_helpers.helper_function = helper_function

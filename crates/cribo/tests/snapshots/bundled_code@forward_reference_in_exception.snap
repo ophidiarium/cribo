@@ -28,14 +28,14 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+"""Main package that mimics requests' pattern"""
+"""Compatibility module similar to requests.compat"""
 MutableMapping_2 = _cribo.collections.abc.MutableMapping
 JSONDecodeError_2 = _cribo.json.JSONDecodeError
 builtin_str = str
 def is_str(value):
     """Check if value is a string"""
     return isinstance(value, str)
-"""Main package that mimics requests' pattern"""
-"""Compatibility module similar to requests.compat"""
 myrequests = _cribo.types.SimpleNamespace(__name__='myrequests')
 myrequests_compat = _cribo.types.SimpleNamespace(__name__='myrequests.compat')
 myrequests.compat = myrequests_compat

@@ -28,11 +28,16 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+"""Parent module that re-exports child module symbols."""
+"""Subpackage with wildcard export."""
+"""Submodule in subpackage."""
 class SubpkgClass:
     """A class from subpackage."""
 
     def __init__(self):
         self.subpkg_value = "subpkg"
+SubpkgClass.__module__ = 'parent.subpkg.submodule'
+"""Child module that defines the actual symbols."""
 class MyClass:
     """A simple class to test forward references."""
 
@@ -41,25 +46,20 @@ class MyClass:
 
     def __repr__(self):
         return f"MyClass(value={self.value})"
+MyClass.__module__ = 'parent.child'
+"""Another module."""
 class AnotherClass:
     """Another class."""
 
     def __init__(self):
         self.another_value = "another"
+AnotherClass.__module__ = 'parent.another'
+"""Base module defining base classes."""
 class BaseClass:
     """A base class."""
 
     def __init__(self):
         self.base_value = "base"
-"""Parent module that re-exports child module symbols."""
-"""Subpackage with wildcard export."""
-"""Submodule in subpackage."""
-SubpkgClass.__module__ = 'parent.subpkg.submodule'
-"""Child module that defines the actual symbols."""
-MyClass.__module__ = 'parent.child'
-"""Another module."""
-AnotherClass.__module__ = 'parent.another'
-"""Base module defining base classes."""
 BaseClass.__module__ = 'parent.base'
 parent = _cribo.types.SimpleNamespace(__name__='parent')
 parent_subpkg = _cribo.types.SimpleNamespace(__name__='parent.subpkg')

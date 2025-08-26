@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/parent_child_circular/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Initializing main module\nInitializing foo package\nInitializing foo.boo module\nInitializing foo.zoo module\nResult: Transformed: test input",
+    stderr: "",
+}

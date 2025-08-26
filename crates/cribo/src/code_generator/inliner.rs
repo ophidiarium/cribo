@@ -21,13 +21,6 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Result of the inlining process
-pub struct InliningResult {
-    /// The statements generated from inlining
-    pub statements: Vec<Stmt>,
-    /// Import statements that need to be deferred
-    pub deferred_imports: Vec<Stmt>,
-}
 
 impl Bundler<'_> {
     /// Resolve the renamed name for a symbol, considering semantic renames and conflicts
@@ -62,7 +55,7 @@ impl Bundler<'_> {
     }
 
     /// Inline a module
-    pub fn inline_module(
+    pub(crate) fn inline_module(
         &mut self,
         module_name: &str,
         mut ast: ModModule,
@@ -110,7 +103,29 @@ impl Bundler<'_> {
         ctx.import_sources = self.build_import_source_map(&statements, module_name);
 
         // Process each statement in the module
-        for stmt in statements {
+        log::debug!("Processing {} statements for module '{}'", statements.len(), module_name);
+        for (idx, stmt) in statements.iter().enumerate() {
+            let stmt_desc = match stmt {
+                Stmt::Import(_) => "Import".to_string(),
+                Stmt::ImportFrom(_) => "ImportFrom".to_string(), 
+                Stmt::Assign(a) if a.targets.len() == 1 => {
+                    match &a.targets[0] {
+                        Expr::Name(n) => format!("Assign(Name({}))", n.id.as_str()),
+                        Expr::Attribute(attr) => {
+                            if let Expr::Name(b) = attr.value.as_ref() {
+                                format!("Assign(Attribute({}.{}))", b.id.as_str(), attr.attr.as_str())
+                            } else {
+                                "Assign(Attribute(complex))".to_string()
+                            }
+                        },
+                        _ => "Assign(Other)".to_string()
+                    }
+                },
+                Stmt::FunctionDef(f) => format!("FunctionDef({})", f.name.as_str()),
+                Stmt::ClassDef(c) => format!("ClassDef({})", c.name.as_str()),
+                _ => "Other".to_string()
+            };
+            log::debug!("Processing statement {} in '{}': {}", idx, module_name, stmt_desc);
             match &stmt {
                 Stmt::Import(import_stmt) => {
                     // Imports have already been transformed by RecursiveImportTransformer
@@ -204,6 +219,35 @@ impl Bundler<'_> {
                     self.inline_class(class_def, module_name, &mut module_renames, ctx);
                 }
                 Stmt::Assign(assign) => {
+                    // Log what we're processing
+                    if assign.targets.len() == 1 {
+                        match &assign.targets[0] {
+                            Expr::Name(name) => {
+                                log::debug!(
+                                    "Processing simple assignment in '{}': {} = ...",
+                                    module_name,
+                                    name.id.as_str()
+                                );
+                            }
+                            Expr::Attribute(attr) => {
+                                if let Expr::Name(base) = attr.value.as_ref() {
+                                    log::debug!(
+                                        "Processing attribute assignment in '{}': {}.{} = ...",
+                                        module_name,
+                                        base.id.as_str(),
+                                        attr.attr.as_str()
+                                    );
+                                }
+                            }
+                            _ => {
+                                log::debug!(
+                                    "Processing other assignment in '{}': {:?}",
+                                    module_name,
+                                    assign.targets[0]
+                                );
+                            }
+                        }
+                    }
                     self.inline_assignment(assign, module_name, &mut module_renames, ctx);
                 }
                 Stmt::AnnAssign(ann_assign) => {
@@ -212,18 +256,18 @@ impl Bundler<'_> {
                 // TypeAlias statements are safe metadata definitions
                 Stmt::TypeAlias(_) => {
                     // Type aliases don't need renaming in Python, they're just metadata
-                    ctx.inlined_stmts.push(stmt);
+                    ctx.inlined_stmts.push(stmt.clone());
                 }
                 // Pass statements are no-ops and safe
                 Stmt::Pass(_) => {
                     // Pass statements can be included as-is
-                    ctx.inlined_stmts.push(stmt);
+                    ctx.inlined_stmts.push(stmt.clone());
                 }
                 // Expression statements that are string literals are docstrings
                 Stmt::Expr(expr_stmt) => {
                     if matches!(expr_stmt.value.as_ref(), Expr::StringLiteral(_)) {
                         // This is a docstring - safe to include
-                        ctx.inlined_stmts.push(stmt);
+                        ctx.inlined_stmts.push(stmt.clone());
                     } else {
                         // Other expression statements shouldn't exist in side-effect-free modules
                         log::warn!(
@@ -435,7 +479,34 @@ impl Bundler<'_> {
         module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
+        // Check if this is a module initialization assignment (e.g., requests.sessions = _cribo_init_...)
+        // These are generated by our import transformation and must be preserved
+        if !assign.targets.is_empty() {
+            if let Expr::Attribute(attr) = &assign.targets[0] {
+                if let Expr::Call(call) = &*assign.value {
+                    if let Expr::Name(func_name) = &*call.func {
+                        if func_name.id.starts_with("_cribo_init_") {
+                            // This is a module initialization - preserve it as-is
+                            log::debug!(
+                                "Preserving module initialization assignment in '{}': {}.{} = {}()",
+                                module_name,
+                                if let Expr::Name(base) = &*attr.value { base.id.as_str() } else { "?" },
+                                attr.attr.as_str(),
+                                func_name.id.as_str()
+                            );
+                            ctx.inlined_stmts.push(Stmt::Assign(assign.clone()));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        
         let Some(name) = expression_handlers::extract_simple_assign_target(assign) else {
+            log::debug!(
+                "Skipping non-simple assignment in '{}' - target is not a simple name",
+                module_name,
+            );
             return;
         };
 
@@ -452,6 +523,7 @@ impl Bundler<'_> {
             log::debug!("Including private variable '{name}' from circular module '{module_name}'");
         } else if !self.should_inline_symbol(&name, module_name, ctx.module_exports_map) {
             // For all other cases, use the standard inlining check
+            log::debug!("Not inlining symbol '{name}' from module '{module_name}' - failed should_inline_symbol check");
             return;
         }
 
@@ -546,133 +618,5 @@ impl Bundler<'_> {
             name_expr.id = renamed_name.into();
         }
         ctx.inlined_stmts.push(Stmt::AnnAssign(ann_assign_clone));
-    }
-}
-
-/// Inline all modules into the bundle
-pub fn inline_all_modules(
-    bundler: &mut Bundler,
-    inlinable_modules: &[(String, ModModule, std::path::PathBuf, String)],
-    module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
-    symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
-    global_symbols: &mut FxIndexSet<String>,
-    python_version: u8,
-) -> InliningResult {
-    let mut all_deferred_imports = Vec::new();
-    let mut all_inlined_stmts = Vec::new();
-
-    for (module_name, ast, module_path, _content_hash) in inlinable_modules {
-        debug!("Inlining module '{module_name}'");
-
-        let mut inlined_stmts = Vec::new();
-        let mut deferred_imports = Vec::new();
-        let mut inline_ctx = InlineContext {
-            module_exports_map,
-            global_symbols,
-            module_renames: symbol_renames,
-            inlined_stmts: &mut inlined_stmts,
-            import_aliases: FxIndexMap::default(),
-            deferred_imports: &mut deferred_imports,
-            import_sources: FxIndexMap::default(),
-            python_version,
-        };
-        bundler.inline_module(module_name, ast.clone(), module_path, &mut inline_ctx);
-        debug!(
-            "Inlined {} statements from module '{}'",
-            inlined_stmts.len(),
-            module_name
-        );
-        all_inlined_stmts.extend(inlined_stmts);
-
-        // Filter deferred imports to avoid conflicts
-        // If an inlined module imports a symbol but doesn't export it,
-        // and that symbol would conflict with other imports, skip it
-        for stmt in deferred_imports {
-            let should_include = if let Stmt::Assign(assign) = &stmt {
-                if let [Expr::Name(target)] = assign.targets.as_slice()
-                    && let Expr::Name(_value) = &*assign.value
-                {
-                    let symbol_name = target.id.as_str();
-
-                    // Check if this module exports the symbol
-                    let exports_symbol =
-                        if let Some(Some(exports)) = module_exports_map.get(module_name) {
-                            exports.contains(&symbol_name.to_string())
-                        } else {
-                            // No explicit __all__, check if it's a module-level definition
-                            // For now, assume it's not exported if there's no __all__
-                            false
-                        };
-
-                    if exports_symbol {
-                        true
-                    } else {
-                        // Check if this would conflict with existing deferred imports
-                        let has_conflict = all_deferred_imports.iter().any(|existing| {
-                            if let Stmt::Assign(existing_assign) = existing
-                                && let [Expr::Name(existing_target)] =
-                                    existing_assign.targets.as_slice()
-                            {
-                                existing_target.id.as_str() == symbol_name
-                            } else {
-                                false
-                            }
-                        });
-
-                        if has_conflict {
-                            debug!(
-                                "Skipping deferred import '{symbol_name}' from module \
-                                 '{module_name}' due to conflict"
-                            );
-                            false
-                        } else {
-                            true
-                        }
-                    }
-                } else {
-                    true
-                }
-            } else {
-                true
-            };
-
-            if should_include {
-                // Check if this deferred import already exists in all_deferred_imports
-                let is_duplicate = if let Stmt::Assign(assign) = &stmt {
-                    if let Expr::Name(target) = &assign.targets[0] {
-                        let target_name = target.id.as_str();
-
-                        // Check against existing deferred imports
-                        all_deferred_imports.iter().any(|existing| {
-                            if let Stmt::Assign(existing_assign) = existing
-                                && let [Expr::Name(existing_target)] =
-                                    existing_assign.targets.as_slice()
-                                && existing_target.id.as_str() == target_name
-                            {
-                                expression_handlers::expr_equals(
-                                    &assign.value,
-                                    &existing_assign.value,
-                                )
-                            } else {
-                                false
-                            }
-                        })
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-
-                if !is_duplicate {
-                    all_deferred_imports.push(stmt);
-                }
-            }
-        }
-    }
-
-    InliningResult {
-        statements: all_inlined_stmts,
-        deferred_imports: all_deferred_imports,
     }
 }

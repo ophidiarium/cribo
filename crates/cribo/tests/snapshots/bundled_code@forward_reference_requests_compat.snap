@@ -70,15 +70,37 @@ def _cribo_init___cribo_5ad29b_myrequests_compat():
     _cribo_module.urljoin = _cribo.urllib.parse.urljoin
     return _cribo_module
 myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
+myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
+"""Main package that imports from multiple submodules."""
+myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
+def decode_json(content):
+    """Decode JSON content."""
+    try:
+        return _cribo.json.loads(content)
+    except (ValueError, TypeError) as e:
+        OurJSONDecodeError = JSONDecodeError
+        raise OurJSONDecodeError(str(e))
+def to_native_string(string):
+    """Convert to native string type."""
+    if isinstance(string, myrequests.compat.builtin_str):
+        return string
+    return str(string)
+"""Utils module that also uses compat."""
+myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
 class RequestException(Exception):
     """Base exception for all request errors."""
     pass
+RequestException.__module__ = 'myrequests.exceptions'
 class InvalidJSONError(RequestException):
     """A JSON error occurred."""
     pass
+InvalidJSONError.__module__ = 'myrequests.exceptions'
 class JSONDecodeError(InvalidJSONError, myrequests.compat.JSONDecodeError):
     """Couldn't decode the text into json."""
     pass
+JSONDecodeError.__module__ = 'myrequests.exceptions'
+"""Exceptions module that uses compat types in class inheritance."""
+myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
 class CookieJar(myrequests.compat.cookielib.CookieJar, myrequests.compat.MutableMapping):
     """A cookie jar that also implements the MutableMapping interface."""
 
@@ -106,24 +128,6 @@ class CookieJar(myrequests.compat.cookielib.CookieJar, myrequests.compat.Mutable
 
     def set(self, name, value):
         self._cookies[name] = value
-def decode_json(content):
-    """Decode JSON content."""
-    try:
-        return _cribo.json.loads(content)
-    except (ValueError, TypeError) as e:
-        OurJSONDecodeError = JSONDecodeError
-        raise OurJSONDecodeError(str(e))
-def to_native_string(string):
-    """Convert to native string type."""
-    if isinstance(string, myrequests.compat.builtin_str):
-        return string
-    return str(string)
-"""Main package that imports from multiple submodules."""
-"""Utils module that also uses compat."""
-RequestException.__module__ = 'myrequests.exceptions'
-InvalidJSONError.__module__ = 'myrequests.exceptions'
-JSONDecodeError.__module__ = 'myrequests.exceptions'
-"""Exceptions module that uses compat types in class inheritance."""
 CookieJar.__module__ = 'myrequests.cookies'
 """Cookies module that uses compat's MutableMapping in class inheritance."""
 myrequests_utils = _cribo.types.SimpleNamespace(__name__='myrequests.utils')

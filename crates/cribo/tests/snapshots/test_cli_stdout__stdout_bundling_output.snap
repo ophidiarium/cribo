@@ -28,6 +28,11 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+models = _cribo.types.SimpleNamespace(__name__='models')
+"""Models package initialization."""
+models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models.user = models_user
+"""User model for the test project."""
 @_cribo.dataclasses.dataclass
 class User:
     """A simple user model."""
@@ -44,23 +49,18 @@ class User:
         if self.email:
             return f"{self.name} <{self.email}>"
         return self.name
+User.__module__ = 'models.user'
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+"""Utils package initialization."""
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils.helpers = utils_helpers
+"""Utility functions for the test project."""
 def greet(name: str) -> str:
     """Greet a person by name."""
     return f"Hello, {name}!"
 def calculate(a: _cribo.typing.Union[int, float], b: _cribo.typing.Union[int, float]) -> _cribo.typing.Union[int, float]:
     """Calculate the sum of two numbers."""
     return a + b
-"""Models package initialization."""
-"""User model for the test project."""
-User.__module__ = 'models.user'
-"""Utils package initialization."""
-"""Utility functions for the test project."""
-models = _cribo.types.SimpleNamespace(__name__='models')
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
-models.user = models_user
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 models_user.User = User
 utils_helpers.greet = greet
 utils_helpers.calculate = calculate

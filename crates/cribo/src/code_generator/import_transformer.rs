@@ -16,7 +16,7 @@ use crate::{
     code_generator::{
         bundler::Bundler,
         import_deduplicator,
-        module_registry::{MODULE_VAR, sanitize_module_name_for_identifier},
+        module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -1770,6 +1770,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         resolved,
                         self.symbol_renames,
                         self.is_wrapper_init,
+                        Some(self.module_name),
                     );
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
@@ -1781,6 +1782,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         resolved,
                         self.symbol_renames,
                         self.is_wrapper_init,
+                        Some(self.module_name),
                     );
 
                     // Only defer if we're not in the entry module or wrapper init
@@ -2707,10 +2709,11 @@ impl<'a> RecursiveImportTransformer<'a> {
             let init_func_name =
                 crate::code_generator::module_registry::get_init_function_name(synthetic_name);
 
-            // Create init function call
+            // Create init function call with module as self argument
+            let module_var = sanitize_module_name_for_identifier(module_name);
             expressions::call(
                 expressions::name(&init_func_name, ExprContext::Load),
-                vec![],
+                vec![expressions::name(&module_var, ExprContext::Load)],
                 vec![],
             )
         } else if self.bundler.inlined_modules.contains(module_name) {
@@ -3218,6 +3221,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &module_name,
                 symbol_renames,
                 inside_wrapper_init,
+                Some(current_module),
             );
         }
 
@@ -3335,6 +3339,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     is_wrapper_init: bool,
+    current_module: Option<&str>,
 ) -> Vec<Stmt> {
     log::debug!(
         "handle_imports_from_inlined_module_with_context: module_name={}, available_renames={:?}",
@@ -3512,16 +3517,24 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         // Handle wrapper init functions specially
         if is_wrapper_init {
             // In wrapper init functions, always set the module attribute to the resolved symbol
-            log::debug!(
-                "Creating module attribute assignment in wrapper init: {MODULE_VAR}.{local_name} = {renamed_symbol}"
-            );
-            result_stmts.push(
-                crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                    MODULE_VAR,
-                    local_name,
-                    &renamed_symbol,
-                ),
-            );
+            if let Some(current_mod) = current_module {
+                let module_var = crate::code_generator::module_registry::sanitize_module_name_for_identifier(current_mod);
+                log::debug!(
+                    "Creating module attribute assignment in wrapper init: {}.{} = {}",
+                    module_var, local_name, renamed_symbol
+                );
+                result_stmts.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                        &module_var,
+                        local_name,
+                        &renamed_symbol,
+                    ),
+                );
+            } else {
+                log::warn!(
+                    "is_wrapper_init is true but current_module is None, skipping module attribute assignment"
+                );
+            }
             // Keep a local alias only when renamed, to preserve intra-init references
             if local_name != renamed_symbol {
                 log::debug!("Creating local alias: {local_name} = {renamed_symbol}");

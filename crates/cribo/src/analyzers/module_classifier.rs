@@ -310,10 +310,9 @@ impl<'a> ModuleClassifier<'a> {
             // and circular dependencies can all be handled through static transformation
             let has_side_effects = module_has_side_effects(ast, python_version);
 
-            // Check if this module is in a circular dependency and accesses imported module
-            // attributes
-            let needs_wrapping_for_circular = self.circular_modules.contains(module_name)
-                && self.module_accesses_imported_attributes(ast, module_name);
+            // Check if this module is in a circular dependency
+            // ALL modules in a circular dependency MUST be wrapper modules to handle init ordering
+            let needs_wrapping_for_circular = self.circular_modules.contains(module_name);
 
             // Check if this module has an invalid identifier (can't be imported normally)
             // These modules are likely imported via importlib and need to be wrapped
@@ -331,8 +330,7 @@ impl<'a> ModuleClassifier<'a> {
                     );
                 } else if needs_wrapping_for_circular {
                     debug!(
-                        "Module '{module_name}' is in circular dependency and accesses imported \
-                         attributes - using wrapper approach"
+                        "Module '{module_name}' is in circular dependency - using wrapper approach"
                     );
                 } else {
                     debug!("Module '{module_name}' has side effects - using wrapper approach");

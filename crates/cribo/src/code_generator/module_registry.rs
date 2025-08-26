@@ -32,10 +32,11 @@ pub fn create_module_initialization_for_import(
         // Generate the init call
         let init_func_name = get_init_function_name(synthetic_name);
 
-        // Call the init function and get the result
+        // Call the init function with the module as the self argument
+        let module_var = sanitize_module_name_for_identifier(module_name);
         let init_call = ast_builder::expressions::call(
             ast_builder::expressions::name(&init_func_name, ExprContext::Load),
-            vec![],
+            vec![ast_builder::expressions::name(&module_var, ExprContext::Load)],
             vec![],
         );
 
@@ -74,11 +75,13 @@ pub fn generate_module_init_call(
             debug!("Module '{module_name}' is a parent namespace - generating merge code");
 
             // First, create a variable to hold the init result
+            // Call the init function with the module as the self argument
+            let module_var = sanitize_module_name_for_identifier(module_name);
             statements.push(ast_builder::statements::simple_assign(
                 INIT_RESULT_VAR,
                 ast_builder::expressions::call(
                     ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![],
+                    vec![ast_builder::expressions::name(&module_var, ExprContext::Load)],
                     vec![],
                 ),
             ));
@@ -102,13 +105,14 @@ pub fn generate_module_init_call(
                 ast_builder::expressions::name(module_name, ExprContext::Store)
             };
 
-            // Generate: module_name = <cribo_init_prefix>synthetic_name()
-            // or: parent.child = <cribo_init_prefix>synthetic_name()
+            // Generate: module_name = <cribo_init_prefix>synthetic_name(module)
+            // or: parent.child = <cribo_init_prefix>synthetic_name(module)
+            let module_var = sanitize_module_name_for_identifier(module_name);
             statements.push(ast_builder::statements::assign(
                 vec![target_expr],
                 ast_builder::expressions::call(
                     ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![],
+                    vec![ast_builder::expressions::name(&module_var, ExprContext::Load)],
                     vec![],
                 ),
             ));
@@ -402,7 +406,9 @@ pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
 
 /// The module `SimpleNamespace` variable name in init functions
 /// Use single underscore to prevent Python mangling
-pub const MODULE_VAR: &str = "_cribo_module";
+// DEPRECATED: MODULE_VAR is no longer used in the new architecture
+// We set attributes directly on the module namespace objects
+// pub const MODULE_VAR: &str = "_cribo_module";
 
 /// Generate init function name from synthetic name
 pub fn get_init_function_name(synthetic_name: &str) -> String {

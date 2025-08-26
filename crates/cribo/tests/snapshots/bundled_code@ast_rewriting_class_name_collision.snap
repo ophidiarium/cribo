@@ -28,6 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+entities = _cribo.types.SimpleNamespace(__name__='entities')
+"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
 class User_1:
     """User entity for business logic."""
 
@@ -38,6 +40,9 @@ class User_1:
 
     def __str__(self) -> str:
         return f"Entity User(name='{self.name}', age={self.age})"
+User_1.__module__ = 'entities'
+User_1.__name__ = 'User'
+User_1.__qualname__ = 'User'
 class Product_1:
     """Product entity for business logic."""
 
@@ -48,6 +53,11 @@ class Product_1:
 
     def __str__(self) -> str:
         return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+Product_1.__module__ = 'entities'
+Product_1.__name__ = 'Product'
+Product_1.__qualname__ = 'Product'
+models = _cribo.types.SimpleNamespace(__name__='models')
+"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
 class User_2:
     """User model for data persistence."""
 
@@ -58,6 +68,9 @@ class User_2:
 
     def __str__(self) -> str:
         return f"Model User(name='{self.name}', email='{self.email}')"
+User_2.__module__ = 'models'
+User_2.__name__ = 'User'
+User_2.__qualname__ = 'User'
 class Product_2:
     """Product model for catalog."""
 
@@ -68,20 +81,13 @@ class Product_2:
 
     def __str__(self) -> str:
         return f"Model Product(name='{self.name}', price={self.price})"
-"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
-User_1.__module__ = 'entities'
-User_1.__name__ = 'User'
-User_1.__qualname__ = 'User'
-Product_1.__module__ = 'entities'
-Product_1.__name__ = 'Product'
-Product_1.__qualname__ = 'Product'
-"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
-User_2.__module__ = 'models'
-User_2.__name__ = 'User'
-User_2.__qualname__ = 'User'
 Product_2.__module__ = 'models'
 Product_2.__name__ = 'Product'
 Product_2.__qualname__ = 'Product'
+entities.User = User_1
+entities.Product = Product_1
+models.User = User_2
+models.Product = Product_2
 """\nClass name collision test.\nBoth modules define classes with the same names.\n"""
 ModelUser = User_2
 ModelProduct = Product_2

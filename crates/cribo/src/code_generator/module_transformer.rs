@@ -5,6 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
+// Constant for the self parameter name used in init functions
+const SELF_PARAM: &str = "self";
+
 use log::debug;
 #[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
@@ -28,10 +31,66 @@ use crate::{
         globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{self, MODULE_VAR, sanitize_module_name_for_identifier},
+        module_registry::{self, sanitize_module_name_for_identifier},
     },
     types::{FxIndexMap, FxIndexSet},
 };
+
+/// Creates a global module object for a wrapper module
+/// This creates the module at global scope with initialization tracking flags
+pub fn create_global_module_object(module_name: &str, module_path: &Path) -> Stmt {
+    let module_var = sanitize_module_name_for_identifier(module_name);
+    
+    // Determine if this is a package (has __init__.py)
+    let is_package = module_path.file_name()
+        .and_then(|f| f.to_str())
+        .map_or(false, |name| name == "__init__.py");
+    
+    // Create keyword arguments for SimpleNamespace
+    let mut kwargs = vec![
+        // __name__ = 'module_name'
+        ruff_python_ast::Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(ast_builder::other::identifier("__name__")),
+            value: ast_builder::expressions::string_literal(module_name),
+            range: ruff_text_size::TextRange::default(),
+        },
+        // __initializing__ = False
+        ruff_python_ast::Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(ast_builder::other::identifier("__initializing__")),
+            value: ast_builder::expressions::name("False", ExprContext::Load),
+            range: ruff_text_size::TextRange::default(),
+        },
+        // __initialized__ = False
+        ruff_python_ast::Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(ast_builder::other::identifier("__initialized__")),
+            value: ast_builder::expressions::name("False", ExprContext::Load),
+            range: ruff_text_size::TextRange::default(),
+        },
+    ];
+    
+    // Add __path__ for packages
+    if is_package {
+        kwargs.push(ruff_python_ast::Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(ast_builder::other::identifier("__path__")),
+            value: ast_builder::expressions::list(vec![], ExprContext::Load),
+            range: ruff_text_size::TextRange::default(),
+        });
+    }
+    
+    // module_var = types.SimpleNamespace(__name__='...', __initializing__=False, __initialized__=False)
+    ast_builder::statements::simple_assign(
+        &module_var,
+        ast_builder::expressions::call(
+            ast_builder::expressions::simple_namespace_ctor(),
+            vec![],
+            kwargs,
+        ),
+    )
+}
 
 /// Transforms a module AST into an initialization function
 pub fn transform_module_to_init_function<'a>(
@@ -42,9 +101,64 @@ pub fn transform_module_to_init_function<'a>(
 ) -> Stmt {
     let init_func_name = &bundler.init_functions[ctx.synthetic_name];
     let mut body = Vec::new();
-
-    // Create module object (returns multiple statements)
-    body.extend(create_module_object_stmt(ctx.module_name, ctx.module_path));
+    
+    // Get the global module variable name
+    let module_var_name = sanitize_module_name_for_identifier(ctx.module_name);
+    
+    // Check if already fully initialized
+    // if self.__initialized__:
+    //     return self
+    let check_initialized = ast_builder::statements::if_stmt(
+        ast_builder::expressions::attribute(
+            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+            "__initialized__",
+            ExprContext::Load,
+        ),
+        vec![ast_builder::statements::return_stmt(Some(
+            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+        ))],
+        vec![],
+    );
+    body.push(check_initialized);
+    
+    // Check if currently initializing (circular dependency)
+    // When we detect recursion, set __initializing__ = False to allow next call to proceed further
+    // if self.__initializing__:
+    //     self.__initializing__ = False  # Allow incremental progress
+    //     return self  # Return partial module
+    let check_initializing = ast_builder::statements::if_stmt(
+        ast_builder::expressions::attribute(
+            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+            "__initializing__",
+            ExprContext::Load,
+        ),
+        vec![
+            // Set __initializing__ = False to allow incremental progress
+            ast_builder::statements::assign_attribute(
+                SELF_PARAM,
+                "__initializing__",
+                ast_builder::expressions::name("False", ExprContext::Load),
+            ),
+            // Return the partial module
+            ast_builder::statements::return_stmt(Some(
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+            )),
+        ],
+        vec![],
+    );
+    body.push(check_initializing);
+    
+    // No need for MODULE_VAR anymore - we use the module object directly
+    
+    // We no longer set __initializing__ globally at the beginning
+    // Instead, we'll set it strategically before each import call
+    
+    // NOTE: We do NOT call parent init from child modules
+    // In Python, the import machinery ensures parent is initialized before child,
+    // but this happens OUTSIDE the child module's code.
+    // Child modules don't explicitly call parent init - that would create
+    // artificial circular dependencies.
+    // The parent will be initialized by whoever imports the child module.
 
     // Apply globals lifting if needed
     let lifted_names = if let Some(ref global_info) = ctx.global_info {
@@ -345,7 +459,7 @@ pub fn transform_module_to_init_function<'a>(
         // Also add as module attribute so it's visible in vars(__cribo_module)
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                MODULE_VAR,
+                SELF_PARAM,
                 symbol_name,
             ),
         );
@@ -369,7 +483,7 @@ pub fn transform_module_to_init_function<'a>(
         if bundler.should_export_symbol(&exported_name, ctx.module_name) {
             body.push(
                 crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                    MODULE_VAR,
+                    SELF_PARAM,
                     &exported_name,
                     &value_name,
                 ),
@@ -520,7 +634,7 @@ pub fn transform_module_to_init_function<'a>(
                 FxIndexSet::default()
             }
         };
-
+    
     // Process the body with a new recursive approach
     let processed_body =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
@@ -549,7 +663,48 @@ pub fn transform_module_to_init_function<'a>(
     let mut initialized_lifted_globals = FxIndexSet::default();
 
     // Process each statement from the transformed module body
+    // We need to set __initializing__ = True before any statement that calls another module's init
     for (idx, stmt) in processed_body.into_iter().enumerate() {
+        // Check if this statement contains a call to another module's init function
+        let contains_init_call = match &stmt {
+            Stmt::Assign(assign) => {
+                // Check if the value is a call to an init function
+                if let Expr::Call(call) = assign.value.as_ref() {
+                    if let Expr::Name(name) = call.func.as_ref() {
+                        name.id.starts_with("_cribo_init_")
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            Stmt::Expr(expr_stmt) => {
+                // Check if it's a direct init call
+                if let Expr::Call(call) = expr_stmt.value.as_ref() {
+                    if let Expr::Name(name) = call.func.as_ref() {
+                        name.id.starts_with("_cribo_init_")
+                    } else if let Expr::Attribute(attr) = call.func.as_ref() {
+                        // Check for module.__init__() calls
+                        attr.attr.as_str() == "__init__"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+        
+        // If this statement contains an init call, set __initializing__ = True first
+        if contains_init_call {
+            body.push(ast_builder::statements::assign_attribute(
+                &module_var_name,
+                "__initializing__",
+                ast_builder::expressions::name("True", ExprContext::Load),
+            ));
+        }
         match &stmt {
             Stmt::Assign(_) => debug!("Processing statement {idx} in init function: Assign"),
             Stmt::ImportFrom(_) => {
@@ -621,6 +776,7 @@ pub fn transform_module_to_init_function<'a>(
                         &global_info.module_level_vars,
                         &global_info.global_declarations,
                         lifted_names.as_ref(),
+                        &module_var_name,
                     );
                 }
 
@@ -679,6 +835,7 @@ pub fn transform_module_to_init_function<'a>(
                     transform_expr_for_module_vars(
                         &mut assign_clone.value,
                         &module_level_vars,
+                        &module_var_name,
                         ctx.python_version,
                     );
 
@@ -705,7 +862,7 @@ pub fn transform_module_to_init_function<'a>(
                         // Keep the module attribute consistent with the current value
                         body.push(
                             crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                                MODULE_VAR,
+                                SELF_PARAM,
                                 &name,
                                 lifted_name,
                             ),
@@ -749,7 +906,7 @@ pub fn transform_module_to_init_function<'a>(
                             if should_include {
                                 debug!("Exporting '{name}' as it's used by exported functions");
                                 body.push(crate::code_generator::module_registry::create_module_attr_assignment(
-                                    MODULE_VAR,
+                                    SELF_PARAM,
                                     &name,
                                 ));
                             }
@@ -800,6 +957,7 @@ pub fn transform_module_to_init_function<'a>(
                         transform_expr_for_module_vars(
                             value,
                             &module_level_vars,
+                            &module_var_name,
                             ctx.python_version,
                         );
                     }
@@ -812,6 +970,7 @@ pub fn transform_module_to_init_function<'a>(
                     transform_expr_for_module_vars(
                         &mut ann_assign_clone.annotation,
                         &module_level_vars,
+                        &module_var_name,
                         ctx.python_version,
                     );
 
@@ -833,7 +992,7 @@ pub fn transform_module_to_init_function<'a>(
 
                         // Keep the module attribute consistent with the current value
                         body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                            MODULE_VAR,
+                            SELF_PARAM,
                             target.id.as_str(),
                             lifted_name,
                         ));
@@ -893,6 +1052,7 @@ pub fn transform_module_to_init_function<'a>(
                     &mut stmt_clone,
                     bundler,
                     &module_level_vars,
+                    &module_var_name,
                     ctx.global_info.as_ref().map(|g| &g.global_declarations),
                     lifted_names.as_ref(),
                     ctx.python_version,
@@ -973,7 +1133,7 @@ pub fn transform_module_to_init_function<'a>(
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                        MODULE_VAR,
+                        SELF_PARAM,
                         &relative_name,
                         &namespace_var,
                     ),
@@ -984,6 +1144,7 @@ pub fn transform_module_to_init_function<'a>(
                     bundler,
                     &full_name,
                     &relative_name,
+                    &module_var_name,
                     symbol_renames,
                 );
                 body.extend(create_namespace_stmts);
@@ -1041,7 +1202,7 @@ pub fn transform_module_to_init_function<'a>(
 
         body.push(ast_builder::statements::assign(
             vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                ast_builder::expressions::name(&module_var_name, ExprContext::Load),
                 &local_name,
                 ExprContext::Store,
             )],
@@ -1066,7 +1227,7 @@ pub fn transform_module_to_init_function<'a>(
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
                     && let Expr::Name(name) = &*attr.value
                 {
-                    return name.id == MODULE_VAR && attr.attr == imported_name;
+                    return name.id == module_var_name && attr.attr == imported_name;
                 }
                 false
             });
@@ -1074,7 +1235,7 @@ pub fn transform_module_to_init_function<'a>(
             if !already_assigned {
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment(
-                        MODULE_VAR,
+                        SELF_PARAM,
                         &imported_name,
                     ),
                 );
@@ -1084,42 +1245,59 @@ pub fn transform_module_to_init_function<'a>(
 
     // Transform globals() calls to module.__dict__ in the entire body
     for stmt in &mut body {
-        transform_globals_in_stmt(stmt);
-        // Transform locals() calls to vars(__cribo_module) in the entire body
-        transform_locals_in_stmt(stmt);
+        transform_globals_in_stmt(stmt, &module_var_name);
+        // Transform locals() calls to vars(module_var) in the entire body
+        transform_locals_in_stmt(stmt, &module_var_name);
     }
+    
+    // Mark as fully initialized (module is now fully populated)
+    // self.__initialized__ = True  (set this first!)
+    // self.__initializing__ = False
+    body.push(ast_builder::statements::assign_attribute(
+        SELF_PARAM,
+        "__initialized__",
+        ast_builder::expressions::name("True", ExprContext::Load),
+    ));
+    body.push(ast_builder::statements::assign_attribute(
+        SELF_PARAM,
+        "__initializing__",
+        ast_builder::expressions::name("False", ExprContext::Load),
+    ));
 
-    // Return the module object
+    // Return the module object (self)
     body.push(ast_builder::statements::return_stmt(Some(
-        ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+        ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
     )));
 
-    // Create the init function parameters
+    // Create the init function parameters with 'self' parameter
+    let self_param = ruff_python_ast::ParameterWithDefault {
+        range: TextRange::default(),
+        parameter: ruff_python_ast::Parameter {
+            range: TextRange::default(),
+            name: Identifier::new(SELF_PARAM, TextRange::default()),
+            annotation: None,
+            node_index: AtomicNodeIndex::dummy(),
+        },
+        default: None,
+        node_index: AtomicNodeIndex::dummy(),
+    };
+    
     let parameters = ruff_python_ast::Parameters {
         node_index: AtomicNodeIndex::dummy(),
         posonlyargs: vec![],
-        args: vec![],
+        args: vec![self_param],
         vararg: None,
         kwonlyargs: vec![],
         kwarg: None,
         range: TextRange::default(),
     };
 
-    // Add the @functools.cache decorator to ensure modules are only initialized once
-    let decorator = Decorator {
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-        expression: ast_builder::expressions::dotted_name(
-            &[crate::ast_builder::CRIBO_PREFIX, "functools", "cache"],
-            ExprContext::Load,
-        ),
-    };
-
+    // No decorator - we manage initialization ourselves
     ast_builder::statements::function_def(
         init_func_name,
         parameters,
         body,
-        vec![decorator], // Always add @functools.cache decorator
+        vec![],          // No decorators
         None,            // No return type annotation
         false,           // Not async
     )
@@ -1129,6 +1307,7 @@ pub fn transform_module_to_init_function<'a>(
 fn transform_expr_for_module_vars(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match expr {
@@ -1137,7 +1316,7 @@ fn transform_expr_for_module_vars(
             if name.id.as_str() == "__name__" {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -1153,7 +1332,7 @@ fn transform_expr_for_module_vars(
             {
                 // Transform to module.var
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     name.id.as_str(),
                     ExprContext::Load,
                 );
@@ -1161,121 +1340,125 @@ fn transform_expr_for_module_vars(
         }
         // Recursively handle other expressions
         Expr::Call(call) => {
-            transform_expr_for_module_vars(&mut call.func, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut call.func, module_level_vars, module_var_name, python_version);
             for arg in &mut call.arguments.args {
-                transform_expr_for_module_vars(arg, module_level_vars, python_version);
+                transform_expr_for_module_vars(arg, module_level_vars, module_var_name, python_version);
             }
             for kw in &mut call.arguments.keywords {
-                transform_expr_for_module_vars(&mut kw.value, module_level_vars, python_version);
+                transform_expr_for_module_vars(&mut kw.value, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::Attribute(attr) => {
-            transform_expr_for_module_vars(&mut attr.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut attr.value, module_level_vars, module_var_name, python_version);
         }
         Expr::BinOp(binop) => {
-            transform_expr_for_module_vars(&mut binop.left, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut binop.right, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut binop.left, module_level_vars, module_var_name, python_version);
+            transform_expr_for_module_vars(&mut binop.right, module_level_vars, module_var_name, python_version);
         }
         Expr::UnaryOp(unop) => {
-            transform_expr_for_module_vars(&mut unop.operand, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut unop.operand, module_level_vars, module_var_name, python_version);
         }
         Expr::If(if_expr) => {
-            transform_expr_for_module_vars(&mut if_expr.test, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut if_expr.body, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut if_expr.orelse, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut if_expr.test, module_level_vars, module_var_name, python_version);
+            transform_expr_for_module_vars(&mut if_expr.body, module_level_vars, module_var_name, python_version);
+            transform_expr_for_module_vars(&mut if_expr.orelse, module_level_vars, module_var_name, python_version);
         }
         Expr::List(list) => {
             for elem in &mut list.elts {
-                transform_expr_for_module_vars(elem, module_level_vars, python_version);
+                transform_expr_for_module_vars(elem, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::Tuple(tuple) => {
             for elem in &mut tuple.elts {
-                transform_expr_for_module_vars(elem, module_level_vars, python_version);
+                transform_expr_for_module_vars(elem, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::Dict(dict) => {
             for item in &mut dict.items {
                 if let Some(key) = &mut item.key {
-                    transform_expr_for_module_vars(key, module_level_vars, python_version);
+                    transform_expr_for_module_vars(key, module_level_vars, module_var_name, python_version);
                 }
-                transform_expr_for_module_vars(&mut item.value, module_level_vars, python_version);
+                transform_expr_for_module_vars(&mut item.value, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::Subscript(sub) => {
-            transform_expr_for_module_vars(&mut sub.value, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut sub.slice, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut sub.value, module_level_vars, module_var_name, python_version);
+            transform_expr_for_module_vars(&mut sub.slice, module_level_vars, module_var_name, python_version);
         }
         Expr::Set(set) => {
             for elem in &mut set.elts {
-                transform_expr_for_module_vars(elem, module_level_vars, python_version);
+                transform_expr_for_module_vars(elem, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::Lambda(lambda) => {
             // Note: Lambda parameters create a new scope, so we don't transform them
-            transform_expr_for_module_vars(&mut lambda.body, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut lambda.body, module_level_vars, module_var_name, python_version);
         }
         Expr::Compare(cmp) => {
-            transform_expr_for_module_vars(&mut cmp.left, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut cmp.left, module_level_vars, module_var_name, python_version);
             for comp in &mut cmp.comparators {
-                transform_expr_for_module_vars(comp, module_level_vars, python_version);
+                transform_expr_for_module_vars(comp, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::BoolOp(boolop) => {
             for value in &mut boolop.values {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(value, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::ListComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, module_var_name, python_version);
             for generator in &mut comp.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, module_var_name, python_version);
                 }
             }
         }
         Expr::SetComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, module_var_name, python_version);
             for generator in &mut comp.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, module_var_name, python_version);
                 }
             }
         }
         Expr::DictComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.key, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut comp.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut comp.key, module_level_vars, module_var_name, python_version);
+            transform_expr_for_module_vars(&mut comp.value, module_level_vars, module_var_name, python_version);
             for generator in &mut comp.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, module_var_name, python_version);
                 }
             }
         }
         Expr::Generator(r#gen) => {
-            transform_expr_for_module_vars(&mut r#gen.elt, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut r#gen.elt, module_level_vars, module_var_name, python_version);
             for generator in &mut r#gen.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, module_var_name, python_version);
                 }
             }
         }
@@ -1283,36 +1466,38 @@ fn transform_expr_for_module_vars(
             transform_expr_for_module_vars(
                 &mut await_expr.value,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         Expr::Yield(yield_expr) => {
             if let Some(ref mut value) = yield_expr.value {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(value, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::YieldFrom(yield_from) => {
             transform_expr_for_module_vars(
                 &mut yield_from.value,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         Expr::Starred(starred) => {
-            transform_expr_for_module_vars(&mut starred.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut starred.value, module_level_vars, module_var_name, python_version);
         }
         Expr::Named(named) => {
-            transform_expr_for_module_vars(&mut named.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut named.value, module_level_vars, module_var_name, python_version);
         }
         Expr::Slice(slice) => {
             if let Some(ref mut lower) = slice.lower {
-                transform_expr_for_module_vars(lower, module_level_vars, python_version);
+                transform_expr_for_module_vars(lower, module_level_vars, module_var_name, python_version);
             }
             if let Some(ref mut upper) = slice.upper {
-                transform_expr_for_module_vars(upper, module_level_vars, python_version);
+                transform_expr_for_module_vars(upper, module_level_vars, module_var_name, python_version);
             }
             if let Some(ref mut step) = slice.step {
-                transform_expr_for_module_vars(step, module_level_vars, python_version);
+                transform_expr_for_module_vars(step, module_level_vars, module_var_name, python_version);
             }
         }
         Expr::FString(_fstring) => {
@@ -1339,6 +1524,7 @@ fn transform_expr_for_module_vars(
 fn transform_stmt_for_module_vars(
     stmt: &mut Stmt,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match stmt {
@@ -1347,55 +1533,56 @@ fn transform_stmt_for_module_vars(
             transform_nested_function_for_module_vars(
                 nested_func,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         Stmt::Assign(assign) => {
             // Transform assignment targets and values
             for target in &mut assign.targets {
-                transform_expr_for_module_vars(target, module_level_vars, python_version);
+                transform_expr_for_module_vars(target, module_level_vars, module_var_name, python_version);
             }
-            transform_expr_for_module_vars(&mut assign.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut assign.value, module_level_vars, module_var_name, python_version);
         }
         Stmt::Expr(expr_stmt) => {
-            transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars, module_var_name, python_version);
         }
         Stmt::Return(return_stmt) => {
             if let Some(value) = &mut return_stmt.value {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(value, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::If(if_stmt) => {
-            transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars, module_var_name, python_version);
             for stmt in &mut if_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
             for clause in &mut if_stmt.elif_else_clauses {
                 if let Some(condition) = &mut clause.test {
-                    transform_expr_for_module_vars(condition, module_level_vars, python_version);
+                    transform_expr_for_module_vars(condition, module_level_vars, module_var_name, python_version);
                 }
                 for stmt in &mut clause.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                    transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
                 }
             }
         }
         Stmt::For(for_stmt) => {
-            transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars, module_var_name, python_version);
+            transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars, module_var_name, python_version);
             for stmt in &mut for_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
             for stmt in &mut for_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::While(while_stmt) => {
-            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars, module_var_name, python_version);
             for stmt in &mut while_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
             for stmt in &mut while_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::With(with_stmt) => {
@@ -1403,46 +1590,48 @@ fn transform_stmt_for_module_vars(
                 transform_expr_for_module_vars(
                     &mut item.context_expr,
                     module_level_vars,
-                    python_version,
+                    module_var_name,
+                python_version,
                 );
                 if let Some(ref mut optional_vars) = item.optional_vars {
                     transform_expr_for_module_vars(
                         optional_vars,
                         module_level_vars,
-                        python_version,
+                        module_var_name,
+                python_version,
                     );
                 }
             }
             for stmt in &mut with_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::Try(try_stmt) => {
             for stmt in &mut try_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
             for handler in &mut try_stmt.handlers {
                 let ExceptHandler::ExceptHandler(except_handler) = handler;
                 if let Some(ref mut type_) = except_handler.type_ {
-                    transform_expr_for_module_vars(type_, module_level_vars, python_version);
+                    transform_expr_for_module_vars(type_, module_level_vars, module_var_name, python_version);
                 }
                 for stmt in &mut except_handler.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                    transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
                 }
             }
             for stmt in &mut try_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
             for stmt in &mut try_stmt.finalbody {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::Raise(raise_stmt) => {
             if let Some(ref mut exc) = raise_stmt.exc {
-                transform_expr_for_module_vars(exc, module_level_vars, python_version);
+                transform_expr_for_module_vars(exc, module_level_vars, module_var_name, python_version);
             }
             if let Some(ref mut cause) = raise_stmt.cause {
-                transform_expr_for_module_vars(cause, module_level_vars, python_version);
+                transform_expr_for_module_vars(cause, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::ClassDef(class_def) => {
@@ -1451,36 +1640,40 @@ fn transform_stmt_for_module_vars(
                 transform_expr_for_module_vars(
                     &mut decorator.expression,
                     module_level_vars,
-                    python_version,
+                    module_var_name,
+                python_version,
                 );
             }
             // Transform class arguments (base classes and keyword arguments)
             if let Some(ref mut arguments) = class_def.arguments {
                 for arg in &mut arguments.args {
-                    transform_expr_for_module_vars(arg, module_level_vars, python_version);
+                    transform_expr_for_module_vars(arg, module_level_vars, module_var_name, python_version);
                 }
                 for keyword in &mut arguments.keywords {
                     transform_expr_for_module_vars(
                         &mut keyword.value,
                         module_level_vars,
-                        python_version,
+                        module_var_name,
+                python_version,
                     );
                 }
             }
             // Transform class body
             for stmt in &mut class_def.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::AugAssign(aug_assign) => {
             transform_expr_for_module_vars(
                 &mut aug_assign.target,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars(
                 &mut aug_assign.value,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1488,36 +1681,39 @@ fn transform_stmt_for_module_vars(
             transform_expr_for_module_vars(
                 &mut ann_assign.target,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars(
                 &mut ann_assign.annotation,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             if let Some(ref mut value) = ann_assign.value {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(value, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::Delete(delete_stmt) => {
             for target in &mut delete_stmt.targets {
-                transform_expr_for_module_vars(target, module_level_vars, python_version);
+                transform_expr_for_module_vars(target, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::Match(match_stmt) => {
             transform_expr_for_module_vars(
                 &mut match_stmt.subject,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             // Match cases have complex patterns that may need specialized handling
             // For now, we'll focus on transforming the guard expressions and bodies
             for case in &mut match_stmt.cases {
                 if let Some(ref mut guard) = case.guard {
-                    transform_expr_for_module_vars(guard, module_level_vars, python_version);
+                    transform_expr_for_module_vars(guard, module_level_vars, module_var_name, python_version);
                 }
                 for stmt in &mut case.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                    transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
                 }
             }
         }
@@ -1525,10 +1721,11 @@ fn transform_stmt_for_module_vars(
             transform_expr_for_module_vars(
                 &mut assert_stmt.test,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             if let Some(ref mut msg) = assert_stmt.msg {
-                transform_expr_for_module_vars(msg, module_level_vars, python_version);
+                transform_expr_for_module_vars(msg, module_level_vars, module_var_name, python_version);
             }
         }
         Stmt::TypeAlias(_)
@@ -1551,6 +1748,7 @@ fn transform_stmt_for_module_vars_with_bundler(
     stmt: &mut Stmt,
     bundler: &Bundler,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     global_declarations: Option<&FxIndexMap<String, Vec<ruff_text_size::TextRange>>>,
     lifted_names: Option<&FxIndexMap<String, String>>,
     python_version: u8,
@@ -1563,25 +1761,28 @@ fn transform_stmt_for_module_vars_with_bundler(
                 module_level_vars,
                 globals_map,
                 lifted_names,
+                module_var_name,
             );
         } else {
             // Fallback to legacy path when no global info is available
             transform_nested_function_for_module_vars(
                 nested_func,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         return;
     }
     // Non-function statements: reuse the existing traversal
-    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+    transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
 }
 
 /// Transform nested function to use module attributes for module-level variables
 fn transform_nested_function_for_module_vars(
     func_def: &mut StmtFunctionDef,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     // Collect local variables defined in this function
@@ -1613,7 +1814,8 @@ fn transform_nested_function_for_module_vars(
             stmt,
             module_level_vars,
             &local_vars,
-            python_version,
+            module_var_name,
+                    python_version,
         );
     }
 }
@@ -1700,6 +1902,7 @@ fn transform_stmt_for_module_vars_with_locals(
     stmt: &mut Stmt,
     module_level_vars: &FxIndexSet<String>,
     local_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match stmt {
@@ -1708,6 +1911,7 @@ fn transform_stmt_for_module_vars_with_locals(
             transform_nested_function_for_module_vars(
                 nested_func,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1718,6 +1922,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     target,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1725,6 +1930,7 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut assign.value,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1733,6 +1939,7 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut expr_stmt.value,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1742,6 +1949,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     value,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1751,13 +1959,15 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut if_stmt.test,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             for stmt in &mut if_stmt.body {
                 transform_stmt_for_module_vars_with_locals(
                     stmt,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1767,7 +1977,8 @@ fn transform_stmt_for_module_vars_with_locals(
                         condition,
                         module_level_vars,
                         local_vars,
-                        python_version,
+                        module_var_name,
+                    python_version,
                     );
                 }
                 for stmt in &mut clause.body {
@@ -1775,7 +1986,8 @@ fn transform_stmt_for_module_vars_with_locals(
                         stmt,
                         module_level_vars,
                         local_vars,
-                        python_version,
+                        module_var_name,
+                    python_version,
                     );
                 }
             }
@@ -1785,19 +1997,22 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut for_stmt.target,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut for_stmt.iter,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             for stmt in &mut for_stmt.body {
                 transform_stmt_for_module_vars_with_locals(
                     stmt,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1807,13 +2022,15 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut while_stmt.test,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             for stmt in &mut while_stmt.body {
                 transform_stmt_for_module_vars_with_locals(
                     stmt,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1829,6 +2046,7 @@ fn transform_expr_for_module_vars_with_locals(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
     local_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match expr {
@@ -1839,7 +2057,7 @@ fn transform_expr_for_module_vars_with_locals(
             if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -1853,7 +2071,7 @@ fn transform_expr_for_module_vars_with_locals(
             {
                 // Transform foo -> module.foo
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     name_str,
                     ExprContext::Load,
                 );
@@ -1864,13 +2082,15 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut call.func,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             for arg in &mut call.arguments.args {
                 transform_expr_for_module_vars_with_locals(
                     arg,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1879,6 +2099,7 @@ fn transform_expr_for_module_vars_with_locals(
                     &mut keyword.value,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1888,13 +2109,15 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut binop.left,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut binop.right,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
         }
         Expr::Dict(dict) => {
@@ -1904,13 +2127,15 @@ fn transform_expr_for_module_vars_with_locals(
                         key,
                         module_level_vars,
                         local_vars,
-                        python_version,
+                        module_var_name,
+                    python_version,
                     );
                 }
                 transform_expr_for_module_vars_with_locals(
                     &mut item.value,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1921,6 +2146,7 @@ fn transform_expr_for_module_vars_with_locals(
                     elem,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1930,7 +2156,8 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut attr.value,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
         }
         Expr::Subscript(subscript) => {
@@ -1938,13 +2165,15 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut subscript.value,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut subscript.slice,
                 module_level_vars,
                 local_vars,
-                python_version,
+                module_var_name,
+                    python_version,
             );
         }
         _ => {
@@ -1953,25 +2182,27 @@ fn transform_expr_for_module_vars_with_locals(
     }
 }
 
-/// Create module object statements (types.SimpleNamespace)
-pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
-    let module_call = ast_builder::expressions::call(
-        ast_builder::expressions::simple_namespace_ctor(),
-        vec![],
-        vec![],
-    );
-
-    vec![
-        // __cribo_module = types.SimpleNamespace()
-        ast_builder::statements::simple_assign(MODULE_VAR, module_call),
-        // __cribo_module.__name__ = "module_name"
-        ast_builder::statements::assign_attribute(
-            MODULE_VAR,
-            "__name__",
-            ast_builder::expressions::string_literal(module_name),
-        ),
-    ]
-}
+// DEPRECATED: This function appears to be unused in the new architecture
+// It was part of the old MODULE_VAR approach which has been replaced
+// TODO: Verify and remove if confirmed unused
+// pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
+//     let module_call = ast_builder::expressions::call(
+//         ast_builder::expressions::simple_namespace_ctor(),
+//         vec![],
+//         vec![],
+//     );
+//
+//     vec![
+//         // __cribo_module = types.SimpleNamespace()
+//         ast_builder::statements::simple_assign(MODULE_VAR, module_call),
+//         // __cribo_module.__name__ = "module_name"
+//         ast_builder::statements::assign_attribute(
+//             MODULE_VAR,
+//             "__name__",
+//             ast_builder::expressions::string_literal(module_name),
+//         ),
+//     ]
+// }
 
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
@@ -2270,7 +2501,7 @@ fn emit_module_attr_if_exportable(
         debug!("Adding module attribute for symbol '{symbol_name}'");
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                MODULE_VAR,
+                SELF_PARAM,
                 symbol_name,
             ),
         );
@@ -2282,6 +2513,7 @@ fn create_namespace_for_inlined_submodule(
     bundler: &Bundler,
     full_module_name: &str,
     attr_name: &str,
+    parent_module_var: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut stmts = Vec::new();
@@ -2403,7 +2635,7 @@ fn create_namespace_for_inlined_submodule(
     // This allows the parent module to access the submodule via the expected attribute name
     stmts.push(
         crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-            MODULE_VAR,
+            parent_module_var,
             attr_name,
             &namespace_var,
         ),
@@ -2767,11 +2999,20 @@ pub fn process_wrapper_modules(
             is_wrapper_body: true, // This is for wrapper modules
         };
 
-        // Transform module to init function with @functools.cache decorator
+        // Transform module to init function
         let init_function =
             transform_module_to_init_function(bundler, &ctx, ast.clone(), symbol_renames);
-
         result.push(init_function);
+        
+        // Attach init function as __init__ attribute on the module object
+        // module_var.__init__ = _cribo_init_function
+        let module_var = sanitize_module_name_for_identifier(module_name);
+        let init_func_name = &bundler.init_functions[synthetic_name];
+        result.push(ast_builder::statements::assign_attribute(
+            &module_var,
+            "__init__",
+            ast_builder::expressions::name(init_func_name, ExprContext::Load),
+        ));
     }
 
     // Generate module registries and hook (always using module cache for wrapper modules)
