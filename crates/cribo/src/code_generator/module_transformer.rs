@@ -40,7 +40,10 @@ pub fn transform_module_to_init_function<'a>(
     mut ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Stmt {
-    let init_func_name = &bundler.init_functions[ctx.synthetic_name];
+    let module_id = bundler.get_module_id(ctx.module_name)
+        .expect("Module ID must exist for module being transformed");
+    let init_func_name = bundler.module_init_functions.get(&module_id)
+        .expect("Init function must exist for wrapper module");
     let mut body = Vec::new();
 
     // Get the global module variable name
@@ -3105,10 +3108,9 @@ fn symbol_comes_from_wrapper_module(
     symbol_name: &str,
 ) -> bool {
     // Find the module's AST in the module_asts if available
-    let module_data = bundler
-        .module_asts
-        .as_ref()
-        .and_then(|asts| asts.iter().find(|(name, _, _, _)| name == inlined_module));
+    let module_id = bundler.get_module_id(inlined_module);
+    let module_data = module_id
+        .and_then(|id| bundler.module_asts.as_ref()?.iter().find(|(name, _, _, _)| name == &id));
 
     if let Some((_, ast, module_path, _)) = module_data {
         // Check all import statements in the module

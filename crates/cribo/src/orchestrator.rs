@@ -103,6 +103,11 @@ impl ModuleRegistry {
     pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
         self.name_to_id.get(name).copied()
     }
+    
+    /// Check if a module exists by ModuleId
+    pub fn contains_module(&self, id: &ModuleId) -> bool {
+        self.modules.contains_key(id)
+    }
 }
 
 /// Get or create the empty parsed module for Stylist creation

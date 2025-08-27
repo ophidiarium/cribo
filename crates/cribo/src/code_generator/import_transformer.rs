@@ -622,7 +622,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                             {
                                 let module_name = lit.value.to_str();
                                 // Only track if it's an inlined module (not a wrapper module)
-                                if self.bundler.inlined_modules.contains(module_name) {
+                                if self.bundler.get_module_id(&module_name)
+                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                                {
                                     importlib_module = Some(module_name.to_string());
                                 }
                             }
@@ -836,7 +838,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // module)
                         if !self.is_entry_module
                             && alias.asname.is_some()
-                            && self.bundler.inlined_modules.contains(module_name)
+                            && self.bundler.get_module_id(&module_name)
+                                .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                         {
                             log::debug!("Tracking import alias: {local_name} -> {module_name}");
                             self.import_aliases
@@ -960,16 +963,13 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                 // Check if we're importing a submodule
                                 let full_module_path = format!("{resolved}.{imported_name}");
-                                if self
-                                    .bundler
-                                    .get_module_id(full_module_path)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                                {
-                                    // Check if this is a namespace-imported module
-                                    if self
-                                        .bundler
-                                        .namespace_imported_modules
-                                        .contains_key(&full_module_path)
+                                if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
+                                    if self.bundler.inlined_modules.contains(&module_id) {
+                                        // Check if this is a namespace-imported module
+                                        if self
+                                            .bundler
+                                            .namespace_imported_modules
+                                            .contains_key(&module_id)
                                     {
                                         // Don't track namespace imports as aliases in the entry
                                         // module
@@ -994,7 +994,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                              {local_name} -> {full_module_path} (namespace object)"
                                         );
                                     }
-                                } else if self.bundler.inlined_modules.contains(resolved) {
+                                    }
+                                } else if self.bundler.get_module_id(&resolved)
+                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                                {
                                     // Importing from an inlined module
                                     // Don't track symbol imports as module aliases!
                                     // import_aliases should only contain actual module imports,
@@ -1172,7 +1175,8 @@ impl<'a> RecursiveImportTransformer<'a> {
             && let Some(ref resolved) = resolved_module
         {
             // Check if this is a wrapper module
-            if self.bundler.module_info_registry.contains_key(resolved) {
+            if self.bundler.get_module_id(&resolved)
+                .is_some_and(|id| self.bundler.module_info_registry.as_ref().is_some_and(|reg| reg.contains_module(&id))) {
                 // Check if we have access to global deferred imports
                 if let Some(global_deferred) = self.global_deferred_imports {
                     // Check each symbol to see if it's already been deferred
@@ -1222,7 +1226,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     "  inlined_modules contains '{}': {}",
                     full_module_path,
                     self.bundler
-                        .get_module_id(full_module_path)
+                        .get_module_id(&full_module_path)
                         .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                 );
 
@@ -1230,8 +1234,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // First check if it's a wrapper submodule, then check if it's inlined
                 if crate::code_generator::module_registry::is_wrapper_submodule(
                     &full_module_path,
-                    &self.bundler.module_info_registry,
+                    self.bundler.module_info_registry,
                     &self.bundler.inlined_modules,
+                    &self.bundler.resolver,
                 ) {
                     // This is a wrapper submodule
                     log::debug!("  '{full_module_path}' is a wrapper submodule");
@@ -1262,7 +1267,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         handled_any = true;
                     } else if !self.is_entry_module
-                        && self.bundler.inlined_modules.contains(self.module_name)
+                        && self.bundler.get_module_id(self.module_name)
+                            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                     {
                         // This is an inlined module importing a wrapper submodule
                         // We need to defer this import because the wrapper module may not be initialized yet
@@ -1286,7 +1292,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
                 } else if self
                     .bundler
-                    .get_module_id(full_module_path)
+                    .get_module_id(&full_module_path)
                     .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                 {
                     log::debug!("  '{full_module_path}' is an inlined module");
@@ -1294,8 +1300,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // Check if this module was namespace imported
                     if self
                         .bundler
-                        .namespace_imported_modules
-                        .contains_key(&full_module_path)
+                        .get_module_id(&full_module_path)
+                        .is_some_and(|id| self.bundler.namespace_imported_modules.contains_key(&id))
                     {
                         // Create assignment: local_name = full_module_path_with_underscores
                         // But be careful about stdlib conflicts - only create in entry module if
@@ -1334,8 +1340,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // This is importing an inlined submodule
                         // We need to handle this specially when the current module is being inlined
                         // (i.e., not the entry module and not a wrapper module)
-                        let current_module_is_inlined =
-                            self.bundler.inlined_modules.contains(self.module_name);
+                        let current_module_is_inlined = self
+                            .bundler
+                            .get_module_id(self.module_name)
+                            .is_some_and(|id| self.bundler.inlined_modules.contains(&id));
                         let current_module_is_wrapper =
                             !current_module_is_inlined && !self.is_entry_module;
 
@@ -1392,11 +1400,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // parent.child assignment
                                 if resolved_module.as_deref() == Some(self.module_name) {
                                     // Check if this submodule is in the parent's __all__ exports
-                                    let module_name_string = self.module_name.to_string();
                                     let parent_exports = self
                                         .bundler
-                                        .module_exports
-                                        .get(&module_name_string)
+                                        .get_module_id(self.module_name)
+                                        .and_then(|id| self.bundler.module_exports.get(&id))
                                         .and_then(|opt| opt.as_ref())
                                         .is_some_and(|exports| {
                                             exports.contains(&imported_name.to_string())
@@ -1409,17 +1416,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             format!("{}.{}", self.module_name, imported_name);
                                         let is_inlined_submodule = self
                                             .bundler
-                                            .inlined_modules
-                                            .contains(&full_submodule_path);
+                                            .get_module_id(&full_submodule_path)
+                                            .is_some_and(|id| self.bundler.inlined_modules.contains(&id));
                                         let uses_init_function = self
                                             .bundler
-                                            .module_info_registry
-                                            .get(&full_submodule_path)
-                                            .and_then(|synthetic_name| {
-                                                self.bundler
-                                                    .module_init_functions
-                                                    .get(synthetic_name)
-                                            })
+                                            .get_module_id(&full_submodule_path)
+                                            .and_then(|id| self.bundler.module_init_functions.get(&id))
                                             .is_some();
 
                                         log::debug!(
@@ -1446,16 +1448,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             // a module
                                             let is_actually_a_module = self
                                                 .bundler
-                                                .bundled_modules
-                                                .contains(&full_submodule_path)
-                                                || self
-                                                    .bundler
-                                                    .module_info_registry
-                                                    .contains_key(&full_submodule_path)
-                                                || self
-                                                    .bundler
-                                                    .inlined_modules
-                                                    .contains(&full_submodule_path);
+                                                .get_module_id(&full_submodule_path)
+                                                .is_some_and(|id| {
+                                                    self.bundler.bundled_modules.contains(&id)
+                                                        || self
+                                                            .bundler
+                                                            .module_info_registry
+                                                            .as_ref()
+                                                            .is_some_and(|reg| reg.contains_module(&id))
+                                                        || self.bundler.inlined_modules.contains(&id)
+                                                });
 
                                             if is_actually_a_module {
                                                 // This is a module, not a symbol - skip the
@@ -1499,8 +1501,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // namespace
                                 if let Some(exports) = self
                                     .bundler
-                                    .module_exports
-                                    .get(&full_module_path)
+                                    .get_module_id(&full_module_path)
+                                    .and_then(|id| self.bundler.module_exports.get(&id))
                                     .cloned()
                                     .flatten()
                                 {
@@ -1523,12 +1525,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     if !filtered_exports.is_empty()
                                         && self
                                             .bundler
-                                            .modules_with_explicit_all
-                                            .contains(&full_module_path)
-                                        && self.bundler.modules_with_accessed_all.iter().any(
-                                            |(module, alias)| {
-                                                module == self.module_name && alias == local_name
-                                            },
+                                            .get_module_id(&full_module_path)
+                                            .is_some_and(|id| self.bundler.modules_with_explicit_all.contains(&id))
+                                        && self.bundler.get_module_id(self.module_name).is_some_and(|id|
+                                            self.bundler.modules_with_accessed_all.iter().any(
+                                                |(module, alias)| {
+                                                    module == &id && alias == local_name
+                                                },
+                                            )
                                         )
                                     {
                                         let export_strings: Vec<&str> =
@@ -1542,13 +1546,17 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                     // Only populate the namespace if it wasn't already populated
                                     // Check if this namespace was already populated by the bundler
-                                    // symbols_populated_after_deferred contains (namespace, symbol)
+                                    // symbols_populated_after_deferred contains (ModuleId, symbol)
                                     // tuples
                                     let namespace_already_populated = self
                                         .bundler
-                                        .symbols_populated_after_deferred
-                                        .iter()
-                                        .any(|(ns, _)| ns == &namespace_var)
+                                        .get_module_id(&full_module_path)
+                                        .is_some_and(|id| 
+                                            self.bundler
+                                                .symbols_populated_after_deferred
+                                                .iter()
+                                                .any(|(ns, _)| ns == &id)
+                                        )
                                         || self.populated_modules.contains(&full_module_path);
 
                                     if !namespace_already_populated {
@@ -1602,8 +1610,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // namespace
                                 if let Some(exports) = self
                                     .bundler
-                                    .module_exports
-                                    .get(&full_module_path)
+                                    .get_module_id(&full_module_path)
+                                    .and_then(|id| self.bundler.module_exports.get(&id))
                                     .cloned()
                                     .flatten()
                                 {
@@ -1626,12 +1634,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     if !filtered_exports.is_empty()
                                         && self
                                             .bundler
-                                            .modules_with_explicit_all
-                                            .contains(&full_module_path)
-                                        && self.bundler.modules_with_accessed_all.iter().any(
-                                            |(module, alias)| {
-                                                module == self.module_name && alias == local_name
-                                            },
+                                            .get_module_id(&full_module_path)
+                                            .is_some_and(|id| self.bundler.modules_with_explicit_all.contains(&id))
+                                        && self.bundler.get_module_id(self.module_name).is_some_and(|id|
+                                            self.bundler.modules_with_accessed_all.iter().any(
+                                                |(module, alias)| {
+                                                    module == &id && alias == local_name
+                                                },
+                                            )
                                         )
                                     {
                                         let export_strings: Vec<&str> =
@@ -1713,21 +1723,23 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         if let Some(ref resolved) = resolved_module {
             // Check if this is an inlined module
-            if self.bundler.inlined_modules.contains(resolved) {
-                // Check if this is a circular module with pre-declarations
-                if self.bundler.circular_modules.contains(resolved) {
-                    log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
-                    log::debug!(
-                        "  Current module '{}' is circular: {}, is inlined: {}",
-                        self.module_name,
-                        self.bundler.circular_modules.contains(self.module_name),
-                        self.bundler.inlined_modules.contains(self.module_name)
+            if let Some(resolved_id) = self.bundler.get_module_id(&resolved) {
+                if self.bundler.inlined_modules.contains(&resolved_id) {
+                    // Check if this is a circular module with pre-declarations
+                    if self.bundler.circular_modules.contains(&resolved_id) {
+                        log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
+                        let current_module_id = self.bundler.get_module_id(self.module_name);
+                        log::debug!(
+                            "  Current module '{}' is circular: {}, is inlined: {}",
+                            self.module_name,
+                            current_module_id.is_some_and(|id| self.bundler.circular_modules.contains(&id)),
+                            current_module_id.is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                     );
                     // Special handling for imports between circular inlined modules
                     // If the current module is also a circular inlined module, we need to defer or
                     // transform differently
-                    if self.bundler.circular_modules.contains(self.module_name)
-                        && self.bundler.inlined_modules.contains(self.module_name)
+                    if current_module_id.is_some_and(|id| self.bundler.circular_modules.contains(&id))
+                        && current_module_id.is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                     {
                         log::debug!(
                             "  Both modules are circular and inlined - transforming to direct \
@@ -1745,19 +1757,19 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 "  Checking if '{full_submodule_path}' is a submodule (bundled: \
                                  {}, inlined: {})",
                                 self.bundler
-                                    .get_module_id(full_submodule_path)
+                                    .get_module_id(&full_submodule_path)
                                     .is_some_and(|id| self.bundler.bundled_modules.contains(&id)),
                                 self.bundler
-                                    .get_module_id(full_submodule_path)
+                                    .get_module_id(&full_submodule_path)
                                     .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                             );
                             if self
                                 .bundler
-                                .get_module_id(full_submodule_path)
+                                .get_module_id(&full_submodule_path)
                                 .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
                                 || self
                                     .bundler
-                                    .get_module_id(full_submodule_path)
+                                    .get_module_id(&full_submodule_path)
                                     .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                             {
                                 log::debug!(
@@ -1833,17 +1845,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                         return vec![];
                     }
                 }
+                }
             }
 
             // Check if this is a wrapper module (in module_registry)
             // This check must be after the inlined module check to avoid double-handling
-            if self.bundler.module_info_registry.contains_key(resolved) {
+            if self.bundler.get_module_id(&resolved)
+                .is_some_and(|id| self.bundler.module_info_registry.as_ref().is_some_and(|reg| reg.contains_module(&id))) {
                 log::debug!("  Module '{resolved}' is a wrapper module");
 
                 // For modules importing from wrapper modules, we may need to defer
                 // the imports to ensure proper initialization order
-                let current_module_is_inlined =
-                    self.bundler.inlined_modules.contains(self.module_name);
+                let current_module_is_inlined = self
+                    .bundler
+                    .get_module_id(self.module_name)
+                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id));
 
                 // When an inlined module imports from a wrapper module, we need to
                 // track the imports and rewrite all usages within the module
@@ -1872,7 +1888,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // If the parent is an inlined module, the submodule assignment is handled
                         // by its own initialization, so we only need to log
-                        if self.bundler.inlined_modules.contains(parent) {
+                        if self.bundler.get_module_id(&parent)
+                            .is_some_and(|id| self.bundler.inlined_modules.contains(&id)) {
                             log::debug!(
                                 "Parent '{parent}' is inlined, submodule '{child}' assignment \
                                  already handled"
@@ -1910,7 +1927,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let start_idx = self.deferred_imports.len();
 
                         // Get the exports from the wrapper module
-                        if let Some(exports) = self.bundler.module_exports.get(resolved) {
+                        if let Some(exports) = self.bundler.get_module_id(&resolved)
+                            .and_then(|id| self.bundler.module_exports.get(&id)) {
                             if let Some(export_list) = exports {
                                 log::debug!(
                                     "  Wrapper module '{resolved}' exports: {export_list:?}"
@@ -2131,7 +2149,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                             if self
                                 .bundler
-                                .get_module_id(namespace_path)
+                                .get_module_id(&namespace_path)
                                 .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
                             {
                                 // This is accessing a method/attribute on a namespace object
@@ -2252,7 +2270,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         else if let Some(actual_module) = self.find_module_for_alias(&base)
                             && self
                                 .bundler
-                                .get_module_id(actual_module)
+                                .get_module_id(&actual_module)
                                 .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                         {
                             log::debug!(
@@ -2270,9 +2288,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 let potential_submodule = format!("{actual_module}.{attr_name}");
                                 if self
                                     .bundler
-                                    .get_module_id(potential_submodule)
+                                    .get_module_id(&potential_submodule)
                                     .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
-                                    && !self.bundler.get_module_id(potential_submodule).is_some_and(
+                                    && !self.bundler.get_module_id(&potential_submodule).is_some_and(
                                         |id| self.bundler.inlined_modules.contains(&id),
                                     )
                                 {
@@ -2290,8 +2308,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     // that was created by a namespace import
                                     if self
                                         .bundler
-                                        .namespace_imported_modules
-                                        .contains_key(&actual_module)
+                                        .get_module_id(&actual_module)
+                                        .is_some_and(|id| self.bundler.namespace_imported_modules.contains_key(&id))
                                     {
                                         // This is accessing attributes on a namespace object
                                         // Don't transform - let it remain as namespace.attribute
@@ -2345,8 +2363,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             // Only transform if we're certain this symbol exists in
                                             // the inlined module
                                             // Otherwise, leave the attribute access unchanged
-                                            if let Some(exports) =
-                                                self.bundler.module_exports.get(&actual_module)
+                                            if let Some(exports) = self
+                                                .bundler
+                                                .get_module_id(&actual_module)
+                                                .and_then(|id| self.bundler.module_exports.get(&id))
                                                 && let Some(export_list) = exports
                                                 && export_list.contains(&attr_name.to_string())
                                             {
@@ -2388,7 +2408,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                 if self
                                     .bundler
-                                    .get_module_id(potential_module)
+                                    .get_module_id(&potential_module)
                                     .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
                                 {
                                     // This is accessing an attribute on a submodule
@@ -2904,7 +2924,7 @@ fn rewrite_import_with_renames(
                             let sanitized = sanitize_module_name_for_identifier(&full_path);
                             let has_namespace_var = bundler.created_namespaces.contains(&sanitized);
                             let is_wrapper = bundler
-                                .get_module_id(full_path)
+                                .get_module_id(&full_path)
                                 .is_some_and(|id| bundler.bundled_modules.contains(&id));
 
                             // Skip only if this would be a true no-op self-assignment
@@ -2958,7 +2978,7 @@ fn rewrite_import_with_renames(
                             // Only populate if this module was actually bundled and has exports
                             // AND we haven't already populated it in this session
                             if bundler
-                                .get_module_id(partial_module)
+                                .get_module_id(&partial_module)
                                 .is_some_and(|id| bundler.bundled_modules.contains(&id))
                                 && !populated_modules.contains(&partial_module)
                             {
@@ -3107,7 +3127,6 @@ fn create_namespace_population_context<'a>(
         module_info_registry: &bundler.module_info_registry,
         module_asts: &bundler.module_asts,
         symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
-        namespaces_with_initial_symbols: &bundler.namespaces_with_initial_symbols,
         global_deferred_imports: &bundler.global_deferred_imports,
         module_init_functions: &bundler.module_init_functions,
         resolver: bundler.resolver,
@@ -3125,7 +3144,7 @@ fn has_bundled_submodules(
         let full_module_path = format!("{module_name}.{imported_name}");
         log::trace!("  Checking if '{full_module_path}' is in bundled_modules");
         if bundler
-            .get_module_id(full_module_path)
+            .get_module_id(&full_module_path)
             .is_some_and(|id| bundler.bundled_modules.contains(&id))
         {
             log::trace!("    -> YES, it's bundled");
@@ -3211,7 +3230,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
     };
 
     if !bundler
-        .get_module_id(module_name)
+        .get_module_id(&module_name)
         .is_some_and(|id| bundler.bundled_modules.contains(&id))
     {
         log::trace!(
@@ -3234,7 +3253,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 let imported_name = alias.name.as_str();
                 let full_module_path = format!("{module_name}.{imported_name}");
                 if bundler
-                    .get_module_id(full_module_path)
+                    .get_module_id(&full_module_path)
                     .is_some_and(|id| bundler.bundled_modules.contains(&id))
                 {
                     log::debug!("    - {full_module_path}");
@@ -3251,7 +3270,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
 
         // Check if this module is inlined
         if bundler
-            .get_module_id(module_name)
+            .get_module_id(&module_name)
             .is_some_and(|id| bundler.inlined_modules.contains(&id))
         {
             log::debug!(
@@ -3271,7 +3290,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
 
         // Check if this module is in the module_registry (wrapper module)
         if bundler
-            .get_module_id(module_name)
+            .get_module_id(&module_name)
             .is_some_and(|id| bundler.bundled_modules.contains(&id))
         {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
@@ -3299,14 +3318,14 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
     log::debug!(
         "Transforming bundled import from module: {module_name}, is wrapper: {}",
         bundler
-            .get_module_id(module_name)
+            .get_module_id(&module_name)
             .is_some_and(|id| bundler.bundled_modules.contains(&id))
     );
 
     // Check if this module is in the registry (wrapper approach)
     // or if it was inlined
     if bundler
-        .get_module_id(module_name)
+        .get_module_id(&module_name)
         .is_some_and(|id| bundler.bundled_modules.contains(&id))
     {
         // Module uses wrapper approach - transform to sys.modules access
@@ -3497,7 +3516,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         // First check if we're importing a submodule (e.g., from package import submodule)
         let full_module_path = format!("{module_name}.{imported_name}");
         if bundler
-            .get_module_id(full_module_path)
+            .get_module_id(&full_module_path)
             .is_some_and(|id| bundler.bundled_modules.contains(&id))
         {
             // This is importing a submodule, not a symbol

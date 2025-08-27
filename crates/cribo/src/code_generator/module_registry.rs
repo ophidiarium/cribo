@@ -335,15 +335,14 @@ pub fn register_module(
 /// - It is NOT in the inlined modules set
 pub fn is_wrapper_submodule(
     module_path: &str,
-    module_info_registry: &FxIndexMap<
-        crate::resolver::ModuleId,
-        crate::orchestrator::ModuleRegistry,
-    >,
+    module_info_registry: Option<&crate::orchestrator::ModuleRegistry>,
     inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
     resolver: &crate::resolver::ModuleResolver,
 ) -> bool {
     if let Some(module_id) = resolver.get_module_id_by_name(module_path) {
-        module_info_registry.contains_key(&module_id) && !inlined_modules.contains(&module_id)
+        module_info_registry
+            .is_some_and(|reg| reg.contains_module(&module_id))
+            && !inlined_modules.contains(&module_id)
     } else {
         false
     }
