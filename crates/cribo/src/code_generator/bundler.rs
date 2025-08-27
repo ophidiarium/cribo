@@ -26,7 +26,7 @@ use crate::{
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
         module_transformer, namespace_manager,
-        namespace_manager::{NamespaceContext, NamespaceInfo},
+        namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
     resolver::ModuleResolver,
@@ -45,25 +45,15 @@ struct TransformFunctionParams<'a> {
 }
 
 /// Helper struct for organizing class blocks
-#[derive(Clone)]
-struct ClassBlock {
-    class_stmt: Stmt,
-    attributes: Vec<Stmt>,
-    class_name: String,
-}
 
 /// This approach avoids forward reference issues while maintaining Python module semantics
 pub struct Bundler<'a> {
-    /// Track if importlib was fully transformed and should be removed
-    pub(crate) importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
     pub(crate) module_registry: FxIndexMap<String, String>,
     /// Map from synthetic module name to init function name
     pub(crate) init_functions: FxIndexMap<String, String>,
     /// Collected future imports
     pub(crate) future_imports: FxIndexSet<String>,
-    /// Track stdlib module aliases (e.g., "j" -> "json") for expression transformation
-    pub(crate) stdlib_module_aliases: FxIndexMap<String, String>,
     /// Track which modules have been bundled
     pub(crate) bundled_modules: FxIndexSet<String>,
     /// Modules that were inlined (not wrapper modules)
@@ -79,7 +69,6 @@ pub struct Bundler<'a> {
     /// Semantic export information (includes re-exports from child modules)
     pub(crate) semantic_exports: FxIndexMap<String, FxIndexSet<String>>,
     /// Lifted global declarations to add at module top level
-    pub(crate) lifted_global_declarations: Vec<Stmt>,
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     pub(crate) namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
@@ -90,7 +79,6 @@ pub struct Bundler<'a> {
     /// Modules that are part of circular dependencies
     pub(crate) circular_modules: FxIndexSet<String>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
-    pub(crate) circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
     /// Hard dependencies that need to be hoisted
     pub(crate) hard_dependencies: Vec<HardDependency>,
     /// Symbol dependency graph for circular modules
@@ -185,11 +173,9 @@ impl<'a> Bundler<'a> {
         resolver: &'a ModuleResolver,
     ) -> Self {
         Self {
-            importlib_fully_transformed: false,
             module_registry: FxIndexMap::default(),
             init_functions: FxIndexMap::default(),
             future_imports: FxIndexSet::default(),
-            stdlib_module_aliases: FxIndexMap::default(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
             entry_path: None,
@@ -197,12 +183,10 @@ impl<'a> Bundler<'a> {
             entry_is_package_init_or_main: false,
             module_exports: FxIndexMap::default(),
             semantic_exports: FxIndexMap::default(),
-            lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
             module_info_registry,
             resolver,
             circular_modules: FxIndexSet::default(),
-            circular_predeclarations: FxIndexMap::default(),
             hard_dependencies: Vec::new(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
@@ -1004,26 +988,12 @@ impl<'a> Bundler<'a> {
     /// Check if module has forward references that would cause `NameError`
 
     /// Check if a module is a package namespace
-    fn is_package_namespace(&self, module_name: &str) -> bool {
-        let package_prefix = format!("{module_name}.");
-        self.bundled_modules
-            .iter()
-            .any(|bundled| bundled.starts_with(&package_prefix))
-    }
 
     /// Check if a wrapper module should be included after tree-shaking
     ///
     /// A wrapper module is included if it either:
     /// - Has symbols that survived tree-shaking
     /// - Has side effects that need to be preserved
-    fn should_include_wrapper_module(
-        &self,
-        shaker: &crate::tree_shaking::TreeShaker,
-        module_name: &str,
-    ) -> bool {
-        !shaker.get_used_symbols_for_module(module_name).is_empty()
-            || shaker.module_has_side_effects(module_name)
-    }
 
     /// Extract attribute path from expression
     /// Process entry module statement
@@ -1203,21 +1173,6 @@ impl<'a> Bundler<'a> {
 
     /// Collect import entries from an iterator of hard dependencies
     /// This helper deduplicates the logic for collecting imports with their aliases
-    fn collect_import_entries<'b>(
-        deps: impl Iterator<Item = &'b HardDependency>,
-    ) -> FxIndexMap<String, Option<String>> {
-        let mut imports: FxIndexMap<String, Option<String>> = FxIndexMap::default();
-        for dep in deps {
-            // If this dependency has a mandatory alias, use it
-            if dep.alias_is_mandatory && dep.alias.is_some() {
-                imports.insert(dep.imported_attr.clone(), dep.alias.clone());
-            } else {
-                // Only insert if we haven't already added this import
-                imports.entry(dep.imported_attr.clone()).or_insert(None);
-            }
-        }
-        imports
-    }
 
     /// Collect symbol renames from semantic analysis
     fn collect_symbol_renames(
@@ -2495,45 +2450,6 @@ impl<'a> Bundler<'a> {
     }
 
     /// Register a namespace that needs to be created
-    pub fn register_namespace(
-        &mut self,
-        module_path: &str,
-        needs_alias: bool,
-        alias_name: Option<String>,
-    ) -> String {
-        // Determine context based on whether this is a submodule
-        let context =
-            module_path
-                .rsplit_once('.')
-                .map_or(NamespaceContext::TopLevel, |(parent, _)| {
-                    NamespaceContext::Attribute {
-                        parent: parent.to_string(),
-                    }
-                });
-
-        // Use the centralized namespace system which handles parent registration
-        namespace_manager::require_namespace(
-            self,
-            module_path,
-            context,
-            namespace_manager::NamespaceParams::default(),
-        );
-
-        // Get the sanitized name
-        let sanitized_name = sanitize_module_name_for_identifier(module_path);
-
-        // Update alias info if needed
-        if let Some(info) = self.namespace_registry.get_mut(&sanitized_name)
-            && needs_alias
-            && !info.needs_alias
-        {
-            info.needs_alias = true;
-            info.alias_name = alias_name;
-        }
-
-        log::debug!("Registered namespace: {module_path} -> {sanitized_name}");
-        sanitized_name
-    }
 
     /// Check if a namespace is already registered
     pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
@@ -2546,11 +2462,6 @@ impl<'a> Bundler<'a> {
     }
 
     /// Generate all registered namespaces at once
-    fn generate_all_namespaces(&mut self) -> Vec<Stmt> {
-        // Delegate to the centralized namespace generation system
-        // This ensures all namespaces are created with proper ordering and attributes
-        namespace_manager::generate_required_namespaces(self)
-    }
 
     /// Find modules that are imported directly
     pub(super) fn find_directly_imported_modules(
