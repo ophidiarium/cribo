@@ -65,14 +65,6 @@ pub struct SemanticContext<'a> {
     pub semantic_bundler: &'a SemanticBundler,
 }
 
-/// Parameters for processing module globals
-#[derive(Debug)]
-pub struct ProcessGlobalsParams<'a> {
-    pub module_name: &'a str,
-    pub ast: &'a ModModule,
-    pub semantic_ctx: &'a SemanticContext<'a>,
-}
-
 /// Parameters for `bundle_modules` function
 #[derive(Debug)]
 pub struct BundleParams<'a> {

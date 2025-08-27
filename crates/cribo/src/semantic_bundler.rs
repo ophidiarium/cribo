@@ -425,9 +425,6 @@ pub struct ModuleGlobalInfo {
     /// Variables declared with 'global' keyword in functions
     pub global_declarations: FxIndexMap<String, Vec<TextRange>>,
 
-    /// Locations where globals are written
-    pub global_writes: FxIndexMap<String, Vec<TextRange>>,
-
     /// Functions that use global statements
     pub functions_using_globals: FxIndexSet<String>,
 
@@ -641,11 +638,7 @@ impl<'a> GlobalUsageVisitor<'a> {
             if let Expr::Name(name) = target {
                 let name_str = name.id.to_string();
                 if self.info.global_declarations.contains_key(&name_str) {
-                    self.info
-                        .global_writes
-                        .entry(name_str)
-                        .or_default()
-                        .push(target.range());
+                    // Global write detected but not tracked
                 }
             }
         }

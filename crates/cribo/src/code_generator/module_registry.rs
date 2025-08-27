@@ -5,20 +5,13 @@
 //! - Module attribute assignments
 //! - Module initialization functions
 
-use log::debug;
-use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImport, StmtImportFrom};
+use ruff_python_ast::{Expr, ExprContext, Stmt, StmtImportFrom};
 use ruff_python_stdlib::keyword::is_keyword;
 
 use crate::{
     ast_builder,
     types::{FxIndexMap, FxIndexSet},
 };
-
-/// Generate registries and hook
-pub fn generate_registries_and_hook() -> Vec<Stmt> {
-    // No longer needed - we don't use sys.modules or import hooks
-    Vec::new()
-}
 
 /// Create module initialization statements for wrapper modules
 pub fn create_module_initialization_for_import(
@@ -36,7 +29,10 @@ pub fn create_module_initialization_for_import(
         let module_var = sanitize_module_name_for_identifier(module_name);
         let init_call = ast_builder::expressions::call(
             ast_builder::expressions::name(&init_func_name, ExprContext::Load),
-            vec![ast_builder::expressions::name(&module_var, ExprContext::Load)],
+            vec![ast_builder::expressions::name(
+                &module_var,
+                ExprContext::Load,
+            )],
             vec![],
         );
 
@@ -48,80 +44,6 @@ pub fn create_module_initialization_for_import(
     }
 
     stmts
-}
-
-/// Generate module init call
-pub fn generate_module_init_call(
-    _synthetic_name: &str,
-    module_name: &str,
-    init_func_name: Option<&str>,
-    module_registry: &FxIndexMap<String, String>,
-    generate_merge_module_attributes: impl Fn(&mut Vec<Stmt>, &str, &str),
-) -> Vec<Stmt> {
-    let mut statements = Vec::new();
-
-    if let Some(init_func_name) = init_func_name {
-        // Check if this module is a parent namespace that already exists
-        // This happens when a module like 'services.auth' has both:
-        // 1. Its own __init__.py (wrapper module)
-        // 2. Submodules like 'services.auth.manager'
-        let is_parent_namespace = module_registry
-            .iter()
-            .any(|(name, _)| name != module_name && name.starts_with(&format!("{module_name}.")));
-
-        if is_parent_namespace {
-            // For parent namespaces, we need to merge attributes instead of overwriting
-            // Generate code that calls the init function and merges its attributes
-            debug!("Module '{module_name}' is a parent namespace - generating merge code");
-
-            // First, create a variable to hold the init result
-            // Call the init function with the module as the self argument
-            let module_var = sanitize_module_name_for_identifier(module_name);
-            statements.push(ast_builder::statements::simple_assign(
-                INIT_RESULT_VAR,
-                ast_builder::expressions::call(
-                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![ast_builder::expressions::name(&module_var, ExprContext::Load)],
-                    vec![],
-                ),
-            ));
-
-            // Generate the merge attributes code
-            generate_merge_module_attributes(&mut statements, module_name, INIT_RESULT_VAR);
-
-            // Assign the init result to the module variable
-            statements.push(ast_builder::statements::simple_assign(
-                module_name,
-                ast_builder::expressions::name(INIT_RESULT_VAR, ExprContext::Load),
-            ));
-        } else {
-            // Direct assignment for modules that aren't parent namespaces
-            let target_expr = if module_name.contains('.') {
-                // For dotted modules like models.base, create an attribute expression
-                let parts: Vec<&str> = module_name.split('.').collect();
-                ast_builder::expressions::dotted_name(&parts, ExprContext::Store)
-            } else {
-                // For simple modules, use direct name
-                ast_builder::expressions::name(module_name, ExprContext::Store)
-            };
-
-            // Generate: module_name = <cribo_init_prefix>synthetic_name(module)
-            // or: parent.child = <cribo_init_prefix>synthetic_name(module)
-            let module_var = sanitize_module_name_for_identifier(module_name);
-            statements.push(ast_builder::statements::assign(
-                vec![target_expr],
-                ast_builder::expressions::call(
-                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![ast_builder::expressions::name(&module_var, ExprContext::Load)],
-                    vec![],
-                ),
-            ));
-        }
-    } else {
-        statements.push(ast_builder::statements::pass());
-    }
-
-    statements
 }
 
 /// Get synthetic module name
@@ -169,53 +91,6 @@ pub fn generate_unique_name(base_name: &str, existing_symbols: &FxIndexSet<Strin
 
     // Fallback with module prefix
     format!("__cribo_renamed_{base_name}")
-}
-
-/// Check if a local name conflicts with any symbol in the module
-pub fn check_local_name_conflict(ast: &ModModule, name: &str) -> bool {
-    for stmt in &ast.body {
-        match stmt {
-            Stmt::ClassDef(class_def) => {
-                if class_def.name.as_str() == name {
-                    return true;
-                }
-            }
-            Stmt::FunctionDef(func_def) => {
-                if func_def.name.as_str() == name {
-                    return true;
-                }
-            }
-            Stmt::Assign(assign_stmt) => {
-                for target in &assign_stmt.targets {
-                    if let Expr::Name(name_expr) = target
-                        && name_expr.id.as_str() == name
-                    {
-                        return true;
-                    }
-                }
-            }
-            Stmt::Import(StmtImport { names, .. }) => {
-                // Check import statements that remain in the module (third-party imports)
-                for alias in names {
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    if local_name.as_str() == name {
-                        return true;
-                    }
-                }
-            }
-            Stmt::ImportFrom(StmtImportFrom { names, .. }) => {
-                // Check from imports that remain in the module (third-party imports)
-                for alias in names {
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    if local_name.as_str() == name {
-                        return true;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    false
 }
 
 /// Create a module attribute assignment statement
@@ -409,7 +284,6 @@ pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
 // DEPRECATED: MODULE_VAR is no longer used in the new architecture
 // We set attributes directly on the module namespace objects
 // pub const MODULE_VAR: &str = "_cribo_module";
-
 /// Generate init function name from synthetic name
 pub fn get_init_function_name(synthetic_name: &str) -> String {
     format!("{CRIBO_INIT_PREFIX}{synthetic_name}")

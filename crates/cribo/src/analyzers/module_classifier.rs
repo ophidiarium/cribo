@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{Expr, ModModule, Stmt};
+use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     resolver::ModuleResolver,
@@ -61,128 +61,6 @@ impl<'a> ModuleClassifier<'a> {
 
     /// Check if a module accesses attributes on imported modules at module level
     /// where those imported modules are part of the same circular dependency
-    fn module_accesses_imported_attributes(&self, ast: &ModModule, module_name: &str) -> bool {
-        use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
-
-        // First, collect all module-level imports and their names
-        let mut imported_module_names = FxIndexSet::default();
-
-        for stmt in &ast.body {
-            match stmt {
-                Stmt::Import(import_stmt) => {
-                    for alias in &import_stmt.names {
-                        let imported_module = alias.name.as_str();
-                        // In Python, `import a.b` binds `a`; `import a.b as x` binds `x`
-                        let imported_as: String = if let Some(asname) = &alias.asname {
-                            asname.as_str().to_string()
-                        } else {
-                            // For "import a.b.c", only "a" is bound in the namespace
-                            imported_module
-                                .split('.')
-                                .next()
-                                .unwrap_or(imported_module)
-                                .to_string()
-                        };
-                        // Check if this imported module is in the circular dependency
-                        // Also check if any circular module is a child of this imported module
-                        // e.g., if we import `pkg` and `pkg.sub` is circular
-                        let is_circular_or_parent = self.circular_modules.contains(imported_module)
-                            || self
-                                .circular_modules
-                                .iter()
-                                .any(|m| m.starts_with(&format!("{imported_module}.")));
-                        if is_circular_or_parent {
-                            imported_module_names.insert(imported_as);
-                        }
-                    }
-                }
-                Stmt::ImportFrom(import_from) => {
-                    // Handle relative and absolute imports via the resolver for correctness
-                    let resolved_module = if import_from.level > 0 {
-                        self.resolver.resolve_relative_import_from_package_name(
-                            import_from.level,
-                            import_from.module.as_deref(),
-                            module_name,
-                        )
-                    } else if let Some(module) = &import_from.module {
-                        module.as_str().to_string()
-                    } else {
-                        continue; // Invalid import
-                    };
-
-                    // Check if we're importing the module itself (from x import y where y is a
-                    // module)
-                    for alias in &import_from.names {
-                        let name = alias.name.as_str();
-                        let imported_as = alias.asname.as_ref().unwrap_or(&alias.name);
-                        // Check if this could be a module import
-                        let potential_module = format!("{resolved_module}.{name}");
-                        if self.circular_modules.contains(&potential_module) {
-                            imported_module_names.insert(imported_as.to_string());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // If no circular modules are imported, no need to check further
-        if imported_module_names.is_empty() {
-            return false;
-        }
-
-        // Now check if we access attributes on any of these imported circular modules
-        struct AttributeAccessChecker<'a> {
-            has_circular_attribute_access: bool,
-            imported_circular_modules: &'a FxIndexSet<String>,
-        }
-
-        impl<'a> Visitor<'a> for AttributeAccessChecker<'a> {
-            fn visit_stmt(&mut self, stmt: &'a Stmt) {
-                match stmt {
-                    // Skip function and class bodies - we only care about module-level code
-                    Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                        // Don't recurse into function or class bodies
-                    }
-                    _ => {
-                        // Continue visiting for other statements
-                        walk_stmt(self, stmt);
-                    }
-                }
-            }
-
-            fn visit_expr(&mut self, expr: &'a Expr) {
-                if self.has_circular_attribute_access {
-                    return; // Already found one
-                }
-
-                // Check for attribute access on names (e.g., mod_c.C_CONSTANT)
-                if let Expr::Attribute(attr) = expr
-                    && let Expr::Name(name_expr) = &*attr.value
-                {
-                    // Check if this name is one of our imported circular modules
-                    if self
-                        .imported_circular_modules
-                        .contains(name_expr.id.as_str())
-                    {
-                        self.has_circular_attribute_access = true;
-                        return;
-                    }
-                }
-
-                // Continue walking
-                walk_expr(self, expr);
-            }
-        }
-
-        let mut checker = AttributeAccessChecker {
-            has_circular_attribute_access: false,
-            imported_circular_modules: &imported_module_names,
-        };
-
-        checker.visit_body(&ast.body);
-        checker.has_circular_attribute_access
-    }
 
     /// Classify modules into inlinable and wrapper modules
     /// Also collects module exports and tracks modules with explicit __all__
