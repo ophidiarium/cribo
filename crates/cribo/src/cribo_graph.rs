@@ -20,22 +20,8 @@ use petgraph::{
 };
 
 use crate::types::{FxIndexMap, FxIndexSet};
-
-/// Unique identifier for a module
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ModuleId(u32);
-
-impl ModuleId {
-    pub fn new(id: u32) -> Self {
-        Self(id)
-    }
-
-    /// Returns the underlying u32 value of the `ModuleId`
-    #[inline]
-    pub const fn as_u32(self) -> u32 {
-        self.0
-    }
-}
+// Re-export ModuleId from resolver for backward compatibility with existing code
+pub use crate::resolver::ModuleId;
 
 /// Unique identifier for an item within a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,10 +275,8 @@ pub struct CriboGraph {
     graph: DiGraph<ModuleId, ()>,
     /// Node index mapping
     node_indices: FxIndexMap<ModuleId, NodeIndex>,
-    /// Next module ID to allocate
-    next_module_id: u32,
 
-    // NEW: Fields for file-based deduplication
+    // Fields for file-based deduplication
     /// Track canonical paths for each module
     module_canonical_paths: FxIndexMap<ModuleId, PathBuf>,
     /// Track all import names that resolve to each canonical file
@@ -315,7 +299,6 @@ impl CriboGraph {
             module_paths: FxIndexMap::default(),
             graph: DiGraph::new(),
             node_indices: FxIndexMap::default(),
-            next_module_id: 0,
             module_canonical_paths: FxIndexMap::default(),
             file_to_import_names: FxIndexMap::default(),
             file_primary_module: FxIndexMap::default(),
@@ -323,8 +306,8 @@ impl CriboGraph {
         }
     }
 
-    /// Add a new module to the graph
-    pub fn add_module(&mut self, name: String, path: &Path) -> ModuleId {
+    /// Add a module to the graph with a pre-assigned `ModuleId` from the resolver
+    pub fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
 
@@ -375,9 +358,8 @@ impl CriboGraph {
             return *primary_id;
         }
 
-        // This is the first time we're seeing this file
-        let id = ModuleId::new(self.next_module_id);
-        self.next_module_id += 1;
+        // Use the pre-assigned ID from the resolver
+        // The resolver guarantees that the entry module gets ID 0
 
         // Create module
         let module_graph = ModuleDepGraph::new(id, name.clone());
@@ -570,8 +552,16 @@ mod tests {
     fn test_basic_module_graph() {
         let mut graph = CriboGraph::new();
 
-        let utils_id = graph.add_module("utils".to_string(), &PathBuf::from("utils.py"));
-        let main_id = graph.add_module("main".to_string(), &PathBuf::from("main.py"));
+        let utils_id = graph.add_module(
+            ModuleId::new(0),
+            "utils".to_string(),
+            &PathBuf::from("utils.py"),
+        );
+        let main_id = graph.add_module(
+            ModuleId::new(1),
+            "main".to_string(),
+            &PathBuf::from("main.py"),
+        );
 
         graph.add_module_dependency(main_id, utils_id);
 
@@ -587,9 +577,21 @@ mod tests {
         let mut graph = CriboGraph::new();
 
         // Create a three-module circular dependency: A -> B -> C -> A
-        let module_a = graph.add_module("module_a".to_string(), &PathBuf::from("module_a.py"));
-        let module_b = graph.add_module("module_b".to_string(), &PathBuf::from("module_b.py"));
-        let module_c = graph.add_module("module_c".to_string(), &PathBuf::from("module_c.py"));
+        let module_a = graph.add_module(
+            ModuleId::new(0),
+            "module_a".to_string(),
+            &PathBuf::from("module_a.py"),
+        );
+        let module_b = graph.add_module(
+            ModuleId::new(1),
+            "module_b".to_string(),
+            &PathBuf::from("module_b.py"),
+        );
+        let module_c = graph.add_module(
+            ModuleId::new(2),
+            "module_c".to_string(),
+            &PathBuf::from("module_c.py"),
+        );
 
         graph.add_module_dependency(module_a, module_b);
         graph.add_module_dependency(module_b, module_c);
@@ -613,10 +615,16 @@ mod tests {
         let mut graph = CriboGraph::new();
 
         // Create a circular dependency with "constants" in the name
-        let constants_a =
-            graph.add_module("constants_a".to_string(), &PathBuf::from("constants_a.py"));
-        let constants_b =
-            graph.add_module("constants_b".to_string(), &PathBuf::from("constants_b.py"));
+        let constants_a = graph.add_module(
+            ModuleId::new(0),
+            "constants_a".to_string(),
+            &PathBuf::from("constants_a.py"),
+        );
+        let constants_b = graph.add_module(
+            ModuleId::new(1),
+            "constants_b".to_string(),
+            &PathBuf::from("constants_b.py"),
+        );
 
         // Add some constant assignments to make these actual constant modules
         if let Some(module_a) = graph.modules.get_mut(&constants_a) {
@@ -687,7 +695,7 @@ mod tests {
 
         // Add a module with a canonical path
         let path = PathBuf::from("src/utils.py");
-        let utils_id = graph.add_module("utils".to_string(), &path);
+        let utils_id = graph.add_module(ModuleId::new(0), "utils".to_string(), &path);
 
         // Add some items to the utils module
         let utils_module = graph
@@ -714,7 +722,7 @@ mod tests {
 
         // Add the same file with a different import name
         // This should return the SAME ModuleId due to file-based deduplication
-        let alt_utils_id = graph.add_module("src.utils".to_string(), &path);
+        let alt_utils_id = graph.add_module(ModuleId::new(1), "src.utils".to_string(), &path);
 
         // Verify that both names map to the same ModuleId (file-based deduplication)
         assert_eq!(utils_id, alt_utils_id, "Same file should get same ModuleId");

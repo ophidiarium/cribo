@@ -3,16 +3,158 @@ use std::{
     ffi::OsStr,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 use anyhow::{Result, anyhow};
 use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use pep508_rs::PackageName;
 use ruff_python_stdlib::sys;
 
 use crate::config::Config;
+use crate::types::FxIndexMap;
+
+/// Unique identifier for a module in the dependency graph
+/// The entry module ALWAYS has ID 0 - this is a fundamental invariant
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModuleId(pub u32);
+
+impl ModuleId {
+    /// The entry point - always ID 0
+    /// This is where bundling starts, the origin of our module universe
+    pub const ENTRY: ModuleId = ModuleId(0);
+
+    #[inline]
+    pub const fn new(id: u32) -> Self {
+        Self(id)
+    }
+
+    #[inline]
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// Check if this is the entry module
+    /// No more complex path detection or boolean flags!
+    #[inline]
+    pub const fn is_entry(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// Module metadata tracked by resolver
+#[derive(Debug, Clone)]
+pub struct ModuleMetadata {
+    pub id: ModuleId,
+    pub name: String,
+    pub canonical_path: PathBuf,
+    pub is_package: bool,
+}
+
+/// Internal module registry for ID allocation
+#[derive(Debug)]
+struct ModuleRegistry {
+    next_id: u32,
+    by_id: FxIndexMap<ModuleId, ModuleMetadata>,
+    by_name: FxIndexMap<String, ModuleId>,
+    by_path: FxIndexMap<PathBuf, ModuleId>,
+}
+
+impl ModuleRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 0, // Start at 0 - entry point gets this
+            by_id: FxIndexMap::default(),
+            by_name: FxIndexMap::default(),
+            by_path: FxIndexMap::default(),
+        }
+    }
+
+    fn register(&mut self, name: String, path: &Path) -> ModuleId {
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+
+        // Check for duplicates
+        if let Some(&id) = self.by_name.get(&name)
+            && self.by_id[&id].canonical_path == canonical_path {
+                return id;
+            }
+
+        if let Some(&id) = self.by_path.get(&canonical_path) {
+            self.by_name.insert(name, id);
+            return id;
+        }
+
+        // Allocate ID - entry gets 0, others get sequential IDs
+        let id = ModuleId::new(self.next_id);
+        self.next_id += 1;
+
+        // The beauty: first registered module (entry) automatically gets ID 0!
+        debug_assert!(
+            id != ModuleId::ENTRY || self.by_id.is_empty(),
+            "Entry module must be registered first"
+        );
+
+        let is_package = path
+            .file_name()
+            .is_some_and(|n| n == "__init__.py");
+
+        let metadata = ModuleMetadata {
+            id,
+            name: name.clone(),
+            canonical_path: canonical_path.clone(),
+            is_package,
+        };
+
+        self.by_id.insert(id, metadata);
+        self.by_name.insert(name, id);
+        self.by_path.insert(canonical_path, id);
+
+        id
+    }
+
+    fn get_metadata(&self, id: ModuleId) -> Option<&ModuleMetadata> {
+        self.by_id.get(&id)
+    }
+}
+
+/// Resolve a relative import based on module name and package status (pure function)
+fn resolve_relative_import_pure(
+    module_name: &str,
+    is_package: bool,
+    level: u32,
+    name: Option<&str>,
+) -> String {
+    let mut package_parts: Vec<&str> = module_name.split('.').collect();
+
+    // For modules (not packages), we need to remove the module itself first
+    // then go up additional levels
+    if !is_package && !package_parts.is_empty() {
+        // Remove the module name itself for regular modules
+        package_parts.pop();
+    }
+
+    // Go up additional levels based on the import level
+    // Level 1 means current package, level 2 means parent, etc.
+    for _ in 1..level {
+        if package_parts.is_empty() {
+            break; // Can't go up any further
+        }
+        package_parts.pop();
+    }
+
+    // Build the final module name
+    let mut result = package_parts.join(".");
+    if let Some(module_name) = name {
+        if !result.is_empty() {
+            result.push('.');
+        }
+        result.push_str(module_name);
+    }
+
+    result
+}
 
 /// Resolve a relative import based on module name (standalone utility)
 ///
@@ -115,6 +257,8 @@ impl ImportModuleDescriptor {
 #[derive(Debug)]
 pub struct ModuleResolver {
     config: Config,
+    /// Module registry for ID allocation - the single source of truth for module identity
+    registry: Mutex<ModuleRegistry>,
     /// Cache of resolved module paths
     module_cache: RefCell<IndexMap<String, Option<PathBuf>>>,
     /// Cache of module classifications
@@ -157,6 +301,7 @@ impl ModuleResolver {
     ) -> Self {
         Self {
             config,
+            registry: Mutex::new(ModuleRegistry::new()),
             module_cache: RefCell::new(IndexMap::new()),
             classification_cache: RefCell::new(IndexMap::new()),
             virtualenv_packages_cache: RefCell::new(None),
@@ -1016,6 +1161,44 @@ impl ModuleResolver {
                     .collect(),
             )
         }
+    }
+
+    /// Register a module - entry gets 0, others get sequential IDs
+    pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
+        let mut registry = self.registry.lock().expect("Module registry lock poisoned");
+
+        let id = registry.register(name.clone(), path);
+
+        if id.is_entry() {
+            info!("Registered ENTRY module '{name}' at the origin (ID 0)");
+        } else {
+            debug!(
+                "Registered module '{}' with ID {} (package: {})",
+                name,
+                id.as_u32(),
+                registry
+                    .get_metadata(id)
+                    .is_some_and(|m| m.is_package)
+            );
+        }
+
+        id
+    }
+
+    /// Check if a module is the entry point
+    pub fn is_entry_module(&self, id: ModuleId) -> bool {
+        id.is_entry() // Simple!
+    }
+
+    /// Get the entry module metadata
+    pub fn get_entry_module(&self) -> Option<ModuleMetadata> {
+        self.get_module(ModuleId::ENTRY)
+    }
+
+    /// Get module metadata by ID
+    pub fn get_module(&self, id: ModuleId) -> Option<ModuleMetadata> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).cloned()
     }
 }
 

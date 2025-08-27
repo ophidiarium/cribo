@@ -1184,6 +1184,7 @@ mod tests {
 
         // Create a simple module with used and unused functions
         let module_id = graph.add_module(
+            crate::resolver::ModuleId::new(1),
             "test_module".to_string(),
             &std::path::PathBuf::from("test.py"),
         );
@@ -1231,8 +1232,11 @@ mod tests {
         });
 
         // Add entry module that uses only used_func
-        let entry_id =
-            graph.add_module("__main__".to_string(), &std::path::PathBuf::from("main.py"));
+        let entry_id = graph.add_module(
+            crate::resolver::ModuleId::new(0),
+            "__main__".to_string(),
+            &std::path::PathBuf::from("main.py"),
+        );
         let entry = graph
             .modules
             .get_mut(&entry_id)

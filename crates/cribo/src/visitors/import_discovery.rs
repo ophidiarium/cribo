@@ -9,7 +9,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::{cribo_graph::ModuleId, semantic_bundler::SemanticBundler};
+use crate::{resolver::ModuleId, semantic_bundler::SemanticBundler};
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

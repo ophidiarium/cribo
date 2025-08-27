@@ -205,6 +205,7 @@ impl BundleOrchestrator {
         module_path: &Path,
         module_name: &str,
         graph: Option<&mut CriboGraph>,
+        resolver: Option<&ModuleResolver>,
     ) -> Result<ProcessedModule> {
         // Canonicalize path for consistent caching
         let canonical_path = module_path
@@ -227,7 +228,15 @@ impl BundleOrchestrator {
             // we need to add it to the graph
             let module_id = if let Some(graph) = graph {
                 if cached.module_id.is_none() {
-                    let module_id = graph.add_module(module_name.to_string(), module_path);
+                    // Get or register module ID with resolver
+                    let module_id = if let Some(resolver) = resolver {
+                        resolver.register_module(module_name.to_string(), module_path)
+                    } else {
+                        // Fallback for tests or special cases
+                        crate::resolver::ModuleId::new(999)
+                    };
+
+                    graph.add_module(module_id, module_name.to_string(), module_path);
 
                     // Perform semantic analysis
                     self.semantic_bundler
@@ -272,7 +281,15 @@ impl BundleOrchestrator {
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
-            let module_id = graph.add_module(module_name.to_string(), module_path);
+            // Get or register module ID with resolver
+            let module_id = if let Some(resolver) = resolver {
+                resolver.register_module(module_name.to_string(), module_path)
+            } else {
+                // Fallback for tests or special cases
+                crate::resolver::ModuleId::new(999)
+            };
+
+            graph.add_module(module_id, module_name.to_string(), module_path);
 
             // Semantic analysis on raw AST
             self.semantic_bundler
@@ -431,6 +448,15 @@ impl BundleOrchestrator {
         // Find the entry module name
         let entry_module_name = self.find_entry_module_name(entry_path, &resolver)?;
         info!("Entry module: {entry_module_name}");
+
+        // CRITICAL: Register the entry module FIRST to guarantee it gets ID 0
+        // This is a fundamental invariant of our architecture
+        let entry_id = resolver.register_module(entry_module_name.clone(), entry_path);
+        assert_eq!(
+            entry_id,
+            crate::resolver::ModuleId::ENTRY,
+            "Entry module must be ID 0 - bundling starts here"
+        );
 
         // Build dependency graph
         let mut build_params = GraphBuildParams {
@@ -982,7 +1008,8 @@ impl BundleOrchestrator {
             }
 
             // Process module through the pipeline (parse, semantic analysis, normalization)
-            let processed = self.process_module(&module_path, &module_name, None)?;
+            let processed =
+                self.process_module(&module_path, &module_name, None, Some(params.resolver))?;
 
             // Extract imports from the processed AST
             let imports_with_context =
@@ -1039,7 +1066,12 @@ impl BundleOrchestrator {
 
             // Re-process the module WITH graph context this time
             // This will use cache but also add to graph and do semantic analysis
-            let processed = self.process_module(&module_path, &module_name, Some(params.graph))?;
+            let processed = self.process_module(
+                &module_path,
+                &module_name,
+                Some(params.graph),
+                Some(params.resolver),
+            )?;
 
             let module_id = processed
                 .module_id
