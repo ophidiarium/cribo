@@ -54,6 +54,8 @@ pub struct Bundler<'a> {
     pub(crate) bundled_modules: FxIndexSet<ModuleId>,
     /// Modules that were inlined (not wrapper modules)
     pub(crate) inlined_modules: FxIndexSet<ModuleId>,
+    /// Modules that use wrapper functions (side effects or circular deps)
+    pub(crate) wrapper_modules: FxIndexSet<ModuleId>,
     /// Entry point path for calculating relative paths
     pub(crate) entry_path: Option<String>,
     /// Entry module name
@@ -191,6 +193,7 @@ impl<'a> Bundler<'a> {
             future_imports: FxIndexSet::default(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
+            wrapper_modules: FxIndexSet::default(),
             entry_path: None,
             entry_module_name: String::new(),
             entry_is_package_init_or_main: false,
@@ -1443,6 +1446,11 @@ impl<'a> Bundler<'a> {
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
+        
+        // Track wrapper modules in the bundler
+        for (module_id, _, _, _) in &wrapper_modules_saved {
+            self.wrapper_modules.insert(*module_id);
+        }
 
         // The dependency graph already provides the correct order
         let sorted_wrapper_modules = wrapper_modules_saved.clone();

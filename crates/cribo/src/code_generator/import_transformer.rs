@@ -1608,8 +1608,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                     ExprContext::Store,
                                                 );
                                                 let symbol_name = self
-                                                    .symbol_renames
-                                                    .get(&full_module_path)
+                                                    .bundler
+                                                    .get_module_id(&full_module_path)
+                                                    .and_then(|id| self.symbol_renames.get(&id))
                                                     .and_then(|renames| renames.get(&symbol))
                                                     .cloned()
                                                     .unwrap_or_else(|| symbol.clone());
@@ -1709,8 +1710,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 ExprContext::Store,
                                             );
                                             let symbol_name = self
-                                                .symbol_renames
-                                                .get(&full_module_path)
+                                                .bundler
+                                                .get_module_id(&full_module_path)
+                                                .and_then(|id| self.symbol_renames.get(&id))
                                                 .and_then(|renames| renames.get(&symbol))
                                                 .cloned()
                                                 .unwrap_or_else(|| symbol.clone());
@@ -2985,7 +2987,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 fn rewrite_import_with_renames(
     bundler: &Bundler,
     import_stmt: StmtImport,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     populated_modules: &mut FxIndexSet<String>,
 ) -> Vec<Stmt> {
     // Check each import individually
@@ -3255,7 +3257,7 @@ fn create_namespace_population_context<'a>(
         tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
         bundled_modules: &bundler.bundled_modules,
         modules_with_accessed_all: &bundler.modules_with_accessed_all,
-        module_info_registry: &bundler.module_info_registry,
+        wrapper_modules: &bundler.wrapper_modules,
         module_asts: &bundler.module_asts,
         symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
         global_deferred_imports: &bundler.global_deferred_imports,
@@ -3540,14 +3542,17 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
     bundler: &Bundler,
     import_from: &StmtImportFrom,
     module_name: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     is_wrapper_init: bool,
     current_module: Option<&str>,
 ) -> Vec<Stmt> {
+    let module_id = bundler
+        .get_module_id(module_name)
+        .expect("Module ID must exist for inlined module");
     log::debug!(
         "handle_imports_from_inlined_module_with_context: module_name={}, available_renames={:?}",
         module_name,
-        symbol_renames.get(module_name)
+        symbol_renames.get(&module_id)
     );
     let mut result_stmts = Vec::new();
 
@@ -3711,7 +3716,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             imported_name,
             local_name,
             renamed_symbol,
-            symbol_renames.get(module_name)
+            symbol_renames.get(&module_id)
         );
 
         // Check if the source symbol was tree-shaken
