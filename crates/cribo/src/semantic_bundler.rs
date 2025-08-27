@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use ruff_python_ast::{Expr, ModModule, Stmt};
+use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_semantic::{
     BindingFlags, BindingId, BindingKind, Module, ModuleKind, ModuleSource, SemanticModel,
 };
@@ -573,128 +573,5 @@ impl SemanticBundler {
     /// Get symbol registry
     pub fn symbol_registry(&self) -> &SymbolRegistry {
         &self.global_symbols
-    }
-
-    /// Analyze global variable usage in a module
-    pub fn analyze_module_globals(
-        &self,
-        _module_id: ModuleId,
-        ast: &ModModule,
-        module_name: &str,
-    ) -> ModuleGlobalInfo {
-        let mut info = ModuleGlobalInfo {
-            module_name: module_name.to_string(),
-            ..Default::default()
-        };
-
-        // First pass: collect module-level variables
-        for stmt in &ast.body {
-            match stmt {
-                Stmt::Assign(assign) => {
-                    for target in &assign.targets {
-                        if let Expr::Name(name) = target {
-                            info.module_level_vars.insert(name.id.to_string());
-                        }
-                    }
-                }
-                Stmt::AnnAssign(ann_assign) => {
-                    if let Expr::Name(name) = ann_assign.target.as_ref() {
-                        info.module_level_vars.insert(name.id.to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Second pass: analyze global usage in functions
-        GlobalUsageVisitor::new(&mut info).visit_module(ast);
-
-        info
-    }
-}
-
-/// Visitor that tracks global variable usage in a module
-pub struct GlobalUsageVisitor<'a> {
-    info: &'a mut ModuleGlobalInfo,
-    current_function: Option<String>,
-}
-
-impl<'a> GlobalUsageVisitor<'a> {
-    pub fn new(info: &'a mut ModuleGlobalInfo) -> Self {
-        Self {
-            info,
-            current_function: None,
-        }
-    }
-
-    pub fn visit_module(&mut self, module: &ModModule) {
-        for stmt in &module.body {
-            self.visit_stmt(stmt);
-        }
-    }
-
-    fn track_global_assignments(&mut self, targets: &[Expr]) {
-        for target in targets {
-            if let Expr::Name(name) = target {
-                let name_str = name.id.to_string();
-                if self.info.global_declarations.contains_key(&name_str) {
-                    // Global write detected but not tracked
-                }
-            }
-        }
-    }
-
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::FunctionDef(func) => {
-                let old_function = self.current_function.clone();
-                self.current_function = Some(func.name.to_string());
-
-                // Visit function body
-                for stmt in &func.body {
-                    self.visit_stmt(stmt);
-                }
-
-                self.current_function = old_function;
-            }
-            Stmt::Global(global_stmt) => {
-                if let Some(ref func_name) = self.current_function {
-                    self.info.functions_using_globals.insert(func_name.clone());
-
-                    for name in &global_stmt.names {
-                        let name_str = name.to_string();
-                        self.info
-                            .global_declarations
-                            .entry(name_str)
-                            .or_default()
-                            .push(global_stmt.range());
-                    }
-                }
-            }
-            Stmt::ClassDef(class) => {
-                // Visit methods within the class
-                for stmt in &class.body {
-                    self.visit_stmt(stmt);
-                }
-            }
-            Stmt::Assign(assign) => {
-                // Check if we're assigning to a global
-                if self.current_function.is_some() {
-                    self.track_global_assignments(&assign.targets);
-                }
-                // Statement processed
-            }
-            Stmt::AugAssign(aug_assign) => {
-                // Check if we're augmented assigning to a global
-                if self.current_function.is_some() {
-                    // AugAssign has a single target, not a list
-                    self.track_global_assignments(&[(*aug_assign.target).clone()]);
-                }
-                // Statement processed
-            }
-            _ => {
-                // Statement processed
-            }
-        }
     }
 }

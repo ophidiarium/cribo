@@ -573,34 +573,38 @@ impl BundleOrchestrator {
         graph: &CriboGraph,
         circular_dep_analysis: Option<&CircularDependencyAnalysis>,
     ) -> Result<Vec<(String, PathBuf, Vec<String>)>> {
-        debug!("get_sorted_modules_from_graph called with circular_dep_analysis: {}", 
-               circular_dep_analysis.is_some());
-        
+        debug!(
+            "get_sorted_modules_from_graph called with circular_dep_analysis: {}",
+            circular_dep_analysis.is_some()
+        );
+
         let mut module_ids = if let Some(analysis) = circular_dep_analysis {
             // We have circular dependencies but they're potentially resolvable
             // Use a custom ordering that attempts to break cycles
-            debug!("Using custom cycle resolution for {} cycles", 
-                   analysis.resolvable_cycles.len() + analysis.unresolvable_cycles.len());
+            debug!(
+                "Using custom cycle resolution for {} cycles",
+                analysis.resolvable_cycles.len() + analysis.unresolvable_cycles.len()
+            );
             self.get_modules_with_cycle_resolution(graph, analysis)
         } else {
             debug!("Using standard topological sort");
             graph.topological_sort()?
         };
-        
+
         // IMPORTANT: For bundling, we need to reverse the topological sort!
         // The topological sort gives us an order where dependents come before dependencies
         // (i.e., modules that import come before modules that are imported from).
         // But for bundling, we need to define modules before they're used,
         // so we need dependencies to come before dependents.
         module_ids.reverse();
-        
+
         debug!("Final module order after reversal:");
         for &module_id in &module_ids {
             if let Some(module) = graph.modules.get(&module_id) {
                 debug!("  - {}", module.module_name);
             }
         }
-        
+
         // Convert module IDs to module data tuples
         let mut sorted_modules = Vec::new();
         for module_id in module_ids {
@@ -754,7 +758,10 @@ impl BundleOrchestrator {
         graph: &CriboGraph,
         analysis: &crate::analyzers::types::CircularDependencyAnalysis,
     ) -> Vec<crate::cribo_graph::ModuleId> {
-        debug!("get_modules_with_cycle_resolution called with {} resolvable cycles", analysis.resolvable_cycles.len());
+        debug!(
+            "get_modules_with_cycle_resolution called with {} resolvable cycles",
+            analysis.resolvable_cycles.len()
+        );
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components
 
@@ -779,9 +786,13 @@ impl BundleOrchestrator {
                 }
             });
 
-        debug!("Modules in cycle: {:?}", cycle_module_names);
-        debug!("Number of cycle modules: {}, non-cycle modules: {}", cycle_ids.len(), non_cycle_ids.len());
-        
+        debug!("Modules in cycle: {cycle_module_names:?}");
+        debug!(
+            "Number of cycle modules: {}, non-cycle modules: {}",
+            cycle_ids.len(),
+            non_cycle_ids.len()
+        );
+
         // For non-cycle modules, we can still use topological sorting on the subgraph
         let mut result = Vec::new();
 
@@ -793,7 +804,7 @@ impl BundleOrchestrator {
         let mut cycle_module_order = Vec::new();
         let mut visited = IndexSet::new();
         let mut stack = IndexSet::new();
-        
+
         // Helper closure for DFS-based topological sort on cycle modules
         fn visit_cycle_module(
             module_id: crate::cribo_graph::ModuleId,
@@ -811,9 +822,9 @@ impl BundleOrchestrator {
                 // Just skip this edge
                 return;
             }
-            
+
             stack.insert(module_id);
-            
+
             // Visit dependencies that are also in the cycle
             // Get all modules that this module depends on
             let dependencies = graph.get_dependencies(module_id);
@@ -822,17 +833,17 @@ impl BundleOrchestrator {
                     visit_cycle_module(dep_module_id, graph, cycle_ids, visited, stack, result);
                 }
             }
-            
+
             stack.shift_remove(&module_id);
             visited.insert(module_id);
             result.push(module_id);
         }
-        
+
         // Visit all cycle modules
         // ALL modules in a circular dependency cycle are wrapper modules
         // We need to process them using DFS to get the right order
         debug!("Processing {} cycle modules", cycle_ids.len());
-        
+
         for &module_id in &cycle_ids {
             visit_cycle_module(
                 module_id,
@@ -843,7 +854,7 @@ impl BundleOrchestrator {
                 &mut cycle_module_order,
             );
         }
-        
+
         // Debug log the cycle module order
         debug!("Cycle module order (before reversal):");
         for &module_id in &cycle_module_order {
@@ -851,7 +862,7 @@ impl BundleOrchestrator {
                 debug!("  - {}", module.module_name);
             }
         }
-        
+
         result.extend(cycle_module_order);
 
         result

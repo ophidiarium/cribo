@@ -14,9 +14,7 @@ use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{expressions, statements},
     code_generator::{
-        bundler::Bundler,
-        import_deduplicator,
-        module_registry::sanitize_module_name_for_identifier,
+        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -3518,10 +3516,12 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         if is_wrapper_init {
             // In wrapper init functions, always set the module attribute to the resolved symbol
             if let Some(current_mod) = current_module {
-                let module_var = crate::code_generator::module_registry::sanitize_module_name_for_identifier(current_mod);
+                let module_var =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        current_mod,
+                    );
                 log::debug!(
-                    "Creating module attribute assignment in wrapper init: {}.{} = {}",
-                    module_var, local_name, renamed_symbol
+                    "Creating module attribute assignment in wrapper init: {module_var}.{local_name} = {renamed_symbol}"
                 );
                 result_stmts.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
