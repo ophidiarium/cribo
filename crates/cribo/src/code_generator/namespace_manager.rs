@@ -60,7 +60,7 @@ pub struct NamespacePopulationContext<'a> {
     pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<ModuleId, FxIndexSet<String>>>,
     pub bundled_modules: &'a FxIndexSet<ModuleId>,
     pub modules_with_accessed_all: &'a FxIndexSet<(ModuleId, String)>,
-    pub module_info_registry: &'a FxIndexMap<ModuleId, crate::orchestrator::ModuleRegistry>,
+    pub wrapper_modules: &'a FxIndexSet<ModuleId>,
     pub module_asts: &'a Option<Vec<(ModuleId, ModModule, PathBuf, String)>>,
     pub symbols_populated_after_deferred: &'a FxIndexSet<(ModuleId, String)>,
     pub global_deferred_imports: &'a FxIndexMap<(ModuleId, String), String>,
@@ -739,7 +739,7 @@ pub fn populate_namespace_with_module_symbols(
             let full_submodule_path = format!("{module_name}.{symbol_name}");
             let is_bundled_submodule = ctx.bundled_modules.contains(&full_submodule_path);
             let is_inlined = ctx.inlined_modules.contains(&full_submodule_path);
-            let uses_init_function = ctx.module_info_registry.contains_key(&full_submodule_path);
+            let uses_init_function = ctx.wrapper_modules.contains(&full_submodule_path);
 
             if is_bundled_submodule {
                 debug!(
@@ -919,7 +919,7 @@ pub fn populate_namespace_with_module_symbols(
 
             // For wrapper modules, check if the symbol is imported from an inlined submodule
             // These symbols are already added via module attribute assignments
-            if ctx.module_info_registry.contains_key(module_name)
+            if ctx.wrapper_modules.contains(module_name)
                 && is_symbol_from_inlined_submodule(ctx, module_name, symbol_name)
             {
                 continue 'symbol_loop;
@@ -927,10 +927,9 @@ pub fn populate_namespace_with_module_symbols(
 
             // Check if this is a submodule that uses an init function
             let full_submodule_path = format!("{module_name}.{symbol_name}");
-            let uses_init_function = ctx
-                .module_registry
-                .get(&full_submodule_path)
-                .and_then(|synthetic_name| ctx.init_functions.get(synthetic_name))
+            let submodule_id = ctx.resolver.get_module_id_by_name(&full_submodule_path);
+            let uses_init_function = submodule_id
+                .and_then(|id| ctx.module_init_functions.get(&id))
                 .is_some();
 
             if uses_init_function {

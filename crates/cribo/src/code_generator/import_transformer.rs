@@ -25,7 +25,7 @@ pub struct RecursiveImportTransformerParams<'a> {
     pub bundler: &'a Bundler<'a>,
     pub module_name: &'a str,
     pub module_path: Option<&'a Path>,
-    pub symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
+    pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     pub deferred_imports: &'a mut Vec<Stmt>,
     pub is_entry_module: bool,
     pub is_wrapper_init: bool,
@@ -38,7 +38,7 @@ pub struct RecursiveImportTransformer<'a> {
     bundler: &'a Bundler<'a>,
     module_name: &'a str,
     module_path: Option<&'a Path>,
-    symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     /// Maps import aliases to their actual module names
     /// e.g., "`helper_utils`" -> "utils.helpers"
     pub(crate) import_aliases: FxIndexMap<String, String>,
@@ -1848,14 +1848,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 }
 
                                 // Check if the symbol was renamed during bundling
-                                let actual_name =
-                                    if let Some(renames) = self.symbol_renames.get(resolved) {
-                                        renames
-                                            .get(imported_name)
-                                            .map_or(imported_name, String::as_str)
-                                    } else {
-                                        imported_name
-                                    };
+                                let actual_name = if let Some(resolved_id) =
+                                    self.bundler.get_module_id(resolved)
+                                    && let Some(renames) = self.symbol_renames.get(&resolved_id)
+                                {
+                                    renames
+                                        .get(imported_name)
+                                        .map_or(imported_name, String::as_str)
+                                } else {
+                                    imported_name
+                                };
 
                                 // Create assignment: local_name = actual_name
                                 if local_name != actual_name {
@@ -2260,8 +2262,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 );
 
                                 // Check if this symbol was renamed during inlining
-                                let new_expr = if let Some(module_renames) =
-                                    self.symbol_renames.get(module_name)
+                                let new_expr = if let Some(module_id) =
+                                    self.bundler.get_module_id(module_name)
+                                    && let Some(module_renames) = self.symbol_renames.get(&module_id)
                                 {
                                     if let Some(renamed) = module_renames.get(attr_name) {
                                         // Use the renamed symbol
@@ -2414,8 +2417,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         );
 
                                         // Check if this symbol was renamed during inlining
-                                        let new_expr = if let Some(module_renames) =
-                                            self.symbol_renames.get(&actual_module)
+                                        let new_expr = if let Some(module_id) =
+                                            self.bundler.get_module_id(&actual_module)
+                                            && let Some(module_renames) =
+                                                self.symbol_renames.get(&module_id)
                                         {
                                             if let Some(renamed) = module_renames.get(attr_name) {
                                                 // Use the renamed symbol
@@ -2505,8 +2510,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         let final_attr = &remaining_attrs[0];
 
                                         // Check if this symbol was renamed during inlining
-                                        if let Some(module_renames) =
-                                            self.symbol_renames.get(&potential_module)
+                                        if let Some(module_id) =
+                                            self.bundler.get_module_id(&potential_module)
+                                            && let Some(module_renames) =
+                                                self.symbol_renames.get(&module_id)
                                             && let Some(renamed) = module_renames.get(final_attr)
                                         {
                                             log::debug!(
@@ -2881,10 +2888,11 @@ impl<'a> RecursiveImportTransformer<'a> {
             .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
         {
             // This is an inlined module - create namespace object
-            self.create_namespace_call_for_inlined_module(
-                module_name,
-                self.symbol_renames.get(module_name),
-            )
+            let module_renames = self
+                .bundler
+                .get_module_id(module_name)
+                .and_then(|id| self.symbol_renames.get(&id));
+            self.create_namespace_call_for_inlined_module(module_name, module_renames)
         } else {
             // This module wasn't bundled - shouldn't happen for static imports
             log::warn!("Module '{module_name}' referenced in static import but not bundled");
@@ -3549,11 +3557,14 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         log::debug!("Handling wildcard import from inlined module '{module_name}'");
 
         // Get the module's exports (either from __all__ or all non-private symbols)
+        let module_id = bundler
+            .get_module_id(module_name)
+            .expect("Module ID must exist for inlined module");
         let module_exports =
-            if let Some(Some(export_list)) = bundler.module_exports.get(module_name) {
+            if let Some(Some(export_list)) = bundler.module_exports.get(&module_id) {
                 // Module has __all__ defined, use it
                 export_list.clone()
-            } else if let Some(semantic_exports) = bundler.semantic_exports.get(module_name) {
+            } else if let Some(semantic_exports) = bundler.semantic_exports.get(&module_id) {
                 // Use semantic exports from analysis
                 semantic_exports.iter().cloned().collect()
             } else {
@@ -3572,12 +3583,12 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         );
 
         // Get symbol renames for this module
-        let module_renames = symbol_renames.get(module_name);
+        let module_renames = symbol_renames.get(&module_id);
 
         // Cache explicit __all__ (if any) to avoid repeated lookups
         let explicit_all = bundler
             .module_exports
-            .get(module_name)
+            .get(&module_id)
             .and_then(|exports| exports.as_ref());
 
         for symbol_name in &module_exports {
