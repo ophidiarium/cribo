@@ -49,7 +49,7 @@ pub struct RecursiveImportTransformer<'a> {
     /// Flag indicating if we're inside a wrapper module's init function
     is_wrapper_init: bool,
     /// Reference to global deferred imports registry
-    global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
+    global_deferred_imports: Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
     /// Track local variable assignments to avoid treating them as module aliases
     local_variables: FxIndexSet<String>,
     /// Track if any `importlib.import_module` calls were transformed
@@ -1193,14 +1193,19 @@ impl<'a> RecursiveImportTransformer<'a> {
                 if let Some(global_deferred) = self.global_deferred_imports {
                     // Check each symbol to see if it's already been deferred
                     let mut all_symbols_deferred = true;
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str(); // The actual name being imported
-                        if !global_deferred
-                            .contains_key(&(resolved.to_string(), imported_name.to_string()))
-                        {
-                            all_symbols_deferred = false;
-                            break;
+                    if let Some(module_id) = self.bundler.resolver.get_module_id_by_name(&resolved) {
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str(); // The actual name being imported
+                            if !global_deferred
+                                .contains_key(&(module_id, imported_name.to_string()))
+                            {
+                                all_symbols_deferred = false;
+                                break;
+                            }
                         }
+                    } else {
+                        // Module not found, can't be deferred
+                        all_symbols_deferred = false;
                     }
 
                     if all_symbols_deferred {

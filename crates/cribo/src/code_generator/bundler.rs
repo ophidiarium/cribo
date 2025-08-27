@@ -1958,16 +1958,16 @@ impl<'a> Bundler<'a> {
                 )
                 .find_map(|name| {
                     if name.contains('.') {
-                        name.split('.').next()
+                        name.split('.').next().map(|s| s.to_string())
                     } else if name != "__init__" {
-                        Some(name.as_str())
+                        Some(name.to_string())
                     } else {
                         None
                     }
                 })
-                .unwrap_or("__init__")
+                .unwrap_or_else(|| "__init__".to_string())
         } else {
-            &self.entry_module_name
+            self.entry_module_name.clone()
         };
 
         // Collect already-defined symbols to avoid overwriting them
@@ -2068,20 +2068,21 @@ impl<'a> Bundler<'a> {
             // If the entry module is part of circular dependencies, reorder its statements
             // The entry module might be named "__init__" while the circular module is tracked as "yaml" (or similar package name)
             let mut reorder = false;
-            let mut lookup_name = module_name.as_str();
-
-            if crate::util::is_init_module(&module_name) {
+            let lookup_name = if crate::util::is_init_module(&module_name) {
                 // For __init__ modules, we need to find the corresponding package name
                 // in the circular modules list
                 let package_name = self
                     .circular_modules
                     .iter()
                     .filter_map(|id| self.resolver.get_module_name(*id))
-                    .find(|name| !name.contains('.') && !crate::util::is_init_module(&name));
+                    .find(|name| !name.contains('.') && !crate::util::is_init_module(&name))
+                    .map(|s| s.to_string());
 
-                if let Some(ref pkg_name) = package_name {
+                if package_name.is_some() {
                     reorder = true;
-                    lookup_name = pkg_name.as_str();
+                    package_name.unwrap()
+                } else {
+                    module_name.clone()
                 }
             } else if self
                 .resolver
@@ -2089,14 +2090,17 @@ impl<'a> Bundler<'a> {
                 .is_some_and(|id| self.circular_modules.contains(&id))
             {
                 reorder = true;
-            }
+                module_name.clone()
+            } else {
+                module_name.clone()
+            };
 
             if reorder {
                 log::debug!(
                     "Entry module '{module_name}' is part of circular dependencies, reordering statements"
                 );
                 ast.body = self.reorder_statements_for_circular_module(
-                    lookup_name,
+                    &lookup_name,
                     ast.body,
                     python_version,
                 );
@@ -2132,17 +2136,6 @@ impl<'a> Bundler<'a> {
 
             // Transform imports in the entry module
             {
-                // Convert global_deferred_imports to String-based for RecursiveImportTransformer
-                let global_deferred_imports_strings: FxIndexMap<(String, String), String> = self
-                    .global_deferred_imports
-                    .iter()
-                    .filter_map(|((from_id, symbol), to_id)| {
-                        let from_name = self.resolver.get_module_name(*from_id)?;
-                        let to_name = self.resolver.get_module_name(*to_id)?;
-                        Some(((from_name, symbol.clone()), to_name))
-                    })
-                    .collect();
-
                 let mut transformer = RecursiveImportTransformer::new(
                     RecursiveImportTransformerParams {
                         bundler: self,
@@ -2152,7 +2145,7 @@ impl<'a> Bundler<'a> {
                         deferred_imports: &mut entry_deferred_imports,
                         is_entry_module: true,  // This is the entry module
                         is_wrapper_init: false, // Not a wrapper init
-                        global_deferred_imports: Some(&global_deferred_imports_strings), /* Pass global deferred imports for checking */
+                        global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports directly */
                         python_version,
                     },
                 );

@@ -346,8 +346,8 @@ pub fn transform_module_to_init_function<'a>(
                             let module_name = tree_shaking_keep
                                 .iter()
                                 .find(|(_, symbols)| symbols.contains(symbol))
-                                .and_then(|(id, _)| bundler.resolver.get_module_name(*id).map(|s| s.as_str()))
-                                .unwrap_or("unknown");
+                                .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
+                                .unwrap_or_else(|| "unknown".to_string());
                             debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
                         }
                         true
@@ -1020,12 +1020,16 @@ pub fn transform_module_to_init_function<'a>(
     let mut submodules_to_add = Vec::new();
 
     // Collect all direct submodules
-    for (module_name, _) in &bundler.bundled_modules {
+    for module_id in &bundler.bundled_modules {
+        let module_name = bundler
+            .resolver
+            .get_module_name(*module_id)
+            .expect("Module name should exist");
         if module_name.starts_with(&current_module_prefix) {
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
             if !relative_name.contains('.') {
-                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
+                submodules_to_add.push((module_name.to_string(), relative_name.to_string()));
             }
         }
     }
@@ -2693,11 +2697,13 @@ fn should_include_symbol(
         // Even if not in module_scope_symbols, check if it's a private symbol imported by others
         if symbol_name.starts_with('_')
             && let Some(module_asts) = &bundler.module_asts
+            && let Some(module_id) = bundler.resolver.get_module_id_by_name(module_name)
             && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
                 module_asts,
-                module_name,
+                module_id,
                 symbol_name,
                 Some(&bundler.module_exports),
+                &bundler.resolver,
             )
         {
             log::debug!(
