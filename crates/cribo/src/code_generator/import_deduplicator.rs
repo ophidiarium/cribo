@@ -102,17 +102,22 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
 
 /// Check if a module is bundled or is a package containing bundled modules
 pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str) -> bool {
-    // Direct check
-    if bundler.bundled_modules.contains(module_name) {
+    // Direct check - convert module_name to ModuleId for lookup
+    if bundler
+        .get_module_id(module_name)
+        .is_some_and(|id| bundler.bundled_modules.contains(&id))
+    {
         return true;
     }
     // Check if it's a package containing bundled modules
     // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
     let package_prefix = format!("{module_name}.");
-    bundler
-        .bundled_modules
-        .iter()
-        .any(|bundled| bundled.starts_with(&package_prefix))
+    bundler.bundled_modules.iter().any(|bundled_id| {
+        bundler
+            .resolver
+            .get_module_name(*bundled_id)
+            .is_some_and(|name| name.starts_with(&package_prefix))
+    })
 }
 
 /// Trim unused imports from modules using dependency graph analysis

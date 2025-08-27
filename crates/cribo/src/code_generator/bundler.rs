@@ -29,7 +29,7 @@ use crate::{
         namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
-    resolver::ModuleResolver,
+    resolver::{ModuleId, ModuleResolver},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
     visitors::LocalVarCollector,
@@ -44,16 +44,16 @@ struct TransformFunctionParams<'a> {
 
 /// Bundler orchestrates the code generation phase of bundling
 pub struct Bundler<'a> {
-    /// Map from original module name to synthetic module name
-    pub(crate) module_registry: FxIndexMap<String, String>,
-    /// Map from synthetic module name to init function name
-    pub(crate) init_functions: FxIndexMap<String, String>,
+    /// Map from module ID to synthetic name for wrapper modules
+    pub(crate) module_synthetic_names: FxIndexMap<ModuleId, String>,
+    /// Map from module ID to init function name (for wrapper modules)
+    pub(crate) module_init_functions: FxIndexMap<ModuleId, String>,
     /// Collected future imports
     pub(crate) future_imports: FxIndexSet<String>,
     /// Track which modules have been bundled
-    pub(crate) bundled_modules: FxIndexSet<String>,
+    pub(crate) bundled_modules: FxIndexSet<ModuleId>,
     /// Modules that were inlined (not wrapper modules)
-    pub(crate) inlined_modules: FxIndexSet<String>,
+    pub(crate) inlined_modules: FxIndexSet<ModuleId>,
     /// Entry point path for calculating relative paths
     pub(crate) entry_path: Option<String>,
     /// Entry module name
@@ -61,29 +61,29 @@ pub struct Bundler<'a> {
     /// Whether the entry is __init__.py or __main__.py
     pub(crate) entry_is_package_init_or_main: bool,
     /// Module export information (for __all__ handling)
-    pub(crate) module_exports: FxIndexMap<String, Option<Vec<String>>>,
+    pub(crate) module_exports: FxIndexMap<ModuleId, Option<Vec<String>>>,
     /// Semantic export information (includes re-exports from child modules)
-    pub(crate) semantic_exports: FxIndexMap<String, FxIndexSet<String>>,
+    pub(crate) semantic_exports: FxIndexMap<ModuleId, FxIndexSet<String>>,
     /// Lifted global declarations to add at module top level
     /// Modules that are imported as namespaces (e.g., from package import module)
-    /// Maps module name to set of importing modules
-    pub(crate) namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
+    /// Maps module ID to set of importing module IDs
+    pub(crate) namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
     /// Reference to the central module registry
     pub(crate) module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Reference to the module resolver
     pub(crate) resolver: &'a ModuleResolver,
     /// Modules that are part of circular dependencies
-    pub(crate) circular_modules: FxIndexSet<String>,
+    pub(crate) circular_modules: FxIndexSet<ModuleId>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     /// Hard dependencies that need to be hoisted
     pub(crate) hard_dependencies: Vec<HardDependency>,
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
-    pub(crate) module_asts: Option<Vec<(String, ModModule, PathBuf, String)>>,
+    pub(crate) module_asts: Option<Vec<(ModuleId, ModModule, PathBuf, String)>>,
     /// Global registry of deferred imports to prevent duplication
-    /// Maps (`module_name`, `symbol_name`) to the source module that deferred it
-    pub(crate) global_deferred_imports: FxIndexMap<(String, String), String>,
+    /// Maps (`module_id`, `symbol_name`) to the source module ID that deferred it
+    pub(crate) global_deferred_imports: FxIndexMap<(ModuleId, String), ModuleId>,
     /// Track all namespaces that need to be created before module initialization
     /// Central registry of all namespaces that need to be created
     /// Maps sanitized name to `NamespaceInfo`
@@ -95,23 +95,19 @@ pub struct Bundler<'a> {
     /// Reference to the dependency graph for module relationship queries
     pub(crate) graph: Option<&'a CriboGraph>,
     /// Modules that have explicit __all__ defined
-    pub(crate) modules_with_explicit_all: FxIndexSet<String>,
+    pub(crate) modules_with_explicit_all: FxIndexSet<ModuleId>,
     /// Transformation context for tracking node mappings
     pub(crate) transformation_context: TransformationContext,
     /// Module/symbol pairs that should be kept after tree shaking
-    /// Maps module name to set of symbols to keep in that module
-    pub(crate) tree_shaking_keep_symbols: Option<FxIndexMap<String, FxIndexSet<String>>>,
-    /// Track namespaces that were created with initial symbols
-    /// These don't need symbol population via
-    /// `populate_namespace_with_module_symbols_with_renames`
-    pub(crate) namespaces_with_initial_symbols: FxIndexSet<String>,
+    /// Maps module ID to set of symbols to keep in that module
+    pub(crate) tree_shaking_keep_symbols: Option<FxIndexMap<ModuleId, FxIndexSet<String>>>,
     /// Track which namespace symbols have been populated after deferred imports
-    /// Format: (`module_name`, `symbol_name`)
-    pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
+    /// Format: (`module_id`, `symbol_name`)
+    pub(crate) symbols_populated_after_deferred: FxIndexSet<(ModuleId, String)>,
     /// Track modules whose __all__ attribute is accessed in the code
-    /// Set of (`accessing_module`, `accessed_alias`) pairs to handle alias collisions
+    /// Set of (`accessing_module_id`, `accessed_alias`) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
-    pub(crate) modules_with_accessed_all: FxIndexSet<(String, String)>,
+    pub(crate) modules_with_accessed_all: FxIndexSet<(ModuleId, String)>,
     /// Global cache of all kept symbols for O(1) lookup
     /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
     pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
@@ -123,7 +119,7 @@ pub struct Bundler<'a> {
 impl std::fmt::Debug for Bundler<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bundler")
-            .field("module_registry", &self.module_registry)
+            .field("module_synthetic_names", &self.module_synthetic_names)
             .field("entry_module_name", &self.entry_module_name)
             .field("bundled_modules", &self.bundled_modules)
             .field("inlined_modules", &self.inlined_modules)
@@ -133,6 +129,24 @@ impl std::fmt::Debug for Bundler<'_> {
 
 // Main implementation
 impl<'a> Bundler<'a> {
+    /// Helper to get module ID from name during transition
+    pub(crate) fn get_module_id(&self, module_name: &str) -> Option<ModuleId> {
+        self.resolver.get_module_id_by_name(module_name)
+    }
+
+    /// Check if a module has a synthetic name (i.e., is a wrapper module)
+    fn has_synthetic_name(&self, module_name: &str) -> bool {
+        self.get_module_id(module_name)
+            .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
+    }
+
+    /// Get the synthetic name for a module if it has one
+    fn get_synthetic_name(&self, module_name: &str) -> Option<&str> {
+        self.get_module_id(module_name)
+            .and_then(|id| self.module_synthetic_names.get(&id))
+            .map(|s| s.as_str())
+    }
+
     /// Check if a symbol is kept by tree shaking
     pub(crate) fn is_symbol_kept_by_tree_shaking(
         &self,
@@ -140,9 +154,15 @@ impl<'a> Bundler<'a> {
         symbol_name: &str,
     ) -> bool {
         match &self.tree_shaking_keep_symbols {
-            Some(kept_symbols) => kept_symbols
-                .get(module_name)
-                .is_some_and(|symbols| symbols.contains(symbol_name)),
+            Some(kept_symbols) => {
+                if let Some(module_id) = self.get_module_id(module_name) {
+                    kept_symbols
+                        .get(&module_id)
+                        .is_some_and(|symbols| symbols.contains(symbol_name))
+                } else {
+                    true // Module not found, assume kept
+                }
+            }
             None => true, // No tree shaking, all symbols are kept
         }
     }
@@ -166,8 +186,8 @@ impl<'a> Bundler<'a> {
         resolver: &'a ModuleResolver,
     ) -> Self {
         Self {
-            module_registry: FxIndexMap::default(),
-            init_functions: FxIndexMap::default(),
+            module_synthetic_names: FxIndexMap::default(),
+            module_init_functions: FxIndexMap::default(),
             future_imports: FxIndexSet::default(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
@@ -191,7 +211,6 @@ impl<'a> Bundler<'a> {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
-            namespaces_with_initial_symbols: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,
@@ -242,7 +261,9 @@ impl<'a> Bundler<'a> {
             log::debug!("Handling wildcard import from wrapper module '{module_name}'");
 
             // Ensure the module is initialized
-            if self.module_registry.contains_key(module_name)
+            if self
+                .get_module_id(module_name)
+                .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
                 && !locally_initialized.contains(module_name)
             {
                 assignments.extend(
@@ -260,72 +281,76 @@ impl<'a> Bundler<'a> {
             // all known exports
 
             // Get the module's exports (either from __all__ or all non-private symbols)
-            let module_exports =
-                if let Some(Some(export_list)) = self.module_exports.get(module_name) {
+            let module_exports = if let Some(module_id) = self.get_module_id(module_name) {
+                if let Some(Some(export_list)) = self.module_exports.get(&module_id) {
                     // Module has __all__ defined, use it
                     export_list.clone()
-                } else if let Some(semantic_exports) = self.semantic_exports.get(module_name) {
+                } else if let Some(semantic_exports) = self.semantic_exports.get(&module_id) {
                     // Use semantic exports from analysis
                     semantic_exports.iter().cloned().collect()
                 } else {
                     // Fall back to dynamic copying if we don't have static information
-                    log::debug!(
-                        "No static export information for module '{module_name}', using dynamic \
+                    vec![]
+                }
+            } else {
+                // Fall back to dynamic copying if we don't have static information
+                log::debug!(
+                    "No static export information for module '{module_name}', using dynamic \
                          copying"
-                    );
+                );
 
-                    let module_expr = expressions::module_reference(module_name, ExprContext::Load);
+                let module_expr = expressions::module_reference(module_name, ExprContext::Load);
 
-                    // Create: for __cribo_attr in dir(module):
-                    //             if not __cribo_attr.startswith('_'):
-                    //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
-                    let attr_var = "__cribo_attr";
-                    let dir_call = expressions::call(
-                        expressions::name("dir", ExprContext::Load),
-                        vec![module_expr.clone()],
-                        vec![],
-                    );
+                // Create: for __cribo_attr in dir(module):
+                //             if not __cribo_attr.startswith('_'):
+                //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
+                let attr_var = "__cribo_attr";
+                let dir_call = expressions::call(
+                    expressions::name("dir", ExprContext::Load),
+                    vec![module_expr.clone()],
+                    vec![],
+                );
 
-                    let for_loop = statements::for_loop(
-                        attr_var,
-                        dir_call,
-                        vec![statements::if_stmt(
-                            expressions::unary_op(
-                                ruff_python_ast::UnaryOp::Not,
-                                expressions::call(
-                                    expressions::attribute(
-                                        expressions::name(attr_var, ExprContext::Load),
-                                        "startswith",
-                                        ExprContext::Load,
-                                    ),
-                                    vec![expressions::string_literal("_")],
-                                    vec![],
+                let for_loop = statements::for_loop(
+                    attr_var,
+                    dir_call,
+                    vec![statements::if_stmt(
+                        expressions::unary_op(
+                            ruff_python_ast::UnaryOp::Not,
+                            expressions::call(
+                                expressions::attribute(
+                                    expressions::name(attr_var, ExprContext::Load),
+                                    "startswith",
+                                    ExprContext::Load,
                                 ),
+                                vec![expressions::string_literal("_")],
+                                vec![],
                             ),
-                            vec![statements::subscript_assign(
-                                expressions::call(
-                                    expressions::name("globals", ExprContext::Load),
-                                    vec![],
-                                    vec![],
-                                ),
-                                expressions::name(attr_var, ExprContext::Load),
-                                expressions::call(
-                                    expressions::name("getattr", ExprContext::Load),
-                                    vec![
-                                        module_expr.clone(),
-                                        expressions::name(attr_var, ExprContext::Load),
-                                    ],
-                                    vec![],
-                                ),
-                            )],
-                            vec![],
+                        ),
+                        vec![statements::subscript_assign(
+                            expressions::call(
+                                expressions::name("globals", ExprContext::Load),
+                                vec![],
+                                vec![],
+                            ),
+                            expressions::name(attr_var, ExprContext::Load),
+                            expressions::call(
+                                expressions::name("getattr", ExprContext::Load),
+                                vec![
+                                    module_expr.clone(),
+                                    expressions::name(attr_var, ExprContext::Load),
+                                ],
+                                vec![],
+                            ),
                         )],
                         vec![],
-                    );
+                    )],
+                    vec![],
+                );
 
-                    assignments.push(for_loop);
-                    return assignments;
-                };
+                assignments.push(for_loop);
+                return assignments;
+            };
 
             // Generate static assignments for each exported symbol
             log::debug!(
@@ -343,8 +368,8 @@ impl<'a> Bundler<'a> {
 
             // Cache explicit __all__ (if any) to avoid repeated lookups
             let explicit_all = self
-                .module_exports
-                .get(module_name)
+                .get_module_id(module_name)
+                .and_then(|id| self.module_exports.get(&id))
                 .and_then(|exports| exports.as_ref());
 
             for symbol_name in &module_exports {
@@ -401,17 +426,22 @@ impl<'a> Bundler<'a> {
 
             // First check if the parent module has an __init__.py (is a wrapper module)
             // and might re-export this name
-            let parent_is_wrapper = self.module_registry.contains_key(module_name);
-            let submodule_exists = self.bundled_modules.contains(&full_module_path)
-                && (self.module_registry.contains_key(&full_module_path)
-                    || self.inlined_modules.contains(&full_module_path));
+            let parent_is_wrapper = self.has_synthetic_name(module_name);
+            let submodule_exists = self.get_module_id(&full_module_path).is_some_and(|id| {
+                self.bundled_modules.contains(&id)
+                    && (self.has_synthetic_name(&full_module_path)
+                        || self.inlined_modules.contains(&id))
+            });
 
             // If both the parent is a wrapper and a submodule exists, we need to decide
             // In Python, attributes from __init__.py take precedence over submodules
             // So we should prefer the attribute unless we have evidence it's not re-exported
             let importing_submodule = if parent_is_wrapper && submodule_exists {
                 // Check if the parent module explicitly exports this name
-                if let Some(Some(export_list)) = self.module_exports.get(module_name) {
+                if let Some(Some(export_list)) = self
+                    .get_module_id(module_name)
+                    .and_then(|id| self.module_exports.get(&id))
+                {
                     // If __all__ is defined and doesn't include this name, it's the submodule
                     !export_list.contains(&imported_name.to_string())
                 } else {
@@ -435,22 +465,21 @@ impl<'a> Bundler<'a> {
                     current_module.is_some_and(|curr| curr.starts_with(&format!("{module_name}.")));
 
                 // Check if parent module should be initialized
-                let should_initialize_parent = self.module_registry.contains_key(module_name)
+                let should_initialize_parent = self.has_synthetic_name(module_name)
                     && !locally_initialized.contains(module_name)
                     && current_module != Some(module_name) // Prevent self-initialization
                     && !is_submodule_of_target; // Prevent parent initialization from submodule
 
                 // Check if submodule should be initialized
-                let should_initialize_submodule =
-                    self.module_registry.contains_key(&full_module_path)
-                        && !locally_initialized.contains(&full_module_path);
+                let should_initialize_submodule = self.has_synthetic_name(&full_module_path)
+                    && !locally_initialized.contains(&full_module_path);
 
                 // Check if parent imports from this submodule (indicating dependency)
                 // This determines initialization order to avoid forward references
                 let parent_imports_submodule = should_initialize_parent
                     && should_initialize_submodule
-                    && self.module_registry.contains_key(module_name)
-                    && self.module_registry.contains_key(&full_module_path)
+                    && self.has_synthetic_name(module_name)
+                    && self.has_synthetic_name(&full_module_path)
                     && self.graph.is_some_and(|graph| {
                         let parent_module = graph.get_module_by_name(module_name);
                         let child_module = graph.get_module_by_name(&full_module_path);
@@ -471,7 +500,8 @@ impl<'a> Bundler<'a> {
                     if should_initialize_submodule {
                         crate::code_generator::module_registry::initialize_submodule_if_needed(
                             &full_module_path,
-                            &self.module_registry,
+                            &self.module_synthetic_names,
+                            self.resolver,
                             &mut assignments,
                             &mut locally_initialized,
                             &mut initialized_modules,
@@ -504,7 +534,8 @@ impl<'a> Bundler<'a> {
                     if should_initialize_submodule {
                         crate::code_generator::module_registry::initialize_submodule_if_needed(
                             &full_module_path,
-                            &self.module_registry,
+                            &self.module_synthetic_names,
+                            self.resolver,
                             &mut assignments,
                             &mut locally_initialized,
                             &mut initialized_modules,
@@ -516,10 +547,14 @@ impl<'a> Bundler<'a> {
                 log::debug!(
                     "Building namespace reference for '{}' (is_inlined: {}, has_dot: {})",
                     full_module_path,
-                    self.inlined_modules.contains(&full_module_path),
+                    self.get_module_id(&full_module_path)
+                        .is_some_and(|id| self.inlined_modules.contains(&id)),
                     full_module_path.contains('.')
                 );
-                let namespace_expr = if self.inlined_modules.contains(&full_module_path) {
+                let namespace_expr = if self
+                    .get_module_id(&full_module_path)
+                    .is_some_and(|id| self.inlined_modules.contains(&id))
+                {
                     // For inlined modules, check if it's a dotted name
                     if full_module_path.contains('.') {
                         // For nested inlined modules like myrequests.compat, create dotted
@@ -559,8 +594,10 @@ impl<'a> Bundler<'a> {
                 if inside_wrapper_init && current_module == Some(module_name) {
                     // Check if this is actually a submodule
                     let full_submodule_path = format!("{module_name}.{imported_name}");
-                    if self.bundled_modules.contains(&full_submodule_path)
-                        && self.module_registry.contains_key(&full_submodule_path)
+                    if self
+                        .get_module_id(&full_submodule_path)
+                        .is_some_and(|id| self.bundled_modules.contains(&id))
+                        && self.has_synthetic_name(&full_submodule_path)
                     {
                         // This is a submodule that needs initialization
                         log::debug!(
@@ -588,9 +625,13 @@ impl<'a> Bundler<'a> {
                 // Check if we're importing from an inlined module and the target is a wrapper
                 // submodule This happens when mypkg is inlined and does `from .
                 // import compat` where compat uses init function
-                if self.inlined_modules.contains(module_name) && !inside_wrapper_init {
+                if self
+                    .get_module_id(module_name)
+                    .is_some_and(|id| self.inlined_modules.contains(&id))
+                    && !inside_wrapper_init
+                {
                     let full_submodule_path = format!("{module_name}.{imported_name}");
-                    if self.module_registry.contains_key(&full_submodule_path) {
+                    if self.has_synthetic_name(&full_submodule_path) {
                         // This is importing a wrapper submodule from an inlined parent module
                         // This case should have been handled by the import transformer during inlining
                         // and deferred. If we get here, something went wrong.
@@ -618,10 +659,11 @@ impl<'a> Bundler<'a> {
                 // Ensure the module is initialized first if it's a wrapper module
                 // Only initialize if we're inside a wrapper init OR if the module's init
                 // function has already been defined (to avoid forward references)
-                if self.module_registry.contains_key(module_name)
+                if self.has_synthetic_name(module_name)
                     && !locally_initialized.contains(module_name)
                     && current_module != Some(module_name)  // Prevent self-initialization
-                    && (inside_wrapper_init || self.init_functions.contains_key(&self.module_registry[module_name]))
+                    && (inside_wrapper_init || self.get_module_id(module_name)
+                        .is_some_and(|id| self.module_init_functions.contains_key(&id)))
                 {
                     // Check if this module is already initialized in any deferred imports
                     let module_init_exists = assignments.iter().any(|stmt| {
@@ -661,7 +703,7 @@ impl<'a> Bundler<'a> {
                 // Check if this symbol is re-exported from an inlined submodule.
                 // If it is, use the globally inlined symbol (respecting semantic renames)
                 // instead of wrapper attribute access.
-                if self.module_registry.contains_key(module_name) {
+                if self.has_synthetic_name(module_name) {
                     // Keep current semantics: we don't attempt to detect "directly defined in wrapper" here.
                     let is_defined_in_wrapper = false;
 
@@ -757,10 +799,13 @@ impl<'a> Bundler<'a> {
                     let resolved_module = if *level > 0 {
                         // Relative import - resolve it properly using the resolver
                         // Find the module's path from module_asts
+                        let module_id_for_lookup = self.get_module_id(module_name);
                         let module_path = self.module_asts.as_ref().and_then(|asts| {
-                            asts.iter()
-                                .find(|(name, _, _, _)| name == module_name)
-                                .map(|(_, _, path, _)| path.clone())
+                            module_id_for_lookup.and_then(|id| {
+                                asts.iter()
+                                    .find(|(ast_id, _, _, _)| ast_id == &id)
+                                    .map(|(_, _, path, _)| path.clone())
+                            })
                         });
 
                         // Define fallback logic once
@@ -791,7 +836,9 @@ impl<'a> Bundler<'a> {
 
                     // Check if this resolved module is an inlined submodule
                     if resolved_module.starts_with(&format!("{module_name}."))
-                        && self.inlined_modules.contains(&resolved_module)
+                        && self
+                            .get_module_id(&resolved_module)
+                            .is_some_and(|id| self.inlined_modules.contains(&id))
                     {
                         // Check if this import includes our symbol
                         for (imported_name, alias) in names {
@@ -844,16 +891,19 @@ impl<'a> Bundler<'a> {
             );
 
             // Store semantic exports for later use
-            self.semantic_exports.insert(
-                module_name.to_string(),
-                module_info.exported_symbols.clone(),
-            );
+            if let Some(module_id) = self.get_module_id(module_name) {
+                self.semantic_exports
+                    .insert(module_id, module_info.exported_symbols.clone());
+            }
 
             // Process all exported symbols from the module
             for symbol in &module_info.exported_symbols {
                 // Check if this symbol is actually a submodule
                 let full_submodule_path = format!("{module_name}.{symbol}");
-                if self.bundled_modules.contains(&full_submodule_path) {
+                if self
+                    .get_module_id(&full_submodule_path)
+                    .is_some_and(|id| self.bundled_modules.contains(&id))
+                {
                     // This is a submodule - but we still need it in the rename map for namespace
                     // population Mark it specially so we know it's a submodule
                     log::debug!(
@@ -882,9 +932,15 @@ impl<'a> Bundler<'a> {
 
         // For inlined modules with __all__, we need to also include symbols from __all__
         // even if they're not defined in this module (they might be re-exports)
-        if self.inlined_modules.contains(module_name) {
+        if self
+            .get_module_id(module_name)
+            .is_some_and(|id| self.inlined_modules.contains(&id))
+        {
             log::debug!("Module '{module_name}' is inlined, checking for __all__ exports");
-            if let Some(export_info) = self.module_exports.get(module_name) {
+            if let Some(export_info) = self
+                .get_module_id(module_name)
+                .and_then(|id| self.module_exports.get(&id))
+            {
                 log::debug!("Module '{module_name}' export info: {export_info:?}");
                 if let Some(all_exports) = export_info {
                     log::debug!(
@@ -899,7 +955,10 @@ impl<'a> Bundler<'a> {
                         if !module_renames.contains_key(export) {
                             // Check if this is actually a submodule
                             let full_submodule_path = format!("{module_name}.{export}");
-                            if self.bundled_modules.contains(&full_submodule_path) {
+                            if self
+                                .get_module_id(&full_submodule_path)
+                                .is_some_and(|id| self.bundled_modules.contains(&id))
+                            {
                                 log::debug!(
                                     "Module '{module_name}': skipping export '{export}' from \
                                      __all__ - it's a submodule, not a symbol"
@@ -938,9 +997,9 @@ impl<'a> Bundler<'a> {
                 let source_module = module.as_str();
 
                 // Only track imports from first-party modules that were inlined
-                if self.inlined_modules.contains(source_module)
-                    || self.bundled_modules.contains(source_module)
-                {
+                if self.get_module_id(source_module).is_some_and(|id| {
+                    self.inlined_modules.contains(&id) || self.bundled_modules.contains(&id)
+                }) {
                     for alias in &import_from.names {
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
@@ -1040,7 +1099,7 @@ impl<'a> Bundler<'a> {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
-            let mut kept_symbols: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
+            let mut kept_symbols: FxIndexMap<ModuleId, FxIndexSet<String>> = FxIndexMap::default();
             for (module_id, _, _) in params.modules {
                 let module_name = params
                     .resolver
@@ -1048,7 +1107,7 @@ impl<'a> Bundler<'a> {
                     .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
                 let module_symbols = shaker.get_used_symbols_for_module(&module_name);
                 if !module_symbols.is_empty() {
-                    kept_symbols.insert(module_name, module_symbols);
+                    kept_symbols.insert(*module_id, module_symbols);
                 }
             }
             self.tree_shaking_keep_symbols = Some(kept_symbols);
@@ -1083,9 +1142,11 @@ impl<'a> Bundler<'a> {
         // Store (accessing_module, accessed_alias) pairs to handle alias collisions
         for (alias_name, accessing_modules) in params.graph.get_modules_accessing_all() {
             for accessing_module in accessing_modules {
-                self.modules_with_accessed_all
-                    .insert((accessing_module.clone(), alias_name.clone()));
-                log::debug!("Module '{accessing_module}' accesses {alias_name}.__all__");
+                if let Some(module_id) = self.get_module_id(&accessing_module) {
+                    self.modules_with_accessed_all
+                        .insert((module_id, alias_name.clone()));
+                    log::debug!("Module '{accessing_module}' accesses {alias_name}.__all__");
+                }
             }
         }
 
@@ -1233,13 +1294,24 @@ impl<'a> Bundler<'a> {
              {total_nodes}, New nodes start at: {starting_index}"
         );
 
-        // Store module ASTs for re-export resolution
-        self.module_asts = Some(modules.clone());
+        // Convert modules to use ModuleId and store for re-export resolution
+        let modules_with_ids: Vec<(ModuleId, ModModule, PathBuf, String)> = modules
+            .iter()
+            .map(|(module_name, ast, path, hash)| {
+                let module_id = self
+                    .get_module_id(module_name)
+                    .unwrap_or_else(|| panic!("Module '{}' not found in resolver", module_name));
+                (module_id, ast.clone(), path.clone(), hash.clone())
+            })
+            .collect();
+        self.module_asts = Some(modules_with_ids.clone());
 
         // Track bundled modules
         for (module_name, _, _, _) in &modules {
-            self.bundled_modules.insert(module_name.clone());
-            log::debug!("Tracking bundled module: '{module_name}'");
+            if let Some(module_id) = self.get_module_id(module_name) {
+                self.bundled_modules.insert(module_id);
+                log::debug!("Tracking bundled module: '{module_name}' (ID: {module_id:?})");
+            }
         }
 
         // Check which modules are imported directly (e.g., import module_name)
@@ -1258,12 +1330,16 @@ impl<'a> Bundler<'a> {
             log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
             for group in &analysis.resolvable_cycles {
                 for module in &group.modules {
-                    self.circular_modules.insert(module.clone());
+                    if let Some(module_id) = self.get_module_id(module) {
+                        self.circular_modules.insert(module_id);
+                    }
                 }
             }
             for group in &analysis.unresolvable_cycles {
                 for module in &group.modules {
-                    self.circular_modules.insert(module.clone());
+                    if let Some(module_id) = self.get_module_id(module) {
+                        self.circular_modules.insert(module_id);
+                    }
                 }
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
@@ -1276,11 +1352,16 @@ impl<'a> Bundler<'a> {
             {
                 let entry_pkg = entry_pkg.to_string(); // Convert to owned string to avoid borrow issues
                 // Remove the specific entry package from circular modules
-                if self.circular_modules.contains(&entry_pkg) {
+                if self
+                    .get_module_id(&entry_pkg)
+                    .is_some_and(|id| self.circular_modules.contains(&id))
+                {
                     log::debug!(
                         "Removing package '{entry_pkg}' from circular modules as it's the same as entry module '__init__.py'"
                     );
-                    self.circular_modules.swap_remove(&entry_pkg);
+                    if let Some(id) = self.get_module_id(&entry_pkg) {
+                        self.circular_modules.swap_remove(&id);
+                    }
                 }
             }
         } else {
@@ -1312,7 +1393,6 @@ impl<'a> Bundler<'a> {
         // Classify modules into inlinable and wrapper modules
         let classifier = crate::analyzers::ModuleClassifier::new(
             self.resolver,
-            self.entry_module_name.clone(),
             self.entry_is_package_init_or_main,
             self.namespace_imported_modules.clone(),
             self.circular_modules.clone(),
@@ -1325,31 +1405,41 @@ impl<'a> Bundler<'a> {
 
         // Track which modules will be inlined (before wrapper module generation)
         for (module_name, _, _, _) in &inlinable_modules {
-            self.inlined_modules.insert(module_name.clone());
+            if let Some(module_id) = self.get_module_id(module_name) {
+                self.inlined_modules.insert(module_id);
+            }
             // Also store module exports for inlined modules
-            self.module_exports.insert(
-                module_name.clone(),
-                module_exports_map.get(module_name).cloned().flatten(),
-            );
+            if let Some(module_id) = self.get_module_id(module_name) {
+                self.module_exports.insert(
+                    module_id,
+                    module_exports_map.get(&module_id).cloned().flatten(),
+                );
+            }
         }
 
         // Register wrapper modules
         for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
-            self.module_exports.insert(
-                module_name.clone(),
-                module_exports_map.get(module_name).cloned().flatten(),
-            );
+            if let Some(module_id) = self.get_module_id(module_name) {
+                self.module_exports.insert(
+                    module_id,
+                    module_exports_map.get(&module_id).cloned().flatten(),
+                );
+            }
 
             // Register module with synthetic name and init function
+            let module_id = self
+                .get_module_id(module_name)
+                .expect("Module should be registered with resolver before bundling");
             crate::code_generator::module_registry::register_module(
+                module_id,
                 module_name,
                 content_hash,
-                &mut self.module_registry,
-                &mut self.init_functions,
+                &mut self.module_synthetic_names,
+                &mut self.module_init_functions,
             );
 
             // Remove from inlined_modules since it's now a wrapper module
-            self.inlined_modules.shift_remove(module_name);
+            self.inlined_modules.shift_remove(&module_id);
         }
 
         // Create semantic context
@@ -1374,9 +1464,10 @@ impl<'a> Bundler<'a> {
 
         // Check if at least one wrapper module participates in a circular dependency
         // This affects initialization order and hard dependency handling
-        let has_circular_wrapped_modules = sorted_wrapper_modules
-            .iter()
-            .any(|(name, _, _, _)| self.circular_modules.contains(name.as_str()));
+        let has_circular_wrapped_modules = sorted_wrapper_modules.iter().any(|(name, _, _, _)| {
+            self.get_module_id(name.as_str())
+                .is_some_and(|id| self.circular_modules.contains(&id))
+        });
         if has_circular_wrapped_modules {
             log::info!(
                 "Detected circular dependencies in modules with side effects - special handling \
@@ -1439,7 +1530,7 @@ impl<'a> Bundler<'a> {
 
                     if let Some(ref resolved) = resolved_module {
                         // Check if this is a wrapper module
-                        if self.module_registry.contains_key(resolved.as_str()) {
+                        if self.has_synthetic_name(resolved.as_str()) {
                             wrapper_modules_needed_by_inlined.insert(resolved.to_string());
                             log::debug!(
                                 "Inlined module '{module_name}' imports from wrapper module \
@@ -1661,9 +1752,20 @@ impl<'a> Bundler<'a> {
                 // Create a temporary vector for import assignments
                 let mut import_assignments = Vec::new();
 
+                // Convert ModuleId-based module_exports_map to String-based for InlineContext
+                let module_exports_string_map: FxIndexMap<String, Option<Vec<String>>> =
+                    module_exports_map
+                        .iter()
+                        .filter_map(|(id, exports)| {
+                            self.resolver
+                                .get_module_name(*id)
+                                .map(|name| (name, exports.clone()))
+                        })
+                        .collect();
+
                 // Create inline context for this specific module
                 let mut inline_ctx = InlineContext {
-                    module_exports_map: &module_exports_map,
+                    module_exports_map: &module_exports_string_map,
                     global_symbols: &mut global_symbols,
                     module_renames: &mut symbol_renames,
                     inlined_stmts: &mut all_inlined_stmts,
@@ -1732,9 +1834,13 @@ impl<'a> Bundler<'a> {
                     .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
 
                 // Generate the init function for this wrapper module
+                let module_id = self
+                    .get_module_id(&module_name)
+                    .expect("Wrapper module should be registered");
+
                 let synthetic_name = self
-                    .module_registry
-                    .entry(module_name.to_string())
+                    .module_synthetic_names
+                    .entry(module_id)
                     .or_insert_with(|| {
                         let name =
                             crate::code_generator::module_registry::get_synthetic_module_name(
@@ -1834,7 +1940,12 @@ impl<'a> Bundler<'a> {
             // Find the package name from any submodule
             self.inlined_modules
                 .iter()
-                .chain(self.module_registry.keys())
+                .filter_map(|id| self.resolver.get_module_name(*id))
+                .chain(
+                    self.module_synthetic_names
+                        .keys()
+                        .filter_map(|id| self.resolver.get_module_name(*id)),
+                )
                 .find_map(|name| {
                     if name.contains('.') {
                         name.split('.').next()
@@ -1872,7 +1983,12 @@ impl<'a> Bundler<'a> {
             for module_name in self
                 .inlined_modules
                 .iter()
-                .chain(self.module_registry.keys())
+                .filter_map(|id| self.resolver.get_module_name(*id))
+                .chain(
+                    self.module_synthetic_names
+                        .keys()
+                        .filter_map(|id| self.resolver.get_module_name(*id)),
+                )
             {
                 // Check if this is a direct submodule of the package
                 if module_name.starts_with(&format!("{package_name}.")) {
@@ -1943,15 +2059,20 @@ impl<'a> Bundler<'a> {
             if crate::util::is_init_module(&module_name) {
                 // For __init__ modules, we need to find the corresponding package name
                 // in the circular modules list
-                if let Some(package_name) = self
+                let package_name = self
                     .circular_modules
                     .iter()
-                    .find(|m| !m.contains('.') && !crate::util::is_init_module(m))
-                {
+                    .filter_map(|id| self.resolver.get_module_name(*id))
+                    .find(|name| !name.contains('.') && !crate::util::is_init_module(&name));
+
+                if let Some(ref pkg_name) = package_name {
                     reorder = true;
-                    lookup_name = package_name.as_str();
+                    lookup_name = pkg_name.as_str();
                 }
-            } else if self.circular_modules.contains(&module_name) {
+            } else if self
+                .get_module_id(&module_name)
+                .is_some_and(|id| self.circular_modules.contains(&id))
+            {
                 reorder = true;
             }
 
@@ -1996,6 +2117,17 @@ impl<'a> Bundler<'a> {
 
             // Transform imports in the entry module
             {
+                // Convert global_deferred_imports to String-based for RecursiveImportTransformer
+                let global_deferred_imports_strings: FxIndexMap<(String, String), String> = self
+                    .global_deferred_imports
+                    .iter()
+                    .filter_map(|((from_id, symbol), to_id)| {
+                        let from_name = self.resolver.get_module_name(*from_id)?;
+                        let to_name = self.resolver.get_module_name(*to_id)?;
+                        Some(((from_name, symbol.clone()), to_name))
+                    })
+                    .collect();
+
                 let mut transformer = RecursiveImportTransformer::new(
                     RecursiveImportTransformerParams {
                         bundler: self,
@@ -2005,7 +2137,7 @@ impl<'a> Bundler<'a> {
                         deferred_imports: &mut entry_deferred_imports,
                         is_entry_module: true,  // This is the entry module
                         is_wrapper_init: false, // Not a wrapper init
-                        global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                        global_deferred_imports: Some(&global_deferred_imports_strings), /* Pass global deferred imports for checking */
                         python_version,
                     },
                 );
@@ -2244,10 +2376,10 @@ impl<'a> Bundler<'a> {
                 // The package name is the wrapper module without __init__
                 let package_name = if crate::util::is_init_module(&module_name) {
                     // Find the wrapper module that represents the package
-                    self.module_registry
+                    self.module_synthetic_names
                         .keys()
-                        .find(|m| !m.contains('.') && self.module_registry.contains_key(*m))
-                        .cloned()
+                        .filter_map(|id| self.resolver.get_module_name(*id))
+                        .find(|m| !m.contains('.') && self.has_synthetic_name(&m))
                         .unwrap_or_else(|| module_name.to_string())
                 } else {
                     module_name.to_string()
@@ -2259,8 +2391,11 @@ impl<'a> Bundler<'a> {
                 let entry_child_modules: Vec<String> = self
                     .bundled_modules
                     .iter()
-                    .filter(|m| m.starts_with(&format!("{package_name}.")) && m.contains('.'))
-                    .cloned()
+                    .filter_map(|id| {
+                        self.resolver.get_module_name(*id).filter(|name| {
+                            name.starts_with(&format!("{package_name}.")) && name.contains('.')
+                        })
+                    })
                     .collect();
 
                 // First, collect all existing variable names to avoid conflicts
@@ -2326,10 +2461,13 @@ impl<'a> Bundler<'a> {
                     let attr_name = attr.attr.as_str();
                     if let Expr::Name(target) = &assign.targets[0] {
                         let _symbol_name = target.id.as_str();
-                        self.global_deferred_imports.insert(
-                            (import_module.to_string(), attr_name.to_string()),
-                            module_name.to_string(),
-                        );
+                        // Convert module names to IDs for global_deferred_imports
+                        if let Some(from_id) = self.get_module_id(import_module) {
+                            if let Some(to_id) = self.get_module_id(&module_name) {
+                                self.global_deferred_imports
+                                    .insert((from_id, attr_name.to_string()), to_id);
+                            }
+                        }
                     }
                 }
             }
@@ -2426,7 +2564,20 @@ impl<'a> Bundler<'a> {
         modules: &[(String, ModModule, PathBuf, String)],
     ) {
         // Use ImportAnalyzer to find namespace imported modules
-        self.namespace_imported_modules = ImportAnalyzer::find_namespace_imported_modules(modules);
+        let string_based = ImportAnalyzer::find_namespace_imported_modules(modules);
+
+        // Convert String-based map to ModuleId-based
+        self.namespace_imported_modules = string_based
+            .into_iter()
+            .filter_map(|(module_name, imports)| {
+                let module_id = self.get_module_id(&module_name)?;
+                let import_ids: FxIndexSet<ModuleId> = imports
+                    .into_iter()
+                    .filter_map(|import_name| self.get_module_id(&import_name))
+                    .collect();
+                Some((module_id, import_ids))
+            })
+            .collect();
 
         log::debug!(
             "Found {} namespace imported modules: {:?}",
@@ -2443,7 +2594,10 @@ impl<'a> Bundler<'a> {
         }
 
         // Check if the module has explicit __all__ exports
-        if let Some(Some(exports)) = self.module_exports.get(module_name) {
+        if let Some(Some(exports)) = self
+            .get_module_id(module_name)
+            .and_then(|id| self.module_exports.get(&id))
+        {
             // Module defines __all__, check if symbol is listed there
             if exports.iter().any(|s| s == symbol_name) {
                 // Symbol is in __all__. For re-exported symbols, check if the symbol exists anywhere in the bundle.
@@ -2492,18 +2646,22 @@ impl<'a> Bundler<'a> {
             log::debug!(
                 "Checking if private symbol '{symbol_name}' from module '{module_name}' is imported by other modules"
             );
-            if let Some(module_asts) = &self.module_asts
-                && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
-                    module_asts,
-                    module_name,
-                    symbol_name,
-                    Some(&self.module_exports),
-                )
-            {
-                log::debug!(
-                    "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
-                );
-                return true;
+            if let Some(module_asts) = &self.module_asts {
+                // Get the module ID for the current module
+                if let Some(module_id) = self.get_module_id(module_name) {
+                    if crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
+                        module_asts,
+                        module_id,
+                        symbol_name,
+                        Some(&self.module_exports),
+                        self.resolver,
+                    ) {
+                        log::debug!(
+                            "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
+                        );
+                        return true;
+                    }
+                }
             }
         }
 
@@ -2537,21 +2695,29 @@ impl<'a> Bundler<'a> {
             // For the specific case we're fixing: if the name "messages" is used
             // and there's a bundled module "greetings.messages", then this assignment
             // needs to be deferred
-            for bundled_module in &self.bundled_modules {
-                if bundled_module.ends_with(&format!(".{base_name}")) {
-                    // Check if this is an inlined module (will be a namespace)
-                    if self.inlined_modules.contains(bundled_module) {
-                        log::debug!(
-                            "Assignment references namespace module: {bundled_module} (via name \
-                             {base_name})"
-                        );
-                        return true;
+            for bundled_module_id in &self.bundled_modules {
+                // Get the module name to check if it ends with .base_name
+                if let Some(module_info) = self.resolver.get_module(*bundled_module_id) {
+                    let module_name = &module_info.name;
+                    if module_name.ends_with(&format!(".{base_name}")) {
+                        // Check if this is an inlined module (will be a namespace)
+                        if self.inlined_modules.contains(bundled_module_id) {
+                            log::debug!(
+                                "Assignment references namespace module: {} (via name {})",
+                                module_name,
+                                base_name
+                            );
+                            return true;
+                        }
                     }
                 }
             }
 
             // Also check if the base name itself is an inlined module
-            if self.inlined_modules.contains(base_name) {
+            if self
+                .get_module_id(base_name)
+                .is_some_and(|id| self.inlined_modules.contains(&id))
+            {
                 log::debug!("Assignment references namespace module directly: {base_name}");
                 return true;
             }
@@ -2565,7 +2731,10 @@ impl<'a> Bundler<'a> {
             // For example, in mypkg.api, "sessions" refers to mypkg.sessions
             if let Some(current_package) = module_name.rsplit_once('.').map(|(pkg, _)| pkg) {
                 let potential_sibling = format!("{current_package}.{name_str}");
-                if self.inlined_modules.contains(&potential_sibling) {
+                if self
+                    .get_module_id(&potential_sibling)
+                    .is_some_and(|id| self.inlined_modules.contains(&id))
+                {
                     log::debug!(
                         "Assignment references sibling namespace module: {potential_sibling} (via \
                          name {name_str})"
@@ -2575,7 +2744,10 @@ impl<'a> Bundler<'a> {
             }
 
             // Also check if the name itself is an inlined module
-            if self.inlined_modules.contains(name_str) {
+            if self
+                .get_module_id(name_str)
+                .is_some_and(|id| self.inlined_modules.contains(&id))
+            {
                 log::debug!("Assignment references namespace module directly: {name_str}");
                 return true;
             }
@@ -3688,7 +3860,9 @@ impl<'a> Bundler<'a> {
             // (starts with underscore but not dunder) in a circular module,
             // it means it's explicitly imported by another module and should be included
             // even if it's not in the regular export list
-            if self.circular_modules.contains(module_name)
+            if self
+                .get_module_id(module_name)
+                .is_some_and(|id| self.circular_modules.contains(&id))
                 && symbol_name.starts_with('_')
                 && !symbol_name.starts_with("__")
             {
@@ -3718,7 +3892,7 @@ impl<'a> Bundler<'a> {
     /// Create a rewritten base class expression for hard dependencies
     fn create_rewritten_base_expr(&self, hard_dep: &HardDependency, class_name: &str) -> Expr {
         // Check if the source module is a wrapper module
-        let source_is_wrapper = self.module_registry.contains_key(&hard_dep.source_module);
+        let source_is_wrapper = self.has_synthetic_name(&hard_dep.source_module);
 
         if source_is_wrapper && !hard_dep.base_class.contains('.') {
             // For imports from wrapper modules, we need to use module.attr pattern
@@ -4090,9 +4264,12 @@ impl Bundler<'_> {
             && let Some((parent_name, _)) = module_name.rsplit_once('.')
         {
             // Check if parent is also a wrapper module
-            if let Some(parent_synthetic) = self.module_registry.get(parent_name) {
+            if let Some(parent_synthetic) = self.get_synthetic_name(parent_name) {
                 // Check if parent has an init function
-                if self.init_functions.contains_key(parent_synthetic) {
+                if self
+                    .get_module_id(parent_name)
+                    .is_some_and(|id| self.module_init_functions.contains_key(&id))
+                {
                     log::debug!(
                         "Ensuring parent '{parent_name}' is initialized before child '{module_name}'"
                     );
@@ -4109,13 +4286,14 @@ impl Bundler<'_> {
         }
 
         // Check if this is a wrapper module that needs initialization
-        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+        if let Some(synthetic_name) = self.get_synthetic_name(module_name) {
             // Check if the init function has been defined yet
             // (wrapper modules are processed in dependency order, so it might not exist yet)
             log::debug!(
                 "Checking if wrapper module '{}' has been processed (has init function: {})",
                 module_name,
-                self.init_functions.contains_key(synthetic_name)
+                self.get_module_id(module_name)
+                    .is_some_and(|id| self.module_init_functions.contains_key(&id))
             );
 
             // Generate the init call
@@ -4158,10 +4336,13 @@ impl Bundler<'_> {
         let mut stmts = Vec::new();
 
         // Check if this module is a parent namespace that already exists
-        let is_parent_namespace = self
-            .module_registry
-            .iter()
-            .any(|(name, _)| name != module_name && name.starts_with(&format!("{module_name}.")));
+        let is_parent_namespace = self.bundled_modules.iter().any(|module_id| {
+            let Some(module_info) = self.resolver.get_module(*module_id) else {
+                return false;
+            };
+            let name = &module_info.name;
+            name != module_name && name.starts_with(&format!("{module_name}."))
+        });
 
         if is_parent_namespace {
             // Use temp variable and merge attributes for parent namespaces
@@ -4192,11 +4373,14 @@ impl Bundler<'_> {
         for i in 1..parts.len() {
             let parent_path = parts[..i].join(".");
 
-            if self.module_registry.contains_key(&parent_path) {
+            if self.has_synthetic_name(&parent_path) {
                 // Parent is a wrapper module, create reference to it
                 result_stmts
                     .push(self.create_module_reference_assignment(&parent_path, &parent_path));
-            } else if !self.bundled_modules.contains(&parent_path) {
+            } else if !self
+                .get_module_id(&parent_path)
+                .is_some_and(|id| self.bundled_modules.contains(&id))
+            {
                 // Check if this namespace is registered in the centralized system
                 let sanitized = sanitize_module_name_for_identifier(&parent_path);
                 let registered_in_namespace_system =
@@ -4265,7 +4449,7 @@ impl Bundler<'_> {
             let partial_module = parts[..i].join(".");
 
             // Skip if this module is already a wrapper module
-            if self.module_registry.contains_key(&partial_module) {
+            if self.has_synthetic_name(&partial_module) {
                 continue;
             }
 
@@ -4279,10 +4463,9 @@ impl Bundler<'_> {
 
             // Check if we should use a flattened namespace instead of creating an empty one
             let flattened_name = sanitize_module_name_for_identifier(&partial_module);
-            let should_use_flattened = self.inlined_modules.contains(&partial_module)
-                && self
-                    .namespaces_with_initial_symbols
-                    .contains(&partial_module);
+            let should_use_flattened = self
+                .get_module_id(&partial_module)
+                .is_some_and(|id| self.inlined_modules.contains(&id));
 
             let namespace_expr = if should_use_flattened {
                 // Use the flattened namespace variable
@@ -4313,8 +4496,9 @@ impl Bundler<'_> {
     ) -> Stmt {
         // Check if we should use a flattened namespace instead of creating an empty one
         let flattened_name = sanitize_module_name_for_identifier(module_name);
-        let should_use_flattened = self.inlined_modules.contains(module_name)
-            && self.namespaces_with_initial_symbols.contains(module_name);
+        let should_use_flattened = self
+            .get_module_id(module_name)
+            .is_some_and(|id| self.inlined_modules.contains(&id));
 
         if should_use_flattened {
             // Create assignment: target_name = flattened_name

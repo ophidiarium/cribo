@@ -1010,7 +1010,7 @@ pub fn transform_module_to_init_function<'a>(
     let mut submodules_to_add = Vec::new();
 
     // Collect all direct submodules
-    for (module_name, _) in &bundler.module_registry {
+    for (module_name, _) in &bundler.bundled_modules {
         if module_name.starts_with(&current_module_prefix) {
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
@@ -3143,7 +3143,7 @@ fn symbol_comes_from_wrapper_module(
                         };
 
                         // Check if the source module is a wrapper module
-                        if !bundler.module_registry.contains_key(source_module)
+                        if !bundler.bundled_modules.contains_key(source_module)
                             || bundler.inlined_modules.contains(source_module)
                         {
                             continue;

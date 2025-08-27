@@ -15,6 +15,7 @@ use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{expressions, statements},
     code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
+    resolver::ModuleId,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -57,26 +58,25 @@ impl NamespaceContext {
 /// This struct encapsulates the state required by the namespace population function,
 /// which was previously accessed directly from the `Bundler` struct.
 pub struct NamespacePopulationContext<'a> {
-    pub inlined_modules: &'a FxIndexSet<String>,
-    pub module_exports: &'a FxIndexMap<String, Option<Vec<String>>>,
-    pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<String, FxIndexSet<String>>>,
-    pub bundled_modules: &'a FxIndexSet<String>,
-    pub modules_with_accessed_all: &'a FxIndexSet<(String, String)>,
-    pub module_registry: &'a FxIndexMap<String, String>,
-    pub module_asts: &'a Option<Vec<(String, ModModule, PathBuf, String)>>,
-    pub symbols_populated_after_deferred: &'a FxIndexSet<(String, String)>,
-    pub namespaces_with_initial_symbols: &'a FxIndexSet<String>,
-    pub global_deferred_imports: &'a FxIndexMap<(String, String), String>,
-    pub init_functions: &'a FxIndexMap<String, String>,
+    pub inlined_modules: &'a FxIndexSet<ModuleId>,
+    pub module_exports: &'a FxIndexMap<ModuleId, Option<Vec<String>>>,
+    pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<ModuleId, FxIndexSet<String>>>,
+    pub bundled_modules: &'a FxIndexSet<ModuleId>,
+    pub modules_with_accessed_all: &'a FxIndexSet<(ModuleId, String)>,
+    pub module_info_registry: &'a FxIndexMap<ModuleId, crate::orchestrator::ModuleRegistry>,
+    pub module_asts: &'a Option<Vec<(ModuleId, ModModule, PathBuf, String)>>,
+    pub symbols_populated_after_deferred: &'a FxIndexSet<(ModuleId, String)>,
+    pub global_deferred_imports: &'a FxIndexMap<(ModuleId, String), String>,
+    pub module_init_functions: &'a FxIndexMap<ModuleId, String>,
     pub resolver: &'a crate::resolver::ModuleResolver,
 }
 
 impl NamespacePopulationContext<'_> {
     /// Check if a symbol is kept by tree shaking.
-    pub fn is_symbol_kept_by_tree_shaking(&self, module_name: &str, symbol_name: &str) -> bool {
+    pub fn is_symbol_kept_by_tree_shaking(&self, module_id: ModuleId, symbol_name: &str) -> bool {
         match &self.tree_shaking_keep_symbols {
             Some(kept_symbols) => kept_symbols
-                .get(module_name)
+                .get(&module_id)
                 .is_some_and(|symbols| symbols.contains(symbol_name)),
             None => true, // No tree shaking, all symbols are kept
         }
@@ -121,7 +121,7 @@ fn has_export_conflict(
     // The parent exports something with this name.
     // Now check if the full module path is an actual module or just a re-exported symbol.
     let is_actual_module = bundler.bundled_modules.contains(full_module_path)
-        || bundler.module_registry.contains_key(full_module_path)
+        || bundler.bundled_modules.contains_key(full_module_path)
         || bundler.inlined_modules.contains(full_module_path);
 
     // Only skip if parent exports the symbol AND it's not an actual submodule
@@ -184,14 +184,14 @@ pub(super) fn transform_namespace_package_imports(
         let full_module_path = format!("{module_name}.{imported_name}");
 
         if bundler.bundled_modules.contains(&full_module_path) {
-            if bundler.module_registry.contains_key(&full_module_path) {
+            if bundler.bundled_modules.contains_key(&full_module_path) {
                 // Wrapper module - ensure it's initialized first, then create reference
                 // First ensure parent module is initialized if it's also a wrapper
-                if bundler.module_registry.contains_key(module_name) {
+                if bundler.bundled_modules.contains_key(module_name) {
                     result_stmts.extend(
                         crate::code_generator::module_registry::create_module_initialization_for_import(
                             module_name,
-                            &bundler.module_registry,
+                            &bundler.bundled_modules,
                         ),
                     );
                 }
@@ -199,7 +199,7 @@ pub(super) fn transform_namespace_package_imports(
                 result_stmts.extend(
                     crate::code_generator::module_registry::create_module_initialization_for_import(
                         &full_module_path,
-                        &bundler.module_registry,
+                        &bundler.bundled_modules,
                     ),
                 );
 
@@ -628,13 +628,19 @@ pub fn detect_namespace_requirements_from_imports(
 pub fn populate_namespace_with_module_symbols(
     ctx: &mut NamespacePopulationContext,
     target_name: &str,
-    module_name: &str,
+    module_id: ModuleId,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
 
+    // Get the module name from the resolver
+    let Some(module_info) = ctx.resolver.get_module(module_id) else {
+        return result_stmts;
+    };
+    let module_name = &module_info.name;
+
     // Get the module's exports
-    if let Some(exports) = ctx.module_exports.get(module_name).and_then(|e| e.as_ref()) {
+    if let Some(exports) = ctx.module_exports.get(&module_id).and_then(|e| e.as_ref()) {
         // Build the namespace access expression for the target
         let parts: Vec<&str> = target_name.split('.').collect();
 
@@ -697,16 +703,6 @@ pub fn populate_namespace_with_module_symbols(
             );
         }
 
-        // Skip individual symbol assignments if this namespace was already created with initial
-        // symbols
-        if ctx.namespaces_with_initial_symbols.contains(module_name) {
-            debug!(
-                "Skipping individual symbol assignments for '{module_name}' - namespace created \
-                 with initial symbols"
-            );
-            return result_stmts;
-        }
-
         // For each exported symbol that survived tree-shaking, add it to the namespace
         'symbol_loop: for symbol in &filtered_exports {
             let symbol_name = symbol.as_str();
@@ -714,7 +710,7 @@ pub fn populate_namespace_with_module_symbols(
             // For re-exported symbols, check if the original symbol is kept by tree-shaking
             let should_include = if ctx.tree_shaking_keep_symbols.is_some() {
                 // First check if this symbol is directly defined in this module
-                if ctx.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+                if ctx.is_symbol_kept_by_tree_shaking(module_id, symbol_name) {
                     true
                 } else {
                     // If not, check if this is a re-exported symbol from another module
@@ -753,7 +749,7 @@ pub fn populate_namespace_with_module_symbols(
             let full_submodule_path = format!("{module_name}.{symbol_name}");
             let is_bundled_submodule = ctx.bundled_modules.contains(&full_submodule_path);
             let is_inlined = ctx.inlined_modules.contains(&full_submodule_path);
-            let uses_init_function = ctx.module_registry.contains_key(&full_submodule_path);
+            let uses_init_function = ctx.module_info_registry.contains_key(&full_submodule_path);
 
             if is_bundled_submodule {
                 debug!(
@@ -933,7 +929,7 @@ pub fn populate_namespace_with_module_symbols(
 
             // For wrapper modules, check if the symbol is imported from an inlined submodule
             // These symbols are already added via module attribute assignments
-            if ctx.module_registry.contains_key(module_name)
+            if ctx.module_info_registry.contains_key(module_name)
                 && is_symbol_from_inlined_submodule(ctx, module_name, symbol_name)
             {
                 continue 'symbol_loop;
@@ -1096,7 +1092,7 @@ fn find_symbol_source_module(
     crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
         module_asts,
         ctx.resolver,
-        ctx.module_registry,
+        ctx.module_info_registry,
         module_name,
         symbol_name,
     )

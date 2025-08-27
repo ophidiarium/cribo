@@ -157,7 +157,8 @@ fn create_assignment_if_no_stdlib_conflict(
 /// and adds it if needed, updating the tracking sets accordingly.
 pub fn initialize_submodule_if_needed(
     module_path: &str,
-    module_registry: &FxIndexMap<String, String>,
+    module_synthetic_names: &FxIndexMap<crate::resolver::ModuleId, String>,
+    resolver: &crate::resolver::ModuleResolver,
     assignments: &mut Vec<Stmt>,
     locally_initialized: &mut FxIndexSet<String>,
     initialized_modules: &mut FxIndexSet<String>,
@@ -181,9 +182,20 @@ pub fn initialize_submodule_if_needed(
     });
 
     if !already_initialized {
+        // Convert module_synthetic_names back to old format temporarily for compatibility
+        let module_registry: FxIndexMap<String, String> = resolver
+            .get_module_id_by_name(module_path)
+            .and_then(|id| module_synthetic_names.get(&id))
+            .map(|syn_name| {
+                let mut map = FxIndexMap::default();
+                map.insert(module_path.to_string(), syn_name.clone());
+                map
+            })
+            .unwrap_or_default();
+
         assignments.extend(create_module_initialization_for_import(
             module_path,
-            module_registry,
+            &module_registry,
         ));
     }
     locally_initialized.insert(module_path.to_string());
@@ -297,20 +309,21 @@ pub fn is_init_function(name: &str) -> bool {
 /// Register a module with its synthetic name and init function
 /// Returns (`synthetic_name`, `init_func_name`)
 pub fn register_module(
+    module_id: crate::resolver::ModuleId,
     module_name: &str,
     content_hash: &str,
-    module_registry: &mut FxIndexMap<String, String>,
-    init_functions: &mut FxIndexMap<String, String>,
+    module_synthetic_names: &mut FxIndexMap<crate::resolver::ModuleId, String>,
+    module_init_functions: &mut FxIndexMap<crate::resolver::ModuleId, String>,
 ) -> (String, String) {
     // Generate synthetic name
     let synthetic_name = get_synthetic_module_name(module_name, content_hash);
 
     // Register module with synthetic name
-    module_registry.insert(module_name.to_string(), synthetic_name.clone());
+    module_synthetic_names.insert(module_id, synthetic_name.clone());
 
     // Register init function
     let init_func_name = get_init_function_name(&synthetic_name);
-    init_functions.insert(synthetic_name.clone(), init_func_name.clone());
+    module_init_functions.insert(module_id, init_func_name.clone());
 
     (synthetic_name, init_func_name)
 }
@@ -322,8 +335,16 @@ pub fn register_module(
 /// - It is NOT in the inlined modules set
 pub fn is_wrapper_submodule(
     module_path: &str,
-    module_registry: &FxIndexMap<String, String>,
-    inlined_modules: &FxIndexSet<String>,
+    module_info_registry: &FxIndexMap<
+        crate::resolver::ModuleId,
+        crate::orchestrator::ModuleRegistry,
+    >,
+    inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
+    resolver: &crate::resolver::ModuleResolver,
 ) -> bool {
-    module_registry.contains_key(module_path) && !inlined_modules.contains(module_path)
+    if let Some(module_id) = resolver.get_module_id_by_name(module_path) {
+        module_info_registry.contains_key(&module_id) && !inlined_modules.contains(&module_id)
+    } else {
+        false
+    }
 }

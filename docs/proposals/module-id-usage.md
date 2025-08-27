@@ -544,28 +544,197 @@ Since every module in the bundling process is already registered with the resolv
 
 ## Implementation Checklist
 
+### Phase 6 Tasks (Completed)
+
 - [x] Move ModuleId to resolver.rs with ENTRY constant
 - [x] Implement ModuleId::is_entry() method
 - [x] Update ModuleRegistry to start at 0
-- [ ] Add resolver query methods (get_module_name, get_module_path, is_entry_package)
-- [ ] Update data structures to use ModuleId only (remove name/path duplication)
-- [ ] Update BundleParams to use ModuleIds and resolver reference
-- [ ] Replace entry_module_name comparisons with module_id checks
-- [ ] Remove entry_module_name from BundleParams
-- [ ] Remove entry_module_name from StaticBundleParams
-- [ ] Update Bundler to use module_id.is_entry() and query resolver
-- [ ] Update ModuleClassifier to use module_id checks and query resolver
-- [ ] Update SymbolAnalyzer to use module_id for entry detection
-- [ ] Update ImportAnalyzer to use module_id
-- [ ] Add tests verifying entry module detection via ID
+- [x] Add resolver query methods (get_module_name, get_module_path, is_entry_package)
+- [x] Update data structures to use ModuleId only (remove name/path duplication)
+- [x] Update BundleParams to use ModuleIds and resolver reference
+- [x] Replace entry_module_name comparisons with module_id checks
+- [x] Remove entry_module_name from BundleParams
+- [x] Remove entry_module_name from StaticBundleParams
+- [x] Update Bundler to use module_id.is_entry() and query resolver
+
+### Phase 7 Tasks (New)
+
+- [ ] Rename `module_registry` to `module_synthetic_names` in Bundler
+- [ ] Rename `init_functions` to `module_init_functions` in Bundler
+- [ ] Update Bundler fields to use ModuleId keys instead of String
+- [ ] Update module_registry.rs helper functions to accept ModuleId
+- [ ] Update bundler methods to work with ModuleIds
+- [ ] Add resolver lookups where module names are needed for code generation
+- [ ] Update all callers to pass ModuleIds instead of module names
+- [ ] Test with parent_child_circular fixture
 - [ ] Run full test suite
 - [ ] Run clippy and format
+
+## Phase 7: Refactoring Bundler's module_registry
+
+Currently, the `Bundler` struct has a confusingly named `module_registry` field that maps module names to synthetic names for wrapper modules. This overlaps conceptually with the central `ModuleRegistry` and creates confusion.
+
+### Current State Analysis
+
+The Bundler has multiple string-based registries:
+
+```rust
+pub struct Bundler<'a> {
+    /// Map from original module name to synthetic module name
+    pub(crate) module_registry: FxIndexMap<String, String>,
+    /// Map from synthetic module name to init function name
+    pub(crate) init_functions: FxIndexMap<String, String>,
+    /// Track which modules have been bundled
+    pub(crate) bundled_modules: FxIndexSet<String>,
+    /// Modules that were inlined (not wrapper modules)
+    pub(crate) inlined_modules: FxIndexSet<String>,
+    /// Modules that are part of circular dependencies
+    pub(crate) circular_modules: FxIndexSet<String>,
+    // ... many more string-based collections
+}
+```
+
+### Problems
+
+1. **Naming Confusion**: Both `ModuleRegistry` (orchestrator) and `module_registry` (bundler) exist
+2. **Data Duplication**: Module names stored everywhere instead of using ModuleIds
+3. **String-Based Lookups**: Inefficient string comparisons and HashMap lookups
+4. **Lost Context**: Can't easily trace back to module metadata without resolver access
+
+### Proposed Refactoring
+
+Transform all module tracking in Bundler to use ModuleIds:
+
+```rust
+pub struct Bundler<'a> {
+    /// Map from module ID to synthetic name for wrapper modules
+    pub(crate) module_synthetic_names: FxIndexMap<ModuleId, String>,
+    /// Map from module ID to init function name (for wrapper modules)
+    pub(crate) module_init_functions: FxIndexMap<ModuleId, String>,
+    /// Track which modules have been bundled
+    pub(crate) bundled_modules: FxIndexSet<ModuleId>,
+    /// Modules that were inlined (not wrapper modules)
+    pub(crate) inlined_modules: FxIndexSet<ModuleId>,
+    /// Modules that are part of circular dependencies
+    pub(crate) circular_modules: FxIndexSet<ModuleId>,
+    /// Namespace imported modules: module ID -> set of importing module IDs
+    pub(crate) namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
+    /// Module export information (for __all__ handling)
+    pub(crate) module_exports: FxIndexMap<ModuleId, Option<Vec<String>>>,
+    /// Semantic export information
+    pub(crate) semantic_exports: FxIndexMap<ModuleId, FxIndexSet<String>>,
+    /// Reference to the module resolver
+    pub(crate) resolver: &'a ModuleResolver,
+    // ... other fields
+}
+```
+
+### Key Changes
+
+1. **Rename for Clarity**:
+   - `module_registry` → `module_synthetic_names` (clearer purpose)
+   - `init_functions` → `module_init_functions` (clearer association)
+
+2. **Use ModuleId Keys**: All collections keyed by ModuleId instead of String
+
+3. **Query Resolver for Names**: When module names are needed:
+   ```rust
+   // OLD: Direct string access
+   if self.module_registry.contains_key(module_name) { ... }
+
+   // NEW: ID-based with resolver query
+   if self.module_synthetic_names.contains_key(&module_id) { ... }
+   // When name is needed:
+   let module_name = self.resolver.get_module_name(module_id)?;
+   ```
+
+4. **Update Helper Functions**:
+   ```rust
+   // In module_registry.rs
+   pub fn register_module(
+       module_id: ModuleId,
+       content_hash: &str,
+       synthetic_names: &mut FxIndexMap<ModuleId, String>,
+       init_functions: &mut FxIndexMap<ModuleId, String>,
+   ) -> (String, String) {
+       let synthetic_name = generate_synthetic_name(module_id, content_hash);
+       synthetic_names.insert(module_id, synthetic_name.clone());
+
+       let init_func_name = get_init_function_name(&synthetic_name);
+       init_functions.insert(module_id, init_func_name.clone());
+
+       (synthetic_name, init_func_name)
+   }
+   ```
+
+### Migration Strategy
+
+1. **Step 1**: Update Bundler struct fields to use ModuleId
+2. **Step 2**: Update module_registry.rs helper functions to accept ModuleId
+3. **Step 3**: Update all bundler methods to work with ModuleIds
+4. **Step 4**: Update callers to pass ModuleIds instead of names
+5. **Step 5**: Add resolver lookups where names are actually needed for output
+
+### Benefits
+
+1. **Consistency**: Aligns with the ModuleId-centric architecture
+2. **Performance**: Integer comparisons instead of string comparisons
+3. **Memory**: Smaller keys (u32 vs String)
+4. **Clarity**: Clear distinction between orchestrator's ModuleRegistry and bundler's synthetic names
+5. **Maintainability**: Single source of truth for module identity
+
+### Implementation Notes
+
+- The synthetic name generation still needs the module name for human readability in generated code
+- Query resolver only when actually emitting code that needs readable names
+- Keep the transformation localized to maintain backwards compatibility during migration
+
+## Implementation Status (2025-08-27)
+
+### Completed
+
+- ✅ Phase 1-6: Core ModuleId ownership implementation
+- ✅ Phase 7: Initial refactoring of Bundler's module_registry to use ModuleId
+- ✅ Added Display trait for ModuleId (shows as "module#n")
+- ✅ Added From<u32> and From<ModuleId> for u32 conversions
+- ✅ Added format_with_resolver() method for debug output with full module info
+- ✅ Converted ModuleClassifier to use ModuleId internally
+
+### In Progress
+
+- 🚧 Extensive ModuleId adoption throughout codebase (~137 compilation errors remaining)
+- 🚧 Many string-based lookups still need conversion to ModuleId
+- 🚧 Bridge code needed between ModuleId-based and String-based components
+
+### Challenges Encountered
+
+1. **Scope**: The refactoring touches virtually every component that deals with modules
+2. **Bridge Code**: Many components still expect String-based maps, requiring conversion
+3. **Collection Lookups**: FxIndexSet<ModuleId> cannot be queried with strings directly
+4. **Backward Compatibility**: Some analyzers and transformers still need String-based interfaces
+
+### Remaining Work
+
+1. Complete conversion of all string-based module lookups to ModuleId
+2. Update ImportAnalyzer, ImportTransformer, and other analyzers to work with ModuleId
+3. Eliminate temporary String-to-ModuleId conversions
+4. Update all test fixtures and validation
+
+### Key Insights
+
+- The refactoring is more extensive than initially anticipated due to pervasive string-based module references
+- Many components need both ModuleId and String interfaces during transition
+- The resolver serves as the central authority for ModuleId↔String conversions
+- Display trait for ModuleId is essential for debugging and error messages
 
 ## Commands
 
 ```bash
 # Find all is_entry_module usage to replace
 rg "is_entry_module" --type rust
+
+# Find all module_registry usage in bundler
+rg "module_registry" --type rust crates/cribo/src/code_generator/
 
 # Development iteration
 cargo build --all-targets

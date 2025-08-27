@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     ffi::OsStr,
+    fmt,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -41,6 +42,38 @@ impl ModuleId {
     #[inline]
     pub const fn is_entry(self) -> bool {
         self.0 == 0
+    }
+
+    /// Format this ModuleId with the resolver to show the module name and path
+    /// This is useful for debugging and error messages
+    pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
+        if let Some(name) = resolver.get_module_name(*self) {
+            if let Some(path) = resolver.get_module_path(*self) {
+                format!("ModuleId({})='{}' at '{}'", self.0, name, path.display())
+            } else {
+                format!("ModuleId({})='{}'", self.0, name)
+            }
+        } else {
+            format!("ModuleId({})", self.0)
+        }
+    }
+}
+
+impl fmt::Display for ModuleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "module#{}", self.0)
+    }
+}
+
+impl From<u32> for ModuleId {
+    fn from(value: u32) -> Self {
+        ModuleId(value)
+    }
+}
+
+impl From<ModuleId> for u32 {
+    fn from(value: ModuleId) -> u32 {
+        value.0
     }
 }
 
@@ -116,6 +149,10 @@ impl ModuleRegistry {
 
     fn get_metadata(&self, id: ModuleId) -> Option<&ModuleMetadata> {
         self.by_id.get(&id)
+    }
+
+    fn get_id_by_name(&self, name: &str) -> Option<&ModuleId> {
+        self.by_name.get(name)
     }
 }
 
@@ -308,6 +345,12 @@ impl ModuleResolver {
     pub fn get_module(&self, id: ModuleId) -> Option<ModuleMetadata> {
         let registry = self.registry.lock().expect("Module registry lock poisoned");
         registry.get_metadata(id).cloned()
+    }
+
+    /// Get module ID by name (reverse lookup)
+    pub fn get_module_id_by_name(&self, name: &str) -> Option<ModuleId> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_id_by_name(name).copied()
     }
 
     /// Get all directories to search for modules
