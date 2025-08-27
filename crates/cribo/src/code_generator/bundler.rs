@@ -1965,8 +1965,8 @@ impl<'a> Bundler<'a> {
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
             let mut entry_deferred_imports = Vec::new();
 
-            // Check if importlib has been fully transformed
-            let (_importlib_was_transformed, _created_namespace_objects) = {
+            // Transform imports in the entry module
+            {
                 let mut transformer = RecursiveImportTransformer::new(
                     RecursiveImportTransformerParams {
                         bundler: self,
@@ -2039,11 +2039,6 @@ impl<'a> Bundler<'a> {
 
                 transformer.transform_module(&mut ast);
                 log::debug!("Finished transforming entry module '{module_name}'");
-
-                (
-                    transformer.importlib_transformed,
-                    transformer.created_namespace_objects,
-                )
             };
 
             // Process statements in order
