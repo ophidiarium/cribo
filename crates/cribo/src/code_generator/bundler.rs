@@ -709,8 +709,11 @@ impl<'a> Bundler<'a> {
                             self.is_symbol_from_inlined_submodule(module_name, target_name.as_str())
                     {
                         // Map to the effective global name considering semantic renames of the source module.
+                        let source_module_id = self
+                            .get_module_id(&source_module)
+                            .expect("Source module should exist");
                         let global_name = _symbol_renames
-                            .get(&source_module)
+                            .get(&source_module_id)
                             .and_then(|m| m.get(&source_symbol))
                             .cloned()
                             .unwrap_or_else(|| source_symbol.clone());
