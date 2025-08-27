@@ -109,9 +109,6 @@ pub struct Bundler<'a> {
     /// These don't need symbol population via
     /// `populate_namespace_with_module_symbols_with_renames`
     pub(crate) namespaces_with_initial_symbols: FxIndexSet<String>,
-    /// Track namespace assignments that have already been made to avoid duplicates
-    /// Format: (`namespace_name`, `attribute_name`)
-    pub(crate) namespace_assignments_made: FxIndexSet<(String, String)>,
     /// Track which namespace symbols have been populated after deferred imports
     /// Format: (`module_name`, `symbol_name`)
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
@@ -199,7 +196,6 @@ impl<'a> Bundler<'a> {
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
             namespaces_with_initial_symbols: FxIndexSet::default(),
-            namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,

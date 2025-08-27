@@ -21,8 +21,6 @@ use crate::{
 /// Information about a registered namespace
 #[derive(Debug, Clone)]
 pub struct NamespaceInfo {
-    /// Attributes to set on this namespace (`attr_name`, `value_name`)
-    pub attributes: Vec<(String, String)>,
     /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
     pub parent_module: Option<String>,
     /// Tracks if the `var = types.SimpleNamespace()` statement has been generated
@@ -40,7 +38,6 @@ pub struct NamespaceInfo {
 pub enum NamespaceContext {
     TopLevel,
     Attribute { parent: String },
-    InlinedModule,
     ImportedSubmodule,
 }
 
@@ -50,8 +47,7 @@ impl NamespaceContext {
         match self {
             Self::TopLevel => 0,
             Self::Attribute { .. } => 1,
-            Self::InlinedModule => 2,
-            Self::ImportedSubmodule => 3,
+            Self::ImportedSubmodule => 2,
         }
     }
 }
@@ -65,7 +61,6 @@ pub struct NamespacePopulationContext<'a> {
     pub module_exports: &'a FxIndexMap<String, Option<Vec<String>>>,
     pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<String, FxIndexSet<String>>>,
     pub bundled_modules: &'a FxIndexSet<String>,
-    pub namespace_assignments_made: &'a mut FxIndexSet<(String, String)>,
     pub modules_with_accessed_all: &'a FxIndexSet<(String, String)>,
     pub module_registry: &'a FxIndexMap<String, String>,
     pub module_asts: &'a Option<Vec<(String, ModModule, PathBuf, String)>>,
@@ -385,7 +380,6 @@ pub fn require_namespace(
             let parent_module = path.rsplit_once('.').map(|(p, _)| p.to_string());
 
             NamespaceInfo {
-                attributes: Vec::new(),
                 parent_module,
                 is_created: false,
                 parent_assignment_done: false,
@@ -1034,10 +1028,6 @@ pub fn populate_namespace_with_module_symbols(
                 )],
                 symbol_expr,
             ));
-
-            // Track that we've made this assignment
-            let assignment_key = (target_name.to_string(), symbol_name.to_string());
-            ctx.namespace_assignments_made.insert(assignment_key);
         }
     }
 

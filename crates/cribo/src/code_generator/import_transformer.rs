@@ -2921,11 +2921,7 @@ fn rewrite_import_with_renames(
                                      import transformer due to immutability"
                                 );
                                 // For now, we'll create the statements without tracking duplicates
-                                let mut temp_assignments = FxIndexSet::default();
-                                let mut ctx = create_namespace_population_context(
-                                    bundler,
-                                    &mut temp_assignments,
-                                );
+                                let mut ctx = create_namespace_population_context(bundler);
                                 let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                                     &mut ctx,
                                     &partial_module,
@@ -2955,17 +2951,12 @@ fn rewrite_import_with_renames(
                         }
 
                         // Always populate the namespace with symbols
-                        // Note: This is a limitation - we can't mutate namespace_assignments_made
-                        // from here since bundler is immutable. This will be handled during
-                        // the main bundle process where bundler is mutable.
                         log::debug!(
                             "Cannot track namespace assignments for '{module_name}' in import \
                              transformer due to immutability"
                         );
                         // For now, we'll create the statements without tracking duplicates
-                        let mut temp_assignments = FxIndexSet::default();
-                        let mut ctx =
-                            create_namespace_population_context(bundler, &mut temp_assignments);
+                        let mut ctx = create_namespace_population_context(bundler);
                         let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                             &mut ctx,
                             target_name.as_str(),
@@ -3023,17 +3014,12 @@ fn rewrite_import_with_renames(
                          this transformation session"
                     );
                 } else {
-                    // Note: This is a limitation - we can't mutate namespace_assignments_made
-                    // from here since bundler is immutable. This will be handled during
-                    // the main bundle process where bundler is mutable.
                     log::debug!(
                         "Cannot track namespace assignments for '{module_name}' in import \
                          transformer due to immutability"
                     );
                     // For now, we'll create the statements without tracking duplicates
-                    let mut temp_assignments = FxIndexSet::default();
-                    let mut ctx =
-                        create_namespace_population_context(bundler, &mut temp_assignments);
+                    let mut ctx = create_namespace_population_context(bundler);
                     let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                         &mut ctx,
                         target_name.as_str(),
@@ -3061,14 +3047,12 @@ fn rewrite_import_with_renames(
 /// for namespace population operations in import transformation.
 fn create_namespace_population_context<'a>(
     bundler: &'a crate::code_generator::bundler::Bundler,
-    temp_assignments: &'a mut crate::types::FxIndexSet<(String, String)>,
 ) -> crate::code_generator::namespace_manager::NamespacePopulationContext<'a> {
     crate::code_generator::namespace_manager::NamespacePopulationContext {
         inlined_modules: &bundler.inlined_modules,
         module_exports: &bundler.module_exports,
         tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
         bundled_modules: &bundler.bundled_modules,
-        namespace_assignments_made: temp_assignments,
         modules_with_accessed_all: &bundler.modules_with_accessed_all,
         module_registry: &bundler.module_registry,
         module_asts: &bundler.module_asts,
