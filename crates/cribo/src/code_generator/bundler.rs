@@ -4299,14 +4299,9 @@ impl Bundler<'_> {
         // 1. Create the namespace object
         // 2. Add all the module's symbols to it
 
-        // We'll create a compound statement that does both
-        let _stmts: Vec<Stmt> = Vec::new();
-
         // First, create the empty namespace
         let namespace_expr =
             expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
-
-        // Create assignment for the namespace
 
         // For now, return just the namespace creation
         // The actual symbol population needs to happen after all symbols are available

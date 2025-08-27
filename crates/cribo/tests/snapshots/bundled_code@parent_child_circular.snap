@@ -29,10 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False, __path__=[])
-foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo', __initializing__=False, __initialized__=False)
-foo_zoo = _cribo.types.SimpleNamespace(__name__='foo.zoo', __initializing__=False, __initialized__=False)
-foo.boo = foo_boo
-foo.zoo = foo_zoo
 def _cribo_init___cribo_97cb47_foo(self):
     if self.__initialized__:
         return self
@@ -41,11 +37,6 @@ def _cribo_init___cribo_97cb47_foo(self):
         return self
     """Parent package that imports from its child module."""
     print("Initializing foo package")
-    foo.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(foo, attr, getattr(__cribo_init_result, attr))
     foo.__initializing__ = True
     foo.boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
     helper_function = foo.boo.helper_function
@@ -59,6 +50,7 @@ def _cribo_init___cribo_97cb47_foo(self):
     self.__initializing__ = False
     return self
 foo.__init__ = _cribo_init___cribo_97cb47_foo
+foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_f2ecbb_foo_boo(self):
     if self.__initialized__:
         return self
@@ -92,6 +84,8 @@ def _cribo_init___cribo_f2ecbb_foo_boo(self):
     self.__initializing__ = False
     return self
 foo_boo.__init__ = _cribo_init___cribo_f2ecbb_foo_boo
+foo.boo = foo_boo
+foo_zoo = _cribo.types.SimpleNamespace(__name__='foo.zoo', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_83878b_foo_zoo(self):
     if self.__initialized__:
         return self
@@ -117,6 +111,7 @@ def _cribo_init___cribo_83878b_foo_zoo(self):
     self.__initializing__ = False
     return self
 foo_zoo.__init__ = _cribo_init___cribo_83878b_foo_zoo
+foo.zoo = foo_zoo
 """Test parent-child circular dependencies.\n\nThis tests the case where:\n1. foo/__init__.py imports from foo.boo\n2. foo.boo imports foo.zoo\n3. This creates a circular dependency because foo.zoo requires foo to be initialized first\n"""
 print("Initializing main module")
 __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
