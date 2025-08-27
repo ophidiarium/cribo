@@ -862,16 +862,16 @@ impl<'a> Bundler<'a> {
     /// Collect module renames from semantic analysis
     fn collect_module_renames(
         &mut self,
-        module_name: &str,
+        module_id: ModuleId,
         semantic_ctx: &SemanticContext,
-        symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
+        symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) {
+        let module_name = self.resolver.get_module_name(module_id)
+            .expect("Module name must exist for ModuleId");
         log::debug!("collect_module_renames: Processing module '{module_name}'");
 
-        // Find the module ID for this module name
-        let module_id = if let Some(module) = semantic_ctx.graph.get_module_by_name(module_name) {
-            module.module_id
-        } else {
+        // Get the module from the dependency graph  
+        if semantic_ctx.graph.get_module(module_id).is_none() {
             log::warn!("Module '{module_name}' not found in graph");
             return;
         };
@@ -891,10 +891,8 @@ impl<'a> Bundler<'a> {
             );
 
             // Store semantic exports for later use
-            if let Some(module_id) = self.get_module_id(module_name) {
-                self.semantic_exports
-                    .insert(module_id, module_info.exported_symbols.clone());
-            }
+            self.semantic_exports
+                .insert(module_id, module_info.exported_symbols.clone());
 
             // Process all exported symbols from the module
             for symbol in &module_info.exported_symbols {
@@ -933,12 +931,12 @@ impl<'a> Bundler<'a> {
         // For inlined modules with __all__, we need to also include symbols from __all__
         // even if they're not defined in this module (they might be re-exports)
         if self
-            .get_module_id(module_name)
+            .get_module_id(&module_name)
             .is_some_and(|id| self.inlined_modules.contains(&id))
         {
             log::debug!("Module '{module_name}' is inlined, checking for __all__ exports");
             if let Some(export_info) = self
-                .get_module_id(module_name)
+                .get_module_id(&module_name)
                 .and_then(|id| self.module_exports.get(&id))
             {
                 log::debug!("Module '{module_name}' export info: {export_info:?}");
@@ -979,7 +977,7 @@ impl<'a> Bundler<'a> {
         }
 
         // Store the renames for this module
-        symbol_renames.insert(module_name.to_string(), module_renames);
+        symbol_renames.insert(module_id, module_renames);
     }
 
     /// Build a map of imported symbols to their source modules by analyzing import statements
@@ -1211,21 +1209,18 @@ impl<'a> Bundler<'a> {
     /// Collect symbol renames from semantic analysis
     fn collect_symbol_renames(
         &mut self,
-        modules: &[(String, ModModule, PathBuf, String)],
+        modules: &[(ModuleId, ModModule, PathBuf, String)],
         semantic_ctx: &SemanticContext,
     ) -> FxIndexMap<ModuleId, FxIndexMap<String, String>> {
         let mut symbol_renames = FxIndexMap::default();
 
         // Collect renames for each module
-        for (module_name, _, _, _) in modules {
-            if let Some(module_id) = self.get_module_id(module_name) {
-                self.collect_module_renames_by_id(
-                    module_id,
-                    module_name,
-                    semantic_ctx,
-                    &mut symbol_renames,
-                );
-            }
+        for (module_id, _, _, _) in modules {
+            self.collect_module_renames(
+                *module_id,
+                semantic_ctx,
+                &mut symbol_renames,
+            );
         }
 
         symbol_renames
@@ -1300,24 +1295,15 @@ impl<'a> Bundler<'a> {
              {total_nodes}, New nodes start at: {starting_index}"
         );
 
-        // Convert modules to use ModuleId and store for re-export resolution
-        let modules_with_ids: Vec<(ModuleId, ModModule, PathBuf, String)> = modules
-            .iter()
-            .map(|(module_name, ast, path, hash)| {
-                let module_id = self
-                    .get_module_id(module_name)
-                    .unwrap_or_else(|| panic!("Module '{}' not found in resolver", module_name));
-                (module_id, ast.clone(), path.clone(), hash.clone())
-            })
-            .collect();
-        self.module_asts = Some(modules_with_ids.clone());
+        // Store for re-export resolution (modules already use ModuleId)
+        self.module_asts = Some(modules.clone());
 
         // Track bundled modules
-        for (module_name, _, _, _) in &modules {
-            if let Some(module_id) = self.get_module_id(module_name) {
-                self.bundled_modules.insert(module_id);
-                log::debug!("Tracking bundled module: '{module_name}' (ID: {module_id:?})");
-            }
+        for (module_id, _, _, _) in &modules {
+            self.bundled_modules.insert(*module_id);
+            let module_name = self.resolver.get_module_name(*module_id)
+                .expect("Module name must exist for ModuleId");
+            log::debug!("Tracking bundled module: '{module_name}' (ID: {module_id:?})");
         }
 
         // Check which modules are imported directly (e.g., import module_name)
@@ -1410,25 +1396,20 @@ impl<'a> Bundler<'a> {
         let module_exports_map = classification.module_exports_map;
 
         // Track which modules will be inlined (before wrapper module generation)
-        for (module_name, _, _, _) in &inlinable_modules {
-            if let Some(module_id) = self.get_module_id(module_name) {
-                self.inlined_modules.insert(module_id);
-            }
+        for (module_id, _, _, _) in &inlinable_modules {
+            self.inlined_modules.insert(*module_id);
             // Also store module exports for inlined modules
-            if let Some(module_id) = self.get_module_id(module_name) {
-                self.module_exports.insert(
-                    module_id,
-                    module_exports_map.get(&module_id).cloned().flatten(),
-                );
-            }
+            self.module_exports.insert(
+                *module_id,
+                module_exports_map.get(module_id).cloned().flatten(),
+            );
         }
 
         // Register wrapper modules
-        for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
-            if let Some(module_id) = self.get_module_id(module_name) {
-                self.module_exports.insert(
-                    module_id,
-                    module_exports_map.get(&module_id).cloned().flatten(),
+        for (module_id, _ast, _module_path, content_hash) in &wrapper_modules {
+            self.module_exports.insert(
+                *module_id,
+                module_exports_map.get(module_id).cloned().flatten(),
                 );
             }
 
@@ -2557,20 +2538,39 @@ impl<'a> Bundler<'a> {
     /// Find modules that are imported directly
     pub(super) fn find_directly_imported_modules(
         &self,
-        modules: &[(String, ModModule, PathBuf, String)],
+        modules: &[(ModuleId, ModModule, PathBuf, String)],
         entry_module_name: &str,
     ) -> FxIndexSet<String> {
+        // Convert to old format temporarily for ImportAnalyzer
+        let modules_with_names: Vec<(String, ModModule, PathBuf, String)> = modules
+            .iter()
+            .map(|(id, ast, path, hash)| {
+                let name = self.resolver.get_module_name(*id)
+                    .expect("Module name must exist for ModuleId");
+                (name, ast.clone(), path.clone(), hash.clone())
+            })
+            .collect();
         // Use ImportAnalyzer to find directly imported modules
-        ImportAnalyzer::find_directly_imported_modules(modules, entry_module_name)
+        ImportAnalyzer::find_directly_imported_modules(&modules_with_names, entry_module_name)
     }
 
     /// Find modules that are imported as namespaces
     fn find_namespace_imported_modules(
         &mut self,
-        modules: &[(String, ModModule, PathBuf, String)],
+        modules: &[(ModuleId, ModModule, PathBuf, String)],
     ) {
+        // Convert to old format temporarily for ImportAnalyzer
+        let modules_with_names: Vec<(String, ModModule, PathBuf, String)> = modules
+            .iter()
+            .map(|(id, ast, path, hash)| {
+                let name = self.resolver.get_module_name(*id)
+                    .expect("Module name must exist for ModuleId");
+                (name, ast.clone(), path.clone(), hash.clone())
+            })
+            .collect();
+        
         // Use ImportAnalyzer to find namespace imported modules
-        let string_based = ImportAnalyzer::find_namespace_imported_modules(modules);
+        let string_based = ImportAnalyzer::find_namespace_imported_modules(&modules_with_names);
 
         // Convert String-based map to ModuleId-based
         self.namespace_imported_modules = string_based
