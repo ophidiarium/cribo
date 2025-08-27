@@ -1235,21 +1235,20 @@ impl<'a> Bundler<'a> {
     fn prepare_modules(
         &mut self,
         params: &BundleParams<'a>,
-    ) -> Vec<(String, ModModule, PathBuf, String)> {
-        // Convert modules to the format expected by trim_unused_imports_from_modules
-        let modules_old_format: Vec<(String, ModModule, PathBuf, String)> = params
+    ) -> Vec<(ModuleId, ModModule, PathBuf, String)> {
+        // Convert modules to the format expected by functions
+        let modules_with_paths: Vec<(ModuleId, ModModule, PathBuf, String)> = params
             .modules
             .iter()
             .map(|(id, ast, hash)| {
-                let name = params
-                    .resolver
-                    .get_module_name(*id)
-                    .unwrap_or_else(|| format!("module_{}", id.as_u32()));
-                let path = params
-                    .resolver
-                    .get_module_path(*id)
-                    .unwrap_or_else(|| PathBuf::from(&name));
-                (name, ast.clone(), path, hash.clone())
+                let path = params.resolver.get_module_path(*id).unwrap_or_else(|| {
+                    let name = params
+                        .resolver
+                        .get_module_name(*id)
+                        .unwrap_or_else(|| format!("module_{}", id.as_u32()));
+                    PathBuf::from(&name)
+                });
+                (*id, ast.clone(), path, hash.clone())
             })
             .collect();
 
@@ -1257,7 +1256,7 @@ impl<'a> Bundler<'a> {
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
         let mut modules = import_deduplicator::trim_unused_imports_from_modules(
-            &modules_old_format,
+            &modules_with_paths,
             params.graph,
             params.tree_shaker,
             params.python_version,

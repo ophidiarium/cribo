@@ -122,15 +122,15 @@ pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str)
 
 /// Trim unused imports from modules using dependency graph analysis
 pub(super) fn trim_unused_imports_from_modules(
-    modules: &[(String, ModModule, PathBuf, String)],
+    modules: &[(crate::resolver::ModuleId, ModModule, PathBuf, String)],
     graph: &DependencyGraph,
     tree_shaker: Option<&TreeShaker>,
     python_version: u8,
-) -> Vec<(String, ModModule, PathBuf, String)> {
+) -> Vec<(crate::resolver::ModuleId, ModModule, PathBuf, String)> {
     let mut trimmed_modules = Vec::new();
 
-    for (module_name, ast, module_path, content_hash) in modules {
-        log::debug!("Trimming unused imports from module: {module_name}");
+    for (module_id, ast, module_path, content_hash) in modules {
+        log::debug!("Trimming unused imports from module: {:?}", module_id);
         let mut ast = ast.clone(); // Clone here to allow mutation
 
         // Check if this is an __init__.py file

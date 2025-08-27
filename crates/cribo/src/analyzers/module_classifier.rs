@@ -256,6 +256,11 @@ impl<'a> ModuleClassifier<'a> {
         let mut wildcard_imports: FxIndexMap<ModuleId, FxIndexSet<String>> = FxIndexMap::default();
 
         for (module_id, ast, _, _) in modules {
+            let module_name = self
+                .resolver
+                .get_module_name(*module_id)
+                .unwrap_or_else(|| "<unknown>".to_string());
+
             // Look for wildcard imports in this module
             for stmt in &ast.body {
                 if let Stmt::ImportFrom(import_from) = stmt {
@@ -267,7 +272,7 @@ impl<'a> ModuleClassifier<'a> {
                             self.resolver.resolve_relative_import_from_package_name(
                                 import_from.level,
                                 import_from.module.as_deref(),
-                                module_name,
+                                &module_name,
                             )
                         } else if let Some(module) = &import_from.module {
                             module.to_string()
@@ -276,7 +281,7 @@ impl<'a> ModuleClassifier<'a> {
                         };
 
                         wildcard_imports
-                            .entry(module_name.clone())
+                            .entry(*module_id)
                             .or_default()
                             .insert(imported);
                     }
