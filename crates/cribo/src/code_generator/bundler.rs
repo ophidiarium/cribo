@@ -1322,9 +1322,6 @@ impl<'a> Bundler<'a> {
             self.inlined_modules.shift_remove(module_name);
         }
 
-        // Check if we have wrapper modules
-        let _has_wrapper_modules = !wrapper_modules.is_empty();
-
         // Create semantic context
         let semantic_ctx = SemanticContext {
             graph: params.graph,
