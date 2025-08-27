@@ -1303,39 +1303,6 @@ impl<'a> Bundler<'a> {
             );
         }
 
-        // Now check if entry module has direct imports of inlined modules that have exports
-        let _needs_types_for_inlined_imports = if let Some((_, ast, _, _)) = modules
-            .iter()
-            .find(|(name, _, _, _)| name == params.entry_module_name)
-        {
-            ast.body.iter().any(|stmt| {
-                if let Stmt::Import(import_stmt) = stmt {
-                    import_stmt.names.iter().any(|alias| {
-                        let module_name = alias.name.as_str();
-                        // Check for direct imports of inlined modules that have exports
-                        if self.inlined_modules.contains(module_name) {
-                            // Check if the module has exports
-                            if let Some(Some(exports)) = self.module_exports.get(module_name) {
-                                let has_exports = !exports.is_empty();
-                                if has_exports {
-                                    log::debug!(
-                                        "Direct import of inlined module '{module_name}' with \
-                                         exports: {exports:?}"
-                                    );
-                                }
-                                return has_exports;
-                            }
-                        }
-                        false
-                    })
-                } else {
-                    false
-                }
-            })
-        } else {
-            false
-        };
-
         // Register wrapper modules
         for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
             self.module_exports.insert(
