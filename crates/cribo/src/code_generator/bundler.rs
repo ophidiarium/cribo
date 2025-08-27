@@ -1410,23 +1410,21 @@ impl<'a> Bundler<'a> {
             self.module_exports.insert(
                 *module_id,
                 module_exports_map.get(module_id).cloned().flatten(),
-                );
-            }
+            );
 
             // Register module with synthetic name and init function
-            let module_id = self
-                .get_module_id(module_name)
-                .expect("Module should be registered with resolver before bundling");
+            let module_name = self.resolver.get_module_name(*module_id)
+                .expect("Module name must exist for ModuleId");
             crate::code_generator::module_registry::register_module(
-                module_id,
-                module_name,
+                *module_id,
+                &module_name,
                 content_hash,
                 &mut self.module_synthetic_names,
                 &mut self.module_init_functions,
             );
 
             // Remove from inlined_modules since it's now a wrapper module
-            self.inlined_modules.shift_remove(&module_id);
+            self.inlined_modules.shift_remove(module_id);
         }
 
         // Create semantic context
@@ -1441,7 +1439,7 @@ impl<'a> Bundler<'a> {
 
         // Collect global symbols from the entry module first (for compatibility)
         let mut global_symbols =
-            SymbolAnalyzer::collect_global_symbols(&modules, &self.entry_module_name);
+            SymbolAnalyzer::collect_global_symbols(&modules);
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;

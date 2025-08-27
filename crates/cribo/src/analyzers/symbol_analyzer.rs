@@ -14,15 +14,14 @@ pub struct SymbolAnalyzer;
 impl SymbolAnalyzer {
     /// Collect global symbols from modules (matching bundler's `collect_global_symbols`)
     pub fn collect_global_symbols(
-        modules: &[(String, ModModule, std::path::PathBuf, String)],
-        entry_module_name: &str,
+        modules: &[(crate::resolver::ModuleId, ModModule, std::path::PathBuf, String)],
     ) -> FxIndexSet<String> {
         let mut global_symbols = FxIndexSet::default();
 
         // Find entry module and collect its top-level symbols
         if let Some((_, ast, _, _)) = modules
             .iter()
-            .find(|(name, _, _, _)| name == entry_module_name)
+            .find(|(module_id, _, _, _)| module_id.is_entry())
         {
             for stmt in &ast.body {
                 match stmt {
