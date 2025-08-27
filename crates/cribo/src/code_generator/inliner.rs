@@ -27,9 +27,13 @@ impl Bundler<'_> {
         ctx: &InlineContext,
     ) -> String {
         // Check if there's a semantic rename that's different from the original
+        let module_id = self
+            .resolver
+            .get_module_id_by_name(module_name)
+            .expect("Module should exist");
         if let Some(new_name) = ctx
             .module_renames
-            .get(module_name)
+            .get(&module_id)
             .and_then(|renames| renames.get(original_name))
             .filter(|&name| name != original_name)
         {

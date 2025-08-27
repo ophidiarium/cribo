@@ -208,7 +208,7 @@ pub fn initialize_submodule_if_needed(
 pub fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     module_registry: Option<&crate::orchestrator::ModuleRegistry>,
     inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
     bundled_modules: &FxIndexSet<crate::resolver::ModuleId>,
@@ -261,7 +261,10 @@ pub fn create_assignments_for_inlined_imports(
             } else {
                 // Regular symbol import
                 // Check if this symbol was renamed during inlining
-                let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+                let module_id = resolver
+                    .get_module_id_by_name(module_name)
+                    .expect("Module should exist");
+                let actual_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
                     module_renames
                         .get(imported_name)
                         .map_or(imported_name, std::string::String::as_str)
@@ -283,7 +286,10 @@ pub fn create_assignments_for_inlined_imports(
         } else {
             // Module doesn't exist, treat as regular symbol import
             // Check if this symbol was renamed during inlining
-            let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+            let module_id = resolver.get_module_id_by_name(module_name);
+            let actual_name = if let Some(id) = module_id
+                && let Some(module_renames) = symbol_renames.get(&id)
+            {
                 module_renames
                     .get(imported_name)
                     .map_or(imported_name, std::string::String::as_str)

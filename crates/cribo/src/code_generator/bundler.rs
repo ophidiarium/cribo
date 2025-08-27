@@ -152,19 +152,13 @@ impl<'a> Bundler<'a> {
     /// Check if a symbol is kept by tree shaking
     pub(crate) fn is_symbol_kept_by_tree_shaking(
         &self,
-        module_name: &str,
+        module_id: ModuleId,
         symbol_name: &str,
     ) -> bool {
         match &self.tree_shaking_keep_symbols {
-            Some(kept_symbols) => {
-                if let Some(module_id) = self.get_module_id(module_name) {
-                    kept_symbols
-                        .get(&module_id)
-                        .is_some_and(|symbols| symbols.contains(symbol_name))
-                } else {
-                    true // Module not found, assume kept
-                }
-            }
+            Some(kept_symbols) => kept_symbols
+                .get(&module_id)
+                .is_some_and(|symbols| symbols.contains(symbol_name)),
             None => true, // No tree shaking, all symbols are kept
         }
     }
@@ -238,7 +232,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
         inside_wrapper_init: bool,
         current_module: Option<&str>,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
@@ -2630,11 +2624,11 @@ impl<'a> Bundler<'a> {
             return false;
         }
 
+        // Get module ID once for reuse
+        let module_id = self.get_module_id(module_name);
+        
         // Check if the module has explicit __all__ exports
-        if let Some(Some(exports)) = self
-            .get_module_id(module_name)
-            .and_then(|id| self.module_exports.get(&id))
-        {
+        if let Some(Some(exports)) = module_id.and_then(|id| self.module_exports.get(&id)) {
             // Module defines __all__, check if symbol is listed there
             if exports.iter().any(|s| s == symbol_name) {
                 // Symbol is in __all__. For re-exported symbols, check if the symbol exists anywhere in the bundle.
@@ -2657,7 +2651,12 @@ impl<'a> Bundler<'a> {
         }
 
         // For symbols not in __all__ (or if no __all__ is defined), check tree-shaking
-        let is_kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_name, symbol_name);
+        let is_kept_by_tree_shaking = if let Some(id) = module_id {
+            self.is_symbol_kept_by_tree_shaking(id, symbol_name)
+        } else {
+            // Module not found, assume not kept
+            false
+        };
         if !is_kept_by_tree_shaking {
             log::debug!(
                 "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; not exporting"
@@ -3875,7 +3874,9 @@ impl<'a> Bundler<'a> {
         module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
         // First check tree-shaking decisions if available
-        let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_name, symbol_name);
+        let kept_by_tree_shaking = self
+            .get_module_id(module_name)
+            .map_or(false, |id| self.is_symbol_kept_by_tree_shaking(id, symbol_name));
         if !kept_by_tree_shaking {
             log::trace!(
                 "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"

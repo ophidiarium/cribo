@@ -171,7 +171,7 @@ pub(super) fn transform_namespace_package_imports(
     bundler: &Bundler,
     import_from: StmtImportFrom,
     module_name: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
 
@@ -179,12 +179,21 @@ pub(super) fn transform_namespace_package_imports(
         let imported_name = alias.name.as_str();
         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
         let full_module_path = format!("{module_name}.{imported_name}");
+        let full_module_id = bundler.get_module_id(&full_module_path);
+        let parent_module_id = bundler.get_module_id(module_name);
 
-        if bundler.bundled_modules.contains(&full_module_path) {
-            if bundler.bundled_modules.contains_key(&full_module_path) {
+        if let Some(id) = full_module_id
+            && bundler.bundled_modules.contains(&id)
+        {
+            if bundler
+                .module_synthetic_names
+                .contains_key(&id)
+            {
                 // Wrapper module - ensure it's initialized first, then create reference
                 // First ensure parent module is initialized if it's also a wrapper
-                if bundler.bundled_modules.contains_key(module_name) {
+                if let Some(parent_id) = parent_module_id
+                    && bundler.module_synthetic_names.contains_key(&parent_id)
+                {
                     result_stmts.extend(
                         crate::code_generator::module_registry::create_module_initialization_for_import(
                             module_name,
@@ -227,7 +236,10 @@ pub(super) fn transform_namespace_package_imports(
 
                 // Add all the renamed symbols as attributes to the namespace
                 // Get the symbol renames for this module if available
-                if let Some(module_renames) = symbol_renames.get(&full_module_path) {
+                let full_module_id = bundler
+                    .get_module_id(&full_module_path)
+                    .expect("Module should exist");
+                if let Some(module_renames) = symbol_renames.get(&full_module_id) {
                     let module_suffix = sanitize_module_name_for_identifier(&full_module_path);
                     for (original_name, renamed_name) in module_renames {
                         // Check if this is an identity mapping (no semantic rename)
@@ -619,7 +631,7 @@ pub fn populate_namespace_with_module_symbols(
     ctx: &mut NamespacePopulationContext,
     target_name: &str,
     module_id: ModuleId,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
 
@@ -737,9 +749,13 @@ pub fn populate_namespace_with_module_symbols(
 
             // Check if this symbol is actually a submodule
             let full_submodule_path = format!("{module_name}.{symbol_name}");
-            let is_bundled_submodule = ctx.bundled_modules.contains(&full_submodule_path);
-            let is_inlined = ctx.inlined_modules.contains(&full_submodule_path);
-            let uses_init_function = ctx.wrapper_modules.contains(&full_submodule_path);
+            let submodule_id = ctx.resolver.get_module_id_by_name(&full_submodule_path);
+            let is_bundled_submodule = submodule_id
+                .map_or(false, |id| ctx.bundled_modules.contains(&id));
+            let is_inlined = submodule_id
+                .map_or(false, |id| ctx.inlined_modules.contains(&id));
+            let uses_init_function = submodule_id
+                .map_or(false, |id| ctx.wrapper_modules.contains(&id));
 
             if is_bundled_submodule {
                 debug!(
@@ -753,10 +769,11 @@ pub fn populate_namespace_with_module_symbols(
                 // module)
                 if is_inlined {
                     // Check if the submodule has a symbol with the same name as itself
-                    if let Some(submodule_exports) = ctx
-                        .module_exports
-                        .get(&full_submodule_path)
-                        .and_then(|e| e.as_ref())
+                    if let Some(submodule_id) = submodule_id
+                        && let Some(submodule_exports) = ctx
+                            .module_exports
+                            .get(&submodule_id)
+                            .and_then(|e| e.as_ref())
                         && submodule_exports.contains(&symbol_name.to_string())
                     {
                         // The submodule exports a symbol with the same name as itself
@@ -767,7 +784,7 @@ pub fn populate_namespace_with_module_symbols(
                         );
 
                         // Get the renamed symbol from the submodule
-                        if let Some(submodule_renames) = symbol_renames.get(&full_submodule_path)
+                        if let Some(submodule_renames) = symbol_renames.get(&submodule_id)
                             && let Some(renamed) = submodule_renames.get(symbol_name)
                         {
                             debug!(
@@ -797,7 +814,7 @@ pub fn populate_namespace_with_module_symbols(
             }
 
             // Get the renamed symbol if it exists
-            let actual_symbol_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+            let actual_symbol_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
                 module_renames
                     .get(symbol_name)
                     .cloned()

@@ -2925,9 +2925,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                 }
 
                 // Check if this symbol survived tree-shaking
+                let module_id = self
+                    .bundler
+                    .get_module_id(module_name)
+                    .expect("Module should exist");
                 if !self
                     .bundler
-                    .is_symbol_kept_by_tree_shaking(module_name, original_name)
+                    .is_symbol_kept_by_tree_shaking(module_id, original_name)
                 {
                     log::debug!(
                         "Skipping tree-shaken symbol '{original_name}' from namespace for module \
@@ -2958,7 +2962,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Check if this symbol survived tree-shaking
                         if !self
                             .bundler
-                            .is_symbol_kept_by_tree_shaking(module_name, export)
+                            .is_symbol_kept_by_tree_shaking(module_id, export)
                         {
                             log::debug!(
                                 "Skipping tree-shaken export '{export}' from namespace for module \
@@ -3294,7 +3298,7 @@ struct RewriteImportFromParams<'a> {
     import_from: StmtImportFrom,
     current_module: &'a str,
     module_path: Option<&'a Path>,
-    symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     inside_wrapper_init: bool,
     python_version: u8,
 }
@@ -3605,7 +3609,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             }
 
             // Check if the source symbol was tree-shaken
-            if !bundler.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+            if !bundler.is_symbol_kept_by_tree_shaking(module_id, symbol_name) {
                 log::debug!(
                     "Skipping wildcard import for tree-shaken symbol '{symbol_name}' from module \
                      '{module_name}'"
@@ -3673,8 +3677,11 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             bundler.is_symbol_from_inlined_submodule(module_name, imported_name)
         {
             // Apply symbol renames from the source module if they exist
+            let source_module_id = bundler
+                .get_module_id(&source_module)
+                .expect("Source module should exist");
             let global_name = symbol_renames
-                .get(&source_module)
+                .get(&source_module_id)
                 .and_then(|renames| renames.get(&source_symbol))
                 .cloned()
                 .unwrap_or(source_symbol);
@@ -3686,8 +3693,8 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         } else {
             // Fallback: package re-export heuristic only if there is no explicit rename
             let is_package_reexport = is_package_init_reexport(bundler, module_name);
-            let has_rename = symbol_renames
-                .get(module_name)
+            let has_rename = module_id
+                .and_then(|id| symbol_renames.get(&id))
                 .and_then(|renames| renames.get(imported_name))
                 .is_some();
 
@@ -3702,8 +3709,8 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                 );
                 imported_name.to_string()
             } else {
-                symbol_renames
-                    .get(module_name)
+                module_id
+                    .and_then(|id| symbol_renames.get(&id))
                     .and_then(|renames| renames.get(imported_name))
                     .cloned()
                     .unwrap_or_else(|| imported_name.to_string())
@@ -3720,7 +3727,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         );
 
         // Check if the source symbol was tree-shaken
-        if !bundler.is_symbol_kept_by_tree_shaking(module_name, imported_name) {
+        if !bundler.is_symbol_kept_by_tree_shaking(module_id, imported_name) {
             log::debug!(
                 "Skipping import assignment for tree-shaken symbol '{imported_name}' from module \
                  '{module_name}'"

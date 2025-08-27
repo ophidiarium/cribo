@@ -2823,10 +2823,16 @@ fn create_namespace_for_inlined_submodule(
         ),
     ));
 
+    // Get the module ID for this module
+    let module_id = bundler
+        .resolver
+        .get_module_id_by_name(full_module_name)
+        .expect("Module should exist in resolver");
+
     // Get the module exports for this inlined module
     let exported_symbols = bundler
         .module_exports
-        .get(full_module_name)
+        .get(&module_id)
         .cloned()
         .flatten();
 
@@ -2836,7 +2842,7 @@ fn create_namespace_for_inlined_submodule(
             // For re-exported symbols, check if the original symbol is kept by tree-shaking
             let should_include = if bundler.tree_shaking_keep_symbols.is_some() {
                 // First check if this symbol is directly defined in this module
-                if bundler.is_symbol_kept_by_tree_shaking(full_module_name, &symbol) {
+                if bundler.is_symbol_kept_by_tree_shaking(module_id, &symbol) {
                     true
                 } else {
                     // If not, check if this is a re-exported symbol from another module
@@ -2844,7 +2850,7 @@ fn create_namespace_for_inlined_submodule(
                     // even if they're not directly defined in the module
                     let module_has_all_export = bundler
                         .module_exports
-                        .get(full_module_name)
+                        .get(&module_id)
                         .and_then(|exports| exports.as_ref())
                         .is_some_and(|exports| exports.contains(&symbol));
 
@@ -2945,11 +2951,7 @@ fn renamed_symbol_exists(
         for (original, renamed) in renames {
             if renamed == renamed_symbol {
                 // Found the renamed symbol, check if it's kept
-                let module_name = bundler
-                    .resolver
-                    .get_module_name(*module_id)
-                    .expect("Module name must exist for ModuleId");
-                if bundler.is_symbol_kept_by_tree_shaking(&module_name, original) {
+                if bundler.is_symbol_kept_by_tree_shaking(*module_id, original) {
                     return true;
                 }
             }
@@ -2974,26 +2976,32 @@ fn process_wildcard_import(
     let mut wrapper_module_symbols = Vec::new();
 
     // Get all exported symbols from this module
-    let exports = bundler
-        .get_module_id(module)
-        .and_then(|id| bundler.module_exports.get(&id));
+    let module_id = bundler.get_module_id(module);
+    let exports = module_id.and_then(|id| bundler.module_exports.get(&id));
 
     if let Some(Some(export_list)) = exports {
+        let module_id = module_id.expect("Module ID should exist if exports found");
+        
         // Module has explicit __all__, use it
         for symbol in export_list {
             if symbol != "*" {
                 // A symbol is kept if it's kept in the re-exporting module itself,
                 // or if it's re-exported from a submodule and kept in that source module.
-                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module, symbol) || {
+                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module_id, symbol) || {
                     let mut found_in_submodule = false;
-                    for (potential_module, module_exports) in &bundler.module_exports {
-                        if potential_module.starts_with(&format!("{module}."))
+                    for (potential_module_id, module_exports) in &bundler.module_exports {
+                        // Check if this is a submodule by comparing names
+                        let potential_module_name = bundler
+                            .resolver
+                            .get_module_name(*potential_module_id)
+                            .expect("Module name must exist");
+                        if potential_module_name.starts_with(&format!("{module}."))
                             && let Some(exports) = module_exports
                             && exports.contains(symbol)
-                            && bundler.is_symbol_kept_by_tree_shaking(potential_module, symbol)
+                            && bundler.is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
                         {
                             debug!(
-                                "Symbol '{symbol}' is kept in source module '{potential_module}'"
+                                "Symbol '{symbol}' is kept in source module '{potential_module_name}'"
                             );
                             found_in_submodule = true;
                             break;
@@ -3053,7 +3061,7 @@ fn process_wildcard_import(
                 // Track the renamed symbol (which is what will be in the global scope)
                 if !renamed_name.starts_with('_') {
                     // Check if the original symbol was kept by tree-shaking
-                    if bundler.is_symbol_kept_by_tree_shaking(module, original_name) {
+                    if bundler.is_symbol_kept_by_tree_shaking(module_id, original_name) {
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, original_name) {
                             debug!(
@@ -3081,11 +3089,13 @@ fn process_wildcard_import(
         }
 
         // Fallback to semantic exports when no renames are available
-        if let Some(semantic) = bundler.semantic_exports.get(module) {
+        if let Some(module_id) = bundler.get_module_id(module)
+            && let Some(semantic) = bundler.semantic_exports.get(&module_id)
+        {
             for symbol in semantic {
                 if !symbol.starts_with('_') {
                     // Check if the symbol was kept by tree-shaking
-                    if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                    if bundler.is_symbol_kept_by_tree_shaking(module_id, symbol) {
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                             debug!(
