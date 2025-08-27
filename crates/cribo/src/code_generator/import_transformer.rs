@@ -3693,8 +3693,8 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         } else {
             // Fallback: package re-export heuristic only if there is no explicit rename
             let is_package_reexport = is_package_init_reexport(bundler, module_name);
-            let has_rename = module_id
-                .and_then(|id| symbol_renames.get(&id))
+            let has_rename = symbol_renames
+                .get(&module_id)
                 .and_then(|renames| renames.get(imported_name))
                 .is_some();
 
@@ -3709,8 +3709,8 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                 );
                 imported_name.to_string()
             } else {
-                module_id
-                    .and_then(|id| symbol_renames.get(&id))
+                symbol_renames
+                    .get(&module_id)
                     .and_then(|renames| renames.get(imported_name))
                     .cloned()
                     .unwrap_or_else(|| imported_name.to_string())
