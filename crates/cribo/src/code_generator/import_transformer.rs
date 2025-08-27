@@ -1879,7 +1879,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if let Some((parent, child)) = resolved.rsplit_once('.') {
                         // If the parent is also a wrapper module, DO NOT initialize it here
                         // It will be initialized when accessed
-                        if self.bundler.module_info_registry.contains_key(parent) {
+                        if self.bundler.get_module_id(parent)
+                            .is_some_and(|id| self.bundler.module_info_registry.is_some_and(|reg| reg.contains_module(&id))) {
                             log::debug!(
                                 "  Parent '{parent}' is a wrapper module - skipping immediate initialization"
                             );
@@ -2757,7 +2758,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Then check if the alias directly matches a module name
         // But not in the entry module - in the entry module, direct module names
         // are namespace objects, not aliases
-        if !self.is_entry_module && self.bundler.inlined_modules.contains(alias) {
+        if !self.is_entry_module && self.bundler.get_module_id(alias)
+            .is_some_and(|id| self.bundler.inlined_modules.contains(&id)) {
             Some(alias.to_string())
         } else {
             None
@@ -2767,7 +2769,8 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Create module access expression
     pub fn create_module_access_expr(&self, module_name: &str) -> Expr {
         // Check if this is a wrapper module
-        if let Some(synthetic_name) = self.bundler.module_info_registry.get(module_name) {
+        if let Some(synthetic_name) = self.bundler.get_module_id(module_name)
+            .and_then(|id| self.bundler.module_synthetic_names.get(&id)) {
             // This is a wrapper module - we need to call its init function
             // This handles modules with invalid Python identifiers like "my-module"
             let init_func_name =
@@ -2780,7 +2783,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                 vec![expressions::name(&module_var, ExprContext::Load)],
                 vec![],
             )
-        } else if self.bundler.inlined_modules.contains(module_name) {
+        } else if self.bundler.get_module_id(module_name)
+            .is_some_and(|id| self.bundler.inlined_modules.contains(&id)) {
             // This is an inlined module - create namespace object
             self.create_namespace_call_for_inlined_module(
                 module_name,
@@ -2896,8 +2900,9 @@ fn rewrite_import_with_renames(
             let parts: Vec<&str> = module_name.split('.').collect();
 
             // Check if the full module is bundled
-            if bundler.bundled_modules.contains(module_name) {
-                if bundler.module_info_registry.contains_key(module_name) {
+            if let Some(module_id) = bundler.get_module_id(module_name) {
+                if bundler.bundled_modules.contains(&module_id) {
+                    if bundler.module_info_registry.is_some_and(|reg| reg.contains_module(&module_id)) {
                     // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b,
                     // a.b.c)
                     bundler.create_parent_namespaces(&parts, &mut result_stmts);
@@ -2992,13 +2997,17 @@ fn rewrite_import_with_renames(
                                 );
                                 // For now, we'll create the statements without tracking duplicates
                                 let mut ctx = create_namespace_population_context(bundler);
-                                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                                    &mut ctx,
-                                    &partial_module,
-                                    &partial_module,
-                                    symbol_renames,
-                                );
-                                result_stmts.extend(new_stmts);
+                                if let Some(partial_module_id) = bundler.get_module_id(&partial_module) {
+                                    let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                                        &mut ctx,
+                                        &partial_module,
+                                        partial_module_id,
+                                        symbol_renames,
+                                    );
+                                    result_stmts.extend(new_stmts);
+                                } else {
+                                    log::warn!("Could not find module ID for partial module '{}'", partial_module);
+                                }
                                 populated_modules.insert(partial_module.clone());
                             }
                         }
@@ -3030,10 +3039,11 @@ fn rewrite_import_with_renames(
                         let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                             &mut ctx,
                             target_name.as_str(),
-                            module_name,
+                            module_id,
                             symbol_renames,
                         );
                         result_stmts.extend(new_stmts);
+                    }
                     }
                 }
             } else {
@@ -3041,12 +3051,20 @@ fn rewrite_import_with_renames(
             }
         } else {
             // Non-dotted import - handle as before
-            if !bundler.bundled_modules.contains(module_name) {
+            let module_id = match bundler.get_module_id(module_name) {
+                Some(id) => id,
+                None => {
+                    handled_all = false;
+                    continue;
+                }
+            };
+            
+            if !bundler.bundled_modules.contains(&module_id) {
                 handled_all = false;
                 continue;
             }
 
-            if bundler.module_info_registry.contains_key(module_name) {
+            if bundler.module_info_registry.is_some_and(|reg| reg.contains_module(&module_id)) {
                 // Module uses wrapper approach - need to initialize it now
                 let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
@@ -3093,7 +3111,7 @@ fn rewrite_import_with_renames(
                     let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                         &mut ctx,
                         target_name.as_str(),
-                        module_name,
+                        module_id,
                         symbol_renames,
                     );
                     result_stmts.extend(new_stmts);
