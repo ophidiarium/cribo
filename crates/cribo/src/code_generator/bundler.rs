@@ -1597,7 +1597,10 @@ impl<'a> Bundler<'a> {
                     .any(|(n, _, _, _)| n == module_name)
             );
 
-            let (ast, path, _hash) = module_map.get(module_name).unwrap().clone();
+            let (ast, path, _hash) = module_map
+                .get(module_name)
+                .expect("Module should exist in module_map after topological sorting")
+                .clone();
 
             if inlinable_set.contains(module_name) {
                 // Process as inlinable module
