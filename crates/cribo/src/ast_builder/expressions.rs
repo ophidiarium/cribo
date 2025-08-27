@@ -457,3 +457,24 @@ pub fn expr_to_dotted_name(expr: &Expr) -> String {
         _ => String::new(),
     }
 }
+
+/// Creates a keyword argument node.
+///
+/// # Arguments
+/// * `arg` - The keyword argument name (None for **kwargs)
+/// * `value` - The value expression
+///
+/// # Example
+/// ```rust
+/// // Creates: `key=value` (as part of a function call)
+/// let value_expr = name("value", ExprContext::Load);
+/// let kw = keyword(Some("key"), value_expr);
+/// ```
+pub fn keyword(arg: Option<&str>, value: Expr) -> Keyword {
+    Keyword {
+        node_index: AtomicNodeIndex::dummy(),
+        arg: arg.map(|s| ruff_python_ast::Identifier::new(s, TextRange::default())),
+        value,
+        range: TextRange::default(),
+    }
+}

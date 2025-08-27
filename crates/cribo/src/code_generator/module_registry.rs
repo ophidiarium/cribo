@@ -209,9 +209,10 @@ pub fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    module_registry: &FxIndexMap<String, String>,
-    inlined_modules: &FxIndexSet<String>,
-    bundled_modules: &FxIndexSet<String>,
+    module_registry: Option<&crate::orchestrator::ModuleRegistry>,
+    inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
+    bundled_modules: &FxIndexSet<crate::resolver::ModuleId>,
+    resolver: &crate::resolver::ModuleResolver,
     python_version: u8,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
@@ -227,39 +228,60 @@ pub fn create_assignments_for_inlined_imports(
 
         // Check if this is a module import
         // First check if it's a wrapped module
-        if module_registry.contains_key(&full_module_path) {
-            // Skip wrapped modules - they will be handled as deferred imports
-            log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
-            continue;
-        } else if inlined_modules.contains(&full_module_path)
-            || bundled_modules.contains(&full_module_path)
-        {
-            // Create a namespace object for the inlined module
-            log::debug!(
-                "Creating namespace object for module '{imported_name}' imported from \
+        if let Some(module_id) = resolver.get_module_id_by_name(&full_module_path) {
+            if module_registry.is_some_and(|reg| reg.contains_module(&module_id)) {
+                // Skip wrapped modules - they will be handled as deferred imports
+                log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
+                continue;
+            } else if inlined_modules.contains(&module_id) || bundled_modules.contains(&module_id) {
+                // Create a namespace object for the inlined module
+                log::debug!(
+                    "Creating namespace object for module '{imported_name}' imported from \
                  '{module_name}' - module was inlined"
-            );
-
-            // Record that we need a namespace for this module
-            let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
-
-            namespace_requirements.push(NamespaceRequirement {
-                path: full_module_path.clone(),
-                var_name: sanitized_name.clone(),
-            });
-
-            // If local name differs from sanitized name, create alias
-            // But skip if it would conflict with a stdlib name in scope
-            if local_name.as_str() != sanitized_name {
-                create_assignment_if_no_stdlib_conflict(
-                    local_name.as_str(),
-                    &sanitized_name,
-                    &mut assignments,
-                    python_version,
                 );
+
+                // Record that we need a namespace for this module
+                let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
+
+                namespace_requirements.push(NamespaceRequirement {
+                    path: full_module_path.clone(),
+                    var_name: sanitized_name.clone(),
+                });
+
+                // If local name differs from sanitized name, create alias
+                // But skip if it would conflict with a stdlib name in scope
+                if local_name.as_str() != sanitized_name {
+                    create_assignment_if_no_stdlib_conflict(
+                        local_name.as_str(),
+                        &sanitized_name,
+                        &mut assignments,
+                        python_version,
+                    );
+                }
+            } else {
+                // Regular symbol import
+                // Check if this symbol was renamed during inlining
+                let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+                    module_renames
+                        .get(imported_name)
+                        .map_or(imported_name, std::string::String::as_str)
+                } else {
+                    imported_name
+                };
+
+                // Only create assignment if the names are different
+                // But skip if it would conflict with a stdlib name in scope
+                if local_name.as_str() != actual_name {
+                    create_assignment_if_no_stdlib_conflict(
+                        local_name.as_str(),
+                        actual_name,
+                        &mut assignments,
+                        python_version,
+                    );
+                }
             }
         } else {
-            // Regular symbol import
+            // Module doesn't exist, treat as regular symbol import
             // Check if this symbol was renamed during inlining
             let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
                 module_renames
@@ -340,8 +362,7 @@ pub fn is_wrapper_submodule(
     resolver: &crate::resolver::ModuleResolver,
 ) -> bool {
     if let Some(module_id) = resolver.get_module_id_by_name(module_path) {
-        module_info_registry
-            .is_some_and(|reg| reg.contains_module(&module_id))
+        module_info_registry.is_some_and(|reg| reg.contains_module(&module_id))
             && !inlined_modules.contains(&module_id)
     } else {
         false

@@ -6,10 +6,7 @@
 use std::path::PathBuf;
 
 use log::{debug, warn};
-use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImportFrom,
-};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
@@ -454,22 +451,15 @@ pub fn require_namespace(
                 let mut keywords = Vec::new();
 
                 // Always add __name__ as a keyword argument
-                keywords.push(Keyword {
-                    node_index: AtomicNodeIndex::dummy(),
-                    arg: Some(Identifier::new("__name__", TextRange::default())),
-                    value: expressions::string_literal(path),
-                    range: TextRange::default(),
-                });
+                keywords.push(expressions::keyword(
+                    Some("__name__"),
+                    expressions::string_literal(path),
+                ));
 
                 // Add any additional attributes as keyword arguments
                 if let Some(attributes) = params.attributes {
                     for (attr_name, attr_value) in attributes {
-                        keywords.push(Keyword {
-                            node_index: AtomicNodeIndex::dummy(),
-                            arg: Some(Identifier::new(&attr_name, TextRange::default())),
-                            value: attr_value,
-                            range: TextRange::default(),
-                        });
+                        keywords.push(expressions::keyword(Some(&attr_name), attr_value));
                     }
                 }
 

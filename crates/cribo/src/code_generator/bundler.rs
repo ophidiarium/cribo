@@ -1213,12 +1213,19 @@ impl<'a> Bundler<'a> {
         &mut self,
         modules: &[(String, ModModule, PathBuf, String)],
         semantic_ctx: &SemanticContext,
-    ) -> FxIndexMap<String, FxIndexMap<String, String>> {
+    ) -> FxIndexMap<ModuleId, FxIndexMap<String, String>> {
         let mut symbol_renames = FxIndexMap::default();
 
-        // Convert ModuleId-based renames to module name-based renames
+        // Collect renames for each module
         for (module_name, _, _, _) in modules {
-            self.collect_module_renames(module_name, semantic_ctx, &mut symbol_renames);
+            if let Some(module_id) = self.get_module_id(module_name) {
+                self.collect_module_renames_by_id(
+                    module_id,
+                    module_name,
+                    semantic_ctx,
+                    &mut symbol_renames,
+                );
+            }
         }
 
         symbol_renames

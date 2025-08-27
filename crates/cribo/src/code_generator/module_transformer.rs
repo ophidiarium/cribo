@@ -40,9 +40,12 @@ pub fn transform_module_to_init_function<'a>(
     mut ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Stmt {
-    let module_id = bundler.get_module_id(ctx.module_name)
+    let module_id = bundler
+        .get_module_id(ctx.module_name)
         .expect("Module ID must exist for module being transformed");
-    let init_func_name = bundler.module_init_functions.get(&module_id)
+    let init_func_name = bundler
+        .module_init_functions
+        .get(&module_id)
         .expect("Init function must exist for wrapper module");
     let mut body = Vec::new();
 
@@ -210,9 +213,9 @@ pub fn transform_module_to_init_function<'a>(
                                 .map_or(imported_name, ruff_python_ast::Identifier::as_str);
 
                             // Check if this symbol should be re-exported (in __all__ or no __all__)
-                            let should_reexport = if let Some(Some(export_list)) =
-                                bundler.get_module_id(ctx.module_name)
-                                    .and_then(|id| bundler.module_exports.get(&id))
+                            let should_reexport = if let Some(Some(export_list)) = bundler
+                                .get_module_id(ctx.module_name)
+                                .and_then(|id| bundler.module_exports.get(&id))
                             {
                                 export_list.contains(&local_name.to_string())
                             } else {
@@ -237,7 +240,8 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Check if the module is inlined (NOT wrapper modules)
                 // Only inlined modules have their symbols in global scope
-                let is_inlined = bundler.get_module_id(module)
+                let is_inlined = bundler
+                    .get_module_id(module)
                     .is_some_and(|id| bundler.inlined_modules.contains(&id));
 
                 debug!("Checking if resolved module '{module}' is inlined: {is_inlined}");
@@ -1060,8 +1064,10 @@ pub fn transform_module_to_init_function<'a>(
             full_name, relative_name, ctx.module_name
         );
 
-        if bundler.get_module_id(&full_name)
-            .is_some_and(|id| bundler.inlined_modules.contains(&id)) {
+        if bundler
+            .get_module_id(&full_name)
+            .is_some_and(|id| bundler.inlined_modules.contains(&id))
+        {
             // Check if we're inside a wrapper function context
             // If we are, skip creating namespace for inlined submodules because
             // their symbols are at global scope and can't be referenced from
@@ -2963,7 +2969,8 @@ fn process_wildcard_import(
     let mut wrapper_module_symbols = Vec::new();
 
     // Get all exported symbols from this module
-    let exports = bundler.get_module_id(module)
+    let exports = bundler
+        .get_module_id(module)
         .and_then(|id| bundler.module_exports.get(&id));
 
     if let Some(Some(export_list)) = exports {
@@ -3113,8 +3120,13 @@ fn symbol_comes_from_wrapper_module(
 ) -> bool {
     // Find the module's AST in the module_asts if available
     let module_id = bundler.get_module_id(inlined_module);
-    let module_data = module_id
-        .and_then(|id| bundler.module_asts.as_ref()?.iter().find(|(name, _, _, _)| name == &id));
+    let module_data = module_id.and_then(|id| {
+        bundler
+            .module_asts
+            .as_ref()?
+            .iter()
+            .find(|(name, _, _, _)| name == &id)
+    });
 
     if let Some((_, ast, module_path, _)) = module_data {
         // Check all import statements in the module
@@ -3153,7 +3165,7 @@ fn symbol_comes_from_wrapper_module(
                             Some(id) => id,
                             None => continue,
                         };
-                        
+
                         if !bundler.bundled_modules.contains(&source_module_id)
                             || bundler.inlined_modules.contains(&source_module_id)
                         {
@@ -3162,7 +3174,8 @@ fn symbol_comes_from_wrapper_module(
 
                         // For wildcard imports, verify the symbol is actually exported
                         if is_wildcard {
-                            if let Some(Some(exports)) = bundler.module_exports.get(&source_module_id)
+                            if let Some(Some(exports)) =
+                                bundler.module_exports.get(&source_module_id)
                                 && exports.iter().any(|s| s == symbol_name)
                             {
                                 debug!(

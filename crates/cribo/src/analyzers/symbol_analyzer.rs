@@ -62,9 +62,10 @@ impl SymbolAnalyzer {
     /// A vector of references to the export symbols that should be kept
     pub fn filter_exports_by_tree_shaking<'a>(
         exports: &'a [String],
-        module_name: &str,
-        kept_symbols: Option<&FxIndexMap<String, FxIndexSet<String>>>,
+        module_id: &crate::resolver::ModuleId,
+        kept_symbols: Option<&FxIndexMap<crate::resolver::ModuleId, FxIndexSet<String>>>,
         enable_logging: bool,
+        resolver: &crate::resolver::ModuleResolver,
     ) -> Vec<&'a String> {
         if let Some(kept_symbols) = kept_symbols {
             let result: Vec<&String> = exports
@@ -73,7 +74,7 @@ impl SymbolAnalyzer {
                     // Check if this symbol is kept in this module
                     // With the new data structure, we can do efficient lookups without allocations
                     let is_kept = kept_symbols
-                        .get(module_name)
+                        .get(module_id)
                         .is_some_and(|symbols| symbols.contains(*symbol));
 
                     if enable_logging {
@@ -82,6 +83,9 @@ impl SymbolAnalyzer {
                         } else {
                             ("Filtering out", "from", "removed by")
                         };
+                        let module_name = resolver
+                            .get_module_name(*module_id)
+                            .expect("Module name must exist for ModuleId");
                         debug!(
                             "{action} symbol '{symbol}' {preposition} __all__ of module \
                              '{module_name}' - {reason} tree-shaking"
@@ -93,6 +97,9 @@ impl SymbolAnalyzer {
                 .collect();
 
             if enable_logging {
+                let module_name = resolver
+                    .get_module_name(*module_id)
+                    .expect("Module name must exist for ModuleId");
                 debug!(
                     "Module '{}' __all__ filtering: {} symbols -> {} symbols",
                     module_name,
