@@ -138,13 +138,14 @@ pub(super) fn trim_unused_imports_from_modules(
             module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
 
         // Get unused imports from the graph
-        if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+        if let Some(module_dep_graph) = graph.get_module(*module_id) {
             // Check if this module has side effects (will become a wrapper module)
             let has_side_effects = !module_dep_graph.side_effect_items.is_empty();
 
             if has_side_effects {
                 log::debug!(
-                    "Module '{module_name}' has side effects - skipping stdlib import removal"
+                    "Module {:?} has side effects - skipping stdlib import removal",
+                    module_id
                 );
             }
 
@@ -162,6 +163,8 @@ pub(super) fn trim_unused_imports_from_modules(
                 // Only apply tree-shaking-aware import removal if tree shaking is actually
                 // enabled Get the symbols that survive tree-shaking for
                 // this module
+                // TreeShaker still uses string-based module names, get it from the dep graph
+                let module_name = &module_dep_graph.module_name;
                 let used_symbols = shaker.get_used_symbols_for_module(module_name);
 
                 // Check each import to see if it's only used by tree-shaken code
@@ -390,7 +393,7 @@ pub(super) fn trim_unused_imports_from_modules(
                         log::debug!(
                             "Filtered {} stdlib imports from unused list for wrapper module '{}'",
                             original_count - unused_imports.len(),
-                            module_name
+                            module_dep_graph.module_name
                         );
                     }
                 }
@@ -399,7 +402,7 @@ pub(super) fn trim_unused_imports_from_modules(
                     log::debug!(
                         "Found {} unused imports in {}",
                         unused_imports.len(),
-                        module_name
+                        module_dep_graph.module_name
                     );
                     // Log unused imports details
                     log_unused_imports_details(&unused_imports);
@@ -412,7 +415,7 @@ pub(super) fn trim_unused_imports_from_modules(
         }
 
         trimmed_modules.push((
-            module_name.clone(),
+            *module_id,
             ast,
             module_path.clone(),
             content_hash.clone(),

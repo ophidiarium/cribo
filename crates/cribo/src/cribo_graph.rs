@@ -383,14 +383,24 @@ impl CriboGraph {
         id
     }
 
-    /// Get a module by name
+    /// Get a module by ID
+    pub fn get_module(&self, id: ModuleId) -> Option<&ModuleDepGraph> {
+        self.modules.get(&id)
+    }
+
+    /// Get a mutable module by ID
+    pub fn get_module_mut(&mut self, id: ModuleId) -> Option<&mut ModuleDepGraph> {
+        self.modules.get_mut(&id)
+    }
+
+    /// Get a module by name (for compatibility during migration)
     pub fn get_module_by_name(&self, name: &str) -> Option<&ModuleDepGraph> {
         self.module_names
             .get(name)
             .and_then(|&id| self.modules.get(&id))
     }
 
-    /// Get a mutable module by name
+    /// Get a mutable module by name (for compatibility during migration)
     pub fn get_module_by_name_mut(&mut self, name: &str) -> Option<&mut ModuleDepGraph> {
         if let Some(&id) = self.module_names.get(name) {
             self.modules.get_mut(&id)

@@ -79,7 +79,7 @@ impl<'a> ModuleClassifier<'a> {
             let module_name = self
                 .resolver
                 .get_module_name(*module_id)
-                .unwrap_or_else(|| "<unknown>".to_string());
+                .expect("Module name must exist for ModuleId");
             debug!("Processing module: '{}'", module_name);
 
             // Skip the entry module itself
@@ -259,7 +259,7 @@ impl<'a> ModuleClassifier<'a> {
             let module_name = self
                 .resolver
                 .get_module_name(*module_id)
-                .unwrap_or_else(|| "<unknown>".to_string());
+                .expect("Module name must exist for ModuleId");
 
             // Look for wildcard imports in this module
             for stmt in &ast.body {
@@ -290,20 +290,21 @@ impl<'a> ModuleClassifier<'a> {
         }
 
         // Now expand wildcard imports in module_exports_map
-        for (module_name, wildcard_sources) in wildcard_imports {
-            let module_id = match self.resolver.get_module_id_by_name(&module_name) {
-                Some(id) => id,
-                None => continue,
-            };
+        for (module_id, wildcard_sources) in wildcard_imports {
+            // module_id is already a ModuleId from the wildcard_imports map
 
             // Respect explicit __all__: don't auto-expand wildcard imports
             if self.modules_with_explicit_all.contains(&module_id) {
+                let module_name = self.resolver.get_module_name(module_id)
+                    .expect("Module name must exist for ModuleId");
                 debug!(
                     "Skipping wildcard expansion for module '{module_name}' due to explicit __all__"
                 );
                 continue;
             }
 
+            let module_name = self.resolver.get_module_name(module_id)
+                .expect("Module name must exist for ModuleId");
             debug!("Module '{module_name}' has wildcard imports from: {wildcard_sources:?}");
 
             // Collect exports from all source modules first to avoid double borrow
