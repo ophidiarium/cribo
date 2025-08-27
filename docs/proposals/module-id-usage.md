@@ -455,17 +455,109 @@ Making the entry module ID 0 is not just a technical decision - it's acknowledgi
 
 This change eliminates complex detection logic, removes boolean flags, and provides a clean, semantic API that matches how we think about bundling. The entry point isn't just "some module that happens to be first" - it's THE beginning, and its ID should reflect that: **0**.
 
+## Phase 6: Eliminating entry_module_name from BundleParams
+
+Currently, `BundleParams` carries `entry_module_name` which is used throughout the bundler to identify the entry module. Since we've established that the entry module is ALWAYS ID 0, we can eliminate this redundant tracking.
+
+### Current Usage Analysis
+
+The `entry_module_name` is currently used for:
+
+1. **Entry module detection**: Checking if a module is the entry module by comparing names
+2. **Package context**: Determining if entry is a package `__init__.py` or `__main__.py`
+3. **Skipping transformations**: Entry module gets special treatment in various places
+4. **Symbol collection**: Finding global symbols from the entry module
+
+### Refactoring Strategy
+
+Since every module in the bundling process is already registered with the resolver and has a ModuleId, we should ONLY pass ModuleIds and query the resolver for module information:
+
+1. **Use ModuleId as the single identifier**: No more passing (name, path) tuples
+   ```rust
+   // OLD: (name, ast, path, content_hash)
+   // NEW: (module_id, ast, content_hash)
+   // Path and name are retrieved from resolver when needed
+   ```
+
+2. **Replace name comparisons with ID checks**:
+   ```rust
+   // OLD: if module_name == params.entry_module_name
+   // NEW: if module_id == ModuleId::ENTRY
+   ```
+
+3. **Add resolver query methods**:
+   ```rust
+   impl ModuleResolver {
+       pub fn get_module_name(&self, id: ModuleId) -> Option<String> {
+           // Get module name from registry
+       }
+
+       pub fn get_module_path(&self, id: ModuleId) -> Option<PathBuf> {
+           // Get module path from registry
+       }
+
+       pub fn is_entry_package(&self) -> bool {
+           // Check if entry module (ID 0) is a package
+           self.get_module(ModuleId::ENTRY)
+               .map(|m| m.is_package)
+               .unwrap_or(false)
+       }
+   }
+   ```
+
+4. **Update BundleParams**: Use ModuleIds and resolver reference
+   ```rust
+   pub struct BundleParams<'a> {
+       pub modules: &'a [(ModuleId, ModModule, String)], // (id, ast, content_hash)
+       pub sorted_module_ids: &'a [ModuleId],            // Just IDs, get details from resolver
+       pub resolver: &'a ModuleResolver,                 // To query module info
+       // entry_module_name removed - use ModuleId::ENTRY
+       pub graph: &'a DependencyGraph,
+       // ... other fields
+   }
+   ```
+
+5. **Update all consumers**:
+   - `Bundler`: Check `module_id == ModuleId::ENTRY` instead of name comparison
+   - `ModuleClassifier`: Use module IDs for classification
+   - `SymbolAnalyzer`: Find entry module by ID instead of name
+   - `ImportAnalyzer`: Use IDs for import analysis
+
+### Benefits
+
+1. **Single Source of Truth**: Module information stored only in resolver
+2. **No Duplication**: No more passing (name, path) tuples everywhere
+3. **Consistency**: Single way to identify any module, including entry (ID 0)
+4. **Performance**: Integer comparison instead of string comparison
+5. **Memory Efficiency**: Pass around small IDs instead of cloning strings/paths
+6. **Clarity**: No ambiguity about which module is the entry
+7. **Simplification**: Remove redundant tracking and string comparisons
+
+### Migration Steps
+
+1. **Phase 1**: Add resolver query methods (get_module_name, get_module_path, etc.)
+2. **Phase 2**: Update data structures to use ModuleId only (no name/path duplication)
+3. **Phase 3**: Update comparison sites to use `module_id == ModuleId::ENTRY`
+4. **Phase 4**: Remove entry_module_name from BundleParams and StaticBundleParams
+5. **Phase 5**: Update all consumers to query resolver for module information
+6. **Phase 6**: Update tests to verify entry module detection works via ID
+
 ## Implementation Checklist
 
-- [ ] Move ModuleId to resolver.rs with ENTRY constant
-- [ ] Implement ModuleId::is_entry() method
-- [ ] Update ModuleRegistry to start at 0
-- [ ] Replace all is_entry_module boolean flags with module_id checks
-- [ ] Remove complex entry detection logic from orchestrator
-- [ ] Update ImportTransformer to use module_id.is_entry()
-- [ ] Update all components checking is_entry_module
-- [ ] Add tests verifying entry is always ID 0
-- [ ] Remove redundant entry tracking throughout codebase
+- [x] Move ModuleId to resolver.rs with ENTRY constant
+- [x] Implement ModuleId::is_entry() method
+- [x] Update ModuleRegistry to start at 0
+- [ ] Add resolver query methods (get_module_name, get_module_path, is_entry_package)
+- [ ] Update data structures to use ModuleId only (remove name/path duplication)
+- [ ] Update BundleParams to use ModuleIds and resolver reference
+- [ ] Replace entry_module_name comparisons with module_id checks
+- [ ] Remove entry_module_name from BundleParams
+- [ ] Remove entry_module_name from StaticBundleParams
+- [ ] Update Bundler to use module_id.is_entry() and query resolver
+- [ ] Update ModuleClassifier to use module_id checks and query resolver
+- [ ] Update SymbolAnalyzer to use module_id for entry detection
+- [ ] Update ImportAnalyzer to use module_id
+- [ ] Add tests verifying entry module detection via ID
 - [ ] Run full test suite
 - [ ] Run clippy and format
 

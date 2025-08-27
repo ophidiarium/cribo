@@ -25,7 +25,7 @@ use crate::{
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
-        module_transformer, namespace_manager,
+        module_transformer,
         namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
@@ -1041,10 +1041,14 @@ impl<'a> Bundler<'a> {
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
             let mut kept_symbols: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
-            for (module_name, _, _, _) in params.modules {
-                let module_symbols = shaker.get_used_symbols_for_module(module_name);
+            for (module_id, _, _) in params.modules {
+                let module_name = params
+                    .resolver
+                    .get_module_name(*module_id)
+                    .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+                let module_symbols = shaker.get_used_symbols_for_module(&module_name);
                 if !module_symbols.is_empty() {
-                    kept_symbols.insert(module_name.clone(), module_symbols);
+                    kept_symbols.insert(module_name, module_symbols);
                 }
             }
             self.tree_shaking_keep_symbols = Some(kept_symbols);
@@ -1085,35 +1089,41 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        log::debug!("Entry module name: {}", params.entry_module_name);
+        // Get entry module name from resolver
+        let entry_module_name = params
+            .resolver
+            .get_module_name(crate::resolver::ModuleId::ENTRY)
+            .unwrap_or_else(|| "main".to_string());
+
+        log::debug!("Entry module name: {entry_module_name}");
         log::debug!(
             "Module names in modules vector: {:?}",
             params
                 .modules
                 .iter()
-                .map(|(name, _, _, _)| name)
+                .map(|(id, _, _)| params
+                    .resolver
+                    .get_module_name(*id)
+                    .unwrap_or_else(|| format!("module_{}", id.as_u32())))
                 .collect::<Vec<_>>()
         );
 
         // Store entry module information
-        self.entry_module_name = params.entry_module_name.to_string();
+        self.entry_module_name = entry_module_name;
 
-        // Check if entry is __init__.py or __main__.py from params.modules
-        self.entry_is_package_init_or_main = if let Some((_, _, path, _)) = params
-            .modules
-            .iter()
-            .find(|(name, _, _, _)| name == params.entry_module_name)
-        {
-            Self::is_package_init_or_main(path)
-        } else if let Some((_, path, _)) = params
-            .sorted_modules
-            .iter()
-            .find(|(name, _, _)| name == params.entry_module_name)
-        {
-            // Fallback to sorted_modules if not found in modules
-            Self::is_package_init_or_main(path)
-        } else {
-            false
+        // Check if entry is a package using resolver
+        self.entry_is_package_init_or_main = params.resolver.is_entry_package() || {
+            // Also check if it's __main__.py
+            if let Some(path) = params
+                .resolver
+                .get_module_path(crate::resolver::ModuleId::ENTRY)
+            {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name == "__main__.py")
+            } else {
+                false
+            }
         };
 
         log::debug!(
@@ -1123,13 +1133,16 @@ impl<'a> Bundler<'a> {
 
         // First pass: collect future imports from ALL modules before trimming
         // This ensures future imports are hoisted even if they appear late in the file
-        for (_module_name, ast, _, _) in params.modules {
+        for (_module_id, ast, _) in params.modules {
             let future_imports = crate::analyzers::ImportAnalyzer::collect_future_imports(ast);
             self.future_imports.extend(future_imports);
         }
 
         // Store entry path for relative path calculation
-        if let Some((_, entry_path, _)) = params.sorted_modules.last() {
+        if let Some(entry_path) = params
+            .resolver
+            .get_module_path(crate::resolver::ModuleId::ENTRY)
+        {
             self.entry_path = Some(entry_path.to_string_lossy().to_string());
         }
     }
@@ -1155,11 +1168,28 @@ impl<'a> Bundler<'a> {
         &mut self,
         params: &BundleParams<'a>,
     ) -> Vec<(String, ModModule, PathBuf, String)> {
+        // Convert modules to the format expected by trim_unused_imports_from_modules
+        let modules_old_format: Vec<(String, ModModule, PathBuf, String)> = params
+            .modules
+            .iter()
+            .map(|(id, ast, hash)| {
+                let name = params
+                    .resolver
+                    .get_module_name(*id)
+                    .unwrap_or_else(|| format!("module_{}", id.as_u32()));
+                let path = params
+                    .resolver
+                    .get_module_path(*id)
+                    .unwrap_or_else(|| PathBuf::from(&name));
+                (name, ast.clone(), path, hash.clone())
+            })
+            .collect();
+
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
         let mut modules = import_deduplicator::trim_unused_imports_from_modules(
-            params.modules,
+            &modules_old_format,
             params.graph,
             params.tree_shaker,
             params.python_version,
@@ -1214,7 +1244,7 @@ impl<'a> Bundler<'a> {
 
         // Check which modules are imported directly (e.g., import module_name)
         let directly_imported_modules =
-            self.find_directly_imported_modules(&modules, params.entry_module_name);
+            self.find_directly_imported_modules(&modules, &self.entry_module_name);
         log::debug!("Directly imported modules: {directly_imported_modules:?}");
 
         // Find modules that are imported as namespaces (e.g., from models import base)
@@ -1332,14 +1362,9 @@ impl<'a> Bundler<'a> {
         // Get symbol renames from semantic analysis
         let mut symbol_renames = self.collect_symbol_renames(&modules, &semantic_ctx);
 
-        // Pre-detect namespace requirements from imports of inlined submodules
-        // This must be done after we know which modules are inlined but before transformation
-        // begins
-        namespace_manager::detect_namespace_requirements_from_imports(self, &modules);
-
         // Collect global symbols from the entry module first (for compatibility)
         let mut global_symbols =
-            SymbolAnalyzer::collect_global_symbols(&modules, params.entry_module_name);
+            SymbolAnalyzer::collect_global_symbols(&modules, &self.entry_module_name);
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
@@ -1532,20 +1557,24 @@ impl<'a> Bundler<'a> {
 
         // Log the dependency order from the graph
         log::info!("Module processing order from dependency graph:");
-        for (i, (module_name, module_path, deps)) in params.sorted_modules.iter().enumerate() {
-            log::info!(
-                "  {}. {} (path: {:?}, deps: {:?})",
-                i + 1,
-                module_name,
-                module_path,
-                deps
-            );
+        for (i, module_id) in params.sorted_module_ids.iter().enumerate() {
+            let module_name = params
+                .resolver
+                .get_module_name(*module_id)
+                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+            let module_path = params.resolver.get_module_path(*module_id);
+            log::info!("  {}. {} (path: {:?})", i + 1, module_name, module_path);
         }
 
         // Process each module in dependency order
-        for (module_name, _module_path, _deps) in params.sorted_modules {
+        for module_id in params.sorted_module_ids {
+            let module_name = params
+                .resolver
+                .get_module_name(*module_id)
+                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+
             // Skip if not in our module set (e.g., stdlib modules)
-            if !module_map.contains_key(module_name) {
+            if !module_map.contains_key(&module_name) {
                 log::debug!("  Skipping {module_name} - not in module map (likely stdlib)");
                 continue;
             }
@@ -1555,24 +1584,24 @@ impl<'a> Bundler<'a> {
                 module_name,
                 inlinable_modules
                     .iter()
-                    .any(|(n, _, _, _)| n == module_name),
+                    .any(|(n, _, _, _)| n == &module_name),
                 wrapper_modules_saved
                     .iter()
-                    .any(|(n, _, _, _)| n == module_name)
+                    .any(|(n, _, _, _)| n == &module_name)
             );
 
             let (ast, path, _hash) = module_map
-                .get(module_name)
+                .get(&module_name)
                 .expect("Module should exist in module_map after topological sorting")
                 .clone();
 
-            if inlinable_set.contains(module_name) {
+            if inlinable_set.contains(&module_name) {
                 // Process as inlinable module
                 log::debug!("Inlining module: {module_name}");
 
                 // Create namespace for inlinable modules (simple namespace without flags)
-                if module_name != params.entry_module_name {
-                    let namespace_var = sanitize_module_name_for_identifier(module_name);
+                if module_name != self.entry_module_name {
+                    let namespace_var = sanitize_module_name_for_identifier(&module_name);
                     if !self.created_namespaces.contains(&namespace_var) {
                         log::debug!("Creating namespace for inlinable module '{module_name}'");
                         let namespace_stmt = statements::simple_assign(
@@ -1583,7 +1612,7 @@ impl<'a> Bundler<'a> {
                                 vec![Keyword {
                                     node_index: self.create_node_index(),
                                     arg: Some(Identifier::new("__name__", TextRange::default())),
-                                    value: expressions::string_literal(module_name),
+                                    value: expressions::string_literal(&module_name),
                                     range: TextRange::default(),
                                 }],
                             ),
@@ -1645,7 +1674,7 @@ impl<'a> Bundler<'a> {
                 };
 
                 // Inline just this module
-                self.inline_module(module_name, ast, &path, &mut inline_ctx);
+                self.inline_module(&module_name, ast, &path, &mut inline_ctx);
 
                 // Check which import assignments can be added now
                 for stmt in import_assignments {
@@ -1693,13 +1722,13 @@ impl<'a> Bundler<'a> {
                     }
                 }
                 pending_import_assignments = still_pending;
-            } else if wrapper_set.contains(module_name) {
+            } else if wrapper_set.contains(&module_name) {
                 // Process wrapper module immediately in dependency order
                 log::debug!("Processing wrapper module: {module_name}");
 
                 // Get the content hash for this module
                 let content_hash = module_map
-                    .get(module_name)
+                    .get(&module_name)
                     .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
 
                 // Generate the init function for this wrapper module
@@ -1709,7 +1738,7 @@ impl<'a> Bundler<'a> {
                     .or_insert_with(|| {
                         let name =
                             crate::code_generator::module_registry::get_synthetic_module_name(
-                                module_name,
+                                &module_name,
                                 &content_hash,
                             );
                         log::debug!(
@@ -1721,7 +1750,7 @@ impl<'a> Bundler<'a> {
 
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
-                    module_name,
+                    module_name: &module_name,
                     synthetic_name: &synthetic_name,
                     module_path: &path,
                     global_info: None,
@@ -1745,7 +1774,7 @@ impl<'a> Bundler<'a> {
 
                 // Use the new create_wrapper_module function to output everything together
                 let wrapper_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
-                    module_name,
+                    &module_name,
                     &synthetic_name,
                     init_function,
                     is_package,
@@ -1755,7 +1784,7 @@ impl<'a> Bundler<'a> {
                 all_inlined_stmts.extend(wrapper_stmts);
 
                 // Mark the namespace as created
-                let module_var = sanitize_module_name_for_identifier(module_name);
+                let module_var = sanitize_module_name_for_identifier(&module_name);
                 self.created_namespaces.insert(module_var.clone());
 
                 // Also handle parent namespaces if this is a submodule
@@ -1801,7 +1830,7 @@ impl<'a> Bundler<'a> {
         // For package bundles, the entry is typically "__init__" but we want to export
         // submodules of the package itself (e.g., "requests.exceptions" not "__init__.exceptions")
         // So we need to find the package name from the modules
-        let package_name = if params.entry_module_name == "__init__" {
+        let package_name = if self.entry_module_name == "__init__" {
             // Find the package name from any submodule
             self.inlined_modules
                 .iter()
@@ -1817,7 +1846,7 @@ impl<'a> Bundler<'a> {
                 })
                 .unwrap_or("__init__")
         } else {
-            params.entry_module_name
+            &self.entry_module_name
         };
 
         // Collect already-defined symbols to avoid overwriting them
@@ -1900,7 +1929,7 @@ impl<'a> Bundler<'a> {
         // Find the entry module in our modules list
         let entry_module = modules
             .into_iter()
-            .find(|(name, _, _, _)| name == params.entry_module_name);
+            .find(|(name, _, _, _)| name == &self.entry_module_name);
 
         if let Some((module_name, mut ast, module_path, _)) = entry_module {
             log::debug!("Processing entry module: '{module_name}'");
@@ -2206,7 +2235,7 @@ impl<'a> Bundler<'a> {
             // when the module is imported via importlib.
             // For example, after `import requests`, you should be able to access `requests.exceptions`.
             // This adds statements like: exceptions = requests.exceptions
-            if module_name == params.entry_module_name {
+            if module_name == self.entry_module_name {
                 log::debug!(
                     "Adding module-level exposure for child modules of entry module {module_name}"
                 );

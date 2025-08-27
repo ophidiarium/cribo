@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ruff_python_ast::{ModModule, Stmt};
 
@@ -68,9 +68,9 @@ pub struct SemanticContext<'a> {
 /// Parameters for `bundle_modules` function
 #[derive(Debug)]
 pub struct BundleParams<'a> {
-    pub modules: &'a [(String, ModModule, PathBuf, String)], // (name, ast, path, content_hash)
-    pub sorted_modules: &'a [(String, PathBuf, Vec<String>)], // Module data from CriboGraph
-    pub entry_module_name: &'a str,
+    pub modules: &'a [(crate::resolver::ModuleId, ModModule, String)], // (id, ast, content_hash)
+    pub sorted_module_ids: &'a [crate::resolver::ModuleId], // Just IDs in dependency order
+    pub resolver: &'a crate::resolver::ModuleResolver,      // To query module info
     pub graph: &'a DependencyGraph, // Dependency graph for unused import detection
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::analyzers::types::CircularDependencyAnalysis>, /* Circular dependency analysis */

@@ -284,6 +284,32 @@ impl ModuleResolver {
         }
     }
 
+    /// Get module name by ID
+    pub fn get_module_name(&self, id: ModuleId) -> Option<String> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).map(|m| m.name.clone())
+    }
+
+    /// Get module path by ID
+    pub fn get_module_path(&self, id: ModuleId) -> Option<PathBuf> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).map(|m| m.canonical_path.clone())
+    }
+
+    /// Check if the entry module is a package
+    pub fn is_entry_package(&self) -> bool {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry
+            .get_metadata(ModuleId::ENTRY)
+            .is_some_and(|m| m.is_package)
+    }
+
+    /// Get module metadata by ID
+    pub fn get_module(&self, id: ModuleId) -> Option<ModuleMetadata> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).cloned()
+    }
+
     /// Get all directories to search for modules
     /// Per docs/resolution.md: Entry file's directory is always first
     pub fn get_search_directories(&self) -> Vec<PathBuf> {
