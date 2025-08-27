@@ -21,12 +21,6 @@ use crate::{
 /// Information about a registered namespace
 #[derive(Debug, Clone)]
 pub struct NamespaceInfo {
-    /// The original module path (e.g., "pkg.compat")
-    pub original_path: String,
-    /// Whether this namespace needs an alias (e.g., compat = `pkg_compat`)
-    pub needs_alias: bool,
-    /// The alias name if `needs_alias` is true (e.g., "compat")
-    pub alias_name: Option<String>,
     /// Attributes to set on this namespace (`attr_name`, `value_name`)
     pub attributes: Vec<(String, String)>,
     /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
@@ -391,9 +385,6 @@ pub fn require_namespace(
             let parent_module = path.rsplit_once('.').map(|(p, _)| p.to_string());
 
             NamespaceInfo {
-                original_path: path.to_string(),
-                needs_alias: false, // Aliases are context-dependent, handled elsewhere
-                alias_name: None,
                 attributes: Vec::new(),
                 parent_module,
                 is_created: false,
