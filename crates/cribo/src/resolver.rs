@@ -46,6 +46,7 @@ impl ModuleId {
 
 /// Module metadata tracked by resolver
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Part of public API, will be used in future
 pub struct ModuleMetadata {
     pub id: ModuleId,
     pub name: String,
@@ -77,9 +78,10 @@ impl ModuleRegistry {
 
         // Check for duplicates
         if let Some(&id) = self.by_name.get(&name)
-            && self.by_id[&id].canonical_path == canonical_path {
-                return id;
-            }
+            && self.by_id[&id].canonical_path == canonical_path
+        {
+            return id;
+        }
 
         if let Some(&id) = self.by_path.get(&canonical_path) {
             self.by_name.insert(name, id);
@@ -96,9 +98,7 @@ impl ModuleRegistry {
             "Entry module must be registered first"
         );
 
-        let is_package = path
-            .file_name()
-            .is_some_and(|n| n == "__init__.py");
+        let is_package = path.file_name().is_some_and(|n| n == "__init__.py");
 
         let metadata = ModuleMetadata {
             id,
@@ -117,43 +117,6 @@ impl ModuleRegistry {
     fn get_metadata(&self, id: ModuleId) -> Option<&ModuleMetadata> {
         self.by_id.get(&id)
     }
-}
-
-/// Resolve a relative import based on module name and package status (pure function)
-fn resolve_relative_import_pure(
-    module_name: &str,
-    is_package: bool,
-    level: u32,
-    name: Option<&str>,
-) -> String {
-    let mut package_parts: Vec<&str> = module_name.split('.').collect();
-
-    // For modules (not packages), we need to remove the module itself first
-    // then go up additional levels
-    if !is_package && !package_parts.is_empty() {
-        // Remove the module name itself for regular modules
-        package_parts.pop();
-    }
-
-    // Go up additional levels based on the import level
-    // Level 1 means current package, level 2 means parent, etc.
-    for _ in 1..level {
-        if package_parts.is_empty() {
-            break; // Can't go up any further
-        }
-        package_parts.pop();
-    }
-
-    // Build the final module name
-    let mut result = package_parts.join(".");
-    if let Some(module_name) = name {
-        if !result.is_empty() {
-            result.push('.');
-        }
-        result.push_str(module_name);
-    }
-
-    result
 }
 
 /// Resolve a relative import based on module name (standalone utility)
@@ -1176,29 +1139,11 @@ impl ModuleResolver {
                 "Registered module '{}' with ID {} (package: {})",
                 name,
                 id.as_u32(),
-                registry
-                    .get_metadata(id)
-                    .is_some_and(|m| m.is_package)
+                registry.get_metadata(id).is_some_and(|m| m.is_package)
             );
         }
 
         id
-    }
-
-    /// Check if a module is the entry point
-    pub fn is_entry_module(&self, id: ModuleId) -> bool {
-        id.is_entry() // Simple!
-    }
-
-    /// Get the entry module metadata
-    pub fn get_entry_module(&self) -> Option<ModuleMetadata> {
-        self.get_module(ModuleId::ENTRY)
-    }
-
-    /// Get module metadata by ID
-    pub fn get_module(&self, id: ModuleId) -> Option<ModuleMetadata> {
-        let registry = self.registry.lock().expect("Module registry lock poisoned");
-        registry.get_metadata(id).cloned()
     }
 }
 
