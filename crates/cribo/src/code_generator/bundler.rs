@@ -1449,9 +1449,8 @@ impl<'a> Bundler<'a> {
 
         // Check if at least one wrapper module participates in a circular dependency
         // This affects initialization order and hard dependency handling
-        let has_circular_wrapped_modules = sorted_wrapper_modules.iter().any(|(name, _, _, _)| {
-            self.get_module_id(name.as_str())
-                .is_some_and(|id| self.circular_modules.contains(&id))
+        let has_circular_wrapped_modules = sorted_wrapper_modules.iter().any(|(module_id, _, _, _)| {
+            self.circular_modules.contains(module_id)
         });
         if has_circular_wrapped_modules {
             log::info!(
@@ -1483,15 +1482,17 @@ impl<'a> Bundler<'a> {
                             if let Some(parent) = parent_module {
                                 let potential_module = format!("{parent}.{imported_name}");
                                 // Check if this will be a wrapper module (check in wrapper_modules_saved list)
-                                if wrapper_modules_saved
-                                    .iter()
-                                    .any(|(name, _, _, _)| name == &potential_module)
-                                {
-                                    wrapper_modules_needed_by_inlined
-                                        .insert(potential_module.clone());
-                                    log::debug!(
-                                        "Inlined module '{module_name}' imports wrapper module '{potential_module}' via 'from . import'"
-                                    );
+                                if let Some(potential_module_id) = self.get_module_id(&potential_module) {
+                                    if wrapper_modules_saved
+                                        .iter()
+                                        .any(|(id, _, _, _)| *id == potential_module_id)
+                                    {
+                                        wrapper_modules_needed_by_inlined
+                                            .insert(potential_module.clone());
+                                        log::debug!(
+                                            "Inlined module '{module_name}' imports wrapper module '{potential_module}' via 'from . import'"
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -1549,14 +1550,18 @@ impl<'a> Bundler<'a> {
                                 );
                             if let Some(parent) = parent_module {
                                 let potential_module = format!("{parent}.{imported_name}");
-                                if wrapper_modules_saved
-                                    .iter()
-                                    .any(|(name, _, _, _)| name == &potential_module)
-                                {
-                                    wrapper_to_wrapper_deps
-                                        .entry(module_name.clone())
-                                        .or_default()
-                                        .insert(potential_module);
+                                if let Some(potential_module_id) = self.get_module_id(&potential_module) {
+                                    if wrapper_modules_saved
+                                        .iter()
+                                        .any(|(id, _, _, _)| *id == potential_module_id)
+                                    {
+                                        let module_name_str = self.resolver.get_module_name(*module_name)
+                                            .expect("Module name must exist for ModuleId");
+                                        wrapper_to_wrapper_deps
+                                            .entry(module_name_str)
+                                            .or_default()
+                                            .insert(potential_module);
+                                    }
                                 }
                             }
                         }
@@ -1576,15 +1581,20 @@ impl<'a> Bundler<'a> {
                         import_from.module.as_ref().map(|m| m.as_str().to_string())
                     };
 
-                    if let Some(ref resolved) = resolved_module
-                        && wrapper_modules_saved
-                            .iter()
-                            .any(|(name, _, _, _)| name == resolved)
-                    {
-                        wrapper_to_wrapper_deps
-                            .entry(module_name.clone())
-                            .or_default()
-                            .insert(resolved.clone());
+                    if let Some(ref resolved) = resolved_module {
+                        if let Some(resolved_id) = self.get_module_id(resolved) {
+                            if wrapper_modules_saved
+                                .iter()
+                                .any(|(id, _, _, _)| *id == resolved_id)
+                            {
+                                let module_name_str = self.resolver.get_module_name(*module_name)
+                                    .expect("Module name must exist for ModuleId");
+                                wrapper_to_wrapper_deps
+                                    .entry(module_name_str)
+                                    .or_default()
+                                    .insert(resolved.clone());
+                            }
+                        }
                     }
                 }
             }
@@ -1613,11 +1623,17 @@ impl<'a> Bundler<'a> {
         // Create classification lookups
         let inlinable_set: FxIndexSet<String> = inlinable_modules
             .iter()
-            .map(|(name, _, _, _)| name.clone())
+            .map(|(id, _, _, _)| {
+                self.resolver.get_module_name(*id)
+                    .expect("Module name must exist for ModuleId")
+            })
             .collect();
         let wrapper_set: FxIndexSet<String> = wrapper_modules_saved
             .iter()
-            .map(|(name, _, _, _)| name.clone())
+            .map(|(id, _, _, _)| {
+                self.resolver.get_module_name(*id)
+                    .expect("Module name must exist for ModuleId")
+            })
             .collect();
 
         // Create module map for quick lookup
