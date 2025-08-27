@@ -346,7 +346,8 @@ pub fn transform_module_to_init_function<'a>(
                             let module_name = tree_shaking_keep
                                 .iter()
                                 .find(|(_, symbols)| symbols.contains(symbol))
-                                .map_or("unknown", |(name, _)| name.as_str());
+                                .and_then(|(id, _)| bundler.resolver.get_module_name(*id).map(|s| s.as_str()))
+                                .unwrap_or("unknown");
                             debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
                         }
                         true
@@ -1030,12 +1031,16 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Also check inlined modules
-    for module_name in &bundler.inlined_modules {
+    for module_id in &bundler.inlined_modules {
+        let module_name = bundler
+            .resolver
+            .get_module_name(*module_id)
+            .expect("Module name should exist");
         if module_name.starts_with(&current_module_prefix) {
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
             if !relative_name.contains('.') {
-                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
+                submodules_to_add.push((module_name.to_string(), relative_name.to_string()));
             }
         }
     }

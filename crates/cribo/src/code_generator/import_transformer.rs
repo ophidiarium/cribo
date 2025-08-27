@@ -29,7 +29,7 @@ pub struct RecursiveImportTransformerParams<'a> {
     pub deferred_imports: &'a mut Vec<Stmt>,
     pub is_entry_module: bool,
     pub is_wrapper_init: bool,
-    pub global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
+    pub global_deferred_imports: Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
     pub python_version: u8,
 }
 

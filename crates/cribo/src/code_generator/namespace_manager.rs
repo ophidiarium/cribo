@@ -104,9 +104,12 @@ fn has_export_conflict(
     full_module_path: &str,
 ) -> bool {
     // First check if the parent exports a symbol with this name
+    let parent_module_id = bundler
+        .get_module_id(parent_module)
+        .expect("Parent module should exist");
     let parent_exports_symbol = bundler
         .module_exports
-        .get(parent_module)
+        .get(&parent_module_id)
         .and_then(|e| e.as_ref())
         .is_some_and(|exports| exports.contains(&attribute_name.to_string()));
 
@@ -117,9 +120,12 @@ fn has_export_conflict(
 
     // The parent exports something with this name.
     // Now check if the full module path is an actual module or just a re-exported symbol.
-    let is_actual_module = bundler.bundled_modules.contains(full_module_path)
-        || bundler.bundled_modules.contains_key(full_module_path)
-        || bundler.inlined_modules.contains(full_module_path);
+    let full_module_id = bundler.get_module_id(full_module_path);
+    let is_actual_module = full_module_id.is_some_and(|id| {
+        bundler.bundled_modules.contains(&id)
+            || bundler.module_synthetic_names.contains_key(&id)
+            || bundler.inlined_modules.contains(&id)
+    });
 
     // Only skip if parent exports the symbol AND it's not an actual submodule
     // (i.e., it's a re-exported symbol from the submodule)

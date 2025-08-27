@@ -62,10 +62,14 @@ impl Bundler<'_> {
         module_path: &Path,
         ctx: &mut InlineContext,
     ) {
+        let module_id = self
+            .resolver
+            .get_module_id_by_name(module_name)
+            .expect("Module should exist");
         let mut module_renames = FxIndexMap::default();
 
         // Apply hard dependency rewriting BEFORE import transformation
-        if !self.hard_dependencies.is_empty() && self.circular_modules.contains(module_name) {
+        if !self.hard_dependencies.is_empty() && self.circular_modules.contains(&module_id) {
             self.rewrite_hard_dependencies_in_module(&mut ast, module_name);
         }
 
@@ -87,7 +91,7 @@ impl Bundler<'_> {
         ctx.import_aliases = transformer.import_aliases;
 
         // Reorder statements to ensure proper declaration order
-        let statements = if self.circular_modules.contains(module_name) {
+        let statements = if self.circular_modules.contains(&module_id) {
             log::debug!("Module '{module_name}' is circular, applying reordering");
             self.reorder_statements_for_circular_module(module_name, ast.body, ctx.python_version)
         } else {
@@ -212,7 +216,7 @@ impl Bundler<'_> {
                     expression_handlers::rewrite_aliases_in_stmt(&mut temp_stmt, &module_renames);
 
                     // Also apply semantic renames from context
-                    if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
+                    if let Some(semantic_renames) = ctx.module_renames.get(&module_id) {
                         expression_handlers::rewrite_aliases_in_stmt(
                             &mut temp_stmt,
                             semantic_renames,
@@ -316,7 +320,7 @@ impl Bundler<'_> {
         // Store the renames for this module
         if !module_renames.is_empty() {
             ctx.module_renames
-                .insert(module_name.to_string(), module_renames);
+                .insert(module_id, module_renames);
         }
 
         // Statements are accumulated in ctx.inlined_stmts
@@ -346,7 +350,10 @@ impl Bundler<'_> {
                 };
 
                 // Use that module's renames instead of the current module's
-                if let Some(source_renames) = ctx.module_renames.get(source_module)
+                let source_module_id = self
+                    .get_module_id(source_module)
+                    .expect("Source module should exist");
+                if let Some(source_renames) = ctx.module_renames.get(&source_module_id)
                     && let Some(renamed) = source_renames.get(lookup_key)
                 {
                     log::debug!(
@@ -446,7 +453,11 @@ impl Bundler<'_> {
             Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
             expression_handlers::rewrite_aliases_in_stmt(body_stmt, module_renames);
             // Also apply semantic renames from context
-            if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
+            let module_id = self
+                .resolver
+                .get_module_id_by_name(module_name)
+                .expect("Module should exist");
+            if let Some(semantic_renames) = ctx.module_renames.get(&module_id) {
                 expression_handlers::rewrite_aliases_in_stmt(body_stmt, semantic_renames);
             }
         }
@@ -518,7 +529,11 @@ impl Bundler<'_> {
 
         // Special handling for circular modules: include private module-level variables
         // that may be used by public functions
-        let is_circular_module = self.circular_modules.contains(module_name);
+        let module_id = self
+            .resolver
+            .get_module_id_by_name(module_name)
+            .expect("Module should exist");
+        let is_circular_module = self.circular_modules.contains(&module_id);
         let is_single_underscore_private = name.starts_with('_') && !name.starts_with("__");
 
         // For circular modules, we need special handling of private variables
