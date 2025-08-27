@@ -45,7 +45,7 @@ pub struct ModuleTransformContext<'a> {
 pub struct InlineContext<'a> {
     pub module_exports_map: &'a FxIndexMap<String, Option<Vec<String>>>,
     pub global_symbols: &'a mut FxIndexSet<String>,
-    pub module_renames: &'a mut FxIndexMap<String, FxIndexMap<String, String>>,
+    pub module_renames: &'a mut FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     pub inlined_stmts: &'a mut Vec<Stmt>,
     /// Import aliases in the current module being inlined (alias -> `actual_name`)
     pub import_aliases: FxIndexMap<String, String>,

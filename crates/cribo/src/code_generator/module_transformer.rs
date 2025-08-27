@@ -38,7 +38,7 @@ pub fn transform_module_to_init_function<'a>(
     bundler: &'a Bundler<'a>,
     ctx: &ModuleTransformContext,
     mut ast: ModModule,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> Stmt {
     let module_id = bundler
         .get_module_id(ctx.module_name)
@@ -2798,7 +2798,7 @@ fn create_namespace_for_inlined_submodule(
     full_module_name: &str,
     attr_name: &str,
     parent_module_var: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
@@ -2872,7 +2872,8 @@ fn create_namespace_for_inlined_submodule(
             }
 
             // Get the renamed version of this symbol
-            let renamed_symbol = if let Some(module_renames) = symbol_renames.get(full_module_name)
+            let renamed_symbol = if let Some(module_id) = bundler.get_module_id(full_module_name)
+                && let Some(module_renames) = symbol_renames.get(&module_id)
             {
                 module_renames
                     .get(&symbol)
@@ -2932,7 +2933,7 @@ fn create_namespace_for_inlined_submodule(
 fn renamed_symbol_exists(
     bundler: &Bundler,
     renamed_symbol: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> bool {
     // If not using tree-shaking, all symbols exist
     if bundler.tree_shaking_keep_symbols.is_none() {
@@ -2940,11 +2941,15 @@ fn renamed_symbol_exists(
     }
 
     // Check all modules to see if any have this renamed symbol
-    for (module, renames) in symbol_renames {
+    for (module_id, renames) in symbol_renames {
         for (original, renamed) in renames {
             if renamed == renamed_symbol {
                 // Found the renamed symbol, check if it's kept
-                if bundler.is_symbol_kept_by_tree_shaking(module, original) {
+                let module_name = bundler
+                    .resolver
+                    .get_module_name(*module_id)
+                    .expect("Module name must exist for ModuleId");
+                if bundler.is_symbol_kept_by_tree_shaking(&module_name, original) {
                     return true;
                 }
             }
@@ -2959,7 +2964,7 @@ fn renamed_symbol_exists(
 fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     imports_from_inlined: &mut Vec<(String, String)>,
     _current_module: &str,
 ) -> Vec<(String, String)> {
@@ -3006,8 +3011,9 @@ fn process_wildcard_import(
                             "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
                         );
                         // Track for deferred assignment after wrapper module initialization
-                        let value_name = symbol_renames
-                            .get(module)
+                        let value_name = bundler
+                            .get_module_id(module)
+                            .and_then(|id| symbol_renames.get(&id))
                             .and_then(|m| m.get(symbol))
                             .cloned()
                             .unwrap_or_else(|| symbol.clone());
@@ -3016,8 +3022,9 @@ fn process_wildcard_import(
                     }
 
                     // Get the actual value name (might be renamed to avoid collisions)
-                    let value_name = symbol_renames
-                        .get(module)
+                    let value_name = bundler
+                        .get_module_id(module)
+                        .and_then(|id| symbol_renames.get(&id))
                         .and_then(|m| m.get(symbol))
                         .cloned()
                         .unwrap_or_else(|| symbol.clone());
@@ -3039,7 +3046,9 @@ fn process_wildcard_import(
     if exports.is_some() {
         // Module exists but has no explicit __all__
         // Look at the symbol renames which contains all symbols from the module
-        if let Some(renames) = symbol_renames.get(module) {
+        if let Some(module_id) = bundler.get_module_id(module)
+            && let Some(renames) = symbol_renames.get(&module_id)
+        {
             for (original_name, renamed_name) in renames {
                 // Track the renamed symbol (which is what will be in the global scope)
                 if !renamed_name.starts_with('_') {

@@ -1639,8 +1639,12 @@ impl<'a> Bundler<'a> {
         // Create module map for quick lookup
         let mut module_map: FxIndexMap<String, (ModModule, PathBuf, String)> =
             FxIndexMap::default();
-        for (name, ast, path, hash) in &modules {
-            module_map.insert(name.clone(), (ast.clone(), path.clone(), hash.clone()));
+        for (module_id, ast, path, hash) in &modules {
+            let module_name = params
+                .resolver
+                .get_module_name(*module_id)
+                .expect("Module name must exist for ModuleId");
+            module_map.insert(module_name, (ast.clone(), path.clone(), hash.clone()));
         }
 
         let mut all_inlined_stmts = Vec::new();
@@ -1676,10 +1680,10 @@ impl<'a> Bundler<'a> {
                 module_name,
                 inlinable_modules
                     .iter()
-                    .any(|(n, _, _, _)| n == &module_name),
+                    .any(|(id, _, _, _)| *id == *module_id),
                 wrapper_modules_saved
                     .iter()
-                    .any(|(n, _, _, _)| n == &module_name)
+                    .any(|(id, _, _, _)| *id == *module_id)
             );
 
             let (ast, path, _hash) = module_map
@@ -2046,9 +2050,13 @@ impl<'a> Bundler<'a> {
         // Find the entry module in our modules list
         let entry_module = modules
             .into_iter()
-            .find(|(name, _, _, _)| name == &self.entry_module_name);
+            .find(|(id, _, _, _)| id.is_entry());
 
-        if let Some((module_name, mut ast, module_path, _)) = entry_module {
+        if let Some((module_id, mut ast, module_path, _)) = entry_module {
+            let module_name = self
+                .resolver
+                .get_module_name(module_id)
+                .expect("Module name must exist for ModuleId");
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
 
@@ -2071,7 +2079,8 @@ impl<'a> Bundler<'a> {
                     lookup_name = pkg_name.as_str();
                 }
             } else if self
-                .get_module_id(&module_name)
+                .resolver
+                .get_module_id_by_name(&module_name)
                 .is_some_and(|id| self.circular_modules.contains(&id))
             {
                 reorder = true;
@@ -2091,7 +2100,7 @@ impl<'a> Bundler<'a> {
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
             let entry_module_renames = symbol_renames
-                .get(&module_name)
+                .get(&module_id)
                 .cloned()
                 .unwrap_or_default();
 
