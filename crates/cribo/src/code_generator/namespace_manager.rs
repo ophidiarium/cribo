@@ -166,10 +166,6 @@ pub fn create_attribute_assignment(
 /// as needed, while handling exclusions and avoiding redundant operations.
 ///
 /// **Note**: This is the complete 310-line implementation moved from bundler.rs to achieve
-/// Phase 7 token reduction. The implementation uses bundler helper methods where available
-/// (`create_namespace_module`, `create_dotted_attribute_assignment`) and direct AST
-/// construction for intermediate namespaces that require specific attribute assignments.
-
 /// Transform imports from namespace packages.
 ///
 /// This function handles the transformation of imports from namespace packages,
@@ -628,11 +624,6 @@ pub fn detect_namespace_requirements_from_imports(
 /// Creates a types.SimpleNamespace object with all the module's symbols,
 /// handling forward references and tree-shaking.
 /// Returns a vector of statements to create and populate the namespace.
-
-/// Handle assignment for inlined modules that are not wrapper modules.
-///
-/// This helper function reduces nesting in `generate_submodule_attributes_with_exclusions`
-/// by extracting the logic for handling inlined module namespace assignments.
 
 /// Populate a namespace object with all symbols from a given module, applying renames.
 ///
@@ -1093,9 +1084,6 @@ fn is_symbol_from_inlined_submodule(
 
     false
 }
-
-/// Helper function to check if a symbol is imported from a wrapper module.
-/// This reduces nesting complexity in `create_namespace_for_inlined_module_static`.
 
 /// Find the source module and original name for a re-exported symbol.
 ///

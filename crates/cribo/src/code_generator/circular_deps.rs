@@ -21,9 +21,6 @@ impl SymbolDependencyGraph {
         Self::find_cycle_symbols_generic(graph, cycle_node)
     }
 
-    /// Find all symbols in the strongly connected component containing the given node
-    /// For (module, symbol) pairs
-
     /// Generic implementation of Tarjan's strongly connected components algorithm
     /// Works with any graph node type that implements Clone
     fn find_cycle_symbols_generic<T>(

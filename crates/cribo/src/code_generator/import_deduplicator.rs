@@ -34,12 +34,6 @@ pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
     }
 }
 
-/// Collect imports from a module for hoisting
-
-/// Add hoisted imports to the final body
-
-/// Deduplicate deferred imports against existing body statements
-
 /// Check if an import from statement is a duplicate
 pub(super) fn is_duplicate_import_from(
     bundler: &Bundler,

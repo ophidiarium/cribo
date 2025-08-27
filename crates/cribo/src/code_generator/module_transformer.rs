@@ -33,9 +33,6 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Creates a global module object for a wrapper module
-/// This creates the module at global scope with initialization tracking flags
-
 /// Transforms a module AST into an initialization function
 pub fn transform_module_to_init_function<'a>(
     bundler: &'a Bundler<'a>,

@@ -28,8 +28,6 @@ struct CycleAnalysisResult {
 pub struct DependencyAnalyzer;
 
 impl DependencyAnalyzer {
-    /// Build a dependency map for a subset of modules
-
     /// Analyze circular dependencies and classify them
     pub fn analyze_circular_dependencies(graph: &DependencyGraph) -> CircularDependencyAnalysis {
         let sccs = graph.find_strongly_connected_components();

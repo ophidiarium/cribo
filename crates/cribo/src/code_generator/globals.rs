@@ -946,8 +946,6 @@ impl GlobalsLifter {
     }
 }
 
-/// Process wrapper module globals (matching original implementation)
-
 /// Transform `locals()` calls to `vars(module_var)` in a statement
 pub fn transform_locals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion disabled (locals stops at function/class boundaries)

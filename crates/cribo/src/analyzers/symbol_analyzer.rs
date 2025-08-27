@@ -47,8 +47,6 @@ impl SymbolAnalyzer {
         global_symbols
     }
 
-    /// Build symbol dependency graph for circular modules
-
     /// Filter exports based on tree shaking
     ///
     /// This function filters a list of export symbols based on whether they survived tree-shaking.

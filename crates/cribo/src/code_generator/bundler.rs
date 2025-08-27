@@ -35,8 +35,6 @@ use crate::{
     visitors::LocalVarCollector,
 };
 
-/// Type alias for complex import generation data structure
-
 /// Parameters for transforming functions with lifted globals
 struct TransformFunctionParams<'a> {
     lifted_names: &'a FxIndexMap<String, String>,
@@ -44,9 +42,7 @@ struct TransformFunctionParams<'a> {
     function_globals: &'a FxIndexSet<String>,
 }
 
-/// Helper struct for organizing class blocks
-
-/// This approach avoids forward reference issues while maintaining Python module semantics
+/// Bundler orchestrates the code generation phase of bundling
 pub struct Bundler<'a> {
     /// Map from original module name to synthetic module name
     pub(crate) module_registry: FxIndexMap<String, String>,
@@ -212,18 +208,6 @@ impl<'a> Bundler<'a> {
     pub(super) fn create_transformed_node(&mut self, reason: String) -> AtomicNodeIndex {
         self.transformation_context.create_new_node(reason)
     }
-
-    /// Post-process AST to assign proper node indices to any nodes created with dummy indices
-
-    /// Helper function to filter out invalid submodule assignments.
-    ///
-    /// This filters statements where we're trying to assign `module.attr = attr`
-    /// where `attr` is a submodule that uses an init function and doesn't exist
-    /// as a local variable.
-    ///
-    /// # Arguments
-    /// * `stmts` - The statements to filter
-    /// * `local_variables` - Optional set of local variables to check against
 
     /// Transform bundled import from statement with context and current module
     pub(super) fn transform_bundled_import_from_multiple_with_current_module(
@@ -975,23 +959,6 @@ impl<'a> Bundler<'a> {
         import_sources
     }
 
-    /// Get imports from entry module
-
-    /// Sort deferred imports to ensure dependencies are satisfied
-    /// This ensures namespace creations come before assignments that use those namespaces
-    /// Uses a simple categorization approach to group statements by type
-
-    /// Check if module has forward references that would cause `NameError`
-
-    /// Check if a module is a package namespace
-
-    /// Check if a wrapper module should be included after tree-shaking
-    ///
-    /// A wrapper module is included if it either:
-    /// - Has symbols that survived tree-shaking
-    /// - Has side effects that need to be preserved
-
-    /// Extract attribute path from expression
     /// Process entry module statement
     fn process_entry_module_statement(
         &mut self,
@@ -2445,8 +2412,6 @@ impl<'a> Bundler<'a> {
         result
     }
 
-    /// Register a namespace that needs to be created
-
     /// Check if a namespace is already registered
     pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
         self.namespace_registry.contains_key(sanitized_name)
@@ -2456,8 +2421,6 @@ impl<'a> Bundler<'a> {
     pub fn get_rewritten_stdlib_path(module_name: &str) -> String {
         format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX)
     }
-
-    /// Generate all registered namespaces at once
 
     /// Find modules that are imported directly
     pub(super) fn find_directly_imported_modules(
@@ -4072,23 +4035,6 @@ impl<'a> Bundler<'a> {
 
 // Helper methods for import rewriting
 impl Bundler<'_> {
-    /// Check if a module name represents a dunder module like __version__, __about__, etc.
-    /// These are Python's "magic" modules with double underscores.
-
-    /// Check if a symbol is a re-export from child modules or is itself a submodule
-    ///
-    /// Returns true if:
-    /// - The symbol is actually a submodule name (e.g., 'compat' is 'pkg.compat')
-    /// - The symbol is defined in a child module (by checking ASTs or rename maps)
-
-    /// Find the source module and original name for a symbol re-exported from a wrapper module.
-    ///
-    /// This checks if a symbol is imported from a wrapper module and returns the source
-    /// module name and original symbol name to properly reference it.
-
-    /// Check if a self-referential assignment should be filtered out
-    ///
-
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,

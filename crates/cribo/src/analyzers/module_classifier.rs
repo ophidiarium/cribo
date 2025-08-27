@@ -59,9 +59,6 @@ impl<'a> ModuleClassifier<'a> {
         }
     }
 
-    /// Check if a module accesses attributes on imported modules at module level
-    /// where those imported modules are part of the same circular dependency
-
     /// Classify modules into inlinable and wrapper modules
     /// Also collects module exports and tracks modules with explicit __all__
     pub fn classify_modules(
