@@ -135,14 +135,16 @@ VERSION = "1.0.0"
         let parsed = parse_module(code).expect("Failed to parse test module");
         let module = parsed.into_syntax();
 
+        // Create a ModuleId for the test
+        let module_id = crate::resolver::ModuleId::new(0);
         let modules = vec![(
-            "test_module".to_string(),
+            module_id,
             module,
             std::path::PathBuf::new(),
             "hash".to_string(),
         )];
 
-        let symbols = SymbolAnalyzer::collect_global_symbols(&modules, "test_module");
+        let symbols = SymbolAnalyzer::collect_global_symbols(&modules);
 
         assert_eq!(symbols.len(), 3);
         assert!(symbols.contains("main"));
