@@ -621,10 +621,6 @@ pub fn detect_namespace_requirements_from_imports(
 
 /// Create namespace for inlined module.
 ///
-/// Creates a types.SimpleNamespace object with all the module's symbols,
-/// handling forward references and tree-shaking.
-/// Returns a vector of statements to create and populate the namespace.
-
 /// Populate a namespace object with all symbols from a given module, applying renames.
 ///
 /// This function generates AST statements to populate a namespace object with symbols

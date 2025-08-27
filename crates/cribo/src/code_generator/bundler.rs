@@ -1134,9 +1134,6 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Collect import entries from an iterator of hard dependencies
-    /// This helper deduplicates the logic for collecting imports with their aliases
-
     /// Collect symbol renames from semantic analysis
     fn collect_symbol_renames(
         &mut self,
