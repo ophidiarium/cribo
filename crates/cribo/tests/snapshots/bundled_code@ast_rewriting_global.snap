@@ -29,17 +29,6 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 module_mixed_patterns = _cribo.types.SimpleNamespace(__name__='module_mixed_patterns', __initializing__=False, __initialized__=False)
-module_globals_dict = _cribo.types.SimpleNamespace(__name__='module_globals_dict', __initializing__=False, __initialized__=False)
-module_global_keyword = _cribo.types.SimpleNamespace(__name__='module_global_keyword')
-"""Module demonstrating global keyword usage."""
-foo_3 = "module1_foo"
-def get_foo():
-    """Get the module's global foo value."""
-    return foo_3
-def modify_foo():
-    """Modify the module's global foo using global keyword."""
-    global foo_3
-    foo_3 = "module1_foo_modified"
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
 def _cribo_init___cribo_c75306_module_mixed_patterns(self):
@@ -99,6 +88,7 @@ def _cribo_init___cribo_c75306_module_mixed_patterns(self):
     self.__initializing__ = False
     return self
 module_mixed_patterns.__init__ = _cribo_init___cribo_c75306_module_mixed_patterns
+module_globals_dict = _cribo.types.SimpleNamespace(__name__='module_globals_dict', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_5101f4_module_globals_dict(self):
     if self.__initialized__:
         return self
@@ -141,6 +131,16 @@ def _cribo_init___cribo_5101f4_module_globals_dict(self):
     self.__initializing__ = False
     return self
 module_globals_dict.__init__ = _cribo_init___cribo_5101f4_module_globals_dict
+module_global_keyword = _cribo.types.SimpleNamespace(__name__='module_global_keyword')
+"""Module demonstrating global keyword usage."""
+foo_3 = "module1_foo"
+def get_foo():
+    """Get the module's global foo value."""
+    return foo_3
+def modify_foo():
+    """Modify the module's global foo using global keyword."""
+    global foo_3
+    foo_3 = "module1_foo_modified"
 module_global_keyword.foo = foo_3
 module_global_keyword.get_foo = get_foo
 module_global_keyword.modify_foo = modify_foo

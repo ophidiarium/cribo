@@ -2000,12 +2000,18 @@ impl<'a> Bundler<'a> {
                     })
                     .clone();
 
+                // Analyze global declarations for this wrapper module
+                let global_info = crate::code_generator::globals::analyze_wrapper_module_globals(
+                    &module_name,
+                    &ast,
+                );
+
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
                     module_name: &module_name,
                     synthetic_name: &synthetic_name,
                     module_path: &path,
-                    global_info: None,
+                    global_info: global_info.clone(),
                     semantic_bundler: self.semantic_bundler,
                     python_version,
                     is_wrapper_body: true,
@@ -2025,15 +2031,46 @@ impl<'a> Bundler<'a> {
                 let is_package = path.ends_with("__init__.py");
 
                 // Use the new create_wrapper_module function to output everything together
-                let wrapper_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
+                let mut wrapper_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
                     &module_name,
                     &synthetic_name,
                     init_function,
                     is_package,
                 );
 
-                // Add all the wrapper module statements (namespace, init function, __init__ assignment)
-                all_inlined_stmts.extend(wrapper_stmts);
+                // Insert lifted global declarations after namespace but before init function
+                // The wrapper_stmts has: [0] = namespace creation, [1] = init function, [2] = __init__ assignment
+                if let Some(ref info) = global_info {
+                    if info.global_declarations.is_empty() {
+                        // No global declarations, just add wrapper statements
+                        all_inlined_stmts.extend(wrapper_stmts);
+                    } else {
+                        let globals_lifter =
+                            crate::code_generator::globals::GlobalsLifter::new(info);
+                        // Create lifted global declarations (initialize to None)
+                        let mut lifted_declarations = Vec::new();
+                        for (_, lifted_name) in &globals_lifter.lifted_names {
+                            lifted_declarations.push(statements::simple_assign(
+                                lifted_name,
+                                expressions::none_literal(),
+                            ));
+                        }
+                        // Insert after namespace (index 0) but before init function (index 1)
+                        if !lifted_declarations.is_empty() && wrapper_stmts.len() >= 2 {
+                            // Split wrapper_stmts and insert lifted declarations
+                            let namespace_stmt = wrapper_stmts.remove(0);
+                            all_inlined_stmts.push(namespace_stmt);
+                            all_inlined_stmts.extend(lifted_declarations);
+                            all_inlined_stmts.extend(wrapper_stmts);
+                        } else {
+                            // Fallback: just add all stmts
+                            all_inlined_stmts.extend(wrapper_stmts);
+                        }
+                    }
+                } else {
+                    // No global info, just add wrapper statements
+                    all_inlined_stmts.extend(wrapper_stmts);
+                }
 
                 // Mark the namespace as created
                 let module_var = sanitize_module_name_for_identifier(&module_name);
