@@ -153,8 +153,7 @@ struct StaticBundleParams<'a> {
 struct DependencyContext<'a> {
     resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
-    current_module: &'a str,
-    from_module_id: crate::resolver::ModuleId,
+    current_module_id: crate::resolver::ModuleId,
 }
 
 /// Parameters for graph building operations
@@ -1087,16 +1086,11 @@ impl BundleOrchestrator {
         // Then, add all dependency edges
         info!("Phase 2: Creating dependency edges...");
         for (module_id, imports, _ast, _source) in &parsed_modules {
-            let module_name = params
-                .resolver
-                .get_module_name(*module_id)
-                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
             for import in imports {
                 let mut context = DependencyContext {
                     resolver: params.resolver,
                     graph: params.graph,
-                    current_module: &module_name,
-                    from_module_id: *module_id,
+                    current_module_id: *module_id,
                 };
                 self.process_import_for_dependency(import, &mut context);
             }
@@ -1506,8 +1500,9 @@ impl BundleOrchestrator {
                 // Add dependency edge if the imported module exists
                 if let Some(to_module_id) = context.resolver.get_module_id_by_name(import) {
                     debug!(
-                        "Adding dependency edge: {} -> {}",
-                        import, context.current_module
+                        "Adding dependency edge: {} -> module_id_{}",
+                        import,
+                        context.current_module_id.as_u32()
                     );
                     // TODO: Properly track TYPE_CHECKING information from ImportDiscoveryVisitor
                     // For now, we use the default (is_type_checking_only = false)
@@ -1515,10 +1510,11 @@ impl BundleOrchestrator {
                     // the DiscoveredImport when we refactor to preserve that information
                     context
                         .graph
-                        .add_module_dependency(context.from_module_id, to_module_id);
+                        .add_module_dependency(context.current_module_id, to_module_id);
                     debug!(
-                        "Successfully added dependency edge: {} -> {}",
-                        import, context.current_module
+                        "Successfully added dependency edge: {} -> module_id_{}",
+                        import,
+                        context.current_module_id.as_u32()
                     );
                 } else {
                     debug!("Module {import} not found in graph, skipping dependency edge");
@@ -1548,26 +1544,28 @@ impl BundleOrchestrator {
 
     /// Try to add a dependency edge for a parent package
     fn try_add_parent_dependency(&self, parent_module: &str, context: &mut DependencyContext<'_>) {
-        // Skip if parent_module is the same as module_name to avoid self-dependencies
-        if parent_module == context.current_module {
-            debug!(
-                "Skipping self-dependency: {} -> {}",
-                parent_module, context.current_module
-            );
-            return;
-        }
-
         if context.resolver.classify_import(parent_module) == ImportType::FirstParty
             && let Some(parent_module_id) = context.resolver.get_module_id_by_name(parent_module)
         {
+            // Skip if parent_module is the same as current module to avoid self-dependencies
+            if parent_module_id == context.current_module_id {
+                debug!(
+                    "Skipping self-dependency: {} -> module_id_{}",
+                    parent_module,
+                    context.current_module_id.as_u32()
+                );
+                return;
+            }
+
             debug!(
-                "Adding parent package dependency edge: {} -> {}",
-                parent_module, context.current_module
+                "Adding parent package dependency edge: {} -> module_id_{}",
+                parent_module,
+                context.current_module_id.as_u32()
             );
             // TODO: Inherit TYPE_CHECKING information from child import
             context
                 .graph
-                .add_module_dependency(context.from_module_id, parent_module_id);
+                .add_module_dependency(context.current_module_id, parent_module_id);
         }
     }
 

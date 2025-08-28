@@ -1489,13 +1489,13 @@ impl<'a> Bundler<'a> {
                                     && wrapper_modules_saved
                                         .iter()
                                         .any(|(id, _, _, _)| *id == potential_module_id)
-                                    {
-                                        wrapper_modules_needed_by_inlined
-                                            .insert(potential_module.clone());
-                                        log::debug!(
-                                            "Inlined module '{module_name}' imports wrapper module '{potential_module}' via 'from . import'"
-                                        );
-                                    }
+                                {
+                                    wrapper_modules_needed_by_inlined
+                                        .insert(potential_module.clone());
+                                    log::debug!(
+                                        "Inlined module '{module_name}' imports wrapper module '{potential_module}' via 'from . import'"
+                                    );
+                                }
                             }
                         }
                     }
@@ -1557,16 +1557,16 @@ impl<'a> Bundler<'a> {
                                     && wrapper_modules_saved
                                         .iter()
                                         .any(|(id, _, _, _)| *id == potential_module_id)
-                                    {
-                                        let module_name_str = self
-                                            .resolver
-                                            .get_module_name(*module_name)
-                                            .expect("Module name must exist for ModuleId");
-                                        wrapper_to_wrapper_deps
-                                            .entry(module_name_str)
-                                            .or_default()
-                                            .insert(potential_module);
-                                    }
+                                {
+                                    let module_name_str = self
+                                        .resolver
+                                        .get_module_name(*module_name)
+                                        .expect("Module name must exist for ModuleId");
+                                    wrapper_to_wrapper_deps
+                                        .entry(module_name_str)
+                                        .or_default()
+                                        .insert(potential_module);
+                                }
                             }
                         }
                     }
@@ -1587,19 +1587,19 @@ impl<'a> Bundler<'a> {
 
                     if let Some(ref resolved) = resolved_module
                         && let Some(resolved_id) = self.get_module_id(resolved)
-                            && wrapper_modules_saved
-                                .iter()
-                                .any(|(id, _, _, _)| *id == resolved_id)
-                            {
-                                let module_name_str = self
-                                    .resolver
-                                    .get_module_name(*module_name)
-                                    .expect("Module name must exist for ModuleId");
-                                wrapper_to_wrapper_deps
-                                    .entry(module_name_str)
-                                    .or_default()
-                                    .insert(resolved.clone());
-                            }
+                        && wrapper_modules_saved
+                            .iter()
+                            .any(|(id, _, _, _)| *id == resolved_id)
+                    {
+                        let module_name_str = self
+                            .resolver
+                            .get_module_name(*module_name)
+                            .expect("Module name must exist for ModuleId");
+                        wrapper_to_wrapper_deps
+                            .entry(module_name_str)
+                            .or_default()
+                            .insert(resolved.clone());
+                    }
                 }
             }
         }
@@ -2467,10 +2467,11 @@ impl<'a> Bundler<'a> {
                         let _symbol_name = target.id.as_str();
                         // Convert module names to IDs for global_deferred_imports
                         if let Some(from_id) = self.get_module_id(import_module)
-                            && let Some(to_id) = self.get_module_id(&module_name) {
-                                self.global_deferred_imports
-                                    .insert((from_id, attr_name.to_string()), to_id);
-                            }
+                            && let Some(to_id) = self.get_module_id(&module_name)
+                        {
+                            self.global_deferred_imports
+                                .insert((from_id, attr_name.to_string()), to_id);
+                        }
                     }
                 }
             }
@@ -2686,12 +2687,13 @@ impl<'a> Bundler<'a> {
                         symbol_name,
                         Some(&self.module_exports),
                         self.resolver,
-                    ) {
-                        log::debug!(
-                            "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
-                        );
-                        return true;
-                    }
+                    )
+                {
+                    log::debug!(
+                        "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
+                    );
+                    return true;
+                }
             }
         }
 
@@ -3866,9 +3868,9 @@ impl<'a> Bundler<'a> {
         module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
         // First check tree-shaking decisions if available
-        let kept_by_tree_shaking = self.get_module_id(module_name).is_some_and(|id| {
-            self.is_symbol_kept_by_tree_shaking(id, symbol_name)
-        });
+        let kept_by_tree_shaking = self
+            .get_module_id(module_name)
+            .is_some_and(|id| self.is_symbol_kept_by_tree_shaking(id, symbol_name));
         if !kept_by_tree_shaking {
             log::trace!(
                 "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
