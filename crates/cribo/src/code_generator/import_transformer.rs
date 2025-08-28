@@ -3400,10 +3400,10 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         }
 
         // Check if this module is in the module_registry (wrapper module)
-        if bundler
-            .get_module_id(&module_name)
-            .is_some_and(|id| bundler.bundled_modules.contains(&id))
-        {
+        // A module is a wrapper if it's bundled but NOT inlined
+        if bundler.get_module_id(&module_name).is_some_and(|id| {
+            bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
+        }) {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
             // This is a wrapper module, we need to transform it
             return bundler.transform_bundled_import_from_multiple_with_current_module(
@@ -3430,15 +3430,15 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         "Transforming bundled import from module: {module_name}, is wrapper: {}",
         bundler
             .get_module_id(&module_name)
-            .is_some_and(|id| bundler.bundled_modules.contains(&id))
+            .is_some_and(|id| bundler.bundled_modules.contains(&id)
+                && !bundler.inlined_modules.contains(&id))
     );
 
     // Check if this module is in the registry (wrapper approach)
-    // or if it was inlined
-    if bundler
-        .get_module_id(&module_name)
-        .is_some_and(|id| bundler.bundled_modules.contains(&id))
-    {
+    // A module is a wrapper if it's bundled but NOT inlined
+    if bundler.get_module_id(&module_name).is_some_and(|id| {
+        bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
+    }) {
         // Module uses wrapper approach - transform to sys.modules access
         // For relative imports, we need to create an absolute import
         let mut absolute_import = import_from.clone();

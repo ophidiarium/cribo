@@ -1106,11 +1106,33 @@ impl BundleOrchestrator {
                 // Check attribute accesses for __all__
                 for (base_name, attributes) in &item.attribute_accesses {
                     if attributes.contains("__all__") {
-                        // This module accesses base_name.__all__
-                        all_accesses.push((base_name.clone(), module_graph.module_name.clone()));
+                        // Resolve the base_name to the actual module if it's an alias
+                        let resolved_module = module_graph
+                            .items
+                            .values()
+                            .find_map(|i| {
+                                if let crate::cribo_graph::ItemType::Import { module, alias } =
+                                    &i.item_type
+                                {
+                                    if alias.as_deref() == Some(base_name) {
+                                        // Found the import with this alias
+                                        Some(module.clone())
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| base_name.clone());
+
+                        // This module accesses resolved_module.__all__
+                        all_accesses
+                            .push((resolved_module.clone(), module_graph.module_name.clone()));
                         log::debug!(
-                            "Module '{}' accesses {base_name}.__all__",
-                            module_graph.module_name
+                            "Module '{}' accesses {}.__all__ (resolved from alias '{base_name}')",
+                            module_graph.module_name,
+                            resolved_module
                         );
                     }
                 }

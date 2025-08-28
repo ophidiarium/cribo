@@ -1722,6 +1722,41 @@ impl<'a> Bundler<'a> {
                         all_inlined_stmts.push(namespace_stmt);
                         self.created_namespaces.insert(namespace_var.clone());
 
+                        // Check if __all__ is accessed on this module and add it if needed
+                        if let Some(module_id) = self.get_module_id(&module_name) {
+                            // Check if any module accesses this module's __all__
+                            let all_accessed = self
+                                .modules_with_accessed_all
+                                .iter()
+                                .any(|(_, accessed_module)| accessed_module == &module_name);
+
+                            // If __all__ is accessed and the module has it, add it to the namespace
+                            if all_accessed
+                                && let Some(Some(export_list)) = self.module_exports.get(&module_id)
+                                {
+                                    // Create __all__ assignment: module.__all__ = [...]
+                                    let all_list = expressions::list(
+                                        export_list
+                                            .iter()
+                                            .map(|s| expressions::string_literal(s))
+                                            .collect(),
+                                        ExprContext::Load,
+                                    );
+                                    let all_assign = statements::assign(
+                                        vec![expressions::attribute(
+                                            expressions::name(&namespace_var, ExprContext::Load),
+                                            "__all__",
+                                            ExprContext::Store,
+                                        )],
+                                        all_list,
+                                    );
+                                    all_inlined_stmts.push(all_assign);
+                                    log::debug!(
+                                        "Added __all__ attribute to namespace '{module_name}'"
+                                    );
+                                }
+                        }
+
                         // Also handle parent namespaces if this is a submodule
                         if let Some((parent, child)) = module_name.rsplit_once('.') {
                             let parent_var = sanitize_module_name_for_identifier(parent);
