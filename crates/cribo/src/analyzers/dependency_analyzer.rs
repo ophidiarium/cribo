@@ -40,24 +40,18 @@ impl DependencyAnalyzer {
                 continue; // Not a cycle
             }
 
-            // Convert module IDs to names
-            let module_names: Vec<String> = scc
-                .iter()
-                .filter_map(|&module_id| {
-                    graph.modules.get(&module_id).map(|m| m.module_name.clone())
-                })
-                .collect();
+            // Work directly with module IDs (already resolver::ModuleId since CriboGraph re-exports it)
+            let module_ids: Vec<crate::resolver::ModuleId> = scc.clone();
 
-            if module_names.is_empty() {
+            if module_ids.is_empty() {
                 continue;
             }
 
-            let cycle_type = Self::classify_cycle_type(graph, &module_names);
-            let suggested_resolution =
-                Self::suggest_resolution_for_cycle(&cycle_type, &module_names);
+            let cycle_type = Self::classify_cycle_type(graph, &module_ids);
+            let suggested_resolution = Self::suggest_resolution_for_cycle(&cycle_type, &module_ids);
 
             let group = CircularDependencyGroup {
-                modules: module_names,
+                modules: module_ids,
                 cycle_type: cycle_type.clone(),
                 suggested_resolution,
             };
@@ -82,12 +76,18 @@ impl DependencyAnalyzer {
     /// Classify the type of circular dependency
     fn classify_cycle_type(
         graph: &DependencyGraph,
-        module_names: &[String],
+        module_ids: &[crate::resolver::ModuleId],
     ) -> CircularDependencyType {
+        // Get module names for analysis
+        let module_names: Vec<String> = module_ids
+            .iter()
+            .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
+            .collect();
+
         // Check if this is a parent-child package cycle
         // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports
         // from pkg.submodule)
-        if Self::is_parent_child_package_cycle(module_names) {
+        if Self::is_parent_child_package_cycle(&module_names) {
             // This is a normal Python pattern, not a problematic cycle
             return CircularDependencyType::FunctionLevel; // Most permissive type
         }
@@ -95,7 +95,7 @@ impl DependencyAnalyzer {
         // Check if imports can be moved to functions
         // Special case: if modules have NO items (empty or only imports), treat as FunctionLevel
         // This handles simple circular import cases like stickytape tests
-        let all_empty = Self::all_modules_empty_or_imports_only(graph, module_names);
+        let all_empty = Self::all_modules_empty_or_imports_only(graph, &module_names);
 
         if all_empty {
             // Simple circular imports can often be resolved
@@ -103,7 +103,7 @@ impl DependencyAnalyzer {
         }
 
         // Perform AST analysis on the modules in the cycle
-        let analysis_result = Self::analyze_cycle_modules(graph, module_names);
+        let analysis_result = Self::analyze_cycle_modules(graph, &module_names);
 
         // Use AST analysis results for classification
         if analysis_result.has_only_constants
@@ -127,7 +127,7 @@ impl DependencyAnalyzer {
         }
 
         // Fall back to name-based heuristics if AST analysis is inconclusive
-        for module_name in module_names {
+        for module_name in &module_names {
             if module_name.contains("constants") || module_name.contains("config") {
                 return CircularDependencyType::ModuleConstants;
             }
@@ -252,7 +252,7 @@ impl DependencyAnalyzer {
     /// Suggest resolution strategy for a cycle
     fn suggest_resolution_for_cycle(
         cycle_type: &CircularDependencyType,
-        _module_names: &[String],
+        _module_ids: &[crate::resolver::ModuleId],
     ) -> ResolutionStrategy {
         match cycle_type {
             CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport,

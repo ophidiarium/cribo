@@ -5,7 +5,8 @@ use std::collections::VecDeque;
 use log::{debug, trace};
 
 use crate::{
-    cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId},
+    cribo_graph::{CriboGraph, ItemData, ItemType},
+    resolver::ModuleId,
     types::{FxIndexMap, FxIndexSet},
 };
 

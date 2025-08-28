@@ -14,8 +14,8 @@ use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::{
-    cribo_graph::ModuleId,
     import_alias_tracker::{EnhancedFromImport, ImportAliasTracker},
+    resolver::ModuleId,
     types::{FxIndexMap, FxIndexSet},
 };
 

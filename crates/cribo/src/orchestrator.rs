@@ -16,9 +16,9 @@ use crate::{
     },
     code_generator::Bundler,
     config::Config,
-    cribo_graph::{CriboGraph, ModuleId},
+    cribo_graph::CriboGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
-    resolver::{ImportType, ModuleResolver},
+    resolver::{ImportType, ModuleId, ModuleResolver},
     semantic_bundler::SemanticBundler,
     tree_shaking::TreeShaker,
     types::FxIndexMap,
@@ -104,7 +104,7 @@ impl ModuleRegistry {
         self.name_to_id.get(name).copied()
     }
 
-    /// Check if a module exists by ModuleId
+    /// Check if a module exists by `ModuleId`
     pub fn contains_module(&self, id: &ModuleId) -> bool {
         self.modules.contains_key(id)
     }
@@ -153,9 +153,9 @@ struct StaticBundleParams<'a> {
 struct DependencyContext<'a> {
     resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
-    module_id_map: &'a indexmap::IndexMap<String, crate::cribo_graph::ModuleId>,
+    module_id_map: &'a indexmap::IndexMap<String, crate::resolver::ModuleId>,
     current_module: &'a str,
-    from_module_id: crate::cribo_graph::ModuleId,
+    from_module_id: crate::resolver::ModuleId,
 }
 
 /// Parameters for graph building operations
@@ -174,7 +174,7 @@ struct ProcessedModule {
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
     /// Module ID if already added to dependency graph
-    module_id: Option<crate::cribo_graph::ModuleId>,
+    module_id: Option<crate::resolver::ModuleId>,
 }
 
 pub struct BundleOrchestrator {
@@ -336,12 +336,23 @@ impl BundleOrchestrator {
     }
 
     /// Format error message for unresolvable cycles
-    fn format_unresolvable_cycles_error(cycles: &[CircularDependencyGroup]) -> String {
+    fn format_unresolvable_cycles_error(
+        cycles: &[CircularDependencyGroup],
+        resolver: &ModuleResolver,
+    ) -> String {
         use std::fmt::Write;
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
 
         for (i, cycle) in cycles.iter().enumerate() {
-            let _ = writeln!(error_msg, "Cycle {}: {}", i + 1, cycle.modules.join(" → "));
+            // Convert ModuleIds to names for display
+            let module_names: Vec<String> = cycle
+                .modules
+                .iter()
+                .filter_map(|id| resolver.get_module_name(*id))
+                .map(|s| s.to_string())
+                .collect();
+
+            let _ = writeln!(error_msg, "Cycle {}: {}", i + 1, module_names.join(" → "));
             let _ = writeln!(error_msg, "  Type: {:?}", cycle.cycle_type);
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
@@ -482,8 +493,10 @@ impl BundleOrchestrator {
 
             // Check if we have unresolvable cycles - these we must fail on
             if !analysis.unresolvable_cycles.is_empty() {
-                let error_msg =
-                    Self::format_unresolvable_cycles_error(&analysis.unresolvable_cycles);
+                let error_msg = Self::format_unresolvable_cycles_error(
+                    &analysis.unresolvable_cycles,
+                    &resolver,
+                );
                 return Err(anyhow!(error_msg));
             }
 
@@ -496,10 +509,16 @@ impl BundleOrchestrator {
 
                 // Log details about each resolvable cycle
                 for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                    // Convert ModuleIds to module names for display
+                    let module_names: Vec<String> = cycle
+                        .modules
+                        .iter()
+                        .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
+                        .collect();
                     warn!(
                         "Cycle {}: {} (Type: {:?})",
                         i + 1,
-                        cycle.modules.join(" → "),
+                        module_names.join(" → "),
                         cycle.cycle_type
                     );
 
@@ -756,7 +775,7 @@ impl BundleOrchestrator {
         &self,
         graph: &CriboGraph,
         analysis: &crate::analyzers::types::CircularDependencyAnalysis,
-    ) -> Vec<crate::cribo_graph::ModuleId> {
+    ) -> Vec<crate::resolver::ModuleId> {
         debug!(
             "get_modules_with_cycle_resolution called with {} resolvable cycles",
             analysis.resolvable_cycles.len()
@@ -770,8 +789,10 @@ impl BundleOrchestrator {
         // Collect all modules that are part of circular dependencies
         let mut cycle_module_names = IndexSet::new();
         for cycle in &analysis.resolvable_cycles {
-            for module_name in &cycle.modules {
-                cycle_module_names.insert(module_name.as_str());
+            for module_id in &cycle.modules {
+                if let Some(module) = graph.modules.get(module_id) {
+                    cycle_module_names.insert(module.module_name.clone());
+                }
             }
         }
 
@@ -806,12 +827,12 @@ impl BundleOrchestrator {
 
         // Helper closure for DFS-based topological sort on cycle modules
         fn visit_cycle_module(
-            module_id: crate::cribo_graph::ModuleId,
+            module_id: crate::resolver::ModuleId,
             graph: &CriboGraph,
-            cycle_ids: &[crate::cribo_graph::ModuleId],
-            visited: &mut IndexSet<crate::cribo_graph::ModuleId>,
-            stack: &mut IndexSet<crate::cribo_graph::ModuleId>,
-            result: &mut Vec<crate::cribo_graph::ModuleId>,
+            cycle_ids: &[crate::resolver::ModuleId],
+            visited: &mut IndexSet<crate::resolver::ModuleId>,
+            stack: &mut IndexSet<crate::resolver::ModuleId>,
+            result: &mut Vec<crate::resolver::ModuleId>,
         ) {
             if visited.contains(&module_id) {
                 return;

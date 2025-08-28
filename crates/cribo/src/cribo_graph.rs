@@ -19,9 +19,8 @@ use petgraph::{
     graph::{DiGraph, NodeIndex},
 };
 
+use crate::resolver::ModuleId;
 use crate::types::{FxIndexMap, FxIndexSet};
-// Re-export ModuleId from resolver for backward compatibility with existing code
-pub use crate::resolver::ModuleId;
 
 /// Unique identifier for an item within a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
