@@ -2015,13 +2015,12 @@ impl<'a> Bundler<'a> {
                 };
 
                 // Transform the module into an init function
-                // For wrapper modules processed in dependency order, we don't have module_renames yet
-                let empty_renames = FxIndexMap::default();
+                // Use the symbol_renames we collected earlier for all modules
                 let init_function = module_transformer::transform_module_to_init_function(
                     self,
                     &transform_ctx,
                     ast.clone(),
-                    &empty_renames,
+                    &symbol_renames,
                 );
 
                 // Check if this is a package (ends with __init__.py)

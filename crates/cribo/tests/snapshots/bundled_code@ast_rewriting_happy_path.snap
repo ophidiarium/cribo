@@ -113,12 +113,6 @@ def format_message(greeting: str, name: str) -> str:
 def calculate_total(values: _cribo.typing.List[int]) -> int:
     """Calculate the sum of a list of integers."""
     return sum(values)
-services_database.DatabaseConnection = DatabaseConnection
-services_database.DatabaseService = DatabaseService
-models_user.UserRole = UserRole
-models_user.User = User
-utils_helpers.format_message = format_message
-utils_helpers.calculate_total = calculate_total
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)
