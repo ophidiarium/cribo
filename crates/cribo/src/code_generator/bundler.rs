@@ -1797,24 +1797,21 @@ impl<'a> Bundler<'a> {
                         // Also handle parent namespaces if this is a submodule
                         if let Some((parent, child)) = module_name.rsplit_once('.') {
                             let parent_var = sanitize_module_name_for_identifier(parent);
+                            // Create parent namespace if it doesn't exist
                             if !self.created_namespaces.contains(&parent_var) {
-                                let parent_stmt = statements::simple_assign(
-                                    &parent_var,
-                                    expressions::call(
-                                        expressions::simple_namespace_ctor(),
-                                        vec![],
-                                        vec![Keyword {
-                                            node_index: self.create_node_index(),
-                                            arg: Some(Identifier::new(
-                                                "__name__",
-                                                TextRange::default(),
-                                            )),
-                                            value: expressions::string_literal(parent),
-                                            range: TextRange::default(),
-                                        }],
-                                    ),
-                                );
-                                all_inlined_stmts.push(parent_stmt);
+                                // Use create_wrapper_module to create namespace with proper flags
+                                // Parent packages may contain submodules, so mark as package
+                                let parent_stmts =
+                                    crate::ast_builder::module_wrapper::create_wrapper_module(
+                                        parent,
+                                        "",   // No synthetic name needed for namespace-only
+                                        None, // No init function
+                                        true, // Mark as package since it has children
+                                    );
+                                // Only the namespace statement should be generated
+                                if let Some(namespace_stmt) = parent_stmts.first() {
+                                    all_inlined_stmts.push(namespace_stmt.clone());
+                                }
                                 self.created_namespaces.insert(parent_var.clone());
                             }
 
@@ -2030,16 +2027,31 @@ impl<'a> Bundler<'a> {
                 // Check if this is a package (ends with __init__.py)
                 let is_package = path.ends_with("__init__.py");
 
-                // Use the new create_wrapper_module function to output everything together
-                let mut wrapper_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
-                    &module_name,
-                    &synthetic_name,
-                    init_function,
-                    is_package,
-                );
+                // Check if namespace already exists (might have been created by child module)
+                let module_var = sanitize_module_name_for_identifier(&module_name);
+                let namespace_already_exists = self.created_namespaces.contains(&module_var);
+
+                // Only create namespace if it doesn't already exist
+                let mut wrapper_stmts = if namespace_already_exists {
+                    // Namespace exists, just add the init function and __init__ assignment
+                    crate::ast_builder::module_wrapper::create_init_function_statements(
+                        &module_name,
+                        &synthetic_name,
+                        init_function,
+                    )
+                } else {
+                    // Create the full wrapper module with namespace
+                    crate::ast_builder::module_wrapper::create_wrapper_module(
+                        &module_name,
+                        &synthetic_name,
+                        Some(init_function),
+                        is_package,
+                    )
+                };
 
                 // Insert lifted global declarations after namespace but before init function
-                // The wrapper_stmts has: [0] = namespace creation, [1] = init function, [2] = __init__ assignment
+                // The wrapper_stmts now has: [0] = init function (if namespace was skipped), [1] = __init__ assignment
+                // Or: [0] = namespace creation, [1] = init function, [2] = __init__ assignment
                 if let Some(ref info) = global_info {
                     if info.global_declarations.is_empty() {
                         // No global declarations, just add wrapper statements
@@ -2055,15 +2067,26 @@ impl<'a> Bundler<'a> {
                                 expressions::none_literal(),
                             ));
                         }
-                        // Insert after namespace (index 0) but before init function (index 1)
-                        if !lifted_declarations.is_empty() && wrapper_stmts.len() >= 2 {
-                            // Split wrapper_stmts and insert lifted declarations
-                            let namespace_stmt = wrapper_stmts.remove(0);
-                            all_inlined_stmts.push(namespace_stmt);
-                            all_inlined_stmts.extend(lifted_declarations);
-                            all_inlined_stmts.extend(wrapper_stmts);
+                        // Insert lifted declarations before the init function
+                        if !lifted_declarations.is_empty() && !wrapper_stmts.is_empty() {
+                            // If namespace was already created, wrapper_stmts starts with init function
+                            // Otherwise, it starts with namespace creation
+                            if namespace_already_exists {
+                                // No namespace stmt, just add lifted declarations before init function
+                                all_inlined_stmts.extend(lifted_declarations);
+                                all_inlined_stmts.extend(wrapper_stmts);
+                            } else if wrapper_stmts.len() >= 2 {
+                                // Split wrapper_stmts and insert lifted declarations after namespace
+                                let namespace_stmt = wrapper_stmts.remove(0);
+                                all_inlined_stmts.push(namespace_stmt);
+                                all_inlined_stmts.extend(lifted_declarations);
+                                all_inlined_stmts.extend(wrapper_stmts);
+                            } else {
+                                // Fallback: just add all stmts
+                                all_inlined_stmts.extend(wrapper_stmts);
+                            }
                         } else {
-                            // Fallback: just add all stmts
+                            // No lifted declarations or empty wrapper_stmts
                             all_inlined_stmts.extend(wrapper_stmts);
                         }
                     }
@@ -2072,28 +2095,27 @@ impl<'a> Bundler<'a> {
                     all_inlined_stmts.extend(wrapper_stmts);
                 }
 
-                // Mark the namespace as created
-                let module_var = sanitize_module_name_for_identifier(&module_name);
-                self.created_namespaces.insert(module_var.clone());
+                // Mark the namespace as created (if it wasn't already)
+                if !namespace_already_exists {
+                    self.created_namespaces.insert(module_var.clone());
+                }
 
                 // Also handle parent namespaces if this is a submodule
                 if let Some((parent, child)) = module_name.rsplit_once('.') {
                     let parent_var = sanitize_module_name_for_identifier(parent);
+                    // Create parent namespace if it doesn't exist
                     if !self.created_namespaces.contains(&parent_var) {
-                        let parent_stmt = statements::simple_assign(
-                            &parent_var,
-                            expressions::call(
-                                expressions::simple_namespace_ctor(),
-                                vec![],
-                                vec![Keyword {
-                                    node_index: self.create_node_index(),
-                                    arg: Some(Identifier::new("__name__", TextRange::default())),
-                                    value: expressions::string_literal(parent),
-                                    range: TextRange::default(),
-                                }],
-                            ),
-                        );
-                        all_inlined_stmts.push(parent_stmt);
+                        // Use create_wrapper_module to create namespace with proper flags
+                        let parent_stmts =
+                            crate::ast_builder::module_wrapper::create_wrapper_module(
+                                parent, "",   // No synthetic name needed for namespace-only
+                                None, // No init function
+                                true, // Mark as package since it has children
+                            );
+                        // Only the namespace statement should be generated
+                        if let Some(namespace_stmt) = parent_stmts.first() {
+                            all_inlined_stmts.push(namespace_stmt.clone());
+                        }
                         self.created_namespaces.insert(parent_var.clone());
                     }
 

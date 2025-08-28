@@ -667,7 +667,15 @@ impl BundleOrchestrator {
         debug!("=== TOPOLOGICAL SORT ORDER ===");
         for (i, module_id) in module_ids.iter().enumerate() {
             if let Some(module) = graph.modules.get(module_id) {
-                debug!("Module {i}: {}", module.module_name);
+                debug!(
+                    "Position {}: {} (ModuleId({}))",
+                    i, module.module_name, module_id.0
+                );
+            } else {
+                debug!(
+                    "Position {}: ModuleId({}) - NOT FOUND IN GRAPH",
+                    i, module_id.0
+                );
             }
         }
         debug!("=== END DEBUG ===");
