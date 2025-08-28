@@ -29,34 +29,48 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 my_package = _cribo.types.SimpleNamespace(__name__='my_package')
-@_cribo.functools.cache
-def _cribo_init___cribo_699da1_my_package___version__():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'my_package.__version__'
+my_package___version__ = _cribo.types.SimpleNamespace(__name__='my_package.__version__', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_699da1_my_package___version__(self):
+    if self.__initialized__:
+        return self
+    if self.__initializing__:
+        self.__initializing__ = False
+        return self
     """Version information for my_package"""
     __version__ = "1.2.3"
-    _cribo_module.__version__ = __version__
+    self.__version__ = __version__
     print("Loading version module...")
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_1f0580_my_package_utils():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'my_package.utils'
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+my_package___version__.__init__ = _cribo_init___cribo_699da1_my_package___version__
+my_package.__version__ = my_package___version__
+my_package_utils = _cribo.types.SimpleNamespace(__name__='my_package.utils', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_1f0580_my_package_utils(self):
+    if self.__initialized__:
+        return self
+    if self.__initializing__:
+        self.__initializing__ = False
+        return self
     """Utility module that imports version from another module"""
-    my_package.__version__ = _cribo_init___cribo_699da1_my_package___version__()
+    global my_package___version__
+    my_package_utils.__initializing__ = True
+    my_package___version__ = _cribo_init___cribo_699da1_my_package___version__(my_package___version__)
     __version__ = my_package.__version__.__version__
-    _cribo_module.__version__ = __version__
+    self.__version__ = __version__
     print("Loading utils module...")
 
     def get_version():
         """Return the package version"""
         return __version__
-    _cribo_module.get_version = get_version
-    return _cribo_module
-my_package.__version__ = _cribo_init___cribo_699da1_my_package___version__()
-my_package.utils = _cribo_init___cribo_1f0580_my_package_utils()
+    self.get_version = get_version
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+my_package_utils.__init__ = _cribo_init___cribo_1f0580_my_package_utils
+my_package.utils = my_package_utils
 """Test cross-module attribute imports like requests.__version__"""
-my_package.utils = _cribo_init___cribo_1f0580_my_package_utils()
+my_package.utils = _cribo_init___cribo_1f0580_my_package_utils(my_package_utils)
 utils = my_package.utils
 print(f"Version from utils: {utils.get_version()}")
 print(f"Direct __version__ access: {utils.__version__}")

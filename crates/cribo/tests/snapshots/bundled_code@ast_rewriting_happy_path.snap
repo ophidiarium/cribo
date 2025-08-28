@@ -28,8 +28,55 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-services = _cribo.types.SimpleNamespace(__name__='services')
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
+utils.helpers = utils_helpers
+"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+def format_message(greeting: str, name: str) -> str:
+    """Format a greeting message."""
+    return f"{greeting}, {name}!"
+def calculate_total(values: _cribo.typing.List[int]) -> int:
+    """Calculate the sum of a list of integers."""
+    return sum(values)
+utils_helpers.calculate_total = calculate_total
+utils_helpers.format_message = format_message
+models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models.user = models_user
+"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
+class UserRole(_cribo.enum.Enum):
+    """User role enumeration."""
+    ADMIN = "admin"
+    USER = "user"
+    GUEST = "guest"
+UserRole.__module__ = 'models.user'
+class User:
+    """Simple user model."""
+
+    def __init__(self, name: str, email: str, role: UserRole=UserRole.USER):
+        self.name = name
+        self.email = email
+        self.role = role
+        self.active = True
+
+    def __str__(self) -> str:
+        return f"User(name='{self.name}', email='{self.email}', role={self.role.value})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def activate(self) -> None:
+        """Activate the user."""
+        self.active = True
+
+    def deactivate(self) -> None:
+        """Deactivate the user."""
+        self.active = False
+User.__module__ = 'models.user'
+models_user.User = User
+models_user.UserRole = UserRole
 services_database = _cribo.types.SimpleNamespace(__name__='services.database')
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
 services.database = services_database
 """\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 class DatabaseConnection:
@@ -72,53 +119,6 @@ class DatabaseService:
 DatabaseService.__module__ = 'services.database'
 services_database.DatabaseConnection = DatabaseConnection
 services_database.DatabaseService = DatabaseService
-models = _cribo.types.SimpleNamespace(__name__='models')
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
-models.user = models_user
-"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
-class UserRole(_cribo.enum.Enum):
-    """User role enumeration."""
-    ADMIN = "admin"
-    USER = "user"
-    GUEST = "guest"
-UserRole.__module__ = 'models.user'
-class User:
-    """Simple user model."""
-
-    def __init__(self, name: str, email: str, role: UserRole=UserRole.USER):
-        self.name = name
-        self.email = email
-        self.role = role
-        self.active = True
-
-    def __str__(self) -> str:
-        return f"User(name='{self.name}', email='{self.email}', role={self.role.value})"
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def activate(self) -> None:
-        """Activate the user."""
-        self.active = True
-
-    def deactivate(self) -> None:
-        """Deactivate the user."""
-        self.active = False
-User.__module__ = 'models.user'
-models_user.User = User
-models_user.UserRole = UserRole
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
-def format_message(greeting: str, name: str) -> str:
-    """Format a greeting message."""
-    return f"{greeting}, {name}!"
-def calculate_total(values: _cribo.typing.List[int]) -> int:
-    """Calculate the sum of a list of integers."""
-    return sum(values)
-utils_helpers.calculate_total = calculate_total
-utils_helpers.format_message = format_message
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)

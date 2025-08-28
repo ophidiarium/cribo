@@ -1924,7 +1924,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // First, ensure the wrapper module is initialized
                     // This is crucial for lazy imports inside functions
-                    let init_stmts = Vec::new();
+                    let mut init_stmts = Vec::new();
 
                     // Check if the parent module needs handling
                     if let Some((parent, child)) = resolved.rsplit_once('.') {
@@ -1959,17 +1959,34 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let is_wildcard =
                         import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
 
-                    // DO NOT initialize the wrapper module here!
-                    // When an inlined module imports from a wrapper module, the wrapper will be
-                    // initialized later when it's actually accessed (lazy initialization).
-                    // Initializing it here would cause forward reference errors if the wrapper
-                    // module depends on other modules that haven't been defined yet.
-                    // For wildcard imports, we'll handle this specially to ensure proper ordering
+                    // With correct topological ordering, we can safely initialize wrapper modules
+                    // right where the import statement was. This ensures the wrapper module is
+                    // initialized before its symbols are used (e.g., in class inheritance).
                     if !is_wildcard {
                         log::debug!(
-                            "  Skipping immediate initialization of wrapper module '{resolved}' - will be initialized lazily"
+                            "  Generating initialization call for wrapper module '{resolved}' at import location"
                         );
-                        // Don't create initialization here - wrapper modules are initialized on-demand
+
+                        // Generate the init call: module = module.__init__(module)
+                        // We need to create an assignment statement that calls the wrapper's init
+                        use crate::ast_builder::{expressions, statements};
+                        use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
+                        use ruff_python_ast::ExprContext;
+
+                        let module_var = sanitize_module_name_for_identifier(resolved);
+                        let init_call = statements::assign(
+                            vec![expressions::name(&module_var, ExprContext::Store)],
+                            expressions::call(
+                                expressions::attribute(
+                                    expressions::name(&module_var, ExprContext::Load),
+                                    "__init__",
+                                    ExprContext::Load,
+                                ),
+                                vec![expressions::name(&module_var, ExprContext::Load)],
+                                vec![],
+                            ),
+                        );
+                        init_stmts.push(init_call);
                     }
 
                     // Handle wildcard import export assignments

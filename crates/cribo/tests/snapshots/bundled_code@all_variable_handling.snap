@@ -28,14 +28,21 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-conflict_module = _cribo.types.SimpleNamespace(__name__='conflict_module')
-message_1 = "from conflict_module"
-conflict_module.message = message_1
-nested_package = _cribo.types.SimpleNamespace(__name__='nested_package')
-def exported_from_init():
-    """Function exported from package __init__.py"""
-    return f"From init, using helper: {helper_func()}"
-nested_package.exported_from_init = exported_from_init
+simple_module = _cribo.types.SimpleNamespace(__name__='simple_module')
+def public_func():
+    """A public function that should be exported."""
+    return "Hello from public_func"
+CONSTANT = 42
+simple_module.__all__ = ['public_func', 'CONSTANT']
+simple_module.public_func = public_func
+simple_module.CONSTANT = CONSTANT
+nested_package_utils = _cribo.types.SimpleNamespace(__name__='nested_package.utils')
+nested_package = _cribo.types.SimpleNamespace(__name__='nested_package', __initializing__=False, __initialized__=False)
+nested_package.utils = nested_package_utils
+def helper_func():
+    """Helper function used by other modules"""
+    return "helper result"
+nested_package_utils.helper_func = helper_func
 nested_package_submodule = _cribo.types.SimpleNamespace(__name__='nested_package.submodule')
 nested_package.submodule = nested_package_submodule
 def sub_function():
@@ -45,20 +52,13 @@ SUB_CONSTANT = "submodule_value"
 nested_package_submodule.__all__ = ['sub_function', 'SUB_CONSTANT']
 nested_package_submodule.sub_function = sub_function
 nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
-nested_package_utils = _cribo.types.SimpleNamespace(__name__='nested_package.utils')
-nested_package.utils = nested_package_utils
-def helper_func():
-    """Helper function used by other modules"""
-    return "helper result"
-nested_package_utils.helper_func = helper_func
-simple_module = _cribo.types.SimpleNamespace(__name__='simple_module')
-def public_func():
-    """A public function that should be exported."""
-    return "Hello from public_func"
-CONSTANT = 42
-simple_module.__all__ = ['public_func', 'CONSTANT']
-simple_module.public_func = public_func
-simple_module.CONSTANT = CONSTANT
+def exported_from_init():
+    """Function exported from package __init__.py"""
+    return f"From init, using helper: {helper_func()}"
+nested_package.exported_from_init = exported_from_init
+conflict_module = _cribo.types.SimpleNamespace(__name__='conflict_module')
+message_1 = "from conflict_module"
+conflict_module.message = message_1
 message = message_1
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")

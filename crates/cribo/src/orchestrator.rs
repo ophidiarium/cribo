@@ -622,7 +622,7 @@ impl BundleOrchestrator {
             circular_dep_analysis.is_some()
         );
 
-        let mut module_ids = if let Some(analysis) = circular_dep_analysis {
+        let module_ids = if let Some(analysis) = circular_dep_analysis {
             // We have circular dependencies but they're potentially resolvable
             // Use a custom ordering that attempts to break cycles
             debug!(
@@ -635,14 +635,11 @@ impl BundleOrchestrator {
             graph.topological_sort()?
         };
 
-        // IMPORTANT: For bundling, we need to reverse the topological sort!
-        // The topological sort gives us an order where dependents come before dependencies
-        // (i.e., modules that import come before modules that are imported from).
-        // But for bundling, we need to define modules before they're used,
-        // so we need dependencies to come before dependents.
-        module_ids.reverse();
+        // The topological sort already gives us the correct order for bundling:
+        // dependencies come before dependents (modules are defined before they're used).
+        // We do NOT need to reverse the order.
 
-        debug!("Final module order after reversal:");
+        debug!("Final module order (topologically sorted):");
         for &module_id in &module_ids {
             if let Some(module) = graph.modules.get(&module_id) {
                 debug!("  - {}", module.module_name);

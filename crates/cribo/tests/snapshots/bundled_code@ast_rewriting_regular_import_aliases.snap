@@ -28,17 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-utils_config = _cribo.types.SimpleNamespace(__name__='utils.config')
-utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
-utils.config = utils_config
-"""Configuration module for testing regular import aliases."""
-DEFAULT_CONFIG = {"debug": True, "timeout": 30}
-def get_config():
-    """Get the default configuration."""
-    return DEFAULT_CONFIG.copy()
-utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
-utils_config.get_config = get_config
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
 utils.helpers = utils_helpers
 """Utility module for testing regular import aliases."""
 def helper_function():
@@ -55,6 +46,15 @@ class UtilityClass:
 UtilityClass.__module__ = 'utils.helpers'
 utils_helpers.UtilityClass = UtilityClass
 utils_helpers.helper_function = helper_function
+utils_config = _cribo.types.SimpleNamespace(__name__='utils.config')
+utils.config = utils_config
+"""Configuration module for testing regular import aliases."""
+DEFAULT_CONFIG = {"debug": True, "timeout": 30}
+def get_config():
+    """Get the default configuration."""
+    return DEFAULT_CONFIG.copy()
+utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
+utils_config.get_config = get_config
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
 operating_system = _cribo.os
 j = _cribo.json

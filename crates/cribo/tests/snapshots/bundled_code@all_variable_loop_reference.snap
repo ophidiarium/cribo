@@ -28,7 +28,18 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False, __path__=[])
+mypkg__internal = _cribo.types.SimpleNamespace(__name__='mypkg._internal')
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg._internal = mypkg__internal
+class MyClass:
+
+    def __init__(self):
+        self.value = "Hello from MyClass"
+MyClass.__module__ = 'mypkg._internal'
+def my_func():
+    return "Hello from my_func"
+mypkg__internal.MyClass = MyClass
+mypkg__internal.my_func = my_func
 def _cribo_init___cribo_4c9561_mypkg(self):
     if self.__initialized__:
         return self
@@ -49,17 +60,6 @@ def _cribo_init___cribo_4c9561_mypkg(self):
     self.__initializing__ = False
     return self
 mypkg.__init__ = _cribo_init___cribo_4c9561_mypkg
-mypkg__internal = _cribo.types.SimpleNamespace(__name__='mypkg._internal')
-mypkg._internal = mypkg__internal
-class MyClass:
-
-    def __init__(self):
-        self.value = "Hello from MyClass"
-MyClass.__module__ = 'mypkg._internal'
-def my_func():
-    return "Hello from my_func"
-mypkg__internal.MyClass = MyClass
-mypkg__internal.my_func = my_func
 __cribo_init_result = _cribo_init___cribo_4c9561_mypkg(mypkg)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

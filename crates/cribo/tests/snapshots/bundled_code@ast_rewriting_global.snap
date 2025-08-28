@@ -28,6 +28,62 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+module_global_keyword = _cribo.types.SimpleNamespace(__name__='module_global_keyword')
+"""Module demonstrating global keyword usage."""
+foo_3 = "module1_foo"
+def get_foo():
+    """Get the module's global foo value."""
+    return foo_3
+def modify_foo():
+    """Modify the module's global foo using global keyword."""
+    global foo_3
+    foo_3 = "module1_foo_modified"
+module_global_keyword.foo = foo_3
+module_global_keyword.get_foo = get_foo
+module_global_keyword.modify_foo = modify_foo
+module_globals_dict = _cribo.types.SimpleNamespace(__name__='module_globals_dict', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_5101f4_module_globals_dict(self):
+    if self.__initialized__:
+        return self
+    if self.__initializing__:
+        self.__initializing__ = False
+        return self
+    """Module demonstrating globals() dictionary access."""
+    bar = "module2_bar"
+    self.bar = bar
+    baz = 42
+    self.baz = baz
+
+    def get_bar():
+        """Get bar using globals() dict."""
+        return module_globals_dict.__dict__["bar"]
+    self.get_bar = get_bar
+
+    def modify_bar():
+        """Modify bar using globals() dict."""
+        module_globals_dict.__dict__["bar"] = "module2_bar_modified"
+    self.modify_bar = modify_bar
+
+    def set_dynamic_global(name, value):
+        """Set a global variable dynamically using globals()."""
+        module_globals_dict.__dict__[name] = value
+    self.set_dynamic_global = set_dynamic_global
+
+    def get_dynamic_global(name, default=None):
+        """Get a global variable dynamically."""
+        return module_globals_dict.__dict__.get(name, default)
+    self.get_dynamic_global = get_dynamic_global
+
+    def list_module_globals():
+        """List all non-built-in globals in this module."""
+        return {k: v for k, v in module_globals_dict.__dict__.items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
+    self.list_module_globals = list_module_globals
+    set_dynamic_global("dynamic1", "created_via_globals")
+    set_dynamic_global("dynamic2", [1, 2, 3])
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+module_globals_dict.__init__ = _cribo_init___cribo_5101f4_module_globals_dict
 module_mixed_patterns = _cribo.types.SimpleNamespace(__name__='module_mixed_patterns', __initializing__=False, __initialized__=False)
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
@@ -88,62 +144,6 @@ def _cribo_init___cribo_c75306_module_mixed_patterns(self):
     self.__initializing__ = False
     return self
 module_mixed_patterns.__init__ = _cribo_init___cribo_c75306_module_mixed_patterns
-module_globals_dict = _cribo.types.SimpleNamespace(__name__='module_globals_dict', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_5101f4_module_globals_dict(self):
-    if self.__initialized__:
-        return self
-    if self.__initializing__:
-        self.__initializing__ = False
-        return self
-    """Module demonstrating globals() dictionary access."""
-    bar = "module2_bar"
-    self.bar = bar
-    baz = 42
-    self.baz = baz
-
-    def get_bar():
-        """Get bar using globals() dict."""
-        return module_globals_dict.__dict__["bar"]
-    self.get_bar = get_bar
-
-    def modify_bar():
-        """Modify bar using globals() dict."""
-        module_globals_dict.__dict__["bar"] = "module2_bar_modified"
-    self.modify_bar = modify_bar
-
-    def set_dynamic_global(name, value):
-        """Set a global variable dynamically using globals()."""
-        module_globals_dict.__dict__[name] = value
-    self.set_dynamic_global = set_dynamic_global
-
-    def get_dynamic_global(name, default=None):
-        """Get a global variable dynamically."""
-        return module_globals_dict.__dict__.get(name, default)
-    self.get_dynamic_global = get_dynamic_global
-
-    def list_module_globals():
-        """List all non-built-in globals in this module."""
-        return {k: v for k, v in module_globals_dict.__dict__.items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
-    self.list_module_globals = list_module_globals
-    set_dynamic_global("dynamic1", "created_via_globals")
-    set_dynamic_global("dynamic2", [1, 2, 3])
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-module_globals_dict.__init__ = _cribo_init___cribo_5101f4_module_globals_dict
-module_global_keyword = _cribo.types.SimpleNamespace(__name__='module_global_keyword')
-"""Module demonstrating global keyword usage."""
-foo_3 = "module1_foo"
-def get_foo():
-    """Get the module's global foo value."""
-    return foo_3
-def modify_foo():
-    """Modify the module's global foo using global keyword."""
-    global foo_3
-    foo_3 = "module1_foo_modified"
-module_global_keyword.foo = foo_3
-module_global_keyword.get_foo = get_foo
-module_global_keyword.modify_foo = modify_foo
 """Test global namespace isolation between modules."""
 foo_1 = "main_foo"
 foo = foo_1
