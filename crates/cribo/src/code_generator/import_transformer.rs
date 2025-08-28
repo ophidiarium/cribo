@@ -2985,10 +2985,10 @@ fn rewrite_import_with_renames(
             // Check if the full module is bundled
             if let Some(module_id) = bundler.get_module_id(module_name) {
                 if bundler.bundled_modules.contains(&module_id) {
-                    if bundler
-                        .module_info_registry
-                        .is_some_and(|reg| reg.contains_module(&module_id))
-                    {
+                    // Check if this is a wrapper module (has a synthetic name)
+                    // Note: ALL modules are in the registry, but only wrapper modules have synthetic names
+                    if bundler.has_synthetic_name(module_name) {
+                        log::debug!("Module '{module_name}' has synthetic name (wrapper module)");
                         // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b,
                         // a.b.c)
                         bundler.create_parent_namespaces(&parts, &mut result_stmts);
@@ -3054,6 +3054,7 @@ fn rewrite_import_with_renames(
                         }
                     } else {
                         // Module was inlined - create a namespace object
+                        log::debug!("Module '{module_name}' was inlined (not in registry)");
                         let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                         // For dotted imports, we need to create the parent namespaces

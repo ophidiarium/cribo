@@ -94,6 +94,9 @@ pub struct Bundler<'a> {
     pub(crate) path_to_sanitized_name: FxIndexMap<String, String>,
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
+    /// Track parent-child assignments that have been made to prevent duplicates
+    /// Format: (parent, child) where both are module names
+    pub(crate) parent_child_assignments_made: FxIndexSet<(String, String)>,
     /// Reference to the dependency graph for module relationship queries
     pub(crate) graph: Option<&'a CriboGraph>,
     /// Modules that have explicit __all__ defined
@@ -137,7 +140,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if a module has a synthetic name (i.e., is a wrapper module)
-    fn has_synthetic_name(&self, module_name: &str) -> bool {
+    pub(crate) fn has_synthetic_name(&self, module_name: &str) -> bool {
         self.get_module_id(module_name)
             .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
     }
@@ -204,6 +207,7 @@ impl<'a> Bundler<'a> {
             namespace_registry: FxIndexMap::default(),
             path_to_sanitized_name: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
+            parent_child_assignments_made: FxIndexSet::default(),
             graph: None,
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
@@ -1816,6 +1820,9 @@ impl<'a> Bundler<'a> {
                             }
 
                             // Add parent.child = child assignment
+                            log::debug!(
+                                "Creating parent.child assignment during inlining: {parent_var}.{child} = {namespace_var}"
+                            );
                             let parent_child_assign = statements::assign(
                                 vec![expressions::attribute(
                                     expressions::name(&parent_var, ExprContext::Load),
@@ -4578,8 +4585,13 @@ impl Bundler<'_> {
             self.generate_merge_module_attributes(&mut stmts, module_name, INIT_RESULT_VAR);
         } else {
             // Direct assignment for simple and dotted modules
-            let target_expr = if module_name.contains('.') {
-                // Create attribute expression for dotted modules
+            // For wrapper modules with dots, use the sanitized name
+            let target_expr = if module_name.contains('.') && self.has_synthetic_name(module_name) {
+                // Use sanitized name for wrapper modules
+                let sanitized = sanitize_module_name_for_identifier(module_name);
+                expressions::name(&sanitized, ExprContext::Store)
+            } else if module_name.contains('.') {
+                // Create attribute expression for dotted modules (inlined)
                 let parts: Vec<&str> = module_name.split('.').collect();
                 expressions::dotted_name(&parts, ExprContext::Store)
             } else {
@@ -4692,6 +4704,22 @@ impl Bundler<'_> {
                 .get_module_id(&partial_module)
                 .is_some_and(|id| self.inlined_modules.contains(&id));
 
+            // If this namespace already exists as a flattened variable, it was already processed
+            // during module inlining, including any parent.child assignments
+            if should_use_flattened {
+                log::debug!(
+                    "Module '{partial_module}' should use flattened namespace '{flattened_name}'. \
+                     Already created: {}",
+                    self.created_namespaces.contains(&flattened_name)
+                );
+                if self.created_namespaces.contains(&flattened_name) {
+                    log::debug!(
+                        "Skipping assignment for '{partial_module}' - already exists as flattened namespace '{flattened_name}'"
+                    );
+                    continue;
+                }
+            }
+
             let namespace_expr = if should_use_flattened {
                 // Use the flattened namespace variable
                 expressions::name(&flattened_name, ExprContext::Load)
@@ -4719,7 +4747,42 @@ impl Bundler<'_> {
         target_name: &str,
         module_name: &str,
     ) -> Stmt {
-        // Check if we should use a flattened namespace instead of creating an empty one
+        // Check if this is an aliased import (target_name != module_name)
+        if target_name != module_name {
+            // This is an aliased import like `import nested_package.submodule as sub`
+            // We should reference the actual module namespace, not create a new one
+
+            if module_name.contains('.') {
+                // For dotted module names, reference the namespace hierarchy
+                // e.g., for `import a.b.c as alias`, create `alias = a.b.c`
+                let parts: Vec<&str> = module_name.split('.').collect();
+                return statements::simple_assign(
+                    target_name,
+                    expressions::dotted_name(&parts, ExprContext::Load),
+                );
+            } else {
+                // Simple module name, check if it has a flattened variable
+                let flattened_name = sanitize_module_name_for_identifier(module_name);
+                let should_use_flattened = self
+                    .get_module_id(module_name)
+                    .is_some_and(|id| self.inlined_modules.contains(&id));
+
+                if should_use_flattened {
+                    // Reference the flattened namespace
+                    return statements::simple_assign(
+                        target_name,
+                        expressions::name(&flattened_name, ExprContext::Load),
+                    );
+                }
+                // Reference the module directly
+                return statements::simple_assign(
+                    target_name,
+                    expressions::name(module_name, ExprContext::Load),
+                );
+            }
+        }
+
+        // For non-aliased imports, check if we should use a flattened namespace
         let flattened_name = sanitize_module_name_for_identifier(module_name);
         let should_use_flattened = self
             .get_module_id(module_name)

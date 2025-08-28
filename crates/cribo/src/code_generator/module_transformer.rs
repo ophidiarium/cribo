@@ -618,36 +618,84 @@ pub fn transform_module_to_init_function<'a>(
     // We need to set __initializing__ = True before any statement that calls another module's init
     for (idx, stmt) in processed_body.into_iter().enumerate() {
         // Check if this statement contains a call to another module's init function
-        let contains_init_call = match &stmt {
+        // and needs a global declaration
+        let (contains_init_call, needs_global_declaration) = match &stmt {
             Stmt::Assign(assign) => {
                 // Check if the value is a call to an init function
                 if let Expr::Call(call) = assign.value.as_ref() {
                     if let Expr::Name(name) = call.func.as_ref() {
-                        name.id.starts_with("_cribo_init_")
+                        if name.id.starts_with("_cribo_init_") {
+                            // Check if the assignment target is also used as an argument
+                            // This indicates we're initializing a wrapper module namespace variable
+                            // Example: core_database_connection = _cribo_init_...(core_database_connection)
+                            let target_name = if assign.targets.len() == 1 {
+                                if let Expr::Name(target) = &assign.targets[0] {
+                                    Some(target.id.as_str())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
+                            let needs_global = if let Some(target) = target_name {
+                                // Check if the target is also passed as an argument to the init function
+                                call.arguments.args.iter().any(|arg| {
+                                    if let Expr::Name(arg_name) = arg {
+                                        arg_name.id.as_str() == target
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                false
+                            };
+
+                            (true, needs_global)
+                        } else {
+                            (false, false)
+                        }
                     } else {
-                        false
+                        (false, false)
                     }
                 } else {
-                    false
+                    (false, false)
                 }
             }
             Stmt::Expr(expr_stmt) => {
                 // Check if it's a direct init call
                 if let Expr::Call(call) = expr_stmt.value.as_ref() {
                     if let Expr::Name(name) = call.func.as_ref() {
-                        name.id.starts_with("_cribo_init_")
+                        (name.id.starts_with("_cribo_init_"), false)
                     } else if let Expr::Attribute(attr) = call.func.as_ref() {
                         // Check for module.__init__() calls
-                        attr.attr.as_str() == "__init__"
+                        (attr.attr.as_str() == "__init__", false)
                     } else {
-                        false
+                        (false, false)
                     }
                 } else {
-                    false
+                    (false, false)
                 }
             }
-            _ => false,
+            _ => (false, false),
         };
+
+        // If we need a global declaration for the wrapper module namespace variable
+        if needs_global_declaration
+            && let Stmt::Assign(assign) = &stmt
+            && assign.targets.len() == 1
+            && let Expr::Name(target) = &assign.targets[0]
+        {
+            debug!(
+                "Adding global declaration for wrapper module namespace variable: {}",
+                target.id
+            );
+            body.push(Stmt::Global(StmtGlobal {
+                node_index: AtomicNodeIndex::dummy(),
+                names: vec![Identifier::new(target.id.as_str(), TextRange::default())],
+                range: TextRange::default(),
+            }));
+        }
 
         // If this statement contains an init call, set __initializing__ = True first
         if contains_init_call {

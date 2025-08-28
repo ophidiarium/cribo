@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False, __path__=[])
 utils.helpers = utils_helpers
 """\nHelper utilities module.\nUsed to test mixed from-import scenarios (some aliased, some not).\n"""
 def helper_func(input_str):
