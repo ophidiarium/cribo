@@ -62,9 +62,6 @@ def calculate(a: _cribo.typing.Union[int, float], b: _cribo.typing.Union[int, fl
     """Calculate the sum of two numbers."""
     return a + b
 """Simple test project entry point."""
-greet = utils.helpers.greet
-calculate = utils.helpers.calculate
-User = models.user.User
 def main():
     """Main function."""
     user = User("Alice", 30)

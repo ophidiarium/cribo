@@ -692,7 +692,7 @@ pub fn populate_namespace_with_module_symbols(
         } else if ctx
             .modules_with_accessed_all
             .iter()
-            .any(|(_, alias)| alias == target_name)
+            .any(|(_, accessed_module)| accessed_module == module_name)
         {
             // Only create __all__ assignment if the code actually accesses it
             let all_list = expressions::list(

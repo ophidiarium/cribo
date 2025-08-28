@@ -35,23 +35,27 @@ def exported_from_init():
     """Function exported from package __init__.py"""
     return f"From init, using helper: {helper_func()}"
 nested_package_submodule = _cribo.types.SimpleNamespace(__name__='nested_package.submodule')
-nested_package_submodule.__all__ = ['sub_function', 'SUB_CONSTANT']
 nested_package.submodule = nested_package_submodule
 def sub_function():
     """Function from submodule"""
     return "Hello from submodule"
 SUB_CONSTANT = "submodule_value"
+nested_package_submodule.__all__ = ['sub_function', 'SUB_CONSTANT']
+nested_package_submodule.sub_function = sub_function
+nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
 nested_package_utils = _cribo.types.SimpleNamespace(__name__='nested_package.utils')
 nested_package.utils = nested_package_utils
 def helper_func():
     """Helper function used by other modules"""
     return "helper result"
 simple_module = _cribo.types.SimpleNamespace(__name__='simple_module')
-simple_module.__all__ = ['public_func', 'CONSTANT']
 def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
 CONSTANT = 42
+simple_module.__all__ = ['public_func', 'CONSTANT']
+simple_module.public_func = public_func
+simple_module.CONSTANT = CONSTANT
 message = message_1
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")

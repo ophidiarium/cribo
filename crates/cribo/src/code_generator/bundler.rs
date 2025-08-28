@@ -1723,16 +1723,52 @@ impl<'a> Bundler<'a> {
                         self.created_namespaces.insert(namespace_var.clone());
 
                         // Check if __all__ is accessed on this module and add it if needed
+                        // Only add it here if the module will NOT get namespace population later
+                        // (namespace population handles __all__ for directly imported modules)
                         if let Some(module_id) = self.get_module_id(&module_name) {
-                            // Check if any module accesses this module's __all__
-                            let all_accessed = self
-                                .modules_with_accessed_all
-                                .iter()
-                                .any(|(_, accessed_module)| accessed_module == &module_name);
+                            // Check if this module is directly imported (will get namespace population)
+                            let is_directly_imported = modules.iter().any(|(mod_id, ast, _, _)| {
+                                if *mod_id == crate::resolver::ModuleId::ENTRY {
+                                    ast.body.iter().any(|stmt| {
+                                        if let Stmt::Import(import_stmt) = stmt {
+                                            import_stmt.names.iter().any(|alias| {
+                                                let matches = alias.name.as_str() == module_name;
+                                                if matches {
+                                                    log::debug!(
+                                                        "Module '{module_name}' is directly imported"
+                                                    );
+                                                }
+                                                matches
+                                            })
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                } else {
+                                    false
+                                }
+                            });
 
-                            // If __all__ is accessed and the module has it, add it to the namespace
-                            if all_accessed
-                                && let Some(Some(export_list)) = self.module_exports.get(&module_id)
+                            // Only add __all__ here if NOT directly imported
+                            // (directly imported modules get __all__ via populate_namespace_with_module_symbols)
+                            if !is_directly_imported {
+                                // Check if any module accesses this module's __all__
+                                let all_accessed = self
+                                    .modules_with_accessed_all
+                                    .iter()
+                                    .any(|(_, accessed_module)| accessed_module == &module_name);
+
+                                log::debug!(
+                                    "Checking __all__ for module '{}': all_accessed={}, has_exports={}",
+                                    module_name,
+                                    all_accessed,
+                                    self.module_exports.get(&module_id).is_some()
+                                );
+
+                                // If __all__ is accessed and the module has it, add it to the namespace
+                                if all_accessed
+                                    && let Some(Some(export_list)) =
+                                        self.module_exports.get(&module_id)
                                 {
                                     // Create __all__ assignment: module.__all__ = [...]
                                     let all_list = expressions::list(
@@ -1752,9 +1788,10 @@ impl<'a> Bundler<'a> {
                                     );
                                     all_inlined_stmts.push(all_assign);
                                     log::debug!(
-                                        "Added __all__ attribute to namespace '{module_name}'"
+                                        "Added __all__ attribute to namespace '{module_name}' (not directly imported)"
                                     );
                                 }
+                            }
                         }
 
                         // Also handle parent namespaces if this is a submodule
@@ -1858,6 +1895,69 @@ impl<'a> Bundler<'a> {
 
                 // Mark this module as processed
                 processed_modules.insert(module_name.to_string());
+
+                // For inlined modules, we need to populate the namespace with the module's symbols
+                // This assigns the inlined functions/variables to the namespace object
+                // (e.g., module_global_keyword.get_foo = get_foo)
+                let current_module_id = self
+                    .get_module_id(&module_name)
+                    .expect("Inlined module should have a module ID");
+
+                if current_module_id != crate::resolver::ModuleId::ENTRY {
+                    // Check if this module was imported directly (not via from X import Y)
+                    // We only need namespace population for direct imports
+                    let is_directly_imported = modules.iter().any(|(mod_id, ast, _, _)| {
+                        if *mod_id == crate::resolver::ModuleId::ENTRY {
+                            // Check if the entry module imports this module directly
+                            ast.body.iter().any(|stmt| {
+                                if let Stmt::Import(import_stmt) = stmt {
+                                    import_stmt
+                                        .names
+                                        .iter()
+                                        .any(|alias| alias.name.as_str() == module_name)
+                                } else {
+                                    false
+                                }
+                            })
+                        } else {
+                            false
+                        }
+                    });
+
+                    if is_directly_imported {
+                        log::debug!(
+                            "Populating namespace for directly imported inlined module: {module_name}"
+                        );
+                        let namespace_var = sanitize_module_name_for_identifier(&module_name);
+
+                        // Create a context for namespace population
+                        let mut population_ctx =
+                            crate::code_generator::namespace_manager::NamespacePopulationContext {
+                                bundled_modules: &self.bundled_modules,
+                                inlined_modules: &self.inlined_modules,
+                                module_exports: &self.module_exports,
+                                tree_shaking_keep_symbols: &self.tree_shaking_keep_symbols,
+                                modules_with_accessed_all: &self.modules_with_accessed_all,
+                                wrapper_modules: &self.wrapper_modules,
+                                module_asts: &None, // Not needed for this context
+                                symbols_populated_after_deferred: &self
+                                    .symbols_populated_after_deferred,
+                                global_deferred_imports: &FxIndexMap::default(), // Not needed here
+                                module_init_functions: &self.module_init_functions,
+                                resolver: self.resolver,
+                            };
+
+                        // Populate the namespace with the module's symbols
+                        let population_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                            &mut population_ctx,
+                            &namespace_var,
+                            current_module_id,
+                            &symbol_renames,
+                        );
+
+                        all_inlined_stmts.extend(population_stmts);
+                    }
+                }
 
                 // Check if any pending assignments can now be resolved
                 let mut still_pending = Vec::new();

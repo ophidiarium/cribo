@@ -44,6 +44,7 @@ def _cribo_init___cribo_4c9561_mypkg(self):
         if not __name.startswith("__"):
             setattr(__locals[__name], "__module__", "mypkg")
     self._internal = mypkg__internal
+    self._internal = mypkg__internal
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -57,7 +58,10 @@ class MyClass:
 MyClass.__module__ = 'mypkg._internal'
 def my_func():
     return "Hello from my_func"
-mypkg = _cribo_init___cribo_4c9561_mypkg(mypkg)
+__cribo_init_result = _cribo_init___cribo_4c9561_mypkg(mypkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypkg, attr, getattr(__cribo_init_result, attr))
 obj = MyClass()
 print(obj.value)
 print(my_func())
