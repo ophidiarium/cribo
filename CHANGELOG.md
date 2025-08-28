@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.19](https://github.com/ophidiarium/cribo/compare/v0.5.18...v0.5.19) (2025-08-28)
+
+
+### Features
+
+* add Claude Code hook to prevent direct commits to main branch ([bfdcd15](https://github.com/ophidiarium/cribo/commit/bfdcd150483ab6eefc41d31671cf34c52739497b))
+
+
+### Bug Fixes
+
+* ensure private symbols imported by other modules are exported ([#328](https://github.com/ophidiarium/cribo/issues/328)) ([39c6b1b](https://github.com/ophidiarium/cribo/commit/39c6b1b4887e3e0cc279d3a11bffb29bbc2af2fc))
+* ensure tree-shaking preserves imports within used functions and classes ([#330](https://github.com/ophidiarium/cribo/issues/330)) ([30e0229](https://github.com/ophidiarium/cribo/commit/30e0229f919fc2fcef4e26961e2e2d3141d43e59))
+* handle lifted globals correctly in module transformation ([#325](https://github.com/ophidiarium/cribo/issues/325)) ([9144c22](https://github.com/ophidiarium/cribo/commit/9144c22bc0e1ee481350fbfc49b01a9cf54d434b))
+* handle metaclass dependencies in class ordering ([56a11d3](https://github.com/ophidiarium/cribo/commit/56a11d3994b5dbf461b7049d974e7564a08c648d))
+* handle wrapper module imports in function default parameters ([#329](https://github.com/ophidiarium/cribo/issues/329)) ([08d390a](https://github.com/ophidiarium/cribo/commit/08d390a409137e5306fdd002d9e7df13bade86a3))
+* improve class dependency ordering for metaclass and class body references ([#327](https://github.com/ophidiarium/cribo/issues/327)) ([bde402e](https://github.com/ophidiarium/cribo/commit/bde402e3fc4234cfa5596d4cc83c8f9eb75af810))
+* remove hardcoded http.cookiejar handling with generic submodule import solution ([#331](https://github.com/ophidiarium/cribo/issues/331)) ([cae8ce8](https://github.com/ophidiarium/cribo/commit/cae8ce808e690485232229299b42406ede84d278))
+* remove unnecessary statement reordering and self-referential wildcard imports ([c4b8e5f](https://github.com/ophidiarium/cribo/commit/c4b8e5f921b5d6b740c65037e065885253880953))
+* remove unused code to resolve clippy warnings ([e6c759b](https://github.com/ophidiarium/cribo/commit/e6c759b5fb3f2efb2c9bea14c8ab536c92b18298))
+* skip self-referential re-export assignments in bundler ([b1e1903](https://github.com/ophidiarium/cribo/commit/b1e19038ac1cd8e8365d7fcaff7c4304ca7336dd))
+* update namespace creation detection for stdlib proxy ([#336](https://github.com/ophidiarium/cribo/issues/336)) ([a921544](https://github.com/ophidiarium/cribo/commit/a9215449ef5cf38e326897b911406aa5482fafa7))
+
 ## [0.5.18](https://github.com/ophidiarium/cribo/compare/v0.5.17...v0.5.18) (2025-08-21)
 
 
