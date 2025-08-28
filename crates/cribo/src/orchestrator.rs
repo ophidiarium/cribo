@@ -158,8 +158,6 @@ struct DependencyContext<'a> {
 
 /// Parameters for graph building operations
 struct GraphBuildParams<'a> {
-    entry_path: &'a Path,
-    entry_module_name: &'a str,
     resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
 }
@@ -474,8 +472,6 @@ impl BundleOrchestrator {
 
         // Build dependency graph
         let mut build_params = GraphBuildParams {
-            entry_path,
-            entry_module_name: &entry_module_name,
             resolver: &resolver,
             graph,
         };
@@ -972,13 +968,20 @@ impl BundleOrchestrator {
         params: &mut GraphBuildParams<'_>,
     ) -> Result<Vec<ParsedModuleData>> {
         let mut processed_modules = ProcessedModules::new();
+        // Get entry module information from resolver
+        let entry_module_name = params
+            .resolver
+            .get_module_name(ModuleId::ENTRY)
+            .expect("Entry module must be registered");
+        let entry_path = params
+            .resolver
+            .get_module_path(ModuleId::ENTRY)
+            .expect("Entry module must have a path");
+
         let mut queued_modules = IndexSet::new();
         let mut modules_to_process = ModuleQueue::new();
-        modules_to_process.push((
-            params.entry_module_name.to_owned(),
-            params.entry_path.to_path_buf(),
-        ));
-        queued_modules.insert(params.entry_module_name.to_owned());
+        modules_to_process.push((entry_module_name.clone(), entry_path));
+        queued_modules.insert(entry_module_name);
 
         // Store module data for phase 2 including parsed AST
         type DiscoveryData = (String, PathBuf, Vec<String>, ModModule, String); // (name, path, imports, ast, source) for discovery phase
