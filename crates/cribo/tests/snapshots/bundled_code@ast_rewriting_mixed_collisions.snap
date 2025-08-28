@@ -377,8 +377,9 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(models, attr, getattr(__cribo_init_result, attr))
+    global models_base
     services_auth_manager.__initializing__ = True
-    models.base = _cribo_init___cribo_bca2f6_models_base(models_base)
+    models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
     base = models.base
     self.base = base
     result = "auth_result"
@@ -654,7 +655,7 @@ __cribo_init_result = _cribo_init___cribo_b16105_services_auth(services_auth)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(services.auth, attr, getattr(__cribo_init_result, attr))
-services.auth.manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
+services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
 UserModel = User_2

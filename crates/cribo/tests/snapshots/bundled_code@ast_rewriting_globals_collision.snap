@@ -91,8 +91,9 @@ def _cribo_init___cribo_1f9e6c_models_user(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(models, attr, getattr(__cribo_init_result, attr))
+    global models_base
     models_user.__initializing__ = True
-    models.base = _cribo_init___cribo_0a162a_models_base(models_base)
+    models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     BaseLogger = models.base.Logger
     self.BaseLogger = BaseLogger
     process = "process_string"
@@ -347,8 +348,9 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core.database, attr, getattr(__cribo_init_result, attr))
+    global core_database_connection
     services_auth_manager.__initializing__ = True
-    core.database.connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
+    core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
     DBConnection = core.database.connection.Connection
     self.DBConnection = DBConnection
     services_auth_manager.sanitize = sanitize
@@ -357,8 +359,9 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(models, attr, getattr(__cribo_init_result, attr))
+    global models_base
     services_auth_manager.__initializing__ = True
-    models.base = _cribo_init___cribo_0a162a_models_base(models_base)
+    models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     base_init = models.base.initialize
     self.base_init = base_init
     process = [1, 2, 3]
@@ -495,7 +498,7 @@ __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(core.database, attr, getattr(__cribo_init_result, attr))
-core.database.connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
+core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
 db_process = core.database.connection.process
 UtilLogger = Logger_6
 __cribo_init_result = _cribo_init___cribo_b2dda7_services(services)
@@ -506,14 +509,14 @@ __cribo_init_result = _cribo_init___cribo_84bf42_services_auth(services_auth)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(services.auth, attr, getattr(__cribo_init_result, attr))
-services.auth.manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
+services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
 __cribo_init_result = _cribo_init___cribo_293a98_models(models)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(models, attr, getattr(__cribo_init_result, attr))
-models.user = _cribo_init___cribo_1f9e6c_models_user(models_user)
+models_user = _cribo_init___cribo_1f9e6c_models_user(models_user)
 UserModel = models.user.User
 process_user = models.user.process_user
 Logger = models.user.Logger
