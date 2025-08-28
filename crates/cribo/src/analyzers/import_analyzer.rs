@@ -680,20 +680,6 @@ impl ImportAnalyzer {
         false
     }
 
-    /// Check if a module imports a specific symbol from another module
-    fn module_imports_symbol(
-        ast: &ModModule,
-        importing_module: &str,
-        target_module: &str,
-        symbol_name: &str,
-        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
-    ) -> bool {
-        let mut visitor =
-            SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
-        ruff_python_ast::visitor::walk_body(&mut visitor, &ast.body);
-        visitor.found
-    }
-
     /// Check if a module imports a specific symbol from another module (using `ModuleIds`)
     fn module_imports_symbol_with_ids(
         ast: &ModModule,

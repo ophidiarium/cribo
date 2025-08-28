@@ -31,7 +31,6 @@ pub struct HardDependency {
 #[derive(Debug)]
 pub struct ModuleTransformContext<'a> {
     pub module_name: &'a str,
-    pub synthetic_name: &'a str,
     pub module_path: &'a Path,
     pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
     pub semantic_bundler: Option<&'a SemanticBundler>,

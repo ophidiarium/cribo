@@ -1682,16 +1682,6 @@ impl BundleOrchestrator {
         if let Some(parsed_modules) = params.parsed_modules {
             // Use pre-parsed modules to avoid double parsing
             for (module_id, _imports, ast, source) in parsed_modules {
-                // Get module name and path from resolver
-                let module_name = params
-                    .resolver
-                    .get_module_name(*module_id)
-                    .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
-                let module_path = params
-                    .resolver
-                    .get_module_path(*module_id)
-                    .unwrap_or_else(|| PathBuf::from(&module_name));
-
                 // Calculate content hash for deterministic module naming
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();

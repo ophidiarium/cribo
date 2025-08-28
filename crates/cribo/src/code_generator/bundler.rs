@@ -90,8 +90,6 @@ pub struct Bundler<'a> {
     /// Central registry of all namespaces that need to be created
     /// Maps sanitized name to `NamespaceInfo`
     pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
-    /// Reverse lookup: Maps ORIGINAL path to SANITIZED name
-    pub(crate) path_to_sanitized_name: FxIndexMap<String, String>,
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
     /// Track parent-child assignments that have been made to prevent duplicates
@@ -205,7 +203,6 @@ impl<'a> Bundler<'a> {
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
             namespace_registry: FxIndexMap::default(),
-            path_to_sanitized_name: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
             parent_child_assignments_made: FxIndexSet::default(),
             graph: None,
@@ -1091,13 +1088,6 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Check if a file is __init__.py or __main__.py
-    fn is_package_init_or_main(path: &std::path::Path) -> bool {
-        path.file_name()
-            .and_then(|f| f.to_str())
-            .is_some_and(|name| name == "__init__.py" || name == "__main__.py")
-    }
-
     /// Initialize the bundler with parameters and basic settings
     fn initialize_bundler(&mut self, params: &BundleParams<'a>) {
         // Store tree shaking decisions if provided
@@ -1964,7 +1954,6 @@ impl<'a> Bundler<'a> {
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
                     module_name: &module_name,
-                    synthetic_name: &synthetic_name,
                     module_path: &path,
                     global_info: global_info.clone(),
                     semantic_bundler: self.semantic_bundler,
@@ -4428,7 +4417,7 @@ impl Bundler<'_> {
             && let Some((parent_name, _)) = module_name.rsplit_once('.')
         {
             // Check if parent is also a wrapper module
-            if let Some(parent_synthetic) = self.get_synthetic_name(parent_name) {
+            if self.get_synthetic_name(parent_name).is_some() {
                 // Check if parent has an init function
                 if self
                     .get_module_id(parent_name)
@@ -4865,9 +4854,7 @@ impl Bundler<'_> {
 
             // Create namespace if it doesn't exist
             if !self.created_namespaces.contains(&current_var) {
-                log::debug!(
-                    "Creating intermediate namespace: {current_path} (var: {current_var})"
-                );
+                log::debug!("Creating intermediate namespace: {current_path} (var: {current_var})");
                 let namespace_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
                     &current_path,
                     "",   // No synthetic name needed for namespace-only
