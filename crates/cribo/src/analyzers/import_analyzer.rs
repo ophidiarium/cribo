@@ -639,7 +639,7 @@ impl ImportAnalyzer {
     ) -> bool {
         let module_name = resolver
             .get_module_name(module_id)
-            .unwrap_or_else(|| format!("module#{}", module_id));
+            .unwrap_or_else(|| format!("module#{module_id}"));
         debug!(
             "Checking imports for symbol '{}' from module '{}' in {} modules",
             symbol_name,
@@ -656,7 +656,7 @@ impl ImportAnalyzer {
 
             let other_module_name = resolver
                 .get_module_name(*other_module_id)
-                .unwrap_or_else(|| format!("module#{}", other_module_id));
+                .unwrap_or_else(|| format!("module#{other_module_id}"));
 
             // Check import statements in the module
             if Self::module_imports_symbol_with_ids(
@@ -668,8 +668,7 @@ impl ImportAnalyzer {
                 resolver,
             ) {
                 debug!(
-                    "Symbol '{symbol_name}' from module '{}' is imported by module '{}'",
-                    module_name, other_module_name
+                    "Symbol '{symbol_name}' from module '{module_name}' is imported by module '{other_module_name}'"
                 );
                 return true;
             }
@@ -695,7 +694,7 @@ impl ImportAnalyzer {
         visitor.found
     }
 
-    /// Check if a module imports a specific symbol from another module (using ModuleIds)
+    /// Check if a module imports a specific symbol from another module (using `ModuleIds`)
     fn module_imports_symbol_with_ids(
         ast: &ModModule,
         importing_module_id: crate::resolver::ModuleId,
@@ -707,10 +706,10 @@ impl ImportAnalyzer {
         // Convert to strings for now - we'll need to update SymbolImportVisitor later
         let importing_module = resolver
             .get_module_name(importing_module_id)
-            .unwrap_or_else(|| format!("module#{}", importing_module_id));
+            .unwrap_or_else(|| format!("module#{importing_module_id}"));
         let target_module = resolver
             .get_module_name(target_module_id)
-            .unwrap_or_else(|| format!("module#{}", target_module_id));
+            .unwrap_or_else(|| format!("module#{target_module_id}"));
 
         // Convert module_exports to String-based for the visitor
         let module_exports_strings: FxIndexMap<String, Option<Vec<String>>> = module_exports

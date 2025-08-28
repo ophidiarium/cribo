@@ -15,9 +15,9 @@ use crate::{
 /// of a symbol, handling both direct imports and aliased imports.
 ///
 /// # Arguments
-/// * `module_asts` - Slice of tuples containing (ModuleId, ast, module_path, content_hash)
+/// * `module_asts` - Slice of tuples containing (`ModuleId`, ast, `module_path`, `content_hash`)
 /// * `resolver` - Module resolver for handling relative imports
-/// * `wrapper_modules` - Set of ModuleIds that are wrapper modules
+/// * `wrapper_modules` - Set of `ModuleIds` that are wrapper modules
 /// * `module_name` - The module to search in
 /// * `symbol_name` - The symbol to find the source of
 ///
@@ -37,9 +37,7 @@ pub fn find_symbol_source_from_wrapper_module(
 
     // Find the module's AST to check its imports
     let module_id = resolver.get_module_id_by_name(module_name)?;
-    let (_, ast, module_path, _) = module_asts
-        .iter()
-        .find(|(id, _, _, _)| *id == module_id)?;
+    let (_, ast, module_path, _) = module_asts.iter().find(|(id, _, _, _)| *id == module_id)?;
 
     // Check if this symbol is imported from another module (including nested scopes)
     for import_from in collect_import_from_statements_in_module(ast) {
@@ -72,15 +70,15 @@ pub fn find_symbol_source_from_wrapper_module(
                 );
 
                 // Check if the source module is a wrapper module
-                if let Some(resolved_id) = resolver.get_module_id_by_name(&resolved_module) {
-                    if wrapper_modules.contains(&resolved_id) {
-                        log::debug!(
-                            "Source module '{resolved_module}' is a wrapper module - returning ({resolved_module}, {})",
-                            alias.name.as_str()
-                        );
-                        // Return the immediate source from the wrapper module
-                        return Some((resolved_module, alias.name.to_string()));
-                    }
+                if let Some(resolved_id) = resolver.get_module_id_by_name(&resolved_module)
+                    && wrapper_modules.contains(&resolved_id)
+                {
+                    log::debug!(
+                        "Source module '{resolved_module}' is a wrapper module - returning ({resolved_module}, {})",
+                        alias.name.as_str()
+                    );
+                    // Return the immediate source from the wrapper module
+                    return Some((resolved_module, alias.name.to_string()));
                 }
                 log::trace!("Source module '{resolved_module}' is NOT a wrapper module - skipping");
                 // For non-wrapper modules, don't return anything (original behavior)

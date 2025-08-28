@@ -319,8 +319,7 @@ impl Bundler<'_> {
 
         // Store the renames for this module
         if !module_renames.is_empty() {
-            ctx.module_renames
-                .insert(module_id, module_renames);
+            ctx.module_renames.insert(module_id, module_renames);
         }
 
         // Statements are accumulated in ctx.inlined_stmts

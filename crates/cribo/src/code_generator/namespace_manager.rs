@@ -191,10 +191,7 @@ pub(super) fn transform_namespace_package_imports(
         if let Some(id) = full_module_id
             && bundler.bundled_modules.contains(&id)
         {
-            if bundler
-                .module_synthetic_names
-                .contains_key(&id)
-            {
+            if bundler.module_synthetic_names.contains_key(&id) {
                 // Wrapper module - ensure it's initialized first, then create reference
                 // First ensure parent module is initialized if it's also a wrapper
                 if let Some(parent_id) = parent_module_id
@@ -607,7 +604,8 @@ pub fn detect_namespace_requirements_from_imports(
                         let full_module_path = format!("{resolved}.{imported_name}");
 
                         // Check if this is importing an inlined submodule
-                        if let Some(module_id) = bundler.resolver.get_module_id_by_name(&full_module_path)
+                        if let Some(module_id) =
+                            bundler.resolver.get_module_id_by_name(&full_module_path)
                             && bundler.inlined_modules.contains(&module_id)
                         {
                             debug!(
@@ -770,12 +768,11 @@ pub fn populate_namespace_with_module_symbols(
             // Check if this symbol is actually a submodule
             let full_submodule_path = format!("{module_name}.{symbol_name}");
             let submodule_id = ctx.resolver.get_module_id_by_name(&full_submodule_path);
-            let is_bundled_submodule = submodule_id
-                .map_or(false, |id| ctx.bundled_modules.contains(&id));
-            let is_inlined = submodule_id
-                .map_or(false, |id| ctx.inlined_modules.contains(&id));
-            let uses_init_function = submodule_id
-                .map_or(false, |id| ctx.wrapper_modules.contains(&id));
+            let is_bundled_submodule =
+                submodule_id.is_some_and(|id| ctx.bundled_modules.contains(&id));
+            let is_inlined = submodule_id.is_some_and(|id| ctx.inlined_modules.contains(&id));
+            let uses_init_function =
+                submodule_id.is_some_and(|id| ctx.wrapper_modules.contains(&id));
 
             if is_bundled_submodule {
                 debug!(
@@ -945,7 +942,9 @@ pub fn populate_namespace_with_module_symbols(
             // would be duplicated by __all__ processing
             if !ctx.global_deferred_imports.is_empty() {
                 // Check if this symbol was deferred by the same module (intra-module imports)
-                let module_id = ctx.resolver.get_module_id_by_name(module_name)
+                let module_id = ctx
+                    .resolver
+                    .get_module_id_by_name(module_name)
                     .expect("Module ID must exist for module");
                 let key = (module_id, symbol_name.to_string());
                 if ctx.global_deferred_imports.contains_key(&key) {
@@ -983,8 +982,8 @@ pub fn populate_namespace_with_module_symbols(
             }
 
             // Check if this is an inlined submodule (no local variable exists)
-            let is_inlined_submodule = submodule_id
-                .is_some_and(|id| ctx.inlined_modules.contains(&id));
+            let is_inlined_submodule =
+                submodule_id.is_some_and(|id| ctx.inlined_modules.contains(&id));
             if is_inlined_submodule {
                 debug!(
                     "Skipping namespace assignment for '{target_name}.{symbol_name}' - it's an \
@@ -994,8 +993,8 @@ pub fn populate_namespace_with_module_symbols(
             }
 
             // Check if this is a submodule at all (vs a symbol defined in the module)
-            let is_bundled_submodule = submodule_id
-                .is_some_and(|id| ctx.bundled_modules.contains(&id));
+            let is_bundled_submodule =
+                submodule_id.is_some_and(|id| ctx.bundled_modules.contains(&id));
             if is_bundled_submodule {
                 // This is a submodule that's bundled but neither inlined nor uses init
                 // function This can happen when the submodule is
@@ -1071,11 +1070,9 @@ fn is_symbol_from_inlined_submodule(
     let Some(module_id) = ctx.resolver.get_module_id_by_name(module_name) else {
         return false;
     };
-    
+
     // Find the module's AST to check its imports
-    let Some((_, ast, module_path, _)) = module_asts
-        .iter()
-        .find(|(id, _, _, _)| *id == module_id)
+    let Some((_, ast, module_path, _)) = module_asts.iter().find(|(id, _, _, _)| *id == module_id)
     else {
         return false;
     };
@@ -1130,7 +1127,7 @@ fn find_symbol_source_module(
     crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
         module_asts,
         ctx.resolver,
-        &ctx.wrapper_modules,
+        ctx.wrapper_modules,
         module_name,
         symbol_name,
     )

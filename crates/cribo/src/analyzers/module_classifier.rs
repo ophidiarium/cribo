@@ -53,7 +53,7 @@ impl<'a> ModuleClassifier<'a> {
             // Note: if entry is bare "__init__", we don't have the package name
             entry_module_name
                 .strip_suffix(".__init__")
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
         } else {
             None
         }
@@ -80,7 +80,7 @@ impl<'a> ModuleClassifier<'a> {
                 .resolver
                 .get_module_name(*module_id)
                 .expect("Module name must exist for ModuleId");
-            debug!("Processing module: '{}'", module_name);
+            debug!("Processing module: '{module_name}'");
 
             // Skip the entry module itself
             if *module_id == ModuleId::ENTRY {
@@ -93,8 +93,7 @@ impl<'a> ModuleClassifier<'a> {
                 if let Some(entry_pkg) = self.entry_package_name() {
                     if module_name == entry_pkg {
                         debug!(
-                            "Skipping module '{}' as it's the package name for entry module '__init__.py'",
-                            module_name
+                            "Skipping module '{module_name}' as it's the package name for entry module '__init__.py'"
                         );
                         continue;
                     }
@@ -108,8 +107,7 @@ impl<'a> ModuleClassifier<'a> {
                         // This could be the package, but we need more context to be sure
                         // For safety, we should NOT skip it unless we're certain
                         debug!(
-                            "Not skipping top-level module '{}' as we cannot confirm it matches entry '__init__'",
-                            module_name
+                            "Not skipping top-level module '{module_name}' as we cannot confirm it matches entry '__init__'"
                         );
                     }
                 }
@@ -168,8 +166,7 @@ impl<'a> ModuleClassifier<'a> {
                             let from_module_str = import_from.module.as_deref().unwrap_or_default();
                             let dots = ".".repeat(import_from.level as usize);
                             debug!(
-                                "Module '{}' has wildcard import from '{}{}'",
-                                module_name, dots, from_module_str
+                                "Module '{module_name}' has wildcard import from '{dots}{from_module_str}'"
                             );
 
                             // Mark that this module has a wildcard import
@@ -216,20 +213,15 @@ impl<'a> ModuleClassifier<'a> {
             if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular {
                 if has_invalid_identifier {
                     debug!(
-                        "Module '{}' has invalid Python identifier - using wrapper \
-                         approach",
-                        module_name
+                        "Module '{module_name}' has invalid Python identifier - using wrapper \
+                         approach"
                     );
                 } else if needs_wrapping_for_circular {
                     debug!(
-                        "Module '{}' is in circular dependency - using wrapper approach",
-                        module_name
+                        "Module '{module_name}' is in circular dependency - using wrapper approach"
                     );
                 } else {
-                    debug!(
-                        "Module '{}' has side effects - using wrapper approach",
-                        module_name
-                    );
+                    debug!("Module '{module_name}' has side effects - using wrapper approach");
                 }
 
                 wrapper_modules.push((
@@ -239,10 +231,7 @@ impl<'a> ModuleClassifier<'a> {
                     content_hash.clone(),
                 ));
             } else {
-                debug!(
-                    "Module '{}' has no side effects - can be inlined",
-                    module_name
-                );
+                debug!("Module '{module_name}' has no side effects - can be inlined");
                 inlinable_modules.push((
                     *module_id,
                     ast.clone(),
@@ -295,7 +284,9 @@ impl<'a> ModuleClassifier<'a> {
 
             // Respect explicit __all__: don't auto-expand wildcard imports
             if self.modules_with_explicit_all.contains(&module_id) {
-                let module_name = self.resolver.get_module_name(module_id)
+                let module_name = self
+                    .resolver
+                    .get_module_name(module_id)
                     .expect("Module name must exist for ModuleId");
                 debug!(
                     "Skipping wildcard expansion for module '{module_name}' due to explicit __all__"
@@ -303,7 +294,9 @@ impl<'a> ModuleClassifier<'a> {
                 continue;
             }
 
-            let module_name = self.resolver.get_module_name(module_id)
+            let module_name = self
+                .resolver
+                .get_module_name(module_id)
                 .expect("Module name must exist for ModuleId");
             debug!("Module '{module_name}' has wildcard imports from: {wildcard_sources:?}");
 

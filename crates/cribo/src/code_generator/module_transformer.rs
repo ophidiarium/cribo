@@ -2703,7 +2703,7 @@ fn should_include_symbol(
                 module_id,
                 symbol_name,
                 Some(&bundler.module_exports),
-                &bundler.resolver,
+                bundler.resolver,
             )
         {
             log::debug!(
@@ -2841,11 +2841,7 @@ fn create_namespace_for_inlined_submodule(
         .expect("Module should exist in resolver");
 
     // Get the module exports for this inlined module
-    let exported_symbols = bundler
-        .module_exports
-        .get(&module_id)
-        .cloned()
-        .flatten();
+    let exported_symbols = bundler.module_exports.get(&module_id).cloned().flatten();
 
     // Add all exported symbols from the inlined module to the namespace
     if let Some(exports) = exported_symbols {
@@ -2992,34 +2988,36 @@ fn process_wildcard_import(
 
     if let Some(Some(export_list)) = exports {
         let module_id = module_id.expect("Module ID should exist if exports found");
-        
+
         // Module has explicit __all__, use it
         for symbol in export_list {
             if symbol != "*" {
                 // A symbol is kept if it's kept in the re-exporting module itself,
                 // or if it's re-exported from a submodule and kept in that source module.
-                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module_id, symbol) || {
-                    let mut found_in_submodule = false;
-                    for (potential_module_id, module_exports) in &bundler.module_exports {
-                        // Check if this is a submodule by comparing names
-                        let potential_module_name = bundler
-                            .resolver
-                            .get_module_name(*potential_module_id)
-                            .expect("Module name must exist");
-                        if potential_module_name.starts_with(&format!("{module}."))
-                            && let Some(exports) = module_exports
-                            && exports.contains(symbol)
-                            && bundler.is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
-                        {
-                            debug!(
-                                "Symbol '{symbol}' is kept in source module '{potential_module_name}'"
-                            );
-                            found_in_submodule = true;
-                            break;
+                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+                    || {
+                        let mut found_in_submodule = false;
+                        for (potential_module_id, module_exports) in &bundler.module_exports {
+                            // Check if this is a submodule by comparing names
+                            let potential_module_name = bundler
+                                .resolver
+                                .get_module_name(*potential_module_id)
+                                .expect("Module name must exist");
+                            if potential_module_name.starts_with(&format!("{module}."))
+                                && let Some(exports) = module_exports
+                                && exports.contains(symbol)
+                                && bundler
+                                    .is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
+                            {
+                                debug!(
+                                    "Symbol '{symbol}' is kept in source module '{potential_module_name}'"
+                                );
+                                found_in_submodule = true;
+                                break;
+                            }
                         }
-                    }
-                    found_in_submodule
-                };
+                        found_in_submodule
+                    };
 
                 if is_kept_final {
                     // Check if this symbol comes from a wrapper module

@@ -14,7 +14,12 @@ pub struct SymbolAnalyzer;
 impl SymbolAnalyzer {
     /// Collect global symbols from modules (matching bundler's `collect_global_symbols`)
     pub fn collect_global_symbols(
-        modules: &[(crate::resolver::ModuleId, ModModule, std::path::PathBuf, String)],
+        modules: &[(
+            crate::resolver::ModuleId,
+            ModModule,
+            std::path::PathBuf,
+            String,
+        )],
     ) -> FxIndexSet<String> {
         let mut global_symbols = FxIndexSet::default();
 

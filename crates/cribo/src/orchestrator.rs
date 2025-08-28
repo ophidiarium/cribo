@@ -153,7 +153,6 @@ struct StaticBundleParams<'a> {
 struct DependencyContext<'a> {
     resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
-    module_id_map: &'a indexmap::IndexMap<String, crate::resolver::ModuleId>,
     current_module: &'a str,
     from_module_id: crate::resolver::ModuleId,
 }
@@ -1052,7 +1051,6 @@ impl BundleOrchestrator {
         info!("Phase 2: Adding modules to graph...");
 
         // First, add all modules to the graph and parse them
-        let mut module_id_map = indexmap::IndexMap::new();
         let mut parsed_modules: Vec<ParsedModuleData> = Vec::new();
 
         for (module_name, module_path, imports, _ast, _source) in discovered_modules {
@@ -1070,7 +1068,6 @@ impl BundleOrchestrator {
             let module_id = processed
                 .module_id
                 .expect("module_id should be set when graph provided");
-            module_id_map.insert(module_name.clone(), module_id);
             debug!("Added module to graph: {module_name} with ID {module_id:?}");
 
             // Build dependency graph BEFORE no-ops removal
@@ -1098,7 +1095,6 @@ impl BundleOrchestrator {
                 let mut context = DependencyContext {
                     resolver: params.resolver,
                     graph: params.graph,
-                    module_id_map: &module_id_map,
                     current_module: &module_name,
                     from_module_id: *module_id,
                 };
@@ -1508,7 +1504,7 @@ impl BundleOrchestrator {
         match context.resolver.classify_import(import) {
             ImportType::FirstParty => {
                 // Add dependency edge if the imported module exists
-                if let Some(&to_module_id) = context.module_id_map.get(import) {
+                if let Some(to_module_id) = context.resolver.get_module_id_by_name(import) {
                     debug!(
                         "Adding dependency edge: {} -> {}",
                         import, context.current_module
@@ -1562,7 +1558,7 @@ impl BundleOrchestrator {
         }
 
         if context.resolver.classify_import(parent_module) == ImportType::FirstParty
-            && let Some(&parent_module_id) = context.module_id_map.get(parent_module)
+            && let Some(parent_module_id) = context.resolver.get_module_id_by_name(parent_module)
         {
             debug!(
                 "Adding parent package dependency edge: {} -> {}",

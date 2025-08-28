@@ -130,7 +130,7 @@ pub(super) fn trim_unused_imports_from_modules(
     let mut trimmed_modules = Vec::new();
 
     for (module_id, ast, module_path, content_hash) in modules {
-        log::debug!("Trimming unused imports from module: {:?}", module_id);
+        log::debug!("Trimming unused imports from module: {module_id:?}");
         let mut ast = ast.clone(); // Clone here to allow mutation
 
         // Check if this is an __init__.py file
@@ -144,8 +144,7 @@ pub(super) fn trim_unused_imports_from_modules(
 
             if has_side_effects {
                 log::debug!(
-                    "Module {:?} has side effects - skipping stdlib import removal",
-                    module_id
+                    "Module {module_id:?} has side effects - skipping stdlib import removal"
                 );
             }
 
@@ -414,12 +413,7 @@ pub(super) fn trim_unused_imports_from_modules(
             }
         }
 
-        trimmed_modules.push((
-            *module_id,
-            ast,
-            module_path.clone(),
-            content_hash.clone(),
-        ));
+        trimmed_modules.push((*module_id, ast, module_path.clone(), content_hash.clone()));
     }
 
     log::debug!(

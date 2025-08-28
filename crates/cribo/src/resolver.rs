@@ -44,7 +44,7 @@ impl ModuleId {
         self.0 == 0
     }
 
-    /// Format this ModuleId with the resolver to show the module name and path
+    /// Format this `ModuleId` with the resolver to show the module name and path
     /// This is useful for debugging and error messages
     pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
         if let Some(name) = resolver.get_module_name(*self) {
