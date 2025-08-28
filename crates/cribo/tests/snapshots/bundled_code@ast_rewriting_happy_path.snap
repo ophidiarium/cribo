@@ -70,6 +70,8 @@ class DatabaseService:
         """Close the database connection."""
         self.connection.disconnect()
 DatabaseService.__module__ = 'services.database'
+services_database.DatabaseConnection = DatabaseConnection
+services_database.DatabaseService = DatabaseService
 models = _cribo.types.SimpleNamespace(__name__='models')
 models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models.user = models_user
@@ -103,6 +105,8 @@ class User:
         """Deactivate the user."""
         self.active = False
 User.__module__ = 'models.user'
+models_user.User = User
+models_user.UserRole = UserRole
 utils = _cribo.types.SimpleNamespace(__name__='utils')
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
 utils.helpers = utils_helpers
@@ -113,6 +117,8 @@ def format_message(greeting: str, name: str) -> str:
 def calculate_total(values: _cribo.typing.List[int]) -> int:
     """Calculate the sum of a list of integers."""
     return sum(values)
+utils_helpers.calculate_total = calculate_total
+utils_helpers.format_message = format_message
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)

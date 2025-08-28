@@ -56,6 +56,8 @@ class Product_1:
 Product_1.__module__ = 'entities'
 Product_1.__name__ = 'Product'
 Product_1.__qualname__ = 'Product'
+entities.Product = Product_1
+entities.User = User_1
 models = _cribo.types.SimpleNamespace(__name__='models')
 """\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
 class User_2:
@@ -84,6 +86,8 @@ class Product_2:
 Product_2.__module__ = 'models'
 Product_2.__name__ = 'Product'
 Product_2.__qualname__ = 'Product'
+models.Product = Product_2
+models.User = User_2
 """\nClass name collision test.\nBoth modules define classes with the same names.\n"""
 ModelUser = User_2
 ModelProduct = Product_2

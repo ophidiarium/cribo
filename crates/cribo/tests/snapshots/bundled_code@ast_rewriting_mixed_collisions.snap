@@ -41,7 +41,7 @@ def _cribo_init___cribo_b16105_services_auth(self):
     self.__initializing__ = False
     return self
 services_auth.__init__ = _cribo_init___cribo_b16105_services_auth
-services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False, __path__=[])
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
 services.auth = services_auth
 def _cribo_init___cribo_93a195_services(self):
     if self.__initialized__:
@@ -183,7 +183,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     self.__initializing__ = False
     return self
 models_base.__init__ = _cribo_init___cribo_bca2f6_models_base
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.base = models_base
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 def _cribo_init___cribo_c57a32_core_utils(self):
@@ -200,7 +200,7 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     self.__initializing__ = False
     return self
 core_utils.__init__ = _cribo_init___cribo_c57a32_core_utils
-core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False, __path__=[])
+core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
 core.utils = core_utils
 def _cribo_init___cribo_62c387_core(self):
     if self.__initialized__:
@@ -238,6 +238,7 @@ def _cribo_init___cribo_98ecc1_models(self):
 models.__init__ = _cribo_init___cribo_98ecc1_models
 core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection')
 core_database = _cribo.types.SimpleNamespace(__name__='core.database', __initializing__=False, __initialized__=False, __path__=[])
+core.database = core_database
 core_database.connection = core_database_connection
 """\nDatabase connection module with naming conflicts\n"""
 result_8 = []
@@ -282,6 +283,12 @@ def connect_5():
     if connection_5 is None:
         connection_5 = Connection_6()
     return connection_5.connect()
+core_database_connection.Connection = Connection_6
+core_database_connection.connect = connect_5
+core_database_connection.connection = connection_5
+core_database_connection.process = process_7
+core_database_connection.result = result_8
+core_database_connection.validate = validate_7
 core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
 core_utils.helpers = core_utils_helpers
 """\nUtility helpers module with extensive naming conflicts\n"""
@@ -353,6 +360,14 @@ def process_with_conflicts(data: _cribo.typing.Any, User: str="param_user", resu
     validate_result = validate_6(data)
     local_result = {"data": data, "user_param": User_4, "result_param": result_6, "logger_param": Logger_4, "validation": validate_result, "connection_type": connection.connection_type}
     return local_result
+core_utils_helpers.Connection = Connection_5
+core_utils_helpers.Logger = Logger_4
+core_utils_helpers.User = User_4
+core_utils_helpers.connect = connect_4
+core_utils_helpers.process = process_6
+core_utils_helpers.process_with_conflicts = process_with_conflicts
+core_utils_helpers.result = result_6
+core_utils_helpers.validate = validate_6
 helper_validate = validate_6
 services_auth_manager = _cribo.types.SimpleNamespace(__name__='services.auth.manager', __initializing__=False, __initialized__=False)
 _cribo_services_auth_manager_result = None
@@ -645,6 +660,16 @@ def complex_operation(User: _cribo.typing.Any=None, Logger: _cribo.typing.Any=No
     return operation_result
 util_process = process_6
 UtilLogger = Logger_4
+models_user.Connection = Connection_2
+models_user.Logger = Logger_2
+models_user.User = User_2
+models_user.complex_operation = complex_operation
+models_user.connect = connect_2
+models_user.connection = connection_3
+models_user.process = process_4
+models_user.process_user = process_user
+models_user.result = result_3
+models_user.validate = validate_4
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 __cribo_init_result = _cribo_init___cribo_93a195_services(services)

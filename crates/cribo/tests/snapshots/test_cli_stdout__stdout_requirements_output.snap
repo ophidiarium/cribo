@@ -50,6 +50,7 @@ class User:
             return f"{self.name} <{self.email}>"
         return self.name
 User.__module__ = 'models.user'
+models_user.User = User
 utils = _cribo.types.SimpleNamespace(__name__='utils')
 """Utils package initialization."""
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
@@ -61,6 +62,8 @@ def greet(name: str) -> str:
 def calculate(a: _cribo.typing.Union[int, float], b: _cribo.typing.Union[int, float]) -> _cribo.typing.Union[int, float]:
     """Calculate the sum of two numbers."""
     return a + b
+utils_helpers.calculate = calculate
+utils_helpers.greet = greet
 """Simple test project entry point."""
 def main():
     """Main function."""

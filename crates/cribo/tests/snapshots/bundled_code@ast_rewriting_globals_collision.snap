@@ -43,7 +43,7 @@ def _cribo_init___cribo_84bf42_services_auth(self):
     self.__initializing__ = False
     return self
 services_auth.__init__ = _cribo_init___cribo_84bf42_services_auth
-services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False, __path__=[])
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
 services.auth = services_auth
 def _cribo_init___cribo_b2dda7_services(self):
     if self.__initialized__:
@@ -179,7 +179,7 @@ def _cribo_init___cribo_e52b1d_core_utils(self):
     self.__initializing__ = False
     return self
 core_utils.__init__ = _cribo_init___cribo_e52b1d_core_utils
-core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False, __path__=[])
+core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
 core.utils = core_utils
 def _cribo_init___cribo_0ac752_core(self):
     if self.__initialized__:
@@ -330,6 +330,14 @@ def sanitize(text):
 def format_result(result):
     """Another utility function"""
     return f"formatted: {result}"
+core_utils_helpers.Connection = Connection_6
+core_utils_helpers.Logger = Logger_6
+core_utils_helpers.format_result = format_result
+core_utils_helpers.process = process_7
+core_utils_helpers.process_count = process_count
+core_utils_helpers.sanitize = sanitize
+core_utils_helpers.validate = validate_6
+core_utils_helpers.validate_cache = validate_cache
 services_auth_manager = _cribo.types.SimpleNamespace(__name__='services.auth.manager', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_0ecebd_services_auth_manager(self):
     if self.__initialized__:

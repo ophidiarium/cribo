@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils_config = _cribo.types.SimpleNamespace(__name__='utils.config')
-utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False, __path__=[])
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
 utils.config = utils_config
 """Configuration module for testing regular import aliases."""
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}

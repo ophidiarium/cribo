@@ -1798,41 +1798,12 @@ impl<'a> Bundler<'a> {
                             }
                         }
 
-                        // Also handle parent namespaces if this is a submodule
-                        if let Some((parent, child)) = module_name.rsplit_once('.') {
-                            let parent_var = sanitize_module_name_for_identifier(parent);
-                            // Create parent namespace if it doesn't exist
-                            if !self.created_namespaces.contains(&parent_var) {
-                                // Use create_wrapper_module to create namespace with proper flags
-                                // Parent packages may contain submodules, so mark as package
-                                let parent_stmts =
-                                    crate::ast_builder::module_wrapper::create_wrapper_module(
-                                        parent,
-                                        "",   // No synthetic name needed for namespace-only
-                                        None, // No init function
-                                        true, // Mark as package since it has children
-                                    );
-                                // Only the namespace statement should be generated
-                                if let Some(namespace_stmt) = parent_stmts.first() {
-                                    all_inlined_stmts.push(namespace_stmt.clone());
-                                }
-                                self.created_namespaces.insert(parent_var.clone());
-                            }
-
-                            // Add parent.child = child assignment
-                            log::debug!(
-                                "Creating parent.child assignment during inlining: {parent_var}.{child} = {namespace_var}"
-                            );
-                            let parent_child_assign = statements::assign(
-                                vec![expressions::attribute(
-                                    expressions::name(&parent_var, ExprContext::Load),
-                                    child,
-                                    ExprContext::Store,
-                                )],
-                                expressions::name(&namespace_var, ExprContext::Load),
-                            );
-                            all_inlined_stmts.push(parent_child_assign);
-                        }
+                        // Recursively handle the entire namespace chain for submodules
+                        self.create_namespace_chain_for_module(
+                            &module_name,
+                            &namespace_var,
+                            &mut all_inlined_stmts,
+                        );
                     }
                 }
 
@@ -1908,59 +1879,39 @@ impl<'a> Bundler<'a> {
                     .expect("Inlined module should have a module ID");
 
                 if current_module_id != crate::resolver::ModuleId::ENTRY {
-                    // Check if this module was imported directly (not via from X import Y)
-                    // We only need namespace population for direct imports
-                    let is_directly_imported = modules.iter().any(|(mod_id, ast, _, _)| {
-                        if *mod_id == crate::resolver::ModuleId::ENTRY {
-                            // Check if the entry module imports this module directly
-                            ast.body.iter().any(|stmt| {
-                                if let Stmt::Import(import_stmt) = stmt {
-                                    import_stmt
-                                        .names
-                                        .iter()
-                                        .any(|alias| alias.name.as_str() == module_name)
-                                } else {
-                                    false
-                                }
-                            })
-                        } else {
-                            false
-                        }
-                    });
+                    // For inlined modules, always populate their namespace with their symbols
+                    // This ensures that both directly imported modules (import module) and
+                    // modules imported via from-imports (from package import module) have
+                    // their symbols properly assigned to their namespace objects
+                    log::debug!("Populating namespace for inlined module: {module_name}");
+                    let namespace_var = sanitize_module_name_for_identifier(&module_name);
 
-                    if is_directly_imported {
-                        log::debug!(
-                            "Populating namespace for directly imported inlined module: {module_name}"
-                        );
-                        let namespace_var = sanitize_module_name_for_identifier(&module_name);
+                    // Create a context for namespace population
+                    let mut population_ctx =
+                        crate::code_generator::namespace_manager::NamespacePopulationContext {
+                            bundled_modules: &self.bundled_modules,
+                            inlined_modules: &self.inlined_modules,
+                            module_exports: &self.module_exports,
+                            tree_shaking_keep_symbols: &self.tree_shaking_keep_symbols,
+                            modules_with_accessed_all: &self.modules_with_accessed_all,
+                            wrapper_modules: &self.wrapper_modules,
+                            module_asts: &None, // Not needed for this context
+                            symbols_populated_after_deferred: &self
+                                .symbols_populated_after_deferred,
+                            global_deferred_imports: &FxIndexMap::default(), // Not needed here
+                            module_init_functions: &self.module_init_functions,
+                            resolver: self.resolver,
+                        };
 
-                        // Create a context for namespace population
-                        let mut population_ctx =
-                            crate::code_generator::namespace_manager::NamespacePopulationContext {
-                                bundled_modules: &self.bundled_modules,
-                                inlined_modules: &self.inlined_modules,
-                                module_exports: &self.module_exports,
-                                tree_shaking_keep_symbols: &self.tree_shaking_keep_symbols,
-                                modules_with_accessed_all: &self.modules_with_accessed_all,
-                                wrapper_modules: &self.wrapper_modules,
-                                module_asts: &None, // Not needed for this context
-                                symbols_populated_after_deferred: &self
-                                    .symbols_populated_after_deferred,
-                                global_deferred_imports: &FxIndexMap::default(), // Not needed here
-                                module_init_functions: &self.module_init_functions,
-                                resolver: self.resolver,
-                            };
+                    // Populate the namespace with the module's symbols
+                    let population_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                        &mut population_ctx,
+                        &namespace_var,
+                        current_module_id,
+                        &symbol_renames,
+                    );
 
-                        // Populate the namespace with the module's symbols
-                        let population_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                            &mut population_ctx,
-                            &namespace_var,
-                            current_module_id,
-                            &symbol_renames,
-                        );
-
-                        all_inlined_stmts.extend(population_stmts);
-                    }
+                    all_inlined_stmts.extend(population_stmts);
                 }
 
                 // Check if any pending assignments can now be resolved
@@ -2106,36 +2057,17 @@ impl<'a> Bundler<'a> {
                     self.created_namespaces.insert(module_var.clone());
                 }
 
-                // Also handle parent namespaces if this is a submodule
-                if let Some((parent, child)) = module_name.rsplit_once('.') {
-                    let parent_var = sanitize_module_name_for_identifier(parent);
-                    // Create parent namespace if it doesn't exist
-                    if !self.created_namespaces.contains(&parent_var) {
-                        // Use create_wrapper_module to create namespace with proper flags
-                        let parent_stmts =
-                            crate::ast_builder::module_wrapper::create_wrapper_module(
-                                parent, "",   // No synthetic name needed for namespace-only
-                                None, // No init function
-                                true, // Mark as package since it has children
-                            );
-                        // Only the namespace statement should be generated
-                        if let Some(namespace_stmt) = parent_stmts.first() {
-                            all_inlined_stmts.push(namespace_stmt.clone());
-                        }
-                        self.created_namespaces.insert(parent_var.clone());
-                    }
-
-                    // Add parent.child = child assignment
-                    let parent_child_assign = statements::assign(
-                        vec![expressions::attribute(
-                            expressions::name(&parent_var, ExprContext::Load),
-                            child,
-                            ExprContext::Store,
-                        )],
-                        expressions::name(&module_var, ExprContext::Load),
-                    );
-                    all_inlined_stmts.push(parent_child_assign);
-                }
+                // Recursively handle the entire namespace chain for submodules
+                // For example, for "services.auth.manager", we need:
+                // 1. Create "services" namespace if it doesn't exist
+                // 2. Create "services_auth" namespace if it doesn't exist
+                // 3. Assign "services.auth = services_auth"
+                // 4. Assign "services_auth.manager = services_auth_manager"
+                self.create_namespace_chain_for_module(
+                    &module_name,
+                    &module_var,
+                    &mut all_inlined_stmts,
+                );
 
                 // Mark this module as processed
                 processed_modules.insert(module_name.to_string());
@@ -4887,6 +4819,118 @@ impl Bundler<'_> {
         });
 
         statements.push(for_loop);
+    }
+
+    /// Create the entire namespace chain for a module with proper parent-child assignments
+    /// For example, for "services.auth.manager", this creates:
+    /// - services namespace (if needed)
+    /// - `services_auth` namespace (if needed)  
+    /// - services.auth = `services_auth` assignment
+    /// - `services_auth.manager` = `services_auth_manager` assignment
+    fn create_namespace_chain_for_module(
+        &mut self,
+        module_name: &str,
+        module_var: &str,
+        stmts: &mut Vec<Stmt>,
+    ) {
+        // Split the module name into parts
+        let parts: Vec<&str> = module_name.split('.').collect();
+
+        // If it's a top-level module, nothing to do
+        if parts.len() <= 1 {
+            return;
+        }
+
+        // First, ensure ALL parent namespaces exist, including the top-level one
+        // We need to create the top-level namespace first if it doesn't exist
+        let top_level = parts[0];
+        if !self.created_namespaces.contains(top_level) {
+            log::debug!("Creating top-level namespace: {top_level}");
+            let namespace_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
+                top_level, "",    // No synthetic name needed for namespace-only
+                None,  // No init function
+                false, // Top-level, not necessarily a package
+            );
+            // Only the namespace statement should be generated
+            if let Some(namespace_stmt) = namespace_stmts.first() {
+                stmts.push(namespace_stmt.clone());
+            }
+            self.created_namespaces.insert(top_level.to_string());
+        }
+
+        // Now create intermediate namespaces
+        for i in 1..parts.len() - 1 {
+            let current_path = parts[0..=i].join(".");
+            let current_var = sanitize_module_name_for_identifier(&current_path);
+
+            // Create namespace if it doesn't exist
+            if !self.created_namespaces.contains(&current_var) {
+                log::debug!(
+                    "Creating intermediate namespace: {current_path} (var: {current_var})"
+                );
+                let namespace_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
+                    &current_path,
+                    "",   // No synthetic name needed for namespace-only
+                    None, // No init function
+                    true, // Mark as package since it has children
+                );
+                // Only the namespace statement should be generated
+                if let Some(namespace_stmt) = namespace_stmts.first() {
+                    stmts.push(namespace_stmt.clone());
+                }
+                self.created_namespaces.insert(current_var.clone());
+            }
+        }
+
+        // Now create parent.child assignments for the entire chain
+        for i in 1..parts.len() {
+            let parent_path = parts[0..i].join(".");
+            let parent_var = if i == 1 {
+                // First level parent is just the first part
+                parts[0].to_string()
+            } else {
+                // Multi-level parent uses sanitized name
+                sanitize_module_name_for_identifier(&parent_path)
+            };
+            let child_name = parts[i];
+
+            // Check if this parent.child assignment has already been made
+            let assignment_key = (parent_var.clone(), child_name.to_string());
+            if self.parent_child_assignments_made.contains(&assignment_key) {
+                log::debug!(
+                    "Skipping duplicate namespace chain assignment: {parent_var}.{child_name} (already created)"
+                );
+                continue;
+            }
+
+            // Determine the current path and variable
+            let current_path = parts[0..=i].join(".");
+            let current_var = if i == parts.len() - 1 {
+                // This is the leaf module, use the provided module_var
+                module_var.to_string()
+            } else {
+                // This is an intermediate namespace
+                sanitize_module_name_for_identifier(&current_path)
+            };
+
+            log::debug!(
+                "Creating namespace chain assignment: {parent_var}.{child_name} = {current_var}"
+            );
+
+            // Create the assignment: parent.child = child_var
+            let assignment = statements::assign(
+                vec![expressions::attribute(
+                    expressions::name(&parent_var, ExprContext::Load),
+                    child_name,
+                    ExprContext::Store,
+                )],
+                expressions::name(&current_var, ExprContext::Load),
+            );
+            stmts.push(assignment);
+
+            // Track that we've made this assignment
+            self.parent_child_assignments_made.insert(assignment_key);
+        }
     }
 
     /// Transform function body for lifted globals
