@@ -2164,51 +2164,37 @@ impl<'a> Bundler<'a> {
         // Add all inlined and wrapper module statements to final_body
         final_body.extend(all_inlined_stmts);
 
-        // Finally, add entry module code (it's always last in topological order)
-        // Find the entry module in our modules list
-        let entry_module = modules.into_iter().find(|(id, _, _, _)| id.is_entry());
+        // Process the entry module (always ModuleId::ENTRY)
+        // The entry module is always last in topological order
+        let entry_module = modules
+            .into_iter()
+            .find(|(id, _, _, _)| *id == crate::resolver::ModuleId::ENTRY);
 
-        if let Some((module_id, mut ast, _module_path, _)) = entry_module {
+        if let Some((entry_id, mut ast, _module_path, _)) = entry_module {
             let module_name = self
                 .resolver
-                .get_module_name(module_id)
-                .expect("Module name must exist for ModuleId");
+                .get_module_name(entry_id)
+                .expect("Entry module must have a name");
+
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
 
-            // If the entry module is part of circular dependencies, reorder its statements
-            // The entry module might be named "__init__" while the circular module is tracked as "yaml" (or similar package name)
-            let mut reorder = false;
-            let lookup_name = if crate::util::is_init_module(&module_name) {
+            // Check if the entry module is part of circular dependencies
+            if self.circular_modules.contains(&entry_id) {
+                // Determine the lookup name for reordering
                 // For __init__ modules, we need to find the corresponding package name
-                // in the circular modules list
-                let package_name = self
-                    .circular_modules
-                    .iter()
-                    .filter_map(|id| self.resolver.get_module_name(*id))
-                    .find(|name| !name.contains('.') && !crate::util::is_init_module(name))
-                    .map(|s| s.to_string());
-
-                if package_name.is_some() {
-                    reorder = true;
-                    package_name.unwrap()
+                let lookup_name = if crate::util::is_init_module(&module_name) {
+                    self.circular_modules
+                        .iter()
+                        .filter_map(|id| self.resolver.get_module_name(*id))
+                        .find(|name| !name.contains('.') && !crate::util::is_init_module(name))
+                        .unwrap_or(module_name.clone())
                 } else {
                     module_name.clone()
-                }
-            } else if self
-                .resolver
-                .get_module_id_by_name(&module_name)
-                .is_some_and(|id| self.circular_modules.contains(&id))
-            {
-                reorder = true;
-                module_name.clone()
-            } else {
-                module_name.clone()
-            };
+                };
 
-            if reorder {
                 log::debug!(
-                    "Entry module '{module_name}' is part of circular dependencies, reordering statements"
+                    "Entry module '{module_name}' is part of circular dependencies, reordering statements (lookup: '{lookup_name}')"
                 );
                 ast.body = self.reorder_statements_for_circular_module(
                     &lookup_name,
@@ -2219,7 +2205,7 @@ impl<'a> Bundler<'a> {
 
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
-            let entry_module_renames = symbol_renames.get(&module_id).cloned().unwrap_or_default();
+            let entry_module_renames = symbol_renames.get(&entry_id).cloned().unwrap_or_default();
 
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
