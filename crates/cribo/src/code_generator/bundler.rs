@@ -82,7 +82,7 @@ pub struct Bundler<'a> {
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
-    pub(crate) module_asts: Option<Vec<(ModuleId, ModModule, PathBuf, String)>>,
+    pub(crate) module_asts: Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
     /// Global registry of deferred imports to prevent duplication
     /// Maps (`module_id`, `symbol_name`) to the source module ID that deferred it
     pub(crate) global_deferred_imports: FxIndexMap<(ModuleId, String), ModuleId>,
@@ -798,11 +798,8 @@ impl<'a> Bundler<'a> {
                         // Find the module's path from module_asts
                         let module_id_for_lookup = self.get_module_id(module_name);
                         let module_path = self.module_asts.as_ref().and_then(|asts| {
-                            module_id_for_lookup.and_then(|id| {
-                                asts.iter()
-                                    .find(|(ast_id, _, _, _)| ast_id == &id)
-                                    .map(|(_, _, path, _)| path.clone())
-                            })
+                            module_id_for_lookup
+                                .and_then(|id| asts.get(&id).map(|(_, path, _)| path.clone()))
                         });
 
                         // Define fallback logic once
@@ -1201,13 +1198,13 @@ impl<'a> Bundler<'a> {
     /// Collect symbol renames from semantic analysis
     fn collect_symbol_renames(
         &mut self,
-        modules: &[(ModuleId, ModModule, PathBuf, String)],
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         semantic_ctx: &SemanticContext,
     ) -> FxIndexMap<ModuleId, FxIndexMap<String, String>> {
         let mut symbol_renames = FxIndexMap::default();
 
         // Collect renames for each module
-        for (module_id, _, _, _) in modules {
+        for module_id in modules.keys() {
             self.collect_module_renames(*module_id, semantic_ctx, &mut symbol_renames);
         }
 
@@ -1218,7 +1215,7 @@ impl<'a> Bundler<'a> {
     fn prepare_modules(
         &mut self,
         params: &BundleParams<'a>,
-    ) -> Vec<(ModuleId, ModModule, PathBuf, String)> {
+    ) -> FxIndexMap<ModuleId, (ModModule, PathBuf, String)> {
         // Convert modules to the format expected by functions
         let modules_with_paths: Vec<(ModuleId, ModModule, PathBuf, String)> = params
             .modules
@@ -1235,11 +1232,18 @@ impl<'a> Bundler<'a> {
             })
             .collect();
 
+        // Convert to IndexMap first for efficient lookups
+        let mut modules_map: FxIndexMap<ModuleId, (ModModule, PathBuf, String)> =
+            FxIndexMap::default();
+        for (module_id, ast, path, hash) in modules_with_paths {
+            modules_map.insert(module_id, (ast, path, hash));
+        }
+
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
         let mut modules = import_deduplicator::trim_unused_imports_from_modules(
-            &modules_with_paths,
+            &modules_map,
             params.graph,
             params.tree_shaker,
             params.python_version,
@@ -1249,37 +1253,41 @@ impl<'a> Bundler<'a> {
         log::debug!("Indexing {} modules", modules.len());
         let mut module_indices = Vec::new();
         let mut total_nodes = 0u32;
-        let mut module_id = 0u32;
+        let mut module_id_counter = 0u32;
 
-        // Create a mapping from module name to module ID for debugging
+        // Create a mapping from module ID to counter for debugging
         let mut module_id_map = FxIndexMap::default();
 
-        for (module_name, ast, path, _content_hash) in &mut modules {
-            let indexed = crate::ast_indexer::index_module_with_id(ast, module_id);
+        for (module_id, (ast, path, _content_hash)) in &mut modules {
+            let indexed = crate::ast_indexer::index_module_with_id(ast, module_id_counter);
             let node_count = indexed.node_count;
+            let module_name = self
+                .resolver
+                .get_module_name(*module_id)
+                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
             log::debug!(
                 "Module {} (ID: {}) indexed with {} nodes (indices {}-{})",
                 module_name,
-                module_id,
+                module_id_counter,
                 node_count,
-                module_id * crate::ast_indexer::MODULE_INDEX_RANGE,
-                module_id * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
+                module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE,
+                module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
             );
-            module_id_map.insert(*module_name, module_id);
-            module_indices.push((*module_name, path.clone(), indexed));
+            module_id_map.insert(*module_id, module_id_counter);
+            module_indices.push((*module_id, path.clone(), indexed));
             total_nodes += node_count;
-            module_id += 1;
+            module_id_counter += 1;
         }
 
         // Initialize transformation context
         // Start new node indices after all module ranges
         self.transformation_context = TransformationContext::new();
-        let starting_index = module_id * crate::ast_indexer::MODULE_INDEX_RANGE;
+        let starting_index = module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE;
         for _ in 0..starting_index {
             self.transformation_context.next_node_index();
         }
         log::debug!(
-            "Transformation context initialized. Module count: {module_id}, Total nodes: \
+            "Transformation context initialized. Module count: {module_id_counter}, Total nodes: \
              {total_nodes}, New nodes start at: {starting_index}"
         );
 
@@ -1287,7 +1295,7 @@ impl<'a> Bundler<'a> {
         self.module_asts = Some(modules.clone());
 
         // Track bundled modules
-        for (module_id, _, _, _) in &modules {
+        for module_id in modules.keys() {
             self.bundled_modules.insert(*module_id);
             let module_name = self
                 .resolver
@@ -1366,7 +1374,7 @@ impl<'a> Bundler<'a> {
         self.initialize_bundler(params);
 
         // Prepare modules: trim imports, index ASTs, detect circular dependencies
-        let modules = self.prepare_modules(params);
+        let mut modules = self.prepare_modules(params);
 
         // Classify modules into inlinable and wrapper modules
         let classifier = crate::analyzers::ModuleClassifier::new(
@@ -1426,7 +1434,12 @@ impl<'a> Bundler<'a> {
         let mut symbol_renames = self.collect_symbol_renames(&modules, &semantic_ctx);
 
         // Collect global symbols from the entry module first (for compatibility)
-        let mut global_symbols = SymbolAnalyzer::collect_global_symbols(&modules);
+        // Convert to Vec format temporarily for SymbolAnalyzer
+        let modules_vec: Vec<(ModuleId, ModModule, PathBuf, String)> = modules
+            .iter()
+            .map(|(id, (ast, path, hash))| (*id, ast.clone(), path.clone(), hash.clone()))
+            .collect();
+        let mut global_symbols = SymbolAnalyzer::collect_global_symbols(&modules_vec);
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
@@ -1635,7 +1648,7 @@ impl<'a> Bundler<'a> {
         // Create module map for quick lookup
         let mut module_map: FxIndexMap<String, (ModModule, PathBuf, String)> =
             FxIndexMap::default();
-        for (module_id, ast, path, hash) in &modules {
+        for (module_id, (ast, path, hash)) in &modules {
             let module_name = params
                 .resolver
                 .get_module_name(*module_id)
@@ -1717,8 +1730,9 @@ impl<'a> Bundler<'a> {
                         // (namespace population handles __all__ for directly imported modules)
                         if let Some(module_id) = self.get_module_id(&module_name) {
                             // Check if this module is directly imported (will get namespace population)
-                            let is_directly_imported = modules.iter().any(|(mod_id, ast, _, _)| {
-                                if *mod_id == crate::resolver::ModuleId::ENTRY {
+                            let is_directly_imported = modules
+                                .get(&crate::resolver::ModuleId::ENTRY)
+                                .is_some_and(|(ast, _, _)| {
                                     ast.body.iter().any(|stmt| {
                                         if let Stmt::Import(import_stmt) = stmt {
                                             import_stmt.names.iter().any(|alias| {
@@ -1734,10 +1748,7 @@ impl<'a> Bundler<'a> {
                                             false
                                         }
                                     })
-                                } else {
-                                    false
-                                }
-                            });
+                                });
 
                             // Only add __all__ here if NOT directly imported
                             // (directly imported modules get __all__ via populate_namespace_with_module_symbols)
@@ -2165,22 +2176,23 @@ impl<'a> Bundler<'a> {
         final_body.extend(all_inlined_stmts);
 
         // Process the entry module (always ModuleId::ENTRY)
-        // The entry module is always last in topological order
-        let entry_module = modules
-            .into_iter()
-            .find(|(id, _, _, _)| *id == crate::resolver::ModuleId::ENTRY);
-
-        if let Some((entry_id, mut ast, _module_path, _)) = entry_module {
+        // Direct access using the constant ID
+        if let Some((mut ast, _module_path, _)) =
+            modules.shift_remove(&crate::resolver::ModuleId::ENTRY)
+        {
             let module_name = self
                 .resolver
-                .get_module_name(entry_id)
+                .get_module_name(crate::resolver::ModuleId::ENTRY)
                 .expect("Entry module must have a name");
 
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
 
             // Check if the entry module is part of circular dependencies
-            if self.circular_modules.contains(&entry_id) {
+            if self
+                .circular_modules
+                .contains(&crate::resolver::ModuleId::ENTRY)
+            {
                 // Determine the lookup name for reordering
                 // For __init__ modules, we need to find the corresponding package name
                 let lookup_name = if crate::util::is_init_module(&module_name) {
@@ -2205,7 +2217,10 @@ impl<'a> Bundler<'a> {
 
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
-            let entry_module_renames = symbol_renames.get(&entry_id).cloned().unwrap_or_default();
+            let entry_module_renames = symbol_renames
+                .get(&crate::resolver::ModuleId::ENTRY)
+                .cloned()
+                .unwrap_or_default();
 
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
@@ -2651,13 +2666,13 @@ impl<'a> Bundler<'a> {
     /// Find modules that are imported directly
     pub(super) fn find_directly_imported_modules(
         &self,
-        modules: &[(ModuleId, ModModule, PathBuf, String)],
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         entry_module_name: &str,
     ) -> FxIndexSet<String> {
         // Convert to old format temporarily for ImportAnalyzer
         let modules_with_names: Vec<(String, ModModule, PathBuf, String)> = modules
             .iter()
-            .map(|(id, ast, path, hash)| {
+            .map(|(id, (ast, path, hash))| {
                 let name = self
                     .resolver
                     .get_module_name(*id)
@@ -2672,12 +2687,12 @@ impl<'a> Bundler<'a> {
     /// Find modules that are imported as namespaces
     fn find_namespace_imported_modules(
         &mut self,
-        modules: &[(ModuleId, ModModule, PathBuf, String)],
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
     ) {
         // Convert to old format temporarily for ImportAnalyzer
         let modules_with_names: Vec<(String, ModModule, PathBuf, String)> = modules
             .iter()
-            .map(|(id, ast, path, hash)| {
+            .map(|(id, (ast, path, hash))| {
                 let name = self
                     .resolver
                     .get_module_name(*id)

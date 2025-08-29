@@ -3202,15 +3202,9 @@ fn symbol_comes_from_wrapper_module(
 ) -> bool {
     // Find the module's AST in the module_asts if available
     let module_id = bundler.get_module_id(inlined_module);
-    let module_data = module_id.and_then(|id| {
-        bundler
-            .module_asts
-            .as_ref()?
-            .iter()
-            .find(|(name, _, _, _)| name == &id)
-    });
+    let module_data = module_id.and_then(|id| bundler.module_asts.as_ref()?.get(&id));
 
-    if let Some((_, ast, module_path, _)) = module_data {
+    if let Some((ast, module_path, _)) = module_data {
         // Check all import statements in the module
         for stmt in &ast.body {
             if let Stmt::ImportFrom(import_from) = stmt {

@@ -6,7 +6,7 @@ use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     resolver::{ModuleId, ModuleResolver},
-    types::FxIndexSet,
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Finds which module a symbol was imported from in a wrapper module.
@@ -15,7 +15,7 @@ use crate::{
 /// of a symbol, handling both direct imports and aliased imports.
 ///
 /// # Arguments
-/// * `module_asts` - Slice of tuples containing (`ModuleId`, ast, `module_path`, `content_hash`)
+/// * `module_asts` - Map of `ModuleId` to (ast, `module_path`, `content_hash`)
 /// * `resolver` - Module resolver for handling relative imports
 /// * `wrapper_modules` - Set of `ModuleIds` that are wrapper modules
 /// * `module_name` - The module to search in
@@ -25,7 +25,7 @@ use crate::{
 /// * `Some((source_module, original_name))` if the symbol is imported from a wrapper module
 /// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper module
 pub fn find_symbol_source_from_wrapper_module(
-    module_asts: &[(ModuleId, ModModule, std::path::PathBuf, String)],
+    module_asts: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
     resolver: &ModuleResolver,
     wrapper_modules: &FxIndexSet<ModuleId>,
     module_name: &str,
@@ -37,7 +37,7 @@ pub fn find_symbol_source_from_wrapper_module(
 
     // Find the module's AST to check its imports
     let module_id = resolver.get_module_id_by_name(module_name)?;
-    let (_, ast, module_path, _) = module_asts.iter().find(|(id, _, _, _)| *id == module_id)?;
+    let (ast, module_path, _) = module_asts.get(&module_id)?;
 
     // Check if this symbol is imported from another module (including nested scopes)
     for import_from in collect_import_from_statements_in_module(ast) {

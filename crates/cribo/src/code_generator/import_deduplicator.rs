@@ -9,7 +9,9 @@ use ruff_python_ast::{Alias, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 use super::bundler::Bundler;
 use crate::{
-    cribo_graph::CriboGraph as DependencyGraph, tree_shaking::TreeShaker, types::FxIndexSet,
+    cribo_graph::CriboGraph as DependencyGraph,
+    tree_shaking::TreeShaker,
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Check if a statement is a hoisted import
@@ -122,14 +124,14 @@ pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str)
 
 /// Trim unused imports from modules using dependency graph analysis
 pub(super) fn trim_unused_imports_from_modules(
-    modules: &[(crate::resolver::ModuleId, ModModule, PathBuf, String)],
+    modules: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
     graph: &DependencyGraph,
     tree_shaker: Option<&TreeShaker>,
     python_version: u8,
-) -> Vec<(crate::resolver::ModuleId, ModModule, PathBuf, String)> {
-    let mut trimmed_modules = Vec::new();
+) -> FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)> {
+    let mut trimmed_modules = FxIndexMap::default();
 
-    for (module_id, ast, module_path, content_hash) in modules {
+    for (module_id, (ast, module_path, content_hash)) in modules {
         log::debug!("Trimming unused imports from module: {module_id:?}");
         let mut ast = ast.clone(); // Clone here to allow mutation
 
@@ -413,7 +415,7 @@ pub(super) fn trim_unused_imports_from_modules(
             }
         }
 
-        trimmed_modules.push((*module_id, ast, module_path.clone(), content_hash.clone()));
+        trimmed_modules.insert(*module_id, (ast, module_path.clone(), content_hash.clone()));
     }
 
     log::debug!(

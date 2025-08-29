@@ -63,7 +63,7 @@ impl<'a> ModuleClassifier<'a> {
     /// Also collects module exports and tracks modules with explicit __all__
     pub fn classify_modules(
         mut self,
-        modules: &[(ModuleId, ModModule, PathBuf, String)],
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         python_version: u8,
     ) -> ClassificationResult {
         let mut inlinable_modules = Vec::new();
@@ -75,7 +75,7 @@ impl<'a> ModuleClassifier<'a> {
             .get_module_name(ModuleId::ENTRY)
             .unwrap_or_else(|| "entry".to_string());
 
-        for (module_id, ast, module_path, content_hash) in modules {
+        for (module_id, (ast, module_path, content_hash)) in modules {
             let module_name = self
                 .resolver
                 .get_module_name(*module_id)
@@ -244,7 +244,7 @@ impl<'a> ModuleClassifier<'a> {
         // Second pass: resolve wildcard imports now that all modules have been processed
         let mut wildcard_imports: FxIndexMap<ModuleId, FxIndexSet<String>> = FxIndexMap::default();
 
-        for (module_id, ast, _, _) in modules {
+        for (module_id, (ast, _, _)) in modules {
             let module_name = self
                 .resolver
                 .get_module_name(*module_id)

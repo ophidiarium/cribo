@@ -31,7 +31,7 @@ pub struct NamespacePopulationContext<'a> {
     pub bundled_modules: &'a FxIndexSet<ModuleId>,
     pub modules_with_accessed_all: &'a FxIndexSet<(ModuleId, String)>,
     pub wrapper_modules: &'a FxIndexSet<ModuleId>,
-    pub module_asts: &'a Option<Vec<(ModuleId, ModModule, PathBuf, String)>>,
+    pub module_asts: &'a Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
     pub global_deferred_imports: &'a FxIndexMap<(ModuleId, String), ModuleId>,
     pub module_init_functions: &'a FxIndexMap<ModuleId, String>,
     pub resolver: &'a crate::resolver::ModuleResolver,
@@ -652,8 +652,7 @@ fn is_symbol_from_inlined_submodule(
     };
 
     // Find the module's AST to check its imports
-    let Some((_, ast, module_path, _)) = module_asts.iter().find(|(id, _, _, _)| *id == module_id)
-    else {
+    let Some((ast, module_path, _)) = module_asts.get(&module_id) else {
         return false;
     };
 

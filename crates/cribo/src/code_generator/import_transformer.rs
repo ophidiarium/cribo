@@ -3374,23 +3374,24 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
 
         // Check if this module is inlined
         if let Some(source_module_id) = bundler.get_module_id(&module_name)
-            && bundler.inlined_modules.contains(&source_module_id) {
-                log::debug!(
-                    "Module '{module_name}' is an inlined module, \
+            && bundler.inlined_modules.contains(&source_module_id)
+        {
+            log::debug!(
+                "Module '{module_name}' is an inlined module, \
                      inside_wrapper_init={inside_wrapper_init}"
-                );
-                // Get the importing module's ID
-                let importing_module_id = bundler.resolver.get_module_id_by_name(current_module);
-                // Handle imports from inlined modules
-                return handle_imports_from_inlined_module_with_context(
-                    bundler,
-                    &import_from,
-                    source_module_id,
-                    symbol_renames,
-                    inside_wrapper_init,
-                    importing_module_id,
-                );
-            }
+            );
+            // Get the importing module's ID
+            let importing_module_id = bundler.resolver.get_module_id_by_name(current_module);
+            // Handle imports from inlined modules
+            return handle_imports_from_inlined_module_with_context(
+                bundler,
+                &import_from,
+                source_module_id,
+                symbol_renames,
+                inside_wrapper_init,
+                importing_module_id,
+            );
+        }
 
         // Check if this module is in the module_registry (wrapper module)
         // A module is a wrapper if it's bundled but NOT inlined

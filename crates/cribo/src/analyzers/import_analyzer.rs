@@ -631,7 +631,7 @@ impl ImportAnalyzer {
     /// This function is used to determine if private symbols (e.g., starting with underscore)
     /// should still be exported because they're imported by other modules.
     pub fn is_symbol_imported_by_other_modules(
-        module_asts: &[(crate::resolver::ModuleId, ModModule, PathBuf, String)],
+        module_asts: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
         module_id: crate::resolver::ModuleId,
         symbol_name: &str,
         module_exports: Option<&FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>>,
@@ -648,7 +648,7 @@ impl ImportAnalyzer {
         );
 
         // Look through all modules to see if any import this symbol
-        for (other_module_id, ast, _, _) in module_asts {
+        for (other_module_id, (ast, _, _)) in module_asts {
             // Skip the module itself
             if other_module_id == &module_id {
                 continue;
