@@ -104,9 +104,6 @@ pub struct Bundler<'a> {
     /// Module/symbol pairs that should be kept after tree shaking
     /// Maps module ID to set of symbols to keep in that module
     pub(crate) tree_shaking_keep_symbols: Option<FxIndexMap<ModuleId, FxIndexSet<String>>>,
-    /// Track which namespace symbols have been populated after deferred imports
-    /// Format: (`module_id`, `symbol_name`)
-    pub(crate) symbols_populated_after_deferred: FxIndexSet<(ModuleId, String)>,
     /// Track modules whose __all__ attribute is accessed in the code
     /// Set of (`accessing_module_id`, `accessed_alias`) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
@@ -209,7 +206,6 @@ impl<'a> Bundler<'a> {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
-            symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,
             semantic_bundler: None,
@@ -1886,8 +1882,6 @@ impl<'a> Bundler<'a> {
                             modules_with_accessed_all: &self.modules_with_accessed_all,
                             wrapper_modules: &self.wrapper_modules,
                             module_asts: &None, // Not needed for this context
-                            symbols_populated_after_deferred: &self
-                                .symbols_populated_after_deferred,
                             global_deferred_imports: &FxIndexMap::default(), // Not needed here
                             module_init_functions: &self.module_init_functions,
                             resolver: self.resolver,

@@ -32,7 +32,6 @@ pub struct NamespacePopulationContext<'a> {
     pub modules_with_accessed_all: &'a FxIndexSet<(ModuleId, String)>,
     pub wrapper_modules: &'a FxIndexSet<ModuleId>,
     pub module_asts: &'a Option<Vec<(ModuleId, ModModule, PathBuf, String)>>,
-    pub symbols_populated_after_deferred: &'a FxIndexSet<(ModuleId, String)>,
     pub global_deferred_imports: &'a FxIndexMap<(ModuleId, String), ModuleId>,
     pub module_init_functions: &'a FxIndexMap<ModuleId, String>,
     pub resolver: &'a crate::resolver::ModuleResolver,
@@ -440,21 +439,6 @@ pub fn populate_namespace_with_module_symbols(
             // For simple modules, this will be the module name directly
             // For dotted modules (e.g., greetings.greeting), build the chain
             let target = expressions::dotted_name(&parts, ExprContext::Load);
-
-            // Check if this specific symbol was already populated after deferred imports
-            // This happens for modules that had forward references and were populated later
-            if ctx
-                .symbols_populated_after_deferred
-                .contains(&(module_id, symbol_name.to_string()))
-                && target_name == sanitize_module_name_for_identifier(module_name).as_str()
-            {
-                debug!(
-                    "Skipping symbol assignment {target_name}.{symbol_name} = \
-                     {actual_symbol_name} - this specific symbol was already populated after \
-                     deferred imports"
-                );
-                continue;
-            }
 
             // Check if this assignment already exists in result_stmts
             let assignment_exists = result_stmts.iter().any(|stmt| {

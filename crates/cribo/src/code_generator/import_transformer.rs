@@ -1580,18 +1580,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     }
 
                                     // Only populate the namespace if it wasn't already populated
-                                    // Check if this namespace was already populated by the bundler
-                                    // symbols_populated_after_deferred contains (ModuleId, symbol)
-                                    // tuples
                                     let namespace_already_populated =
-                                        self.bundler.get_module_id(&full_module_path).is_some_and(
-                                            |id| {
-                                                self.bundler
-                                                    .symbols_populated_after_deferred
-                                                    .iter()
-                                                    .any(|(ns, _)| ns == &id)
-                                            },
-                                        ) || self.populated_modules.contains(&full_module_path);
+                                        self.populated_modules.contains(&full_module_path);
 
                                     if !namespace_already_populated {
                                         for symbol in filtered_exports {
@@ -3248,7 +3238,6 @@ fn create_namespace_population_context<'a>(
         modules_with_accessed_all: &bundler.modules_with_accessed_all,
         wrapper_modules: &bundler.wrapper_modules,
         module_asts: &bundler.module_asts,
-        symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
         global_deferred_imports: &bundler.global_deferred_imports,
         module_init_functions: &bundler.module_init_functions,
         resolver: bundler.resolver,
