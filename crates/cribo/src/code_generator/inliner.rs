@@ -59,7 +59,7 @@ impl Bundler<'_> {
         &mut self,
         module_name: &str,
         mut ast: ModModule,
-        module_path: &Path,
+        _module_path: &Path,
         ctx: &mut InlineContext,
     ) {
         let module_id = self
@@ -76,11 +76,9 @@ impl Bundler<'_> {
         // Then apply recursive import transformation to the module
         let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
             bundler: self,
-            module_name,
-            module_path: Some(module_path),
+            module_id,
             symbol_renames: ctx.module_renames,
             deferred_imports: ctx.deferred_imports,
-            is_entry_module: false, // This is not the entry module
             is_wrapper_init: false, // Not a wrapper init
             global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
             python_version: ctx.python_version,

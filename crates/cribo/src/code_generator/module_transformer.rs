@@ -138,11 +138,9 @@ pub fn transform_module_to_init_function<'a>(
     let mut wrapper_deferred_imports = Vec::new();
     let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
         bundler,
-        module_name: ctx.module_name,
-        module_path: Some(ctx.module_path),
+        module_id,
         symbol_renames,
         deferred_imports: &mut wrapper_deferred_imports,
-        is_entry_module: false,        // This is not the entry module
         is_wrapper_init: true,         // This IS a wrapper init function
         global_deferred_imports: None, // No need for global deferred imports in wrapper modules
         python_version: ctx.python_version,

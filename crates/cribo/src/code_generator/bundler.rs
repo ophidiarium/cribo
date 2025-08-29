@@ -2168,7 +2168,7 @@ impl<'a> Bundler<'a> {
         // Find the entry module in our modules list
         let entry_module = modules.into_iter().find(|(id, _, _, _)| id.is_entry());
 
-        if let Some((module_id, mut ast, module_path, _)) = entry_module {
+        if let Some((module_id, mut ast, _module_path, _)) = entry_module {
             let module_name = self
                 .resolver
                 .get_module_name(module_id)
@@ -2247,11 +2247,9 @@ impl<'a> Bundler<'a> {
                 let mut transformer = RecursiveImportTransformer::new(
                     RecursiveImportTransformerParams {
                         bundler: self,
-                        module_name: &module_name,
-                        module_path: Some(&module_path),
+                        module_id: crate::resolver::ModuleId::ENTRY,
                         symbol_renames: &symbol_renames,
                         deferred_imports: &mut entry_deferred_imports,
-                        is_entry_module: true,  // This is the entry module
                         is_wrapper_init: false, // Not a wrapper init
                         global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports directly */
                         python_version,
