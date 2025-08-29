@@ -1398,9 +1398,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 let namespace_var =
                                     sanitize_module_name_for_identifier(&full_module_path);
 
-                                // Only create the namespace if it hasn't been created yet
-                                // The bundler should have already registered it during pre-scanning
-                                if !self.bundler.is_namespace_registered(&namespace_var) {
+                                // Don't create deferred namespace objects for modules that are already bundled
+                                // The namespace will be created when the module is processed
+                                // Only create namespace if it's not a bundled module
+                                let full_module_id = self.bundler.get_module_id(&full_module_path);
+                                let is_bundled = full_module_id
+                                    .is_some_and(|id| self.bundler.bundled_modules.contains(&id));
+                                if !is_bundled
+                                    && !self.bundler.is_namespace_registered(&namespace_var)
+                                {
                                     // Create: namespace_var = types.SimpleNamespace()
                                     let types_simple_namespace_call = expressions::call(
                                         expressions::simple_namespace_ctor(),
@@ -1413,9 +1419,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     ));
                                 }
 
-                                // If local_name is different from namespace_var, create an alias
+                                // IMPORTANT: Create the local alias immediately, not deferred
+                                // This ensures the alias is available in the current module's context
+                                // For example, when `from . import messages` in greetings.greeting,
+                                // we need `messages = greetings_messages` to be available immediately
                                 if local_name != namespace_var {
-                                    self.deferred_imports.push(statements::simple_assign(
+                                    log::debug!(
+                                        "  Creating immediate local alias: {local_name} = {namespace_var}"
+                                    );
+                                    result_stmts.push(statements::simple_assign(
                                         local_name,
                                         expressions::name(&namespace_var, ExprContext::Load),
                                     ));
@@ -1586,7 +1598,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     let namespace_already_populated =
                                         self.populated_modules.contains(&full_module_path);
 
-                                    if !namespace_already_populated {
+                                    // Don't populate namespaces for bundled modules - they're already populated
+                                    // by the bundler when the module is processed
+                                    let is_bundled_module =
+                                        self.bundler.bundled_modules.contains(&module_id);
+
+                                    if !is_bundled_module && !namespace_already_populated {
+                                        // Only populate non-bundled modules (external modules)
                                         for symbol in filtered_exports {
                                             // Use the sanitized namespace variable for inlined
                                             // modules

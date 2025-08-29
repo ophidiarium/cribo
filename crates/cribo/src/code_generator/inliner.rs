@@ -562,8 +562,30 @@ impl Bundler<'_> {
         let is_circular_module = self.circular_modules.contains(&module_id);
         let is_single_underscore_private = name.starts_with('_') && !name.starts_with("__");
 
-        // For circular modules, we need special handling of private variables
-        if is_circular_module && is_single_underscore_private {
+        // Check if this is an import alias assignment created by import transformation
+        // These are assignments where the RHS is a name that references a namespace module
+        let is_import_alias = if let Expr::Name(name_expr) = assign.value.as_ref() {
+            let rhs_name = name_expr.id.as_str();
+            // Check if the RHS is a sanitized module name (e.g., greetings_messages)
+            self.bundled_modules.iter().any(|bundled_id| {
+                if let Some(bundled_name) = self.resolver.get_module_name(*bundled_id) {
+                    let sanitized =
+                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                            &bundled_name,
+                        );
+                    sanitized == rhs_name
+                } else {
+                    false
+                }
+            })
+        } else {
+            false
+        };
+
+        if is_import_alias {
+            log::debug!("Including import alias assignment '{name}' in module '{module_name}'");
+            // Don't skip import aliases - they're created by transformation and should always be included
+        } else if is_circular_module && is_single_underscore_private {
             // For circular modules, we always include single-underscore private module-level
             // variables because they might be used by functions that are part of the
             // circular dependency
