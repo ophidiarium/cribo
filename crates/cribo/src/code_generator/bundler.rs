@@ -8,12 +8,6 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-// Temporary: MODULE_VAR is being phased out but still used in some transformation functions
-// TODO: Refactor to pass module variable name through all transformation functions
-// Note: This is only used for lifted globals sync in nested functions
-// For init functions, we use SELF_PARAM from module_transformer
-const MODULE_VAR: &str = "self";
-
 use crate::{
     analyzers::{ImportAnalyzer, SymbolAnalyzer},
     ast_builder::{expressions, expressions::expr_to_dotted_name, other, statements},
@@ -4981,7 +4975,7 @@ impl Bundler<'_> {
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(statements::assign(
                             vec![expressions::attribute(
-                                expressions::name(MODULE_VAR, ExprContext::Load),
+                                expressions::name("self", ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],
@@ -5010,7 +5004,7 @@ impl Bundler<'_> {
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(statements::assign(
                             vec![expressions::attribute(
-                                expressions::name(MODULE_VAR, ExprContext::Load),
+                                expressions::name("self", ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],

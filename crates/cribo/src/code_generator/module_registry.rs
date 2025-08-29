@@ -373,9 +373,6 @@ pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
 
 /// The module `SimpleNamespace` variable name in init functions
 /// Use single underscore to prevent Python mangling
-// DEPRECATED: MODULE_VAR is no longer used in the new architecture
-// We set attributes directly on the module namespace objects
-// pub const MODULE_VAR: &str = "_cribo_module";
 /// Generate init function name from synthetic name
 pub fn get_init_function_name(synthetic_name: &str) -> String {
     format!("{CRIBO_INIT_PREFIX}{synthetic_name}")

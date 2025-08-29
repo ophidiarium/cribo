@@ -1,9 +1,5 @@
 use log::debug;
 
-// Temporary: MODULE_VAR is being phased out but still used in some transformation functions
-// TODO: Refactor to pass module variable name through all transformation functions
-const MODULE_VAR: &str = "_cribo_module";
-
 use ruff_python_ast::{
     AtomicNodeIndex, Comprehension, ExceptHandler, Expr, ExprContext, ExprFString, FString,
     FStringValue, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements, Stmt,
@@ -98,18 +94,18 @@ fn transform_introspection_in_expr(
                         );
                     }
                 } else {
-                    // Fallback to using MODULE_VAR constant if no module_var_name provided
+                    // Fallback to using "self" if no module_var_name provided
                     if target_fn == "locals" {
-                        // Replace with vars(__cribo_module)
+                        // Replace with vars(self)
                         *expr = expressions::call(
                             expressions::name("vars", ExprContext::Load),
-                            vec![expressions::name(MODULE_VAR, ExprContext::Load)],
+                            vec![expressions::name("self", ExprContext::Load)],
                             vec![],
                         );
                     } else if target_fn == "globals" {
-                        // Replace with __cribo_module.__dict__
+                        // Replace with self.__dict__
                         *expr = expressions::attribute(
-                            expressions::name(MODULE_VAR, ExprContext::Load),
+                            expressions::name("self", ExprContext::Load),
                             "__dict__",
                             ExprContext::Load,
                         );

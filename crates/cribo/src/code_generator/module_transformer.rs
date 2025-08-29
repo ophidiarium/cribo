@@ -104,8 +104,6 @@ pub fn transform_module_to_init_function<'a>(
     );
     body.push(check_initializing);
 
-    // No need for MODULE_VAR anymore - we use the module object directly
-
     // We no longer set __initializing__ globally at the beginning
     // Instead, we'll set it strategically before each import call
 
@@ -2529,9 +2527,6 @@ fn transform_expr_for_module_vars_with_locals(
     }
 }
 
-// DEPRECATED: This function appears to be unused in the new architecture
-// It was part of the old MODULE_VAR approach which has been replaced
-// TODO: Verify and remove if confirmed unused
 // pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
 //     let module_call = ast_builder::expressions::call(
 //         ast_builder::expressions::simple_namespace_ctor(),
@@ -2540,11 +2535,11 @@ fn transform_expr_for_module_vars_with_locals(
 //     );
 //
 //     vec![
-//         // __cribo_module = types.SimpleNamespace()
-//         ast_builder::statements::simple_assign(MODULE_VAR, module_call),
-//         // __cribo_module.__name__ = "module_name"
+//         // self = types.SimpleNamespace()
+//         ast_builder::statements::simple_assign("self", module_call),
+//         // self.__name__ = "module_name"
 //         ast_builder::statements::assign_attribute(
-//             MODULE_VAR,
+//             "self",
 //             "__name__",
 //             ast_builder::expressions::string_literal(module_name),
 //         ),
