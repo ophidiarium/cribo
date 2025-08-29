@@ -48,8 +48,6 @@ pub struct InlineContext<'a> {
     pub inlined_stmts: &'a mut Vec<Stmt>,
     /// Import aliases in the current module being inlined (alias -> `actual_name`)
     pub import_aliases: FxIndexMap<String, String>,
-    /// Deferred import assignments that need to be placed after all modules are inlined
-    pub deferred_imports: &'a mut Vec<Stmt>,
     /// Maps imported symbols to their source modules (`local_name` -> `source_module`)
     pub import_sources: FxIndexMap<String, String>,
     /// Python version for compatibility checks

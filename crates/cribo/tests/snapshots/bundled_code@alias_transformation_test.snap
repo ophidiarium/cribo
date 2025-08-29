@@ -62,10 +62,10 @@ utils_helpers.helper_func = helper_func
 j = _cribo.json
 operating_system = _cribo.os
 system_info = _cribo.sys
-process_a = process_data
-format_a = format_output
-config_a = load_config
-debug_a = debug_print
+process_a = utils_data_processor.process_data
+format_a = utils_data_processor.format_output
+config_a = utils_config_manager.load_config
+debug_a = utils_helpers.debug_print
 def main():
     """Main function that uses the imported modules with their aliases."""
     data = _cribo.json.dumps({"test": "data"})

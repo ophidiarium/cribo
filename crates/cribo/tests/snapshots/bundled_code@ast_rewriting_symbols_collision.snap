@@ -118,6 +118,8 @@ models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.user = models_user
 """\nUser model with extensive naming conflicts across the project\n"""
+util_process = core_utils_helpers.process
+UtilLogger = core_utils_helpers.Logger
 result_3 = {"model": "user"}
 connection_2 = None
 class Logger_2:
@@ -246,8 +248,6 @@ def complex_operation(User: _cribo.typing.Any=None, Logger: _cribo.typing.Any=No
         if logger:
             operation_result["created_logger"] = logger.context
     return operation_result
-util_process = process_5
-UtilLogger = Logger_3
 models_user.Connection = Connection_2
 models_user.Logger = Logger_2
 models_user.User = User_2
@@ -261,6 +261,7 @@ models_user.validate = validate_3
 core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection')
 core_database.connection = core_database_connection
 """\nDatabase connection module with naming conflicts\n"""
+helper_validate = core_utils_helpers.validate
 result_6 = []
 connection_3 = None
 class Connection_5:
@@ -301,7 +302,6 @@ def connect_5():
     else:
         new_connection = connection_3
     return new_connection.connect()
-helper_validate = validate_5
 core_database_connection.Connection = Connection_5
 core_database_connection.connect = connect_5
 core_database_connection.connection = connection_3
@@ -311,6 +311,8 @@ core_database_connection.validate = validate_6
 models_base = _cribo.types.SimpleNamespace(__name__='models.base')
 models.base = models_base
 """\nBase model functionality with relative import conflicts\n"""
+core_validate = core_utils_helpers.validate
+UserLogger = models_user.Logger
 result_2 = "base_result"
 process_2 = "base_process_string"
 class BaseModel:
@@ -392,8 +394,6 @@ def shadow_test(validate: _cribo.typing.Any=None, process: _cribo.typing.Any=Non
     logger = Logger_class("shadow_test") if Logger_class else None
     shadows.update({"validate_result": validation_result, "process_result": process_result, "logger_source": logger.source if logger else None})
     return shadows
-core_validate = validate_5
-UserLogger = Logger_2
 models_base.BaseModel = BaseModel
 models_base.Logger = Logger_1
 models_base.connect = connect_1
@@ -548,12 +548,12 @@ def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
 services_auth_manager.__init__ = _cribo_init___cribo_6ccb3a_services_auth_manager
 services_auth.manager = services_auth_manager
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
-db_process = process_6
+db_process = core_database_connection.process
 services_auth_manager = _cribo_init___cribo_6ccb3a_services_auth_manager(services_auth_manager)
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
-UserModel = User_2
-Logger = Logger_2
+UserModel = models_user.User
+Logger = models_user.Logger
 base = models_base
 result_1 = 42
 result = result_1

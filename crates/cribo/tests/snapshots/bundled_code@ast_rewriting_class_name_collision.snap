@@ -89,10 +89,10 @@ Product_1.__qualname__ = 'Product'
 entities.Product = Product_1
 entities.User = User_1
 """\nClass name collision test.\nBoth modules define classes with the same names.\n"""
-ModelUser = User_2
-ModelProduct = Product_2
-EntityUser = User_1
-EntityProduct = Product_1
+ModelUser = models.User
+ModelProduct = models.Product
+EntityUser = entities.User
+EntityProduct = entities.Product
 def main():
     model_user = ModelUser("Alice", "alice@example.com")
     entity_user = EntityUser("Bob", 25)

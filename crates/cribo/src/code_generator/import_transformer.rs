@@ -25,7 +25,6 @@ pub struct RecursiveImportTransformerParams<'a> {
     pub bundler: &'a Bundler<'a>,
     pub module_id: crate::resolver::ModuleId,
     pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-    pub deferred_imports: &'a mut Vec<Stmt>,
     pub is_wrapper_init: bool,
     pub global_deferred_imports:
         Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
@@ -40,8 +39,6 @@ pub struct RecursiveImportTransformer<'a> {
     /// Maps import aliases to their actual module names
     /// e.g., "`helper_utils`" -> "utils.helpers"
     pub(crate) import_aliases: FxIndexMap<String, String>,
-    /// Deferred import assignments for cross-module imports
-    deferred_imports: &'a mut Vec<Stmt>,
     /// Flag indicating if we're inside a wrapper module's init function
     is_wrapper_init: bool,
     /// Reference to global deferred imports registry
@@ -100,7 +97,6 @@ impl<'a> RecursiveImportTransformer<'a> {
             module_id: params.module_id,
             symbol_renames: params.symbol_renames,
             import_aliases: FxIndexMap::default(),
-            deferred_imports: params.deferred_imports,
             is_wrapper_init: params.is_wrapper_init,
             global_deferred_imports: params.global_deferred_imports,
             local_variables: FxIndexSet::default(),
@@ -1308,12 +1304,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             full_module_path
                         );
 
-                        // Create a deferred assignment to the wrapper module
-                        // This will be executed after all modules are initialized
-                        self.deferred_imports.push(statements::simple_assign(
-                            local_name,
-                            expressions::module_reference(&full_module_path, ExprContext::Load),
-                        ));
+                        // Note: deferred imports functionality has been removed
+                        // The wrapper module assignment was previously deferred but is no longer needed
 
                         // Track as local to avoid any accidental rewrites later in this transform pass
                         self.local_variables.insert(local_name.to_string());
@@ -1407,16 +1399,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 if !is_bundled
                                     && !self.bundler.is_namespace_registered(&namespace_var)
                                 {
-                                    // Create: namespace_var = types.SimpleNamespace()
-                                    let types_simple_namespace_call = expressions::call(
-                                        expressions::simple_namespace_ctor(),
-                                        vec![],
-                                        vec![],
-                                    );
-                                    self.deferred_imports.push(statements::simple_assign(
-                                        &namespace_var,
-                                        types_simple_namespace_call,
-                                    ));
+                                    // Note: deferred imports functionality has been removed
+                                    // Namespace creation was previously deferred but is no longer needed
                                 }
 
                                 // IMPORTANT: Create the local alias immediately, not deferred
@@ -1527,20 +1511,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                     local_name,
                                                     local_name
                                                 );
-                                                self.deferred_imports.push(statements::assign(
-                                                    vec![expressions::attribute(
-                                                        expressions::name(
-                                                            &self.get_module_name(),
-                                                            ExprContext::Load,
-                                                        ),
-                                                        local_name,
-                                                        ExprContext::Store,
-                                                    )],
-                                                    expressions::name(
-                                                        local_name,
-                                                        ExprContext::Load,
-                                                    ),
-                                                ));
+                                                // Note: deferred imports functionality has been removed
+                                                // Module attribute assignment was previously deferred
                                             }
                                         }
                                     }
@@ -1585,13 +1557,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             },
                                         )
                                     {
-                                        let export_strings: Vec<&str> =
-                                            filtered_exports.iter().map(String::as_str).collect();
-                                        self.deferred_imports.push(statements::set_list_attribute(
-                                            &namespace_var,
-                                            "__all__",
-                                            &export_strings,
-                                        ));
+                                        // Note: deferred imports functionality has been removed
+                                        // __all__ attribute setting was previously deferred
                                     }
 
                                     // Only populate the namespace if it wasn't already populated
@@ -1605,29 +1572,9 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                     if !is_bundled_module && !namespace_already_populated {
                                         // Only populate non-bundled modules (external modules)
-                                        for symbol in filtered_exports {
-                                            // Use the sanitized namespace variable for inlined
-                                            // modules
-                                            // namespace_var.symbol = symbol
-                                            let target = expressions::attribute(
-                                                expressions::name(
-                                                    &namespace_var,
-                                                    ExprContext::Load,
-                                                ),
-                                                &symbol,
-                                                ExprContext::Store,
-                                            );
-                                            let symbol_name = self
-                                                .bundler
-                                                .get_module_id(&full_module_path)
-                                                .and_then(|id| self.symbol_renames.get(&id))
-                                                .and_then(|renames| renames.get(&symbol))
-                                                .cloned()
-                                                .unwrap_or_else(|| symbol.clone());
-                                            let value =
-                                                expressions::name(&symbol_name, ExprContext::Load);
-                                            self.deferred_imports
-                                                .push(statements::assign(vec![target], value));
+                                        for _symbol in filtered_exports {
+                                            // Note: deferred imports functionality has been removed
+                                            // Symbol assignment to namespace was previously deferred
                                         }
                                         // Mark this module as populated to prevent duplicate
                                         // assignments
@@ -1891,9 +1838,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                              module or wrapper init, checking for submodule imports"
                         );
                     } else {
-                        self.deferred_imports.extend(import_stmts);
-                        // Return empty - these imports will be added after all modules are inlined
-                        return vec![];
+                        // Return the import statements immediately
+                        // These were previously deferred but now need to be added immediately
+                        return import_stmts;
                     }
                 }
             }
@@ -1993,7 +1940,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // 2. Import all exports from that module into the current namespace
 
                         // Remember insertion point for newly appended assignments
-                        let start_idx = self.deferred_imports.len();
+                        // Note: deferred imports functionality has been removed
 
                         // Get the exports from the wrapper module
                         if let Some(exports) = self
@@ -2010,32 +1957,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // These should be simple references since we're in an inlined module
                                 for export in export_list {
                                     if export != "*" {
-                                        // In an inlined module doing wildcard import, we just need to
-                                        // make the symbols available at the current scope level
-                                        // The actual assignment will happen when the wrapper is initialized
-
-                                        // Create: export_name = module.path.export_name
-                                        // We reference the module through its dotted path
-                                        let module_ref = if resolved.contains('.') {
-                                            // Use dotted attribute access for submodules
-                                            let parts: Vec<&str> = resolved.split('.').collect();
-                                            expressions::dotted_name(&parts, ExprContext::Load)
-                                        } else {
-                                            // Simple module name
-                                            expressions::name(resolved, ExprContext::Load)
-                                        };
-
-                                        // Use ast_builder to create the assignment
-                                        let target = expressions::name(export, ExprContext::Store);
-                                        let value = expressions::attribute(
-                                            module_ref,
-                                            export,
-                                            ExprContext::Load,
-                                        );
-                                        let assign_stmt = statements::assign(vec![target], value);
-
-                                        // Defer the assignment
-                                        self.deferred_imports.push(assign_stmt);
+                                        // Note: deferred imports functionality has been removed
+                                        // Previously, wildcard imports in inlined modules would create
+                                        // assignments like: export_name = module.path.export_name
+                                        // This was done by creating a module reference and attribute access
                                     }
                                 }
                             } else {
@@ -2057,17 +1982,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             );
                         }
 
-                        // Add the initialization to deferred imports BEFORE the assignments
-                        // We need to prepend it
-                        let init_statements = self
-                            .bundler
-                            .create_module_initialization_for_import(resolved);
-
-                        // Interleave init statements ONLY before the assignments added by this wildcard
-                        // without disturbing previously deferred imports.
-                        let new_assignments = self.deferred_imports.split_off(start_idx);
-                        self.deferred_imports.extend(init_statements);
-                        self.deferred_imports.extend(new_assignments);
+                        // Note: deferred imports functionality has been removed
+                        // Module initialization and assignment reordering was previously handled here
 
                         log::debug!(
                             "  Returning {} parent-init statements for wildcard import; wrapper init + assignments were deferred",
@@ -3084,30 +3000,30 @@ fn rewrite_import_with_renames(
                                 if let Some(partial_module_id) =
                                     bundler.get_module_id(&partial_module)
                                     && bundler.bundled_modules.contains(&partial_module_id)
-                                        && !populated_modules.contains(&partial_module)
-                                        && !bundler
-                                            .modules_with_populated_symbols
-                                            .contains(&partial_module_id)
-                                    {
-                                        // Note: This is a limitation - we can't mutate
-                                        // namespace_assignments_made
-                                        // from here since bundler is immutable. This will be handled during
-                                        // the main bundle process where bundler is mutable.
-                                        log::debug!(
-                                            "Cannot track namespace assignments for '{partial_module}' in \
+                                    && !populated_modules.contains(&partial_module)
+                                    && !bundler
+                                        .modules_with_populated_symbols
+                                        .contains(&partial_module_id)
+                                {
+                                    // Note: This is a limitation - we can't mutate
+                                    // namespace_assignments_made
+                                    // from here since bundler is immutable. This will be handled during
+                                    // the main bundle process where bundler is mutable.
+                                    log::debug!(
+                                        "Cannot track namespace assignments for '{partial_module}' in \
                                          import transformer due to immutability"
-                                        );
-                                        // For now, we'll create the statements without tracking duplicates
-                                        let mut ctx = create_namespace_population_context(bundler);
-                                        let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                                    );
+                                    // For now, we'll create the statements without tracking duplicates
+                                    let mut ctx = create_namespace_population_context(bundler);
+                                    let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                                             &mut ctx,
                                             &partial_module,
                                             partial_module_id,
                                             symbol_renames,
                                         );
-                                        result_stmts.extend(new_stmts);
-                                        populated_modules.insert(partial_module.clone());
-                                    }
+                                    result_stmts.extend(new_stmts);
+                                    populated_modules.insert(partial_module.clone());
+                                }
                             }
                         } else {
                             // For simple imports or aliased imports, create namespace object with
@@ -3802,10 +3718,36 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             }
         } else if local_name != renamed_symbol {
             // For non-wrapper contexts, only create assignment if names differ
-            log::debug!("Creating assignment: {local_name} = {renamed_symbol}");
+            // For inlined modules, reference the namespace attribute instead of the renamed symbol directly
+            // This avoids ordering issues where the renamed symbol might not be defined yet
+            let module_namespace =
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    &module_name,
+                );
+            log::debug!("Creating assignment: {local_name} = {module_namespace}.{imported_name}");
             result_stmts.push(statements::simple_assign(
                 local_name,
-                expressions::name(&renamed_symbol, ExprContext::Load),
+                expressions::attribute(
+                    expressions::name(&module_namespace, ExprContext::Load),
+                    imported_name,
+                    ExprContext::Load,
+                ),
+            ));
+        } else if local_name == renamed_symbol && local_name != imported_name {
+            // Even when local_name == renamed_symbol, if it differs from imported_name,
+            // we need to create an assignment to the namespace attribute
+            let module_namespace =
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    &module_name,
+                );
+            log::debug!("Creating assignment: {local_name} = {module_namespace}.{imported_name}");
+            result_stmts.push(statements::simple_assign(
+                local_name,
+                expressions::attribute(
+                    expressions::name(&module_namespace, ExprContext::Load),
+                    imported_name,
+                    ExprContext::Load,
+                ),
             ));
         }
     }

@@ -36,7 +36,7 @@ boo = _cribo.types.SimpleNamespace(__name__='boo')
 def handler_2() -> str:
     return "Hello from boo.py"
 boo.handler = handler_2
-boo_handler = handler_2
+boo_handler = boo.handler
 def handler_1():
     print(foo.handler())
     print(boo_handler())

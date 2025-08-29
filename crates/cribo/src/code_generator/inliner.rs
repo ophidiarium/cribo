@@ -78,7 +78,6 @@ impl Bundler<'_> {
             bundler: self,
             module_id,
             symbol_renames: ctx.module_renames,
-            deferred_imports: ctx.deferred_imports,
             is_wrapper_init: false, // Not a wrapper init
             global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
             python_version: ctx.python_version,
@@ -299,8 +298,7 @@ impl Bundler<'_> {
                         && let Expr::Name(arg_name) = &call.arguments.args[0]
                         && arg_name.id.as_str() == INIT_RESULT_VAR
                     {
-                        // This is a deferred import pattern for copying attributes
-                        // It should be in deferred_imports, not in the module body
+                        // This is a pattern for copying attributes
                         // Skip it silently as it will be handled separately
                         log::debug!("Skipping deferred import For loop in module '{module_name}'");
                     } else {
@@ -563,23 +561,46 @@ impl Bundler<'_> {
         let is_single_underscore_private = name.starts_with('_') && !name.starts_with("__");
 
         // Check if this is an import alias assignment created by import transformation
-        // These are assignments where the RHS is a name that references a namespace module
-        let is_import_alias = if let Expr::Name(name_expr) = assign.value.as_ref() {
-            let rhs_name = name_expr.id.as_str();
-            // Check if the RHS is a sanitized module name (e.g., greetings_messages)
-            self.bundled_modules.iter().any(|bundled_id| {
-                if let Some(bundled_name) = self.resolver.get_module_name(*bundled_id) {
-                    let sanitized =
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            &bundled_name,
-                        );
-                    sanitized == rhs_name
+        // These are assignments where the RHS is either:
+        // 1. A name that references a namespace module (e.g., greetings_messages)
+        // 2. An attribute access to a namespace module (e.g., core_utils_helpers.process)
+        let is_import_alias = match assign.value.as_ref() {
+            Expr::Name(name_expr) => {
+                let rhs_name = name_expr.id.as_str();
+                // Check if the RHS is a sanitized module name (e.g., greetings_messages)
+                self.bundled_modules.iter().any(|bundled_id| {
+                    if let Some(bundled_name) = self.resolver.get_module_name(*bundled_id) {
+                        let sanitized =
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                &bundled_name,
+                            );
+                        sanitized == rhs_name
+                    } else {
+                        false
+                    }
+                })
+            }
+            Expr::Attribute(attr_expr) => {
+                // Check if the base is a namespace module (e.g., core_utils_helpers in core_utils_helpers.process)
+                if let Expr::Name(base_name) = attr_expr.value.as_ref() {
+                    let base = base_name.id.as_str();
+                    // Check if the base is a sanitized module name
+                    self.bundled_modules.iter().any(|bundled_id| {
+                        if let Some(bundled_name) = self.resolver.get_module_name(*bundled_id) {
+                            let sanitized =
+                                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                    &bundled_name,
+                                );
+                            sanitized == base
+                        } else {
+                            false
+                        }
+                    })
                 } else {
                     false
                 }
-            })
-        } else {
-            false
+            }
+            _ => false,
         };
 
         if is_import_alias {
@@ -644,10 +665,11 @@ impl Bundler<'_> {
         // If it does, we need to defer it until after namespace creation
         if self.assignment_references_namespace_module(&assign_clone, module_name, ctx) {
             log::debug!(
-                "Deferring assignment '{name}' in module '{module_name}' as it references a \
-                 namespace module"
+                "Assignment '{name}' in module '{module_name}' references a namespace module"
             );
-            ctx.deferred_imports.push(Stmt::Assign(assign_clone));
+            // Note: deferred imports functionality has been removed
+            // This assignment was previously deferred but now added immediately
+            ctx.inlined_stmts.push(Stmt::Assign(assign_clone));
         } else {
             ctx.inlined_stmts.push(Stmt::Assign(assign_clone));
         }

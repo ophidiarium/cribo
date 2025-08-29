@@ -133,12 +133,10 @@ pub fn transform_module_to_init_function<'a>(
 
     // First, recursively transform all imports in the AST
     // For wrapper modules, we don't need to defer imports since they run in their own scope
-    let mut wrapper_deferred_imports = Vec::new();
     let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
         bundler,
         module_id,
         symbol_renames,
-        deferred_imports: &mut wrapper_deferred_imports,
         is_wrapper_init: true,         // This IS a wrapper init function
         global_deferred_imports: None, // No need for global deferred imports in wrapper modules
         python_version: ctx.python_version,
@@ -317,9 +315,6 @@ pub fn transform_module_to_init_function<'a>(
         debug!("Namespace objects were created in wrapper module, types import already present");
     }
 
-    // Store deferred imports to add after module body
-    let deferred_imports_to_add = wrapper_deferred_imports.clone();
-
     // Add global declarations for symbols imported from inlined modules
     // This is necessary because the symbols are defined in the global scope
     // but we need to access them inside the init function
@@ -381,20 +376,8 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // IMPORTANT: Add import alias assignments FIRST, before processing the module body
-    // This ensures that aliases like 'helper_validate = validate' are available when
-    // the module body code tries to use them (e.g., helper_validate.__name__)
-    for stmt in &deferred_imports_to_add {
-        if let Stmt::Assign(assign) = stmt {
-            // Check if this is a simple name-to-name assignment (import alias)
-            if let [Expr::Name(_)] = assign.targets.as_slice()
-                && let Expr::Name(_) = &*assign.value
-            {
-                // This is an import alias assignment, add it immediately
-                body.push(stmt.clone());
-            }
-        }
-    }
+    // Note: deferred imports functionality has been removed
+    // Import alias assignments were previously added here
 
     // Add placeholder assignments for wrapper module symbols
     // These symbols will be properly assigned later when wrapper modules are initialized,
@@ -1171,40 +1154,8 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // Add remaining deferred imports after submodule namespaces are created
-    // Skip import alias assignments since they were already added at the beginning
-    for stmt in &deferred_imports_to_add {
-        // Skip simple name-to-name assignments (import aliases) as they were already added
-        let is_import_alias = if let Stmt::Assign(assign) = stmt {
-            matches!(
-                (assign.targets.as_slice(), &*assign.value),
-                ([Expr::Name(_)], Expr::Name(_))
-            )
-        } else {
-            false
-        };
-
-        if is_import_alias {
-            continue; // Already added at the beginning
-        }
-
-        if let Stmt::Assign(assign) = stmt
-            && !expression_handlers::is_self_referential_assignment(assign, ctx.python_version)
-        {
-            // For deferred imports that are assignments, also set as module attribute if
-            // exported
-            body.push(stmt.clone());
-            add_module_attr_if_exported(
-                bundler,
-                assign,
-                ctx.module_name,
-                &mut body,
-                module_scope_symbols,
-            );
-        } else {
-            body.push(stmt.clone());
-        }
-    }
+    // Note: deferred imports functionality has been removed
+    // Remaining deferred imports were previously added here
 
     // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
 

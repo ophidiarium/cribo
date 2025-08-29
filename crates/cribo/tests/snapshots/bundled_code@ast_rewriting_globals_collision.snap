@@ -28,6 +28,68 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
+core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
+core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
+core.utils = core_utils
+core_utils.helpers = core_utils_helpers
+"""Core utility helpers module - NO external dependencies to avoid circular imports"""
+process_count = 0
+validate_cache = {}
+Logger_6 = str
+Connection_6 = "not_a_class"
+def process_7(data):
+    """Process function in utils module"""
+    global process_count
+    process_count += 1
+    return f"utils_process: {data} (#{process_count})"
+def validate_6(data):
+    """Validate function in utils module"""
+    if data in validate_cache:
+        return validate_cache[data]
+    result = f"utils_validate: {data}"
+    validate_cache[data] = result
+    return result
+class Logger_6:
+    """Logger class in utils module"""
+
+    def __init__(self, name):
+        self.name = name
+        self.messages = []
+
+    def log(self, message):
+        self.messages.append(f"[{self.name}] {message}")
+
+    def get_message(self):
+        return f"utils_logger_{self.name}"
+Logger_6.__module__ = 'core.utils.helpers'
+Logger_6.__name__ = 'Logger'
+Logger_6.__qualname__ = 'Logger'
+class Connection_6:
+    """Connection class in utils - different from database Connection"""
+
+    def __init__(self):
+        self.type = "utility_connection"
+
+    def connect(self):
+        return "utils_connection_established"
+Connection_6.__module__ = 'core.utils.helpers'
+Connection_6.__name__ = 'Connection'
+Connection_6.__qualname__ = 'Connection'
+def sanitize(text):
+    """Utility function without conflicts"""
+    return text.strip().lower()
+def format_result(result):
+    """Another utility function"""
+    return f"formatted: {result}"
+core_utils_helpers.Connection = Connection_6
+core_utils_helpers.Logger = Logger_6
+core_utils_helpers.format_result = format_result
+core_utils_helpers.process = process_7
+core_utils_helpers.process_count = process_count
+core_utils_helpers.sanitize = sanitize
+core_utils_helpers.validate = validate_6
+core_utils_helpers.validate_cache = validate_cache
 models_base = _cribo.types.SimpleNamespace(__name__='models.base', __initializing__=False, __initialized__=False)
 _cribo_models_base_Connection = None
 def _cribo_init___cribo_0a162a_models_base(self):
@@ -192,68 +254,6 @@ services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=Fa
 services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False, __path__=[])
 services.auth = services_auth
 services_auth.manager = services_auth_manager
-core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
-core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
-core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
-core.utils = core_utils
-core_utils.helpers = core_utils_helpers
-"""Core utility helpers module - NO external dependencies to avoid circular imports"""
-process_count = 0
-validate_cache = {}
-Logger_6 = str
-Connection_6 = "not_a_class"
-def process_7(data):
-    """Process function in utils module"""
-    global process_count
-    process_count += 1
-    return f"utils_process: {data} (#{process_count})"
-def validate_6(data):
-    """Validate function in utils module"""
-    if data in validate_cache:
-        return validate_cache[data]
-    result = f"utils_validate: {data}"
-    validate_cache[data] = result
-    return result
-class Logger_6:
-    """Logger class in utils module"""
-
-    def __init__(self, name):
-        self.name = name
-        self.messages = []
-
-    def log(self, message):
-        self.messages.append(f"[{self.name}] {message}")
-
-    def get_message(self):
-        return f"utils_logger_{self.name}"
-Logger_6.__module__ = 'core.utils.helpers'
-Logger_6.__name__ = 'Logger'
-Logger_6.__qualname__ = 'Logger'
-class Connection_6:
-    """Connection class in utils - different from database Connection"""
-
-    def __init__(self):
-        self.type = "utility_connection"
-
-    def connect(self):
-        return "utils_connection_established"
-Connection_6.__module__ = 'core.utils.helpers'
-Connection_6.__name__ = 'Connection'
-Connection_6.__qualname__ = 'Connection'
-def sanitize(text):
-    """Utility function without conflicts"""
-    return text.strip().lower()
-def format_result(result):
-    """Another utility function"""
-    return f"formatted: {result}"
-core_utils_helpers.Connection = Connection_6
-core_utils_helpers.Logger = Logger_6
-core_utils_helpers.format_result = format_result
-core_utils_helpers.process = process_7
-core_utils_helpers.process_count = process_count
-core_utils_helpers.sanitize = sanitize
-core_utils_helpers.validate = validate_6
-core_utils_helpers.validate_cache = validate_cache
 core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_df9c8d_core_database_connection(self):
     if getattr(self, '__initialized__', False):
@@ -515,7 +515,7 @@ for attr in dir(__cribo_init_result):
         setattr(core.database, attr, getattr(__cribo_init_result, attr))
 core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
 db_process = core.database.connection.process
-UtilLogger = Logger_6
+UtilLogger = core_utils_helpers.Logger
 __cribo_init_result = _cribo_init___cribo_b2dda7_services(services)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

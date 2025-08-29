@@ -31,5 +31,5 @@ _cribo = _Cribo()
 greeting = _cribo.types.SimpleNamespace(__name__='greeting')
 message = "Hello"
 greeting.message = message
-m = message
+m = greeting.message
 print(m)

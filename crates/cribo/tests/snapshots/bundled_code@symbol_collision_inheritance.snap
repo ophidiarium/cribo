@@ -91,7 +91,7 @@ HTTPBasicAuth_1.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_1.__qualname__ = 'HTTPBasicAuth'
 colliding_module.HTTPBasicAuth = HTTPBasicAuth_1
 """Test symbol collision with class inheritance."""
-HTTPBasicAuth = HTTPBasicAuth_2
+HTTPBasicAuth = auth_module.HTTPBasicAuth
 proxy_auth = HTTPProxyAuth("user", "pass")
 print(f"Created HTTPProxyAuth: {proxy_auth}")
 print(f"HTTPProxyAuth.__bases__: {HTTPProxyAuth.__bases__}")

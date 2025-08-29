@@ -33,7 +33,7 @@ def validate_2():
     """Helper validate function"""
     return "helper validate"
 helper.validate = validate_2
-validate_imported = validate_2
+validate_imported = helper.validate
 def validate_1():
     """Local validate function that conflicts with imported one"""
     return "local validate"

@@ -59,7 +59,7 @@ nested_package.exported_from_init = exported_from_init
 conflict_module = _cribo.types.SimpleNamespace(__name__='conflict_module')
 message_1 = "from conflict_module"
 conflict_module.message = message_1
-message = message_1
+message = conflict_module.message
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")
 print(f"CONSTANT = {CONSTANT}")

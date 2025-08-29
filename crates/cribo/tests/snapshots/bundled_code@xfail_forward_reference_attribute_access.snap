@@ -82,7 +82,7 @@ for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mymodule, attr, getattr(__cribo_init_result, attr))
 MyError = mymodule.MyError
-CompatJSONDecodeError = JSONDecodeError
+CompatJSONDecodeError = mymodule_compat.JSONDecodeError
 class CustomError(MyError, CompatJSONDecodeError):
 
     def __init__(self, *args):

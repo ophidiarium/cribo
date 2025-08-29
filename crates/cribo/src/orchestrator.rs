@@ -769,6 +769,68 @@ impl BundleOrchestrator {
         Ok(())
     }
 
+    /// Topologically sort a subset of modules based on their dependencies
+    fn topologically_sort_modules(
+        &self,
+        graph: &CriboGraph,
+        module_ids: &[crate::resolver::ModuleId],
+    ) -> Vec<crate::resolver::ModuleId> {
+        let module_set: IndexSet<_> = module_ids.iter().copied().collect();
+        let mut result = Vec::new();
+        let mut visited = IndexSet::new();
+        let mut temp_stack = IndexSet::new();
+
+        fn visit(
+            module_id: crate::resolver::ModuleId,
+            graph: &CriboGraph,
+            module_set: &IndexSet<crate::resolver::ModuleId>,
+            visited: &mut IndexSet<crate::resolver::ModuleId>,
+            temp_stack: &mut IndexSet<crate::resolver::ModuleId>,
+            result: &mut Vec<crate::resolver::ModuleId>,
+        ) -> bool {
+            if temp_stack.contains(&module_id) {
+                // Cycle detected - this shouldn't happen for non-cycle modules
+                return false;
+            }
+            if visited.contains(&module_id) {
+                return true;
+            }
+
+            temp_stack.insert(module_id);
+
+            // Visit dependencies that are in our module set
+            let dependencies = graph.get_dependencies(module_id);
+            for dep_id in dependencies {
+                if module_set.contains(&dep_id)
+                    && !visit(dep_id, graph, module_set, visited, temp_stack, result)
+                {
+                    return false;
+                }
+            }
+
+            temp_stack.shift_remove(&module_id);
+            visited.insert(module_id);
+            result.push(module_id);
+            true
+        }
+
+        // Visit all modules in the set
+        for &module_id in module_ids {
+            if !visited.contains(&module_id) {
+                visit(
+                    module_id,
+                    graph,
+                    &module_set,
+                    &mut visited,
+                    &mut temp_stack,
+                    &mut result,
+                );
+            }
+        }
+
+        result
+    }
+
     /// Get modules in a valid order for bundling when there are resolvable circular dependencies
     fn get_modules_with_cycle_resolution(
         &self,
@@ -815,8 +877,16 @@ impl BundleOrchestrator {
         // For non-cycle modules, we can still use topological sorting on the subgraph
         let mut result = Vec::new();
 
-        // Add non-cycle modules first (they should sort topologically)
-        result.extend(non_cycle_ids);
+        // Sort non-cycle modules topologically among themselves
+        // This is critical - they must respect their dependency order
+        let sorted_non_cycle_ids = self.topologically_sort_modules(graph, &non_cycle_ids);
+        debug!(
+            "Sorted {} non-cycle modules topologically",
+            sorted_non_cycle_ids.len()
+        );
+
+        // Add sorted non-cycle modules first
+        result.extend(sorted_non_cycle_ids);
 
         // For cycle modules, use actual dependency information to order them
         // We'll do a best-effort topological sort that ignores function-level circular imports

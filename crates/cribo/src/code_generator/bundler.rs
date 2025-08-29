@@ -1656,7 +1656,6 @@ impl<'a> Bundler<'a> {
 
         let mut all_inlined_stmts = Vec::new();
         let mut processed_modules = FxIndexSet::default();
-        let mut pending_import_assignments: Vec<(String, Stmt)> = Vec::new(); // (required_symbol, assignment)
 
         // Log the dependency order from the graph
         log::info!("Module processing order from dependency graph:");
@@ -1802,9 +1801,6 @@ impl<'a> Bundler<'a> {
                     }
                 }
 
-                // Create a temporary vector for import assignments
-                let mut import_assignments = Vec::new();
-
                 // Create inline context for this specific module
                 let mut inline_ctx = InlineContext {
                     module_exports_map: &module_exports_map,
@@ -1812,7 +1808,6 @@ impl<'a> Bundler<'a> {
                     module_renames: &mut symbol_renames,
                     inlined_stmts: &mut all_inlined_stmts,
                     import_aliases: FxIndexMap::default(),
-                    deferred_imports: &mut import_assignments,
                     import_sources: FxIndexMap::default(),
                     python_version,
                 };
@@ -1820,37 +1815,8 @@ impl<'a> Bundler<'a> {
                 // Inline just this module
                 self.inline_module(&module_name, ast, &path, &mut inline_ctx);
 
-                // Check which import assignments can be added now
-                for stmt in import_assignments {
-                    // Try to extract the symbol being assigned from
-                    if let Stmt::Assign(ref assign) = stmt {
-                        if let Some(value_name) = assign.value.as_name_expr() {
-                            let required_symbol = value_name.id.as_str();
-
-                            // Check if the required symbol is already defined
-                            if global_symbols.contains(required_symbol) {
-                                // Symbol is available, add the assignment immediately
-                                log::debug!(
-                                    "Adding immediate import assignment for {required_symbol}"
-                                );
-                                all_inlined_stmts.push(stmt);
-                            } else {
-                                // Symbol not yet available, defer the assignment
-                                log::debug!(
-                                    "Deferring import assignment for {required_symbol} (not yet defined)"
-                                );
-                                pending_import_assignments
-                                    .push((required_symbol.to_string(), stmt));
-                            }
-                        } else {
-                            // Complex assignment, add it immediately
-                            all_inlined_stmts.push(stmt);
-                        }
-                    } else {
-                        // Not an assignment, add it immediately
-                        all_inlined_stmts.push(stmt);
-                    }
-                }
+                // Note: deferred imports functionality has been removed
+                // Import assignments were previously collected and processed here
 
                 // Mark this module as processed
                 processed_modules.insert(module_name.to_string());
@@ -1910,17 +1876,8 @@ impl<'a> Bundler<'a> {
                     }
                 }
 
-                // Check if any pending assignments can now be resolved
-                let mut still_pending = Vec::new();
-                for (required_symbol, stmt) in pending_import_assignments.drain(..) {
-                    if global_symbols.contains(&required_symbol) {
-                        log::debug!("Resolving deferred import assignment for {required_symbol}");
-                        all_inlined_stmts.push(stmt);
-                    } else {
-                        still_pending.push((required_symbol, stmt));
-                    }
-                }
-                pending_import_assignments = still_pending;
+                // Note: deferred imports functionality has been removed
+                // Pending assignment resolution was previously handled here
             } else if wrapper_set.contains(&module_name) {
                 // Process wrapper module immediately in dependency order
                 log::debug!("Processing wrapper module: {module_name}");
@@ -2242,7 +2199,6 @@ impl<'a> Bundler<'a> {
 
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
-            let mut entry_deferred_imports = Vec::new();
 
             // Transform imports in the entry module
             {
@@ -2251,7 +2207,6 @@ impl<'a> Bundler<'a> {
                         bundler: self,
                         module_id: crate::resolver::ModuleId::ENTRY,
                         symbol_renames: &symbol_renames,
-                        deferred_imports: &mut entry_deferred_imports,
                         is_wrapper_init: false, // Not a wrapper init
                         global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports directly */
                         python_version,
@@ -2561,50 +2516,8 @@ impl<'a> Bundler<'a> {
                 }
             }
 
-            // Add deferred imports from the entry module after all its statements
-            // But first update the global registry to prevent future duplicates
-            for stmt in &entry_deferred_imports {
-                if let Stmt::Assign(assign) = stmt
-                    && let Expr::Attribute(attr) = &assign.value.as_ref()
-                    && let Expr::Subscript(subscript) = &attr.value.as_ref()
-                    && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
-                    && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
-                    && sys_name.id.as_str() == "sys"
-                    && sys_attr.attr.as_str() == "modules"
-                    && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
-                {
-                    let import_module = lit.value.to_str();
-                    let attr_name = attr.attr.as_str();
-                    if let Expr::Name(target) = &assign.targets[0] {
-                        let _symbol_name = target.id.as_str();
-                        // Convert module names to IDs for global_deferred_imports
-                        if let Some(from_id) = self.get_module_id(import_module)
-                            && let Some(to_id) = self.get_module_id(&module_name)
-                        {
-                            self.global_deferred_imports
-                                .insert((from_id, attr_name.to_string()), to_id);
-                        }
-                    }
-                }
-            }
-            // Add entry module's deferred imports to the collection
-            log::debug!(
-                "Adding {} deferred imports from entry module",
-                entry_deferred_imports.len()
-            );
-            for stmt in &entry_deferred_imports {
-                if let Stmt::Assign(assign) = stmt
-                    && let Expr::Name(target) = &assign.targets[0]
-                    && let Expr::Attribute(attr) = &assign.value.as_ref()
-                {
-                    let attr_path = expression_handlers::extract_attribute_path(attr);
-                    log::debug!(
-                        "Entry module deferred import: {} = {}",
-                        target.id.as_str(),
-                        attr_path
-                    );
-                }
-            }
+            // Note: deferred imports functionality has been removed
+            // Entry module deferred imports were previously processed here
         }
 
         // Generate _cribo proxy for stdlib access (always included)
