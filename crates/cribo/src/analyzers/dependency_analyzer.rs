@@ -95,7 +95,7 @@ impl DependencyAnalyzer {
         // Check if imports can be moved to functions
         // Special case: if modules have NO items (empty or only imports), treat as FunctionLevel
         // This handles simple circular import cases like stickytape tests
-        let all_empty = Self::all_modules_empty_or_imports_only(graph, &module_names);
+        let all_empty = Self::all_modules_empty_or_imports_only(graph, module_ids);
 
         if all_empty {
             // Simple circular imports can often be resolved
@@ -103,7 +103,7 @@ impl DependencyAnalyzer {
         }
 
         // Perform AST analysis on the modules in the cycle
-        let analysis_result = Self::analyze_cycle_modules(graph, &module_names);
+        let analysis_result = Self::analyze_cycle_modules(graph, module_ids);
 
         // Use AST analysis results for classification
         if analysis_result.has_only_constants
@@ -152,15 +152,15 @@ impl DependencyAnalyzer {
     /// Returns a `CycleAnalysisResult` containing the analysis of the modules in the cycle.
     fn analyze_cycle_modules(
         graph: &DependencyGraph,
-        module_names: &[String],
+        module_ids: &[crate::resolver::ModuleId],
     ) -> CycleAnalysisResult {
         let mut has_only_constants = true;
         let mut has_class_definitions = false;
         let mut has_module_level_imports = false;
         let mut imports_used_in_functions_only = true;
 
-        for module_name in module_names {
-            if let Some(module) = graph.get_module_by_name(module_name) {
+        for id in module_ids {
+            if let Some(module) = graph.get_module(*id) {
                 for item in module.items.values() {
                     match &item.item_type {
                         ItemType::FunctionDef { .. } => {
@@ -218,9 +218,12 @@ impl DependencyAnalyzer {
     }
 
     /// Check if all modules in the cycle are empty or contain only imports
-    fn all_modules_empty_or_imports_only(graph: &DependencyGraph, module_names: &[String]) -> bool {
-        for module_name in module_names {
-            if let Some(module) = graph.get_module_by_name(module_name) {
+    fn all_modules_empty_or_imports_only(
+        graph: &DependencyGraph,
+        module_ids: &[crate::resolver::ModuleId],
+    ) -> bool {
+        for id in module_ids {
+            if let Some(module) = graph.get_module(*id) {
                 for item in module.items.values() {
                     match &item.item_type {
                         ItemType::Import { .. } | ItemType::FromImport { .. } => {

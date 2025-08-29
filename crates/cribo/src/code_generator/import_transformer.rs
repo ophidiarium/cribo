@@ -1897,12 +1897,12 @@ impl<'a> RecursiveImportTransformer<'a> {
 
             // Check if this is a wrapper module (in module_registry)
             // This check must be after the inlined module check to avoid double-handling
-            if self.bundler.get_module_id(resolved).is_some_and(|id| {
-                self.bundler
-                    .module_info_registry
-                    .as_ref()
-                    .is_some_and(|reg| reg.contains_module(&id))
-            }) {
+            // A module is a wrapper module if it has an init function
+            if self
+                .bundler
+                .get_module_id(resolved)
+                .is_some_and(|id| self.bundler.module_init_functions.contains_key(&id))
+            {
                 log::debug!("  Module '{resolved}' is a wrapper module");
 
                 // For modules importing from wrapper modules, we may need to defer
@@ -1930,11 +1930,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if let Some((parent, child)) = resolved.rsplit_once('.') {
                         // If the parent is also a wrapper module, DO NOT initialize it here
                         // It will be initialized when accessed
-                        if self.bundler.get_module_id(parent).is_some_and(|id| {
-                            self.bundler
-                                .module_info_registry
-                                .is_some_and(|reg| reg.contains_module(&id))
-                        }) {
+                        if self
+                            .bundler
+                            .get_module_id(parent)
+                            .is_some_and(|id| self.bundler.module_init_functions.contains_key(&id))
+                        {
                             log::debug!(
                                 "  Parent '{parent}' is a wrapper module - skipping immediate initialization"
                             );
@@ -1962,7 +1962,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // With correct topological ordering, we can safely initialize wrapper modules
                     // right where the import statement was. This ensures the wrapper module is
                     // initialized before its symbols are used (e.g., in class inheritance).
-                    if !is_wildcard {
+                    // CRITICAL: Only generate init calls for actual wrapper modules that have init functions
+                    if !is_wildcard
+                        && self
+                            .bundler
+                            .get_module_id(resolved)
+                            .is_some_and(|id| self.bundler.module_init_functions.contains_key(&id))
+                    {
                         log::debug!(
                             "  Generating initialization call for wrapper module '{resolved}' at import location"
                         );
