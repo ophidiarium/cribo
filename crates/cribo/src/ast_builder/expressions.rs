@@ -5,10 +5,11 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprCall,
-    ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
-    ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart, FStringValue, Keyword,
-    Operator, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprBooleanLiteral,
+    ExprCall, ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral,
+    ExprStringLiteral, ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart,
+    FStringValue, Keyword, Operator, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -110,6 +111,25 @@ pub fn string_literal(value: &str) -> Expr {
 /// ```
 pub fn none_literal() -> Expr {
     Expr::NoneLiteral(ExprNoneLiteral {
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a boolean literal expression node.
+///
+/// # Arguments
+/// * `value` - The boolean value
+///
+/// # Example
+/// ```rust
+/// // Creates: `True` or `False`
+/// let true_expr = bool_literal(true);
+/// let false_expr = bool_literal(false);
+/// ```
+pub fn bool_literal(value: bool) -> Expr {
+    Expr::BooleanLiteral(ExprBooleanLiteral {
+        value,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     })

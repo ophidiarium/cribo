@@ -1973,26 +1973,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                             "  Generating initialization call for wrapper module '{resolved}' at import location"
                         );
 
-                        // Generate the init call: module = module.__init__(module)
-                        // We need to create an assignment statement that calls the wrapper's init
-                        use crate::ast_builder::{expressions, statements};
+                        // Use ast_builder helper to generate wrapper init call
+                        use crate::ast_builder::module_wrapper;
                         use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
-                        use ruff_python_ast::ExprContext;
 
                         let module_var = sanitize_module_name_for_identifier(resolved);
-                        let init_call = statements::assign(
-                            vec![expressions::name(&module_var, ExprContext::Store)],
-                            expressions::call(
-                                expressions::attribute(
-                                    expressions::name(&module_var, ExprContext::Load),
-                                    "__init__",
-                                    ExprContext::Load,
-                                ),
-                                vec![expressions::name(&module_var, ExprContext::Load)],
-                                vec![],
-                            ),
-                        );
-                        init_stmts.push(init_call);
+                        init_stmts
+                            .push(module_wrapper::create_wrapper_module_init_call(&module_var));
                     }
 
                     // Handle wildcard import export assignments
@@ -3510,6 +3497,10 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &bundler.bundled_modules,
                 bundler.resolver,
                 python_version,
+                inside_wrapper_init,
+                Some(&|module_id, symbol| {
+                    bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+                }),
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection
@@ -3735,34 +3726,66 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 
         // Handle wrapper init functions specially
         if is_wrapper_init {
-            // In wrapper init functions, always set the module attribute to the resolved symbol
+            // When importing from an inlined module, we need to create the local alias FIRST
+            // before setting the module attribute, because the module attribute assignment
+            // uses the local name which won't exist until we create the alias
+            let is_from_inlined = bundler.inlined_modules.contains(&module_id);
+
+            // Create a local alias when:
+            // 1. The names are different (aliased import), OR
+            // 2. We're importing from an inlined module (need to access through namespace)
+            if local_name != renamed_symbol || is_from_inlined {
+                // When importing from an inlined module inside a wrapper init,
+                // the symbol needs to be qualified with the module's namespace
+                let source_expr = if is_from_inlined {
+                    // The module is inlined, so its symbols are attached to a namespace object
+                    let sanitized_module =
+                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                            module_name,
+                        );
+                    // Use the ORIGINAL imported name, not the renamed one, because that's how it's stored on the namespace
+                    log::debug!(
+                        "Creating local alias with qualified name: {local_name} = {sanitized_module}.{imported_name} (renamed from {renamed_symbol})"
+                    );
+                    expressions::attribute(
+                        expressions::name(&sanitized_module, ExprContext::Load),
+                        imported_name,
+                        ExprContext::Load,
+                    )
+                } else {
+                    log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
+                    expressions::name(&renamed_symbol, ExprContext::Load)
+                };
+                result_stmts.push(statements::simple_assign(local_name, source_expr));
+            }
+
+            // Now set the module attribute using the local name (which now exists)
             if let Some(current_mod) = current_module {
                 let module_var =
                     crate::code_generator::module_registry::sanitize_module_name_for_identifier(
                         current_mod,
                     );
+                // When importing from an inlined module, use the local name we just created
+                // Otherwise use the renamed symbol directly
+                let attr_value = if is_from_inlined {
+                    local_name
+                } else {
+                    &renamed_symbol
+                };
                 log::debug!(
-                    "Creating module attribute assignment in wrapper init: {module_var}.{local_name} = {renamed_symbol}"
+                    "Creating module attribute assignment in wrapper init: {module_var}.{local_name} = {attr_value}"
                 );
                 result_stmts.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
                         &module_var,
                         local_name,
-                        &renamed_symbol,
+                        attr_value,
                     ),
                 );
             } else {
                 log::warn!(
                     "is_wrapper_init is true but current_module is None, skipping module attribute assignment"
                 );
-            }
-            // Keep a local alias only when renamed, to preserve intra-init references
-            if local_name != renamed_symbol {
-                log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
-                result_stmts.push(statements::simple_assign(
-                    local_name,
-                    expressions::name(&renamed_symbol, ExprContext::Load),
-                ));
             }
         } else if local_name != renamed_symbol {
             // For non-wrapper contexts, only create assignment if names differ

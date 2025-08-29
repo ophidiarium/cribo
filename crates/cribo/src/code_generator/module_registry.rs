@@ -214,6 +214,8 @@ pub fn create_assignments_for_inlined_imports(
     bundled_modules: &FxIndexSet<crate::resolver::ModuleId>,
     resolver: &crate::resolver::ModuleResolver,
     python_version: u8,
+    is_wrapper_init: bool,
+    tree_shaking_check: Option<&dyn Fn(crate::resolver::ModuleId, &str) -> bool>,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();
@@ -264,6 +266,7 @@ pub fn create_assignments_for_inlined_imports(
                 let module_id = resolver
                     .get_module_id_by_name(module_name)
                     .expect("Module should exist");
+
                 let actual_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
                     module_renames
                         .get(imported_name)
@@ -272,12 +275,30 @@ pub fn create_assignments_for_inlined_imports(
                     imported_name
                 };
 
-                // Only create assignment if the names are different
+                // When we're inside a wrapper init function and importing from an inlined module,
+                // we need to qualify the symbol with the module's namespace variable
+                let source_ref = if is_wrapper_init && inlined_modules.contains(&module_id) {
+                    // The module is inlined, so its symbols are attached to a namespace object
+                    let sanitized_module = sanitize_module_name_for_identifier(module_name);
+                    format!("{sanitized_module}.{actual_name}")
+                } else {
+                    actual_name.to_string()
+                };
+
+                // Only create assignment if the names are different or we need qualification
                 // But skip if it would conflict with a stdlib name in scope
-                if local_name.as_str() != actual_name {
+                if local_name.as_str() != source_ref {
                     create_assignment_if_no_stdlib_conflict(
                         local_name.as_str(),
-                        actual_name,
+                        &source_ref,
+                        &mut assignments,
+                        python_version,
+                    );
+                } else if is_wrapper_init && inlined_modules.contains(&module_id) {
+                    // Even if names match, we need the assignment to access through namespace
+                    create_assignment_if_no_stdlib_conflict(
+                        local_name.as_str(),
+                        &source_ref,
                         &mut assignments,
                         python_version,
                     );
@@ -287,6 +308,18 @@ pub fn create_assignments_for_inlined_imports(
             // Module doesn't exist, treat as regular symbol import
             // Check if this symbol was renamed during inlining
             let module_id = resolver.get_module_id_by_name(module_name);
+
+            // Check if the symbol was tree-shaken
+            if let Some(id) = module_id
+                && let Some(check_fn) = tree_shaking_check
+                && !check_fn(id, imported_name)
+            {
+                log::debug!(
+                    "Skipping assignment for tree-shaken symbol '{imported_name}' from module '{module_name}'"
+                );
+                continue;
+            }
+
             let actual_name = if let Some(id) = module_id
                 && let Some(module_renames) = symbol_renames.get(&id)
             {
@@ -297,12 +330,31 @@ pub fn create_assignments_for_inlined_imports(
                 imported_name
             };
 
-            // Only create assignment if the names are different
+            // When we're inside a wrapper init function and importing from an inlined module,
+            // we need to qualify the symbol with the module's namespace variable
+            let source_ref =
+                if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
+                    // The module is inlined, so its symbols are attached to a namespace object
+                    let sanitized_module = sanitize_module_name_for_identifier(module_name);
+                    format!("{sanitized_module}.{actual_name}")
+                } else {
+                    actual_name.to_string()
+                };
+
+            // Only create assignment if the names are different or we need qualification
             // But skip if it would conflict with a stdlib name in scope
-            if local_name.as_str() != actual_name {
+            if local_name.as_str() != source_ref {
                 create_assignment_if_no_stdlib_conflict(
                     local_name.as_str(),
-                    actual_name,
+                    &source_ref,
+                    &mut assignments,
+                    python_version,
+                );
+            } else if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
+                // Even if names match, we need the assignment to access through namespace
+                create_assignment_if_no_stdlib_conflict(
+                    local_name.as_str(),
+                    &source_ref,
                     &mut assignments,
                     python_version,
                 );

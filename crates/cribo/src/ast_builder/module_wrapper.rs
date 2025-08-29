@@ -1,10 +1,12 @@
-use ruff_python_ast::{AtomicNodeIndex, ExprContext, Identifier, Keyword, Stmt};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{ExprContext, Stmt};
 
 use crate::ast_builder::{expressions, statements};
 use crate::code_generator::module_registry::{
     get_init_function_name, sanitize_module_name_for_identifier,
 };
+
+/// The __init__ attribute name for module initialization
+const MODULE_INIT_ATTR: &str = "__init__";
 
 /// Creates just the init function and __init__ assignment statements for a module
 /// Returns a vector containing the init function definition and the __init__ assignment
@@ -25,7 +27,7 @@ pub fn create_init_function_statements(
     let attach_init = statements::assign(
         vec![expressions::attribute(
             expressions::name(&module_var, ExprContext::Load),
-            "__init__",
+            MODULE_INIT_ATTR,
             ExprContext::Store,
         )],
         expressions::name(&init_func_name, ExprContext::Load),
@@ -51,37 +53,17 @@ pub fn create_wrapper_module(
     // 1. Create namespace with __initializing__ and __initialized__ flags
     // module_var = types.SimpleNamespace(__name__='...', __initializing__=False, __initialized__=False)
     let mut kwargs = vec![
-        // __name__ = 'module_name'
-        Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__name__", TextRange::default())),
-            value: expressions::string_literal(module_name),
-            range: TextRange::default(),
-        },
-        // __initializing__ = False
-        Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__initializing__", TextRange::default())),
-            value: expressions::name("False", ExprContext::Load),
-            range: TextRange::default(),
-        },
-        // __initialized__ = False
-        Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__initialized__", TextRange::default())),
-            value: expressions::name("False", ExprContext::Load),
-            range: TextRange::default(),
-        },
+        expressions::keyword(Some("__name__"), expressions::string_literal(module_name)),
+        expressions::keyword(Some("__initializing__"), expressions::bool_literal(false)),
+        expressions::keyword(Some("__initialized__"), expressions::bool_literal(false)),
     ];
 
     // Add __path__ for packages
     if is_package {
-        kwargs.push(Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__path__", TextRange::default())),
-            value: expressions::list(vec![], ExprContext::Load),
-            range: TextRange::default(),
-        });
+        kwargs.push(expressions::keyword(
+            Some("__path__"),
+            expressions::list(vec![], ExprContext::Load),
+        ));
     }
 
     let namespace_stmt = statements::simple_assign(
@@ -97,4 +79,32 @@ pub fn create_wrapper_module(
     }
 
     stmts
+}
+
+/// Creates a wrapper module initialization call statement.
+///
+/// This creates the standard pattern for initializing wrapper modules:
+/// `module = module.__init__(module)`
+///
+/// # Arguments
+/// * `module_name` - The sanitized module variable name
+///
+/// # Example
+/// ```rust
+/// // Creates: `compat = compat.__init__(compat)`
+/// let stmt = create_wrapper_module_init_call("compat");
+/// ```
+pub fn create_wrapper_module_init_call(module_name: &str) -> Stmt {
+    statements::assign(
+        vec![expressions::name(module_name, ExprContext::Store)],
+        expressions::call(
+            expressions::attribute(
+                expressions::name(module_name, ExprContext::Load),
+                MODULE_INIT_ATTR,
+                ExprContext::Load,
+            ),
+            vec![expressions::name(module_name, ExprContext::Load)],
+            vec![],
+        ),
+    )
 }

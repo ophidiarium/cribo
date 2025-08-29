@@ -7,9 +7,12 @@ use ruff_python_ast::{
     visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
-use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::{resolver::ModuleId, semantic_bundler::SemanticBundler};
+use crate::{
+    resolver::ModuleId,
+    semantic_bundler::SemanticBundler,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,7 +69,7 @@ pub struct DiscoveredImport {
     /// Type of import
     pub import_type: ImportType,
     /// Execution contexts where this import is used
-    pub execution_contexts: HashSet<ExecutionContext>,
+    pub execution_contexts: FxIndexSet<ExecutionContext>,
     /// Whether this import is used in a class __init__ method
     pub is_used_in_init: bool,
     /// Whether this import can be moved to function scope
@@ -113,9 +116,9 @@ pub struct ImportDiscoveryVisitor<'a> {
     /// Current scope stack
     scope_stack: Vec<ScopeElement>,
     /// Map from imported names to their module sources
-    imported_names: HashMap<String, String>,
+    imported_names: FxIndexMap<String, String>,
     /// Track usage of each imported name
-    name_usage: HashMap<String, Vec<ImportUsage>>,
+    name_usage: FxIndexMap<String, Vec<ImportUsage>>,
     /// Optional reference to semantic bundler for enhanced analysis
     _semantic_bundler: Option<&'a SemanticBundler>,
     /// Current module ID if available
@@ -141,8 +144,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
-            imported_names: HashMap::default(),
-            name_usage: HashMap::default(),
+            imported_names: FxIndexMap::default(),
+            name_usage: FxIndexMap::default(),
             _semantic_bundler: None,
             _module_id: None,
             current_context: ExecutionContext::ModuleLevel,
@@ -159,8 +162,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
-            imported_names: HashMap::default(),
-            name_usage: HashMap::default(),
+            imported_names: FxIndexMap::default(),
+            name_usage: FxIndexMap::default(),
             _semantic_bundler: Some(semantic_bundler),
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
@@ -414,7 +417,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 range: stmt.range,
                 level: 0,
                 import_type: ImportType::Direct,
-                execution_contexts: HashSet::default(),
+                execution_contexts: FxIndexSet::default(),
                 is_used_in_init: false,
                 is_movable: false,
                 is_type_checking_only: self.in_type_checking,
@@ -464,7 +467,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             range: stmt.range,
             level: stmt.level,
             import_type,
-            execution_contexts: HashSet::default(),
+            execution_contexts: FxIndexSet::default(),
             is_used_in_init: false,
             is_movable: false,
             is_type_checking_only: self.in_type_checking,
@@ -581,7 +584,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                         range: call.range,
                         level,
                         import_type: ImportType::ImportlibStatic,
-                        execution_contexts: HashSet::default(),
+                        execution_contexts: FxIndexSet::default(),
                         is_used_in_init: false,
                         is_movable: false,
                         is_type_checking_only: self.in_type_checking,

@@ -53,13 +53,17 @@ pub fn transform_module_to_init_function<'a>(
     let module_var_name = sanitize_module_name_for_identifier(ctx.module_name);
 
     // Check if already fully initialized
-    // if self.__initialized__:
+    // if getattr(self, "__initialized__", False):
     //     return self
     let check_initialized = ast_builder::statements::if_stmt(
-        ast_builder::expressions::attribute(
-            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-            "__initialized__",
-            ExprContext::Load,
+        ast_builder::expressions::call(
+            ast_builder::expressions::name("getattr", ExprContext::Load),
+            vec![
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+                ast_builder::expressions::string_literal("__initialized__"),
+                ast_builder::expressions::bool_literal(false),
+            ],
+            vec![],
         ),
         vec![ast_builder::statements::return_stmt(Some(
             ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
@@ -70,21 +74,25 @@ pub fn transform_module_to_init_function<'a>(
 
     // Check if currently initializing (circular dependency)
     // When we detect recursion, set __initializing__ = False to allow next call to proceed further
-    // if self.__initializing__:
+    // if getattr(self, "__initializing__", False):
     //     self.__initializing__ = False  # Allow incremental progress
     //     return self  # Return partial module
     let check_initializing = ast_builder::statements::if_stmt(
-        ast_builder::expressions::attribute(
-            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-            "__initializing__",
-            ExprContext::Load,
+        ast_builder::expressions::call(
+            ast_builder::expressions::name("getattr", ExprContext::Load),
+            vec![
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+                ast_builder::expressions::string_literal("__initializing__"),
+                ast_builder::expressions::bool_literal(false),
+            ],
+            vec![],
         ),
         vec![
             // Set __initializing__ = False to allow incremental progress
             ast_builder::statements::assign_attribute(
                 SELF_PARAM,
                 "__initializing__",
-                ast_builder::expressions::name("False", ExprContext::Load),
+                ast_builder::expressions::bool_literal(false),
             ),
             // Return the partial module
             ast_builder::statements::return_stmt(Some(ast_builder::expressions::name(

@@ -6,15 +6,12 @@ const MODULE_VAR: &str = "_cribo_module";
 
 use ruff_python_ast::{
     AtomicNodeIndex, Comprehension, ExceptHandler, Expr, ExprContext, ExprFString, FString,
-    FStringValue, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements,
-    ModModule, Stmt, StmtFunctionDef,
+    FStringValue, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements, Stmt,
 };
 
 use crate::{
-    ast_builder::expressions,
-    code_generator::module_registry::sanitize_module_name_for_identifier,
-    semantic_bundler::ModuleGlobalInfo,
-    types::{FxIndexMap, FxIndexSet},
+    ast_builder::expressions, code_generator::module_registry::sanitize_module_name_for_identifier,
+    semantic_bundler::ModuleGlobalInfo, types::FxIndexMap,
 };
 
 /// Sanitize a variable name for use in a Python identifier
@@ -953,94 +950,4 @@ impl GlobalsLifter {
 pub fn transform_locals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion disabled (locals stops at function/class boundaries)
     transform_introspection_in_stmt(stmt, "locals", false, Some(module_var_name));
-}
-
-/// Analyze a wrapper module AST to find global variable usage patterns
-/// Returns `ModuleGlobalInfo` if any global declarations are found
-pub fn analyze_wrapper_module_globals(
-    module_name: &str,
-    ast: &ModModule,
-) -> Option<ModuleGlobalInfo> {
-    let mut module_level_vars = FxIndexSet::default();
-    let mut global_declarations: FxIndexMap<String, Vec<ruff_text_size::TextRange>> =
-        FxIndexMap::default();
-    let mut functions_using_globals = FxIndexSet::default();
-
-    // First pass: collect all module-level variable definitions
-    for stmt in &ast.body {
-        match stmt {
-            Stmt::Assign(assign) => {
-                for target in &assign.targets {
-                    if let Expr::Name(name) = target {
-                        module_level_vars.insert(name.id.to_string());
-                    }
-                }
-            }
-            Stmt::AnnAssign(ann_assign) => {
-                if let Expr::Name(name) = &*ann_assign.target {
-                    module_level_vars.insert(name.id.to_string());
-                }
-            }
-            Stmt::AugAssign(aug_assign) => {
-                if let Expr::Name(name) = &*aug_assign.target {
-                    module_level_vars.insert(name.id.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Second pass: find global declarations in functions
-    for stmt in &ast.body {
-        if let Stmt::FunctionDef(func_def) = stmt {
-            analyze_function_for_globals(
-                func_def,
-                &mut global_declarations,
-                &mut functions_using_globals,
-            );
-        }
-    }
-
-    // Only return info if we found global declarations
-    if global_declarations.is_empty() {
-        None
-    } else {
-        Some(ModuleGlobalInfo {
-            module_level_vars,
-            global_declarations,
-            functions_using_globals,
-            module_name: module_name.to_string(),
-        })
-    }
-}
-
-/// Helper to analyze a function for global declarations
-fn analyze_function_for_globals(
-    func_def: &StmtFunctionDef,
-    global_declarations: &mut FxIndexMap<String, Vec<ruff_text_size::TextRange>>,
-    functions_using_globals: &mut FxIndexSet<String>,
-) {
-    let mut has_globals = false;
-
-    for stmt in &func_def.body {
-        if let Stmt::Global(global_stmt) = stmt {
-            has_globals = true;
-            for identifier in &global_stmt.names {
-                let var_name = identifier.id.to_string();
-                global_declarations
-                    .entry(var_name)
-                    .or_default()
-                    .push(identifier.range);
-            }
-        }
-
-        // Recursively check nested functions
-        if let Stmt::FunctionDef(nested_func) = stmt {
-            analyze_function_for_globals(nested_func, global_declarations, functions_using_globals);
-        }
-    }
-
-    if has_globals {
-        functions_using_globals.insert(func_def.name.id.to_string());
-    }
 }

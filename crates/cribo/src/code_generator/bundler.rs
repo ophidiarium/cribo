@@ -1946,10 +1946,7 @@ impl<'a> Bundler<'a> {
                     .clone();
 
                 // Analyze global declarations for this wrapper module
-                let global_info = crate::code_generator::globals::analyze_wrapper_module_globals(
-                    &module_name,
-                    &ast,
-                );
+                let global_info = crate::analyzers::GlobalAnalyzer::analyze(&module_name, &ast);
 
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
