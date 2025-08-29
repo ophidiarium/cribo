@@ -28,15 +28,15 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-description = "A simple calculator module"
-def add(a, b):
-    return a + b
-"""Calculator module with simple operations"""
 utils = _cribo.types.SimpleNamespace(__name__='utils')
 utils_calculator = _cribo.types.SimpleNamespace(__name__='utils.calculator')
 utils.calculator = utils_calculator
-utils_calculator.description = description
+"""Calculator module with simple operations"""
+description = "A simple calculator module"
+def add(a, b):
+    return a + b
 utils_calculator.add = add
+utils_calculator.description = description
 def process_data():
     calculator = utils_calculator
     result = calculator.add(5, 3)

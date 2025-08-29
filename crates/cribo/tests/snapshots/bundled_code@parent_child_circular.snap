@@ -28,68 +28,11 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False, __path__=[])
-def _cribo_init___cribo_97cb47_foo(self):
-    if self.__initialized__:
-        return self
-    if self.__initializing__:
-        self.__initializing__ = False
-        return self
-    """Parent package that imports from its child module."""
-    print("Initializing foo package")
-    foo.__initializing__ = True
-    foo.boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
-    helper_function = foo.boo.helper_function
-    self.helper_function = helper_function
-
-    def package_level_function(x):
-        """A function at the package level that uses the imported helper."""
-        return helper_function(x) + " (from package)"
-    self.package_level_function = package_level_function
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-foo.__init__ = _cribo_init___cribo_97cb47_foo
-foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_f2ecbb_foo_boo(self):
-    if self.__initialized__:
-        return self
-    if self.__initializing__:
-        self.__initializing__ = False
-        return self
-    """Child module boo that imports another sibling."""
-    print("Initializing foo.boo module")
-    foo_boo.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(foo, attr, getattr(__cribo_init_result, attr))
-    foo_boo.__initializing__ = True
-    foo.zoo = _cribo_init___cribo_83878b_foo_zoo(foo_zoo)
-    Zoo = foo.zoo.Zoo
-    self.Zoo = Zoo
-
-    def helper_function(x):
-        """A helper function used by the parent package."""
-        zoo = Zoo()
-        return zoo.format(x)
-    self.helper_function = helper_function
-
-    def process_data(data):
-        """Process data using zoo functionality."""
-        zoo = Zoo()
-        return zoo.transform(data)
-    self.process_data = process_data
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-foo_boo.__init__ = _cribo_init___cribo_f2ecbb_foo_boo
-foo.boo = foo_boo
 foo_zoo = _cribo.types.SimpleNamespace(__name__='foo.zoo', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_83878b_foo_zoo(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Module zoo - the end of the chain."""
@@ -111,14 +54,73 @@ def _cribo_init___cribo_83878b_foo_zoo(self):
     self.__initializing__ = False
     return self
 foo_zoo.__init__ = _cribo_init___cribo_83878b_foo_zoo
+foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False)
 foo.zoo = foo_zoo
+foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_f2ecbb_foo_boo(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Child module boo that imports another sibling."""
+    print("Initializing foo.boo module")
+    foo_boo.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(foo, attr, getattr(__cribo_init_result, attr))
+    global foo_zoo
+    foo_boo.__initializing__ = True
+    foo_zoo = _cribo_init___cribo_83878b_foo_zoo(foo_zoo)
+    Zoo = foo.zoo.Zoo
+    self.Zoo = Zoo
+
+    def helper_function(x):
+        """A helper function used by the parent package."""
+        zoo = Zoo()
+        return zoo.format(x)
+    self.helper_function = helper_function
+
+    def process_data(data):
+        """Process data using zoo functionality."""
+        zoo = Zoo()
+        return zoo.transform(data)
+    self.process_data = process_data
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+foo_boo.__init__ = _cribo_init___cribo_f2ecbb_foo_boo
+foo.boo = foo_boo
+def _cribo_init___cribo_97cb47_foo(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Parent package that imports from its child module."""
+    print("Initializing foo package")
+    global foo_boo
+    foo.__initializing__ = True
+    foo_boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
+    helper_function = foo.boo.helper_function
+    self.helper_function = helper_function
+
+    def package_level_function(x):
+        """A function at the package level that uses the imported helper."""
+        return helper_function(x) + " (from package)"
+    self.package_level_function = package_level_function
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+foo.__init__ = _cribo_init___cribo_97cb47_foo
 """Test parent-child circular dependencies.\n\nThis tests the case where:\n1. foo/__init__.py imports from foo.boo\n2. foo.boo imports foo.zoo\n3. This creates a circular dependency because foo.zoo requires foo to be initialized first\n"""
 print("Initializing main module")
 __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(foo, attr, getattr(__cribo_init_result, attr))
-foo.boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
+foo_boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
 process_data = foo.boo.process_data
 result = process_data("test input")
 print(f"Result: {result}")

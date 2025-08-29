@@ -43,9 +43,9 @@ module_global_keyword.get_foo = get_foo
 module_global_keyword.modify_foo = modify_foo
 module_globals_dict = _cribo.types.SimpleNamespace(__name__='module_globals_dict', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_5101f4_module_globals_dict(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Module demonstrating globals() dictionary access."""
@@ -88,9 +88,9 @@ module_mixed_patterns = _cribo.types.SimpleNamespace(__name__='module_mixed_patt
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
 def _cribo_init___cribo_c75306_module_mixed_patterns(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     global _cribo_module_mixed_patterns_counter, _cribo_module_mixed_patterns_foo
@@ -131,10 +131,9 @@ def _cribo_init___cribo_c75306_module_mixed_patterns(self):
             _cribo_module_mixed_patterns_counter += 1
 
         def increment():
-            global _cribo_module_mixed_patterns_counter
-            _cribo_module_mixed_patterns_counter += 1
-            self.counter = _cribo_module_mixed_patterns_counter
-            return _cribo_module_mixed_patterns_counter
+            global counter
+            counter += 1
+            return counter
         global_keys = [k for k in module_mixed_patterns.__dict__ if not k.startswith("_")]
         return {"original": original, "after_loop": _cribo_module_mixed_patterns_counter, "increment_func": increment, "global_count": len(global_keys)}
     self.complex_global_usage = complex_global_usage

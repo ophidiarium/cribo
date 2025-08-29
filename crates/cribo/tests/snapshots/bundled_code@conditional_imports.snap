@@ -30,9 +30,9 @@ class _Cribo():
 _cribo = _Cribo()
 conditional_module = _cribo.types.SimpleNamespace(__name__='conditional_module', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_e43fad_conditional_module(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Module with conditional imports inside if/else blocks."""
@@ -87,9 +87,9 @@ def _cribo_init___cribo_e43fad_conditional_module(self):
 conditional_module.__init__ = _cribo_init___cribo_e43fad_conditional_module
 try_except_module = _cribo.types.SimpleNamespace(__name__='try_except_module', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_17f1ec_try_except_module(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Module with imports inside try/except blocks."""

@@ -29,12 +29,12 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 greetings_messages = _cribo.types.SimpleNamespace(__name__='greetings.messages')
-greetings = _cribo.types.SimpleNamespace(__name__='greetings')
+greetings = _cribo.types.SimpleNamespace(__name__='greetings', __initializing__=False, __initialized__=False)
 greetings.messages = greetings_messages
 message = "Hello"
+greetings_messages.message = message
 greetings_greeting = _cribo.types.SimpleNamespace(__name__='greetings.greeting')
 greetings.greeting = greetings_greeting
 greetings_greeting.message = message
-greetings_messages.message = message
 greetings.greeting.message = message
 print(greetings.greeting.message)

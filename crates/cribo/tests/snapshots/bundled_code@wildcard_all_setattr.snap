@@ -28,48 +28,75 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-package = _cribo.types.SimpleNamespace(__name__='package')
-package__subpackage = _cribo.types.SimpleNamespace(__name__='package._subpackage')
+package__subpackage_module_b = _cribo.types.SimpleNamespace(__name__='package._subpackage.module_b')
+package = _cribo.types.SimpleNamespace(__name__='package', __initializing__=False, __initialized__=False)
+package__subpackage = _cribo.types.SimpleNamespace(__name__='package._subpackage', __initializing__=False, __initialized__=False, __path__=[])
 package._subpackage = package__subpackage
+package__subpackage.module_b = package__subpackage_module_b
+"""Module B with my_function."""
+def my_function():
+    """A function exported through wildcards."""
+    return "from module_b"
+package__subpackage_module_b.my_function = my_function
+package__subpackage_module_a = _cribo.types.SimpleNamespace(__name__='package._subpackage.module_a')
+package__subpackage.module_a = package__subpackage_module_a
+"""Module A with MyClass."""
 class MyClass:
     """A class exported through wildcards."""
 
     def __init__(self):
         self.value = "from module_a"
-def my_function():
-    """A function exported through wildcards."""
-    return "from module_b"
-"""Subpackage that re-exports from modules using wildcards."""
-"""Module B with my_function."""
-"""Module A with MyClass."""
 MyClass.__module__ = 'package._subpackage.module_a'
-package__subpackage.MyClass = MyClass
-package__subpackage.my_function = my_function
-package__subpackage_module_b = _cribo.types.SimpleNamespace(__name__='package._subpackage.module_b')
-package__subpackage.module_b = package__subpackage_module_b
-package__subpackage_module_a = _cribo.types.SimpleNamespace(__name__='package._subpackage.module_a')
-package__subpackage.module_a = package__subpackage_module_a
-@_cribo.functools.cache
-def _cribo_init___cribo_cca96f_package():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'package'
+package__subpackage_module_a.MyClass = MyClass
+def _cribo_init___cribo_66c36f_package__subpackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     global MyClass, my_function
-    _cribo_module.MyClass = MyClass
-    _cribo_module.my_function = my_function
+    self.MyClass = MyClass
+    self.my_function = my_function
+    """Subpackage that re-exports from modules using wildcards."""
+    self.module_b = package__subpackage_module_b
+    self.module_a = package__subpackage_module_a
+    self.module_b = package__subpackage_module_b
+    self.module_a = package__subpackage_module_a
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+package__subpackage.__init__ = _cribo_init___cribo_66c36f_package__subpackage
+def _cribo_init___cribo_cca96f_package(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     """Package using wildcard imports and setattr pattern like httpx."""
+    package.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_66c36f_package__subpackage(package__subpackage)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(package._subpackage, attr, getattr(__cribo_init_result, attr))
+    MyClass = package._subpackage.MyClass
+    package.MyClass = MyClass
+    my_function = package._subpackage.my_function
+    package.my_function = my_function
     __all__ = ["MyClass", "my_function"]
-    __locals = vars(_cribo_module)
-    _cribo_module.__locals = __locals
+    __locals = vars(package)
+    self.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):
-            setattr(_cribo_module.__locals[__name], "__module__", "package")
-    _cribo_module._subpackage = package__subpackage
-    return _cribo_module
-package = _cribo_init___cribo_cca96f_package()
-package__subpackage_module_b.my_function = my_function
-package__subpackage_module_a.MyClass = MyClass
+            setattr(__locals[__name], "__module__", "package")
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+package.__init__ = _cribo_init___cribo_cca96f_package
 """Test wildcard imports with __all__ and setattr pattern."""
-package = _cribo_init___cribo_cca96f_package()
+__cribo_init_result = _cribo_init___cribo_cca96f_package(package)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(package, attr, getattr(__cribo_init_result, attr))
 MyClass = package.MyClass
 my_function = package.my_function
 obj = MyClass()

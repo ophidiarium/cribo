@@ -28,15 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-class HTTPBasicAuth_1:
-    """Different implementation of HTTPBasicAuth to create collision."""
-
-    def __init__(self, token):
-        self.token = token
-        self.type = "token"
-
-    def __repr__(self):
-        return f"<HTTPBasicAuth(token) token={self.token[:4]}...>"
+auth_module = _cribo.types.SimpleNamespace(__name__='auth_module')
+"""Module with classes that will have naming collision."""
 class AuthBase:
     """Base authentication class."""
 
@@ -45,6 +38,7 @@ class AuthBase:
 
     def __repr__(self):
         return f"<{self.__class__.__name__}>"
+AuthBase.__module__ = 'auth_module'
 class HTTPBasicAuth_2(AuthBase):
     """Basic HTTP authentication."""
 
@@ -56,6 +50,9 @@ class HTTPBasicAuth_2(AuthBase):
 
     def __repr__(self):
         return f"<HTTPBasicAuth user={self.username}>"
+HTTPBasicAuth_2.__module__ = 'auth_module'
+HTTPBasicAuth_2.__name__ = 'HTTPBasicAuth'
+HTTPBasicAuth_2.__qualname__ = 'HTTPBasicAuth'
 class HTTPProxyAuth(HTTPBasicAuth_2):
     """Proxy HTTP authentication - inherits from HTTPBasicAuth."""
 
@@ -65,6 +62,7 @@ class HTTPProxyAuth(HTTPBasicAuth_2):
 
     def __repr__(self):
         return f"<HTTPProxyAuth user={self.username}>"
+HTTPProxyAuth.__module__ = 'auth_module'
 def make_auth(auth_type, username, password):
     """Factory function that uses the classes."""
     if auth_type == "basic":
@@ -73,16 +71,25 @@ def make_auth(auth_type, username, password):
         return HTTPProxyAuth(username, password)
     else:
         return AuthBase()
+auth_module.AuthBase = AuthBase
+auth_module.HTTPBasicAuth = HTTPBasicAuth_2
+auth_module.HTTPProxyAuth = HTTPProxyAuth
+auth_module.make_auth = make_auth
+colliding_module = _cribo.types.SimpleNamespace(__name__='colliding_module')
 """Another module that exports HTTPBasicAuth to create a collision."""
+class HTTPBasicAuth_1:
+    """Different implementation of HTTPBasicAuth to create collision."""
+
+    def __init__(self, token):
+        self.token = token
+        self.type = "token"
+
+    def __repr__(self):
+        return f"<HTTPBasicAuth(token) token={self.token[:4]}...>"
 HTTPBasicAuth_1.__module__ = 'colliding_module'
 HTTPBasicAuth_1.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_1.__qualname__ = 'HTTPBasicAuth'
-"""Module with classes that will have naming collision."""
-AuthBase.__module__ = 'auth_module'
-HTTPBasicAuth_2.__module__ = 'auth_module'
-HTTPBasicAuth_2.__name__ = 'HTTPBasicAuth'
-HTTPBasicAuth_2.__qualname__ = 'HTTPBasicAuth'
-HTTPProxyAuth.__module__ = 'auth_module'
+colliding_module.HTTPBasicAuth = HTTPBasicAuth_1
 """Test symbol collision with class inheritance."""
 HTTPBasicAuth = HTTPBasicAuth_2
 proxy_auth = HTTPProxyAuth("user", "pass")

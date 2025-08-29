@@ -28,7 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+greeting = _cribo.types.SimpleNamespace(__name__='greeting')
 message = "Hello"
-greeting = _cribo.types.SimpleNamespace(__name__='greeting', message=message)
+greeting.message = message
 print(_cribo.xml.etree.ElementTree.__name__)
 print(greeting.message)

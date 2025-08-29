@@ -31,11 +31,11 @@ _cribo = _Cribo()
 mymodule = _cribo.types.SimpleNamespace(__name__='mymodule')
 mymodule_utils = _cribo.types.SimpleNamespace(__name__='mymodule.utils')
 mymodule.utils = mymodule_utils
+"""Simple utilities module"""
 CONSTANT = 42
 def greet(name: str) -> str:
     """Greet someone"""
     return f"Hello, {name}!"
-"""Simple utilities module"""
 mymodule_utils.CONSTANT = CONSTANT
 mymodule_utils.greet = greet
 """Test namespace imports with simple module"""

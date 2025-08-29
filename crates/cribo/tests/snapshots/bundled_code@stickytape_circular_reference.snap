@@ -28,4 +28,26 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+second = _cribo.types.SimpleNamespace(__name__='second', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_08a7dc_second(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+second.__init__ = _cribo_init___cribo_08a7dc_second
+first = _cribo.types.SimpleNamespace(__name__='first', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_996948_first(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+first.__init__ = _cribo_init___cribo_996948_first
 print("Hello")

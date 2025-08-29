@@ -31,9 +31,9 @@ _cribo = _Cribo()
 my_package = _cribo.types.SimpleNamespace(__name__='my_package')
 my_package___version__ = _cribo.types.SimpleNamespace(__name__='my_package.__version__', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_699da1_my_package___version__(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Version information for my_package"""
@@ -47,9 +47,9 @@ my_package___version__.__init__ = _cribo_init___cribo_699da1_my_package___versio
 my_package.__version__ = my_package___version__
 my_package_utils = _cribo.types.SimpleNamespace(__name__='my_package.utils', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_1f0580_my_package_utils(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Utility module that imports version from another module"""

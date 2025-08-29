@@ -28,13 +28,14 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-ALICE_NAME = "Alice"
+speaking = _cribo.types.SimpleNamespace(__name__='speaking')
 class PersonTitle(_cribo.enum.Enum):
     MR = "Mr."
     MRS = "Mrs."
     MS = "Ms."
     DR = "Dr."
     PROF = "Prof."
+PersonTitle.__module__ = 'speaking'
 class Person:
 
     def __init__(self, name: str, title: PersonTitle):
@@ -43,16 +44,22 @@ class Person:
 
     def greet(self) -> str:
         return f"{self.title.value} {self.name}"
+Person.__module__ = 'speaking'
+def create_ms(name: str) -> Person:
+    return Person(name, PersonTitle.MS)
+ALICE_NAME = "Alice"
 class Phrase(_cribo.typing.TypedDict):
     what: str
     whom: Person
-def create_ms(name: str) -> Person:
-    return Person(name, PersonTitle.MS)
+Phrase.__module__ = 'speaking'
 def say(phrase: Phrase) -> str:
     return f"{phrase['what']} {phrase['whom'].greet()}"
-PersonTitle.__module__ = 'speaking'
-Person.__module__ = 'speaking'
-Phrase.__module__ = 'speaking'
+speaking.ALICE_NAME = ALICE_NAME
+speaking.Person = Person
+speaking.PersonTitle = PersonTitle
+speaking.Phrase = Phrase
+speaking.create_ms = create_ms
+speaking.say = say
 def main() -> None:
     print(say({"what": "Hello", "whom": create_ms(ALICE_NAME)}))
 if __name__ == "__main__":

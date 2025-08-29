@@ -28,6 +28,10 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+mypkg_sessions = _cribo.types.SimpleNamespace(__name__='mypkg.sessions')
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg.sessions = mypkg_sessions
+"""Sessions module with Session class."""
 class Session:
     """A simple session class."""
 
@@ -46,29 +50,66 @@ class Session:
     def __exit__(self, *args):
         """Context manager exit."""
         pass
+Session.__module__ = 'mypkg.sessions'
 def session():
     """Create a new session."""
     return Session()
-def request(method, url, **kwargs):
-    """Make a request using the session."""
-    with session_ref.Session() as session:
-        return session.request(method=method, url=url, **kwargs)
-"""Package that demonstrates early module reference issue."""
-"""Sessions module with Session class."""
-Session.__module__ = 'mypkg.sessions'
-"""API module that references sessions module early.\n\nThis reproduces the issue where a module-level variable references\nanother module before it's fully initialized.\n"""
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
-mypkg_sessions = _cribo.types.SimpleNamespace(__name__='mypkg.sessions')
-mypkg.sessions = mypkg_sessions
-mypkg_api = _cribo.types.SimpleNamespace(__name__='mypkg.api')
-mypkg.api = mypkg_api
-api = mypkg_api
-sessions = mypkg_sessions
-session_ref = sessions
-mypkg_api.request = request
-mypkg_api.session_ref = session_ref
 mypkg_sessions.Session = Session
 mypkg_sessions.session = session
+mypkg_api = _cribo.types.SimpleNamespace(__name__='mypkg.api', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_d2a83c_mypkg_api(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """API module that references sessions module early.\n\nThis reproduces the issue where a module-level variable references\nanother module before it's fully initialized.\n"""
+    sessions = _cribo.types.SimpleNamespace()
+    self.sessions = sessions
+    sessions.Session = Session
+    sessions.session = session
+    session_ref = sessions
+    self.session_ref = session_ref
+
+    def request(method, url, **kwargs):
+        """Make a request using the session."""
+        with session_ref.Session() as session:
+            return session.request(method=method, url=url, **kwargs)
+    self.request = request
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg_api.__init__ = _cribo_init___cribo_d2a83c_mypkg_api
+mypkg.api = mypkg_api
+def _cribo_init___cribo_b0d212_mypkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Package that demonstrates early module reference issue."""
+    mypkg.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_b0d212_mypkg(mypkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(mypkg, attr, getattr(__cribo_init_result, attr))
+    global mypkg_api
+    mypkg.__initializing__ = True
+    mypkg_api = _cribo_init___cribo_d2a83c_mypkg_api(mypkg_api)
+    api = mypkg.api
+    self.api = api
+    sessions = _cribo.types.SimpleNamespace()
+    self.sessions = sessions
+    sessions.Session = Session
+    sessions.session = session
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg.__init__ = _cribo_init___cribo_b0d212_mypkg
 """Test case for early module reference before initialization.\n\nThis reproduces the issue where a module tries to reference another module\nbefore it has been fully initialized through its init function.\n"""
+__cribo_init_result = _cribo_init___cribo_b0d212_mypkg(mypkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypkg, attr, getattr(__cribo_init_result, attr))
 response = mypkg.api.request("GET", "https://example.com")
 print(f"Response: {response}")

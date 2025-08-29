@@ -28,17 +28,58 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def utility_function():
-    """Utility that pkg2 will import"""
-    return "pkg1_utility"
-def main_function():
-    """Main function that uses helper from pkg2"""
-    return f"pkg1.main({helper_function()})"
-def helper_function():
-    """Helper function that depends on pkg1"""
-    util_result = utility_function()
-    return f"pkg2.helper(using_{util_result})"
-pkg1 = _cribo.types.SimpleNamespace(__name__='pkg1', utility_function=utility_function, main_function=main_function)
+pkg2 = _cribo.types.SimpleNamespace(__name__='pkg2', __initializing__=False, __initialized__=False, __path__=[])
+def _cribo_init___cribo_a6e036_pkg2(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+
+    def helper_function():
+        """Helper function that depends on pkg1"""
+        pkg1 = _cribo_init___cribo_176078_pkg1(pkg1)
+        utility_function = pkg1.utility_function
+        util_result = utility_function()
+        return f"pkg2.helper(using_{util_result})"
+    self.helper_function = helper_function
+
+    def another_helper():
+        """Another function in pkg2"""
+        pkg1 = _cribo_init___cribo_176078_pkg1(pkg1)
+        utility_function = pkg1.utility_function
+        return "pkg2_helper"
+    self.another_helper = another_helper
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg2.__init__ = _cribo_init___cribo_a6e036_pkg2
+pkg1 = _cribo.types.SimpleNamespace(__name__='pkg1', __initializing__=False, __initialized__=False, __path__=[])
+def _cribo_init___cribo_176078_pkg1(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+
+    def main_function():
+        """Main function that uses helper from pkg2"""
+        pkg2 = _cribo_init___cribo_a6e036_pkg2(pkg2)
+        helper_function = pkg2.helper_function
+        return f"pkg1.main({helper_function()})"
+    self.main_function = main_function
+
+    def utility_function():
+        """Utility that pkg2 will import"""
+        pkg2 = _cribo_init___cribo_a6e036_pkg2(pkg2)
+        helper_function = pkg2.helper_function
+        return "pkg1_utility"
+    self.utility_function = utility_function
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg1.__init__ = _cribo_init___cribo_176078_pkg1
+pkg1 = _cribo_init___cribo_176078_pkg1(pkg1)
 def main():
     result = pkg1.main_function()
     print(f"Package cycle result: {result}")

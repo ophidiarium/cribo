@@ -28,16 +28,22 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_e25798_foo():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'foo'
+foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False, __path__=[])
+def _cribo_init___cribo_e25798_foo(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     source = "foo/__init__.py (package)"
-    _cribo_module.source = source
+    self.source = source
     value = "CORRECT - package"
-    _cribo_module.value = value
+    self.value = value
     print("Successfully imported foo package")
-    return _cribo_module
-foo = _cribo_init___cribo_e25798_foo()
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+foo.__init__ = _cribo_init___cribo_e25798_foo
+foo = _cribo_init___cribo_e25798_foo(foo)
 print(f"Imported foo from: {foo.source}")
 print(f"foo.value = {foo.value}")

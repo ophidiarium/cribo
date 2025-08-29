@@ -36,9 +36,9 @@ __version__ = "1.0.0"
 mypackage___version__.__version__ = __version__
 mypackage_core = _cribo.types.SimpleNamespace(__name__='mypackage.core', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_e49d78_mypackage_core(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Core module that creates circular dependency."""
@@ -56,12 +56,13 @@ mypackage_core.__init__ = _cribo_init___cribo_e49d78_mypackage_core
 mypackage.core = mypackage_core
 mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_35f1d1_mypackage_utils(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Utils module that imports from __version__ module and uses it at module level."""
+    __version__ = mypackage___version__.__version__
     mypackage_utils.__version__ = __version__
     VERSION_PREFIX = f"v{__version__}"
     self.VERSION_PREFIX = VERSION_PREFIX
@@ -76,9 +77,9 @@ def _cribo_init___cribo_35f1d1_mypackage_utils(self):
 mypackage_utils.__init__ = _cribo_init___cribo_35f1d1_mypackage_utils
 mypackage.utils = mypackage_utils
 def _cribo_init___cribo_370515_mypackage(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """Package init that creates circular dependency."""

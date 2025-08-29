@@ -28,17 +28,54 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-ANIMAL = "cat"
-def tada() -> str:
-    return f"Tada {ANIMAL}!"
-foo = _cribo.types.SimpleNamespace(__name__='foo')
 foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo')
+foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False)
 foo.boo = foo_boo
-foo_boo___main__ = _cribo.types.SimpleNamespace(__name__='foo.boo.__main__')
-foo_boo.__main__ = foo_boo___main__
 foo_zoo = _cribo.types.SimpleNamespace(__name__='foo.zoo')
 foo.zoo = foo_zoo
-foo_boo___main__.tada = tada
+ANIMAL = "cat"
 foo_zoo.ANIMAL = ANIMAL
+foo_boo___main__ = _cribo.types.SimpleNamespace(__name__='foo.boo.__main__', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_9fa9ed_foo_boo___main__(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    ANIMAL = foo_zoo.ANIMAL
+    foo_boo___main__.ANIMAL = ANIMAL
+
+    def tada() -> str:
+        return f"Tada {ANIMAL}!"
+    self.tada = tada
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+foo_boo___main__.__init__ = _cribo_init___cribo_9fa9ed_foo_boo___main__
+foo_boo.__main__ = foo_boo___main__
+def _cribo_init___cribo_35e8d2_foo(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    global foo_boo___main__
+    foo.__initializing__ = True
+    foo_boo___main__ = _cribo_init___cribo_9fa9ed_foo_boo___main__(foo_boo___main__)
+    tada = foo.boo.__main__.tada
+    self.tada = tada
+    self.boo = foo_boo
+    self.zoo = foo_zoo
+    self.boo = foo_boo
+    self.zoo = foo_zoo
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+foo.__init__ = _cribo_init___cribo_35e8d2_foo
+__cribo_init_result = _cribo_init___cribo_35e8d2_foo(foo)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(foo, attr, getattr(__cribo_init_result, attr))
+tada = foo.tada
 if __name__ == "__main__":
     print(tada())

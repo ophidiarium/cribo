@@ -28,8 +28,11 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-"""Parent module that re-exports child module symbols."""
-"""Subpackage with wildcard export."""
+parent_subpkg_submodule = _cribo.types.SimpleNamespace(__name__='parent.subpkg.submodule')
+parent = _cribo.types.SimpleNamespace(__name__='parent', __initializing__=False, __initialized__=False)
+parent_subpkg = _cribo.types.SimpleNamespace(__name__='parent.subpkg', __initializing__=False, __initialized__=False, __path__=[])
+parent.subpkg = parent_subpkg
+parent_subpkg.submodule = parent_subpkg_submodule
 """Submodule in subpackage."""
 class SubpkgClass:
     """A class from subpackage."""
@@ -37,6 +40,9 @@ class SubpkgClass:
     def __init__(self):
         self.subpkg_value = "subpkg"
 SubpkgClass.__module__ = 'parent.subpkg.submodule'
+parent_subpkg_submodule.SubpkgClass = SubpkgClass
+parent_child = _cribo.types.SimpleNamespace(__name__='parent.child')
+parent.child = parent_child
 """Child module that defines the actual symbols."""
 class MyClass:
     """A simple class to test forward references."""
@@ -47,6 +53,9 @@ class MyClass:
     def __repr__(self):
         return f"MyClass(value={self.value})"
 MyClass.__module__ = 'parent.child'
+parent_child.MyClass = MyClass
+parent_another = _cribo.types.SimpleNamespace(__name__='parent.another')
+parent.another = parent_another
 """Another module."""
 class AnotherClass:
     """Another class."""
@@ -54,6 +63,9 @@ class AnotherClass:
     def __init__(self):
         self.another_value = "another"
 AnotherClass.__module__ = 'parent.another'
+parent_another.AnotherClass = AnotherClass
+parent_base = _cribo.types.SimpleNamespace(__name__='parent.base')
+parent.base = parent_base
 """Base module defining base classes."""
 class BaseClass:
     """A base class."""
@@ -61,27 +73,57 @@ class BaseClass:
     def __init__(self):
         self.base_value = "base"
 BaseClass.__module__ = 'parent.base'
-parent = _cribo.types.SimpleNamespace(__name__='parent')
-parent_subpkg = _cribo.types.SimpleNamespace(__name__='parent.subpkg')
-parent.subpkg = parent_subpkg
-parent_subpkg_submodule = _cribo.types.SimpleNamespace(__name__='parent.subpkg.submodule')
-parent_subpkg.submodule = parent_subpkg_submodule
-parent_child = _cribo.types.SimpleNamespace(__name__='parent.child')
-parent.child = parent_child
-parent_another = _cribo.types.SimpleNamespace(__name__='parent.another')
-parent.another = parent_another
-parent_base = _cribo.types.SimpleNamespace(__name__='parent.base')
-parent.base = parent_base
-parent_subpkg.SubpkgClass = SubpkgClass
-parent_subpkg_submodule.SubpkgClass = SubpkgClass
-parent_child.MyClass = MyClass
-parent_another.AnotherClass = AnotherClass
 parent_base.BaseClass = BaseClass
+def _cribo_init___cribo_0ac738_parent_subpkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Subpackage with wildcard export."""
+    SubpkgClass = parent_subpkg_submodule.SubpkgClass
+    parent_subpkg.SubpkgClass = SubpkgClass
+    self.submodule = parent_subpkg_submodule
+    self.submodule = parent_subpkg_submodule
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+parent_subpkg.__init__ = _cribo_init___cribo_0ac738_parent_subpkg
+def _cribo_init___cribo_710264_parent(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Parent module that re-exports child module symbols."""
+    BaseClass = parent_base.BaseClass
+    parent.BaseClass = BaseClass
+    AnotherClass = parent_another.AnotherClass
+    parent.AnotherClass = AnotherClass
+    MyClass = parent_child.MyClass
+    parent.MyClass = MyClass
+    parent.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_0ac738_parent_subpkg(parent_subpkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(parent.subpkg, attr, getattr(__cribo_init_result, attr))
+    SubpkgClass = parent.subpkg.SubpkgClass
+    parent.SubpkgClass = SubpkgClass
+    self.child = parent_child
+    self.another = parent_another
+    self.base = parent_base
+    self.child = parent_child
+    self.another = parent_another
+    self.base = parent_base
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+parent.__init__ = _cribo_init___cribo_710264_parent
 """Test case for forward reference from parent __init__ to child module symbols."""
-parent.BaseClass = BaseClass
-parent.AnotherClass = AnotherClass
-parent.MyClass = MyClass
-parent.SubpkgClass = SubpkgClass
+__cribo_init_result = _cribo_init___cribo_710264_parent(parent)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(parent, attr, getattr(__cribo_init_result, attr))
 print(f"BaseClass: {parent.BaseClass}")
 print(f"AnotherClass: {parent.AnotherClass}")
 print(f"MyClass: {parent.MyClass}")

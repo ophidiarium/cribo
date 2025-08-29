@@ -404,9 +404,9 @@ models_base.shadow_test = shadow_test
 models_base.validate = validate_2
 services_auth_manager = _cribo.types.SimpleNamespace(__name__='services.auth.manager', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
     """\nAuthentication manager with complex naming conflicts\n"""
@@ -416,8 +416,8 @@ def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
     self.Dict = Dict
     Any = _cribo.typing.Any
     self.Any = Any
-    services_auth_manager.DBConnection = Connection_5
-    DBConnection = Connection_5
+    DBConnection = core_database_connection.Connection
+    services_auth_manager.DBConnection = DBConnection
     base = models_base
     result = "auth_result"
     self.result = result

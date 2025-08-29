@@ -28,63 +28,38 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-SHARED_CONSTANT_1 = "SHARED_FROM_B"
-SHARED_CONSTANT_2 = "SHARED_FROM_A"
-SAFE_CONSTANT = "SAFE_VALUE"
-class SharedClass_1:
-    """Class with same name in multiple modules."""
-
-    def method(self):
-        return "SharedClass_from_module_b"
-class SharedClass_2:
-    """Class with same name in multiple modules."""
-
-    def method(self):
-        return "SharedClass_from_module_a"
+explicit_all = _cribo.types.SimpleNamespace(__name__='explicit_all')
+"""Module with no side-effects and explicit __all__."""
+def safe_function():
+    """A function that will be exported via __all__."""
+    return "safe_function_result"
 class SafeClass:
     """A class that will be exported via __all__."""
 
     def method(self):
         return "SafeClass.method_result"
-def shared_function_1():
-    """Function with same name in multiple modules."""
-    return "shared_function_from_module_b"
-def unique_b_function():
-    """Function unique to module B."""
-    return "unique_b_result"
-def shared_function_2():
-    """Function with same name in multiple modules."""
-    return "shared_function_from_module_a"
-def unique_a_function():
-    """Function unique to module A."""
-    return "unique_a_result"
-def safe_function():
-    """A function that will be exported via __all__."""
-    return "safe_function_result"
-"""Second module with potentially clashing names (no side-effects)."""
-SharedClass_1.__module__ = 'clash_module_b'
-SharedClass_1.__name__ = 'SharedClass'
-SharedClass_1.__qualname__ = 'SharedClass'
-"""First module with potentially clashing names (no side-effects)."""
-SharedClass_2.__module__ = 'clash_module_a'
-SharedClass_2.__name__ = 'SharedClass'
-SharedClass_2.__qualname__ = 'SharedClass'
-"""Module with no side-effects and explicit __all__."""
 SafeClass.__module__ = 'explicit_all'
-@_cribo.functools.cache
-def _cribo_init___cribo_9a9871_with_side_effects():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'with_side_effects'
+SAFE_CONSTANT = "SAFE_VALUE"
+explicit_all.safe_function = safe_function
+explicit_all.SafeClass = SafeClass
+explicit_all.SAFE_CONSTANT = SAFE_CONSTANT
+with_side_effects = _cribo.types.SimpleNamespace(__name__='with_side_effects', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_9a9871_with_side_effects(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     """Module with side-effects and no explicit __all__."""
     print("Loading with_side_effects module")
     _module_state = []
-    _cribo_module._module_state = _module_state
-    _cribo_module._module_state.append("initialized")
+    self._module_state = _module_state
+    _module_state.append("initialized")
 
     def effect_function():
         """Function from module with side-effects."""
         return "effect_function_result"
-    _cribo_module.effect_function = effect_function
+    self.effect_function = effect_function
 
     class EffectClass:
         """Class from module with side-effects."""
@@ -96,31 +71,76 @@ def _cribo_init___cribo_9a9871_with_side_effects():
         def method(self):
             return "EffectClass.method_result"
     EffectClass.__module__ = 'with_side_effects'
-    _cribo_module.EffectClass = EffectClass
+    self.EffectClass = EffectClass
     EFFECT_CONSTANT = "EFFECT_VALUE"
-    _cribo_module.EFFECT_CONSTANT = EFFECT_CONSTANT
+    self.EFFECT_CONSTANT = EFFECT_CONSTANT
     _registry = {}
-    _cribo_module._registry = _registry
+    self._registry = _registry
 
     def register(name):
         """Decorator with side-effects."""
 
         def decorator(func):
-            _cribo_module._registry[name] = func
+            _registry[name] = func
             return func
         return decorator
-    _cribo_module.register = register
+    self.register = register
 
     @register("sample")
     def registered_function():
         """Function registered as a side-effect."""
         return "registered_result"
-    _cribo_module.registered_function = registered_function
-    if len(_cribo_module._module_state) > 0:
+    self.registered_function = registered_function
+    if len(_module_state) > 0:
         print(f"Module state initialized with {len(_module_state)} items")
-    return _cribo_module
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+with_side_effects.__init__ = _cribo_init___cribo_9a9871_with_side_effects
+clash_module_a = _cribo.types.SimpleNamespace(__name__='clash_module_a')
+"""First module with potentially clashing names (no side-effects)."""
+def shared_function_2():
+    """Function with same name in multiple modules."""
+    return "shared_function_from_module_a"
+class SharedClass_2:
+    """Class with same name in multiple modules."""
+
+    def method(self):
+        return "SharedClass_from_module_a"
+SharedClass_2.__module__ = 'clash_module_a'
+SharedClass_2.__name__ = 'SharedClass'
+SharedClass_2.__qualname__ = 'SharedClass'
+SHARED_CONSTANT_2 = "SHARED_FROM_A"
+def unique_a_function():
+    """Function unique to module A."""
+    return "unique_a_result"
+clash_module_a.shared_function = shared_function_2
+clash_module_a.SharedClass = SharedClass_2
+clash_module_a.SHARED_CONSTANT = SHARED_CONSTANT_2
+clash_module_a.unique_a_function = unique_a_function
+clash_module_b = _cribo.types.SimpleNamespace(__name__='clash_module_b')
+"""Second module with potentially clashing names (no side-effects)."""
+def shared_function_1():
+    """Function with same name in multiple modules."""
+    return "shared_function_from_module_b"
+class SharedClass_1:
+    """Class with same name in multiple modules."""
+
+    def method(self):
+        return "SharedClass_from_module_b"
+SharedClass_1.__module__ = 'clash_module_b'
+SharedClass_1.__name__ = 'SharedClass'
+SharedClass_1.__qualname__ = 'SharedClass'
+SHARED_CONSTANT_1 = "SHARED_FROM_B"
+def unique_b_function():
+    """Function unique to module B."""
+    return "unique_b_result"
+clash_module_b.shared_function = shared_function_1
+clash_module_b.SharedClass = SharedClass_1
+clash_module_b.SHARED_CONSTANT = SHARED_CONSTANT_1
+clash_module_b.unique_b_function = unique_b_function
 """Main module demonstrating various wildcard import patterns."""
-with_side_effects = _cribo_init___cribo_9a9871_with_side_effects()
+with_side_effects = _cribo_init___cribo_9a9871_with_side_effects(with_side_effects)
 EFFECT_CONSTANT = with_side_effects.EFFECT_CONSTANT
 EffectClass = with_side_effects.EffectClass
 effect_function = with_side_effects.effect_function

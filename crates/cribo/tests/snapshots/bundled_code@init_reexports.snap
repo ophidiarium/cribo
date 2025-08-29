@@ -28,41 +28,29 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
-mypackage_data_processor = _cribo.types.SimpleNamespace(__name__='mypackage.data_processor')
-mypackage.data_processor = mypackage_data_processor
-mypackage_formatter = _cribo.types.SimpleNamespace(__name__='mypackage.formatter')
-mypackage.formatter = mypackage_formatter
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils')
+mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.utils = mypackage_utils
+mypackage_utils.constants = mypackage_utils_constants
+"""Constants module."""
+mypackage_utils_helper = _cribo.types.SimpleNamespace(__name__='mypackage.utils.helper')
+mypackage_utils.helper = mypackage_utils_helper
+"""Helper utilities."""
 def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
-def format_data(data):
-    """Format the processed data."""
-    return f"Formatted: {data}"
-def process_data(data):
-    """Process the input data."""
-    processed = data.copy()
-    processed["processed"] = True
-    return processed
-"""Utils subpackage with re-exports."""
-"""Constants module."""
-"""Helper utilities."""
-"""Data formatting module."""
-"""Data processing module."""
-mypackage_utils.helper_function = helper_function
-mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants')
-mypackage_utils.constants = mypackage_utils_constants
-mypackage_utils_helper = _cribo.types.SimpleNamespace(__name__='mypackage.utils.helper')
-mypackage_utils.helper = mypackage_utils_helper
-@_cribo.functools.cache
-def _cribo_init___cribo_de6c46_mypackage_config():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypackage.config'
+mypackage_utils_helper.helper_function = helper_function
+mypackage_config = _cribo.types.SimpleNamespace(__name__='mypackage.config', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_de6c46_mypackage_config(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     """Configuration module."""
     os = _cribo.os
-    _cribo_module.os = os
+    self.os = os
 
     class Config:
         """Configuration class."""
@@ -71,42 +59,94 @@ def _cribo_init___cribo_de6c46_mypackage_config():
             self.DEBUG = _cribo.os.environ.get("DEBUG", "false").lower() == "true"
             self.LOG_LEVEL = _cribo.os.environ.get("LOG_LEVEL", "INFO")
     Config.__module__ = 'mypackage.config'
-    _cribo_module.Config = Config
+    self.Config = Config
     config = Config()
-    _cribo_module.config = config
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_a81151_mypackage():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypackage'
-    """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
-    _cribo_module.process_data = process_data
-    _cribo_module.format_data = format_data
-    mypackage.config = _cribo_init___cribo_de6c46_mypackage_config()
-    config = mypackage.config.config
-    _cribo_module.config = config
-    _cribo_module.helper_function = helper_function
-    __version__ = "1.0.0"
-    _cribo_module.__version__ = __version__
-    DEBUG_MODE = config.DEBUG
-    _cribo_module.DEBUG_MODE = DEBUG_MODE
-    _cribo_module.utils = mypackage_utils
-    _cribo_module.formatter = mypackage_formatter
-    _cribo_module.data_processor = mypackage_data_processor
-    return _cribo_module
-__cribo_init_result = _cribo_init___cribo_a81151_mypackage()
-for attr in dir(__cribo_init_result):
-    if not attr.startswith('_'):
-        setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-mypackage_utils_helper.helper_function = helper_function
+    self.config = config
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage_config.__init__ = _cribo_init___cribo_de6c46_mypackage_config
+mypackage.config = mypackage_config
+mypackage_formatter = _cribo.types.SimpleNamespace(__name__='mypackage.formatter')
+mypackage.formatter = mypackage_formatter
+"""Data formatting module."""
+def format_data(data):
+    """Format the processed data."""
+    return f"Formatted: {data}"
 mypackage_formatter.format_data = format_data
+mypackage_data_processor = _cribo.types.SimpleNamespace(__name__='mypackage.data_processor')
+mypackage.data_processor = mypackage_data_processor
+"""Data processing module."""
+def process_data(data):
+    """Process the input data."""
+    processed = data.copy()
+    processed["processed"] = True
+    return processed
 mypackage_data_processor.process_data = process_data
+def _cribo_init___cribo_a81151_mypackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
+    process_data = mypackage_data_processor.process_data
+    mypackage.process_data = process_data
+    format_data = mypackage_formatter.format_data
+    mypackage.format_data = format_data
+    global mypackage_config
+    mypackage.__initializing__ = True
+    mypackage_config = _cribo_init___cribo_de6c46_mypackage_config(mypackage_config)
+    config = mypackage.config.config
+    self.config = config
+    mypackage.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_99e487_mypackage_utils(mypackage_utils)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(mypackage.utils, attr, getattr(__cribo_init_result, attr))
+    __version__ = "1.0.0"
+    self.__version__ = __version__
+    DEBUG_MODE = config.DEBUG
+    self.DEBUG_MODE = DEBUG_MODE
+    self.formatter = mypackage_formatter
+    self.data_processor = mypackage_data_processor
+    self.formatter = mypackage_formatter
+    self.data_processor = mypackage_data_processor
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage.__init__ = _cribo_init___cribo_a81151_mypackage
+def _cribo_init___cribo_99e487_mypackage_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Utils subpackage with re-exports."""
+    helper_function = mypackage_utils_helper.helper_function
+    mypackage_utils.helper_function = helper_function
+    self.constants = mypackage_utils_constants
+    self.helper = mypackage_utils_helper
+    self.constants = mypackage_utils_constants
+    self.helper = mypackage_utils_helper
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage_utils.__init__ = _cribo_init___cribo_99e487_mypackage_utils
 '''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
-__cribo_init_result = _cribo_init___cribo_a81151_mypackage()
+__cribo_init_result = _cribo_init___cribo_a81151_mypackage(mypackage)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
 config = mypackage.config
+__cribo_init_result = _cribo_init___cribo_a81151_mypackage(mypackage)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypackage, attr, getattr(__cribo_init_result, attr))
+__cribo_init_result = _cribo_init___cribo_99e487_mypackage_utils(mypackage_utils)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypackage.utils, attr, getattr(__cribo_init_result, attr))
 def main():
     """Main function demonstrating usage of re-exported functions."""
     data = {"name": "test", "value": 42}

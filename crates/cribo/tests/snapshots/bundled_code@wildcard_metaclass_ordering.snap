@@ -28,78 +28,88 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-yaml_module = _cribo.types.SimpleNamespace(__name__='yaml_module')
-yaml_module_dumper = _cribo.types.SimpleNamespace(__name__='yaml_module.dumper')
-yaml_module.dumper = yaml_module_dumper
 yaml_module_loader = _cribo.types.SimpleNamespace(__name__='yaml_module.loader')
+yaml_module = _cribo.types.SimpleNamespace(__name__='yaml_module', __initializing__=False, __initialized__=False)
 yaml_module.loader = yaml_module_loader
-class BaseDumper:
-    """Base dumper class"""
-
-    def __init__(self):
-        self.name = "BaseDumper"
-class Dumper(BaseDumper):
-    """Standard YAML dumper"""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "Dumper"
-class SafeDumper(BaseDumper):
-    """Safe YAML dumper"""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "SafeDumper"
 class BaseLoader:
     """Base loader class"""
 
     def __init__(self):
         self.name = "BaseLoader"
+BaseLoader.__module__ = 'yaml_module.loader'
 class Loader(BaseLoader):
     """Standard YAML loader"""
 
     def __init__(self):
         super().__init__()
         self.name = "Loader"
+Loader.__module__ = 'yaml_module.loader'
 class FullLoader(BaseLoader):
     """Full featured YAML loader"""
 
     def __init__(self):
         super().__init__()
         self.name = "FullLoader"
+FullLoader.__module__ = 'yaml_module.loader'
 class UnsafeLoader(BaseLoader):
     """Unsafe loader that can execute arbitrary Python"""
 
     def __init__(self):
         super().__init__()
         self.name = "UnsafeLoader"
+UnsafeLoader.__module__ = 'yaml_module.loader'
 class SafeLoader(BaseLoader):
     """Safe loader with limited functionality"""
 
     def __init__(self):
         super().__init__()
         self.name = "SafeLoader"
-BaseDumper.__module__ = 'yaml_module.dumper'
-Dumper.__module__ = 'yaml_module.dumper'
-SafeDumper.__module__ = 'yaml_module.dumper'
-BaseLoader.__module__ = 'yaml_module.loader'
-Loader.__module__ = 'yaml_module.loader'
-FullLoader.__module__ = 'yaml_module.loader'
-UnsafeLoader.__module__ = 'yaml_module.loader'
 SafeLoader.__module__ = 'yaml_module.loader'
-@_cribo.functools.cache
-def _cribo_init___cribo_952a76_yaml_module():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'yaml_module'
+yaml_module_loader.BaseLoader = BaseLoader
+yaml_module_loader.Loader = Loader
+yaml_module_loader.FullLoader = FullLoader
+yaml_module_loader.UnsafeLoader = UnsafeLoader
+yaml_module_loader.SafeLoader = SafeLoader
+yaml_module_dumper = _cribo.types.SimpleNamespace(__name__='yaml_module.dumper')
+yaml_module.dumper = yaml_module_dumper
+class BaseDumper:
+    """Base dumper class"""
+
+    def __init__(self):
+        self.name = "BaseDumper"
+BaseDumper.__module__ = 'yaml_module.dumper'
+class Dumper(BaseDumper):
+    """Standard YAML dumper"""
+
+    def __init__(self):
+        super().__init__()
+        self.name = "Dumper"
+Dumper.__module__ = 'yaml_module.dumper'
+class SafeDumper(BaseDumper):
+    """Safe YAML dumper"""
+
+    def __init__(self):
+        super().__init__()
+        self.name = "SafeDumper"
+SafeDumper.__module__ = 'yaml_module.dumper'
+yaml_module_dumper.BaseDumper = BaseDumper
+yaml_module_dumper.Dumper = Dumper
+yaml_module_dumper.SafeDumper = SafeDumper
+def _cribo_init___cribo_952a76_yaml_module(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, SafeDumper, SafeLoader, UnsafeLoader
-    _cribo_module.BaseDumper = BaseDumper
-    _cribo_module.BaseLoader = BaseLoader
-    _cribo_module.Dumper = Dumper
-    _cribo_module.FullLoader = FullLoader
-    _cribo_module.Loader = Loader
-    _cribo_module.SafeDumper = SafeDumper
-    _cribo_module.SafeLoader = SafeLoader
-    _cribo_module.UnsafeLoader = UnsafeLoader
+    self.BaseDumper = BaseDumper
+    self.BaseLoader = BaseLoader
+    self.Dumper = Dumper
+    self.FullLoader = FullLoader
+    self.Loader = Loader
+    self.SafeDumper = SafeDumper
+    self.SafeLoader = SafeLoader
+    self.UnsafeLoader = UnsafeLoader
 
     class YAMLObjectMetaclass(type):
         """The metaclass for YAMLObject."""
@@ -115,7 +125,7 @@ def _cribo_init___cribo_952a76_yaml_module():
                     else:
                         print(f"  - Would register with {cls.yaml_loader.__name__}")
     YAMLObjectMetaclass.__module__ = 'yaml_module'
-    _cribo_module.YAMLObjectMetaclass = YAMLObjectMetaclass
+    self.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
         """\n    An object that can be serialized to/from YAML.\n    Uses wildcard-imported symbols in class body.\n    """
@@ -136,20 +146,20 @@ def _cribo_init___cribo_952a76_yaml_module():
         def to_yaml(cls, dumper, data):
             return f"Dumping {cls.__name__} to YAML"
     YAMLObject.__module__ = 'yaml_module'
-    _cribo_module.YAMLObject = YAMLObject
-    _cribo_module.dumper = yaml_module_dumper
-    _cribo_module.loader = yaml_module_loader
-    return _cribo_module
-yaml_module_dumper.BaseDumper = BaseDumper
-yaml_module_dumper.Dumper = Dumper
-yaml_module_dumper.SafeDumper = SafeDumper
-yaml_module_loader.BaseLoader = BaseLoader
-yaml_module_loader.Loader = Loader
-yaml_module_loader.FullLoader = FullLoader
-yaml_module_loader.UnsafeLoader = UnsafeLoader
-yaml_module_loader.SafeLoader = SafeLoader
+    self.YAMLObject = YAMLObject
+    self.dumper = yaml_module_dumper
+    self.loader = yaml_module_loader
+    self.dumper = yaml_module_dumper
+    self.loader = yaml_module_loader
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+yaml_module.__init__ = _cribo_init___cribo_952a76_yaml_module
 """\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__\nare properly included even if not directly used in the class body.\n"""
-yaml_module = _cribo_init___cribo_952a76_yaml_module()
+__cribo_init_result = _cribo_init___cribo_952a76_yaml_module(yaml_module)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(yaml_module, attr, getattr(__cribo_init_result, attr))
 assert hasattr(yaml_module, "YAMLObject")
 assert hasattr(yaml_module, "YAMLObjectMetaclass")
 print("Testing YAMLObject...")

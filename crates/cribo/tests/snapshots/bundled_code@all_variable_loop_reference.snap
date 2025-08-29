@@ -41,12 +41,14 @@ def my_func():
 mypkg__internal.MyClass = MyClass
 mypkg__internal.my_func = my_func
 def _cribo_init___cribo_4c9561_mypkg(self):
-    if self.__initialized__:
+    if getattr(self, '__initialized__', False):
         return self
-    if self.__initializing__:
+    if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    MyClass = mypkg__internal.MyClass
     mypkg.MyClass = MyClass
+    my_func = mypkg__internal.my_func
     mypkg.my_func = my_func
     __all__ = ["MyClass", "my_func"]
     __locals = vars(mypkg)

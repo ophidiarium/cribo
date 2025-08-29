@@ -29,25 +29,64 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 services = _cribo.types.SimpleNamespace(__name__='services')
-services_auth = _cribo.types.SimpleNamespace(__name__='services.auth')
-services.auth = services_auth
-def get_user_context():
-    """Get user context - used by database module"""
-    return "user_context_from_auth"
-def authenticate_user(username):
-    """Authenticate user using database connection"""
-    conn = get_connection()
-    return f"auth({username}, conn={conn})"
-def get_connection():
-    """Get database connection with user context"""
-    context = get_user_context()
-    return f"db_connection(context={context})"
-services_auth.get_user_context = get_user_context
-services_auth.authenticate_user = authenticate_user
-services_database = _cribo.types.SimpleNamespace(__name__='services.database')
+services_database = _cribo.types.SimpleNamespace(__name__='services.database', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_62de34_services_database(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    global services_auth
+    services_database.__initializing__ = True
+    services_auth = _cribo_init___cribo_9d48f2_services_auth(services_auth)
+    get_user_context = services.auth.get_user_context
+    self.get_user_context = get_user_context
+
+    def get_connection():
+        """Get database connection with user context"""
+        context = get_user_context()
+        return f"db_connection(context={context})"
+    self.get_connection = get_connection
+
+    def execute_query(query):
+        """Execute a database query"""
+        return f"query_result({query})"
+    self.execute_query = execute_query
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+services_database.__init__ = _cribo_init___cribo_62de34_services_database
 services.database = services_database
-services_database.get_connection = get_connection
-auth = services_auth
+services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_9d48f2_services_auth(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    global services_database
+    services_auth.__initializing__ = True
+    services_database = _cribo_init___cribo_62de34_services_database(services_database)
+    get_connection = services.database.get_connection
+    self.get_connection = get_connection
+
+    def authenticate_user(username):
+        """Authenticate user using database connection"""
+        conn = get_connection()
+        return f"auth({username}, conn={conn})"
+    self.authenticate_user = authenticate_user
+
+    def get_user_context():
+        """Get user context - used by database module"""
+        return "user_context_from_auth"
+    self.get_user_context = get_user_context
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+services_auth.__init__ = _cribo_init___cribo_9d48f2_services_auth
+services.auth = services_auth
+services.auth = _cribo_init___cribo_9d48f2_services_auth(services_auth)
+auth = services.auth
 def main():
     result = auth.authenticate_user("test_user")
     print(f"Relative import cycle result: {result}")
