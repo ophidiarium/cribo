@@ -89,6 +89,9 @@ pub struct Bundler<'a> {
     /// Track parent-child assignments that have been made to prevent duplicates
     /// Format: (parent, child) where both are module names
     pub(crate) parent_child_assignments_made: FxIndexSet<(String, String)>,
+    /// Track modules that have had their symbols populated to their namespace
+    /// This prevents duplicate population when modules are imported multiple times
+    pub(crate) modules_with_populated_symbols: FxIndexSet<ModuleId>,
     /// Reference to the dependency graph for module relationship queries
     pub(crate) graph: Option<&'a CriboGraph>,
     /// Modules that have explicit __all__ defined
@@ -196,6 +199,7 @@ impl<'a> Bundler<'a> {
             namespace_registry: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
             parent_child_assignments_made: FxIndexSet::default(),
+            modules_with_populated_symbols: FxIndexSet::default(),
             graph: None,
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
@@ -1859,37 +1863,51 @@ impl<'a> Bundler<'a> {
                     .expect("Inlined module should have a module ID");
 
                 if current_module_id != crate::resolver::ModuleId::ENTRY {
-                    // For inlined modules, always populate their namespace with their symbols
-                    // This ensures that both directly imported modules (import module) and
-                    // modules imported via from-imports (from package import module) have
-                    // their symbols properly assigned to their namespace objects
-                    log::debug!("Populating namespace for inlined module: {module_name}");
-                    let namespace_var = sanitize_module_name_for_identifier(&module_name);
+                    // Check if this module has already been populated
+                    if self
+                        .modules_with_populated_symbols
+                        .contains(&current_module_id)
+                    {
+                        log::debug!(
+                            "Skipping namespace population for inlined module: {module_name} - already populated"
+                        );
+                    } else {
+                        // For inlined modules, always populate their namespace with their symbols
+                        // This ensures that both directly imported modules (import module) and
+                        // modules imported via from-imports (from package import module) have
+                        // their symbols properly assigned to their namespace objects
+                        log::debug!("Populating namespace for inlined module: {module_name}");
+                        let namespace_var = sanitize_module_name_for_identifier(&module_name);
 
-                    // Create a context for namespace population
-                    let mut population_ctx =
-                        crate::code_generator::namespace_manager::NamespacePopulationContext {
-                            bundled_modules: &self.bundled_modules,
-                            inlined_modules: &self.inlined_modules,
-                            module_exports: &self.module_exports,
-                            tree_shaking_keep_symbols: &self.tree_shaking_keep_symbols,
-                            modules_with_accessed_all: &self.modules_with_accessed_all,
-                            wrapper_modules: &self.wrapper_modules,
-                            module_asts: &None, // Not needed for this context
-                            global_deferred_imports: &FxIndexMap::default(), // Not needed here
-                            module_init_functions: &self.module_init_functions,
-                            resolver: self.resolver,
-                        };
+                        // Create a context for namespace population
+                        let mut population_ctx =
+                            crate::code_generator::namespace_manager::NamespacePopulationContext {
+                                bundled_modules: &self.bundled_modules,
+                                inlined_modules: &self.inlined_modules,
+                                module_exports: &self.module_exports,
+                                tree_shaking_keep_symbols: &self.tree_shaking_keep_symbols,
+                                modules_with_accessed_all: &self.modules_with_accessed_all,
+                                wrapper_modules: &self.wrapper_modules,
+                                module_asts: &None, // Not needed for this context
+                                global_deferred_imports: &FxIndexMap::default(), // Not needed here
+                                module_init_functions: &self.module_init_functions,
+                                resolver: self.resolver,
+                            };
 
-                    // Populate the namespace with the module's symbols
-                    let population_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                        &mut population_ctx,
-                        &namespace_var,
-                        current_module_id,
-                        &symbol_renames,
-                    );
+                        // Populate the namespace with the module's symbols
+                        let population_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                            &mut population_ctx,
+                            &namespace_var,
+                            current_module_id,
+                            &symbol_renames,
+                        );
 
-                    all_inlined_stmts.extend(population_stmts);
+                        all_inlined_stmts.extend(population_stmts);
+
+                        // Mark this module as populated
+                        self.modules_with_populated_symbols
+                            .insert(current_module_id);
+                    }
                 }
 
                 // Check if any pending assignments can now be resolved

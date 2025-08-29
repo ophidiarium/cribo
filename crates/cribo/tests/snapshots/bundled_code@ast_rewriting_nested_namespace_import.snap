@@ -37,6 +37,5 @@ def get_greeting(name):
 greetings_greeting.get_greeting = get_greeting
 """Greetings package"""
 """Test nested namespace imports"""
-greetings.greeting.get_greeting = get_greeting
 message = greetings.greeting.get_greeting("Python")
 print(message)

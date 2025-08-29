@@ -71,7 +71,4 @@ print(f"message = {message}")
 print(f"\n'public_func' in simple_module.__all__ = {'public_func' in simple_module.__all__}")
 print(f"'CONSTANT' in simple_module.__all__ = {'CONSTANT' in simple_module.__all__}")
 sub = nested_package.submodule
-sub.__all__ = ['sub_function', 'SUB_CONSTANT']
-sub.sub_function = sub_function
-sub.SUB_CONSTANT = SUB_CONSTANT
 print(f"\n'sub_function' in submodule.__all__ = {'sub_function' in sub.__all__}")

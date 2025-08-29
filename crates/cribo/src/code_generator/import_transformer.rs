@@ -3080,39 +3080,34 @@ fn rewrite_import_with_renames(
                             for i in 1..=parts.len() {
                                 let partial_module = parts[..i].join(".");
                                 // Only populate if this module was actually bundled and has exports
-                                // AND we haven't already populated it in this session
-                                if bundler
-                                    .get_module_id(&partial_module)
-                                    .is_some_and(|id| bundler.bundled_modules.contains(&id))
-                                    && !populated_modules.contains(&partial_module)
-                                {
-                                    // Note: This is a limitation - we can't mutate
-                                    // namespace_assignments_made
-                                    // from here since bundler is immutable. This will be handled during
-                                    // the main bundle process where bundler is mutable.
-                                    log::debug!(
-                                        "Cannot track namespace assignments for '{partial_module}' in \
-                                     import transformer due to immutability"
-                                    );
-                                    // For now, we'll create the statements without tracking duplicates
-                                    let mut ctx = create_namespace_population_context(bundler);
-                                    if let Some(partial_module_id) =
-                                        bundler.get_module_id(&partial_module)
+                                // AND we haven't already populated it in this session or globally
+                                if let Some(partial_module_id) =
+                                    bundler.get_module_id(&partial_module)
+                                    && bundler.bundled_modules.contains(&partial_module_id)
+                                        && !populated_modules.contains(&partial_module)
+                                        && !bundler
+                                            .modules_with_populated_symbols
+                                            .contains(&partial_module_id)
                                     {
-                                        let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                                        &mut ctx,
-                                        &partial_module,
-                                        partial_module_id,
-                                        symbol_renames,
-                                    );
-                                        result_stmts.extend(new_stmts);
-                                    } else {
-                                        log::warn!(
-                                            "Could not find module ID for partial module '{partial_module}'"
+                                        // Note: This is a limitation - we can't mutate
+                                        // namespace_assignments_made
+                                        // from here since bundler is immutable. This will be handled during
+                                        // the main bundle process where bundler is mutable.
+                                        log::debug!(
+                                            "Cannot track namespace assignments for '{partial_module}' in \
+                                         import transformer due to immutability"
                                         );
+                                        // For now, we'll create the statements without tracking duplicates
+                                        let mut ctx = create_namespace_population_context(bundler);
+                                        let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                                            &mut ctx,
+                                            &partial_module,
+                                            partial_module_id,
+                                            symbol_renames,
+                                        );
+                                        result_stmts.extend(new_stmts);
+                                        populated_modules.insert(partial_module.clone());
                                     }
-                                    populated_modules.insert(partial_module.clone());
-                                }
                             }
                         } else {
                             // For simple imports or aliased imports, create namespace object with
@@ -3132,20 +3127,26 @@ fn rewrite_import_with_renames(
                                 result_stmts.push(namespace_stmt);
                             }
 
-                            // Always populate the namespace with symbols
-                            log::debug!(
-                                "Cannot track namespace assignments for '{module_name}' in import \
-                             transformer due to immutability"
-                            );
-                            // For now, we'll create the statements without tracking duplicates
-                            let mut ctx = create_namespace_population_context(bundler);
-                            let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                            &mut ctx,
-                            target_name.as_str(),
-                            module_id,
-                            symbol_renames,
-                        );
-                            result_stmts.extend(new_stmts);
+                            // Populate the namespace with symbols only if not already populated
+                            if bundler.modules_with_populated_symbols.contains(&module_id) {
+                                log::debug!(
+                                    "Skipping namespace population for '{module_name}' - already populated globally"
+                                );
+                            } else {
+                                log::debug!(
+                                    "Cannot track namespace assignments for '{module_name}' in import \
+                                 transformer due to immutability"
+                                );
+                                // For now, we'll create the statements without tracking duplicates
+                                let mut ctx = create_namespace_population_context(bundler);
+                                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                                    &mut ctx,
+                                    target_name.as_str(),
+                                    module_id,
+                                    symbol_renames,
+                                );
+                                result_stmts.extend(new_stmts);
+                            }
                         }
                     }
                 }
@@ -3201,10 +3202,11 @@ fn rewrite_import_with_renames(
                 }
 
                 // Populate the namespace with symbols only if not already populated
-                if populated_modules.contains(module_name) {
+                if populated_modules.contains(module_name)
+                    || bundler.modules_with_populated_symbols.contains(&module_id)
+                {
                     log::debug!(
-                        "Skipping namespace population for '{module_name}' - already populated in \
-                         this transformation session"
+                        "Skipping namespace population for '{module_name}' - already populated"
                     );
                 } else {
                     log::debug!(

@@ -38,5 +38,4 @@ greetings.greeting = greetings_greeting
 messages = greetings_messages
 message_1 = messages.message
 greetings_greeting.message = message_1
-greetings.greeting.message = message_1
 print(greetings.greeting.message)

@@ -63,11 +63,7 @@ abc_collections = _cribo.collections.abc
 url_parser = _cribo.urllib.parse
 xml_tree = _cribo.xml.etree.ElementTree
 helper_utils = utils.helpers
-helper_utils.UtilityClass = UtilityClass
-helper_utils.helper_function = helper_function
 config_module = utils.config
-config_module.DEFAULT_CONFIG = DEFAULT_CONFIG
-config_module.get_config = get_config
 def main():
     """Test function that uses the imported modules with aliases."""
     print("Current working directory: /test/working/directory")
