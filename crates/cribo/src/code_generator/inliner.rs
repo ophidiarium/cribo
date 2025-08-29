@@ -163,7 +163,7 @@ impl Bundler<'_> {
                 }
                 Stmt::FunctionDef(func_def) => {
                     let func_name = func_def.name.to_string();
-                    if !self.should_inline_symbol(&func_name, module_name, ctx.module_exports_map) {
+                    if !self.should_inline_symbol(&func_name, module_id, ctx.module_exports_map) {
                         continue;
                     }
 
@@ -224,7 +224,7 @@ impl Bundler<'_> {
                     ctx.inlined_stmts.push(temp_stmt);
                 }
                 Stmt::ClassDef(class_def) => {
-                    self.inline_class(class_def, module_name, &mut module_renames, ctx);
+                    self.inline_class(class_def, module_name, module_id, &mut module_renames, ctx);
                 }
                 Stmt::Assign(assign) => {
                     // Log what we're processing
@@ -259,7 +259,13 @@ impl Bundler<'_> {
                     self.inline_assignment(assign, module_name, &mut module_renames, ctx);
                 }
                 Stmt::AnnAssign(ann_assign) => {
-                    self.inline_ann_assignment(ann_assign, module_name, &mut module_renames, ctx);
+                    self.inline_ann_assignment(
+                        ann_assign,
+                        module_name,
+                        module_id,
+                        &mut module_renames,
+                        ctx,
+                    );
                 }
                 // TypeAlias statements are safe metadata definitions
                 Stmt::TypeAlias(_) => {
@@ -378,11 +384,12 @@ impl Bundler<'_> {
         &mut self,
         class_def: &StmtClassDef,
         module_name: &str,
+        module_id: crate::resolver::ModuleId,
         module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
         let class_name = class_def.name.to_string();
-        if !self.should_inline_symbol(&class_name, module_name, ctx.module_exports_map) {
+        if !self.should_inline_symbol(&class_name, module_id, ctx.module_exports_map) {
             return;
         }
 
@@ -561,7 +568,7 @@ impl Bundler<'_> {
             // variables because they might be used by functions that are part of the
             // circular dependency
             log::debug!("Including private variable '{name}' from circular module '{module_name}'");
-        } else if !self.should_inline_symbol(&name, module_name, ctx.module_exports_map) {
+        } else if !self.should_inline_symbol(&name, module_id, ctx.module_exports_map) {
             // For all other cases, use the standard inlining check
             log::debug!(
                 "Not inlining symbol '{name}' from module '{module_name}' - failed should_inline_symbol check"
@@ -629,6 +636,7 @@ impl Bundler<'_> {
         &mut self,
         ann_assign: &ruff_python_ast::StmtAnnAssign,
         module_name: &str,
+        module_id: crate::resolver::ModuleId,
         module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
@@ -637,7 +645,7 @@ impl Bundler<'_> {
         };
 
         let var_name = name.id.to_string();
-        if !self.should_inline_symbol(&var_name, module_name, ctx.module_exports_map) {
+        if !self.should_inline_symbol(&var_name, module_id, ctx.module_exports_map) {
             return;
         }
 

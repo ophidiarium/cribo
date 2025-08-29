@@ -42,7 +42,7 @@ pub struct ModuleTransformContext<'a> {
 /// Context for inlining modules
 #[derive(Debug)]
 pub struct InlineContext<'a> {
-    pub module_exports_map: &'a FxIndexMap<String, Option<Vec<String>>>,
+    pub module_exports_map: &'a FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>,
     pub global_symbols: &'a mut FxIndexSet<String>,
     pub module_renames: &'a mut FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     pub inlined_stmts: &'a mut Vec<Stmt>,

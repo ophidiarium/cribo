@@ -1801,20 +1801,9 @@ impl<'a> Bundler<'a> {
                 // Create a temporary vector for import assignments
                 let mut import_assignments = Vec::new();
 
-                // Convert ModuleId-based module_exports_map to String-based for InlineContext
-                let module_exports_string_map: FxIndexMap<String, Option<Vec<String>>> =
-                    module_exports_map
-                        .iter()
-                        .filter_map(|(id, exports)| {
-                            self.resolver
-                                .get_module_name(*id)
-                                .map(|name| (name, exports.clone()))
-                        })
-                        .collect();
-
                 // Create inline context for this specific module
                 let mut inline_ctx = InlineContext {
-                    module_exports_map: &module_exports_string_map,
+                    module_exports_map: &module_exports_map,
                     global_symbols: &mut global_symbols,
                     module_renames: &mut symbol_renames,
                     inlined_stmts: &mut all_inlined_stmts,
@@ -3969,14 +3958,16 @@ impl<'a> Bundler<'a> {
     pub fn should_inline_symbol(
         &self,
         symbol_name: &str,
-        module_name: &str,
-        module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
+        module_id: crate::resolver::ModuleId,
+        module_exports_map: &FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>,
     ) -> bool {
         // First check tree-shaking decisions if available
-        let kept_by_tree_shaking = self
-            .get_module_id(module_name)
-            .is_some_and(|id| self.is_symbol_kept_by_tree_shaking(id, symbol_name));
+        let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_id, symbol_name);
         if !kept_by_tree_shaking {
+            let module_name = self
+                .resolver
+                .get_module_name(module_id)
+                .unwrap_or_else(|| "<unknown>".to_string());
             log::trace!(
                 "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
             );
@@ -3984,7 +3975,7 @@ impl<'a> Bundler<'a> {
         }
 
         // If tree-shaking kept the symbol, check if it's in the export list
-        let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
+        let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
 
         if let Some(export_list) = exports {
             // Module has exports (either explicit __all__ or extracted symbols)
@@ -3997,12 +3988,14 @@ impl<'a> Bundler<'a> {
             // (starts with underscore but not dunder) in a circular module,
             // it means it's explicitly imported by another module and should be included
             // even if it's not in the regular export list
-            if self
-                .get_module_id(module_name)
-                .is_some_and(|id| self.circular_modules.contains(&id))
+            if self.circular_modules.contains(&module_id)
                 && symbol_name.starts_with('_')
                 && !symbol_name.starts_with("__")
             {
+                let module_name = self
+                    .resolver
+                    .get_module_name(module_id)
+                    .unwrap_or_else(|| "<unknown>".to_string());
                 log::debug!(
                     "Including private symbol '{symbol_name}' from circular module '{module_name}' because it's kept by tree-shaking"
                 );
