@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fs,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -770,6 +771,7 @@ impl BundleOrchestrator {
     }
 
     /// Topologically sort a subset of modules based on their dependencies
+    /// Uses Kahn's algorithm (iterative) to avoid deep recursion on large graphs
     fn topologically_sort_modules(
         &self,
         graph: &CriboGraph,
@@ -777,54 +779,70 @@ impl BundleOrchestrator {
     ) -> Vec<crate::resolver::ModuleId> {
         let module_set: IndexSet<_> = module_ids.iter().copied().collect();
         let mut result = Vec::new();
-        let mut visited = IndexSet::new();
-        let mut temp_stack = IndexSet::new();
 
-        fn visit(
-            module_id: crate::resolver::ModuleId,
-            graph: &CriboGraph,
-            module_set: &IndexSet<crate::resolver::ModuleId>,
-            visited: &mut IndexSet<crate::resolver::ModuleId>,
-            temp_stack: &mut IndexSet<crate::resolver::ModuleId>,
-            result: &mut Vec<crate::resolver::ModuleId>,
-        ) -> bool {
-            if temp_stack.contains(&module_id) {
-                // Cycle detected - this shouldn't happen for non-cycle modules
-                return false;
-            }
-            if visited.contains(&module_id) {
-                return true;
-            }
+        // Build adjacency information and calculate in-degrees
+        let mut in_degrees: FxIndexMap<crate::resolver::ModuleId, usize> = FxIndexMap::default();
+        let mut dependents: FxIndexMap<crate::resolver::ModuleId, Vec<crate::resolver::ModuleId>> =
+            FxIndexMap::default();
 
-            temp_stack.insert(module_id);
-
-            // Visit dependencies that are in our module set
-            let dependencies = graph.get_dependencies(module_id);
-            for dep_id in dependencies {
-                if module_set.contains(&dep_id)
-                    && !visit(dep_id, graph, module_set, visited, temp_stack, result)
-                {
-                    return false;
-                }
-            }
-
-            temp_stack.shift_remove(&module_id);
-            visited.insert(module_id);
-            result.push(module_id);
-            true
+        // Initialize all modules with 0 in-degree
+        for &module_id in &module_set {
+            in_degrees.insert(module_id, 0);
+            dependents.insert(module_id, Vec::new());
         }
 
-        // Visit all modules in the set
-        for &module_id in module_ids {
-            if !visited.contains(&module_id) {
-                visit(
-                    module_id,
-                    graph,
-                    &module_set,
-                    &mut visited,
-                    &mut temp_stack,
-                    &mut result,
-                );
+        // Calculate in-degrees and build reverse dependency map
+        for &module_id in &module_set {
+            let dependencies = graph.get_dependencies(module_id);
+            for dep_id in dependencies {
+                if module_set.contains(&dep_id) {
+                    // module_id depends on dep_id, so increment module_id's in-degree
+                    *in_degrees.get_mut(&module_id).unwrap() += 1;
+                    // and record that dep_id has module_id as a dependent
+                    dependents.get_mut(&dep_id).unwrap().push(module_id);
+                }
+            }
+        }
+
+        // Initialize queue with modules that have no dependencies in our subset
+        let mut queue: VecDeque<crate::resolver::ModuleId> = VecDeque::new();
+        for (&module_id, &degree) in &in_degrees {
+            if degree == 0 {
+                queue.push_back(module_id);
+            }
+        }
+
+        // Process modules in topological order
+        while let Some(module_id) = queue.pop_front() {
+            result.push(module_id);
+
+            // For each module that depends on the current module
+            if let Some(deps) = dependents.get(&module_id) {
+                for &dependent_id in deps {
+                    // Decrement in-degree and add to queue if it reaches zero
+                    if let Some(degree) = in_degrees.get_mut(&dependent_id) {
+                        *degree -= 1;
+                        if *degree == 0 {
+                            queue.push_back(dependent_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check for cycles: if we haven't processed all modules, there's a cycle
+        if result.len() != module_set.len() {
+            log::warn!(
+                "Cycle detected in module dependencies. Processed {} out of {} modules",
+                result.len(),
+                module_set.len()
+            );
+            // Return what we could process; cycles will be handled by the caller
+            // Add any remaining modules to maintain deterministic output
+            for &module_id in &module_set {
+                if !result.contains(&module_id) {
+                    result.push(module_id);
+                }
             }
         }
 
