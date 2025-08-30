@@ -76,6 +76,8 @@ def _cribo_init___cribo_f96d2c_config(self):
     logger = _cribo_init___cribo_0639af_logger(logger)
     get_logger = logger.get_logger
     self.get_logger = get_logger
+    format_message = utils.format_message
+    config.format_message = format_message
 
     class Config:
 

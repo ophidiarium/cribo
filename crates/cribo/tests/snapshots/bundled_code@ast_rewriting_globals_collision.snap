@@ -340,6 +340,13 @@ def _cribo_init___cribo_b7b3e3_core_database(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global core_database_connection
+    core_database.__initializing__ = True
+    core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
+    Connection = core.database.connection.Connection
+    self.Connection = Connection
+    process = core.database.connection.process
+    self.process = process
     validate = "db_package_validate"
     self.validate = validate
     self.__initialized__ = True
@@ -352,6 +359,20 @@ def _cribo_init___cribo_0ac752_core(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    core.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_e52b1d_core_utils(core_utils)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(core.utils, attr, getattr(__cribo_init_result, attr))
+    core_process = core.utils.process
+    self.core_process = core_process
+    core.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(core.database, attr, getattr(__cribo_init_result, attr))
+    CoreConnection = core.database.Connection
+    self.CoreConnection = CoreConnection
     Logger = "core_logger_string"
     self.Logger = Logger
     self.__initialized__ = True
@@ -364,6 +385,12 @@ def _cribo_init___cribo_e52b1d_core_utils(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    process = core_utils_helpers.process
+    core_utils.process = process
+    validate = core_utils_helpers.validate
+    core_utils.validate = validate
+    Logger = core_utils_helpers.Logger
+    core_utils.Logger = Logger
     User = "utils_user_string"
     self.User = User
     self.helpers = core_utils_helpers
@@ -468,6 +495,18 @@ def _cribo_init___cribo_293a98_models(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global models_user
+    models.__initializing__ = True
+    models_user = _cribo_init___cribo_1f9e6c_models_user(models_user)
+    User = models.user.User
+    self.User = User
+    process_user = models.user.process_user
+    self.process_user = process_user
+    global models_base
+    models.__initializing__ = True
+    models_base = _cribo_init___cribo_0a162a_models_base(models_base)
+    initialize = models.base.initialize
+    self.initialize = initialize
     Logger = lambda x: f"models_logger_{x}"
     self.Logger = Logger
     process = "models_process"
@@ -482,6 +521,13 @@ def _cribo_init___cribo_b2dda7_services(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    services.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_84bf42_services_auth(services_auth)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(services.auth, attr, getattr(__cribo_init_result, attr))
+    ServiceUser = services.auth.User
+    self.ServiceUser = ServiceUser
     process = lambda x, y: f"services_process: {x}, {y}"
     self.process = process
     validate = "services_validate"
@@ -496,6 +542,15 @@ def _cribo_init___cribo_84bf42_services_auth(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global services_auth_manager
+    services_auth.__initializing__ = True
+    services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
+    User = services.auth.manager.User
+    self.User = User
+    process = services.auth.manager.process
+    self.process = process
+    validate = services.auth.manager.validate
+    self.validate = validate
     Connection = lambda: "auth_package_connection"
     self.Connection = Connection
     Logger = 42

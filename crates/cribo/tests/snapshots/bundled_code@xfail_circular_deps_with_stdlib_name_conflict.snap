@@ -359,6 +359,16 @@ def _cribo_init___cribo_5f60be_pkg_abc(self):
             return hasattr(other, "render")
     RichRenderable.__module__ = 'pkg.abc'
     self.RichRenderable = RichRenderable
+    pkg_abc.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    global pkg_console
+    pkg_abc.__initializing__ = True
+    pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
+    ConsoleBase = pkg.console.ConsoleBase
+    self.ConsoleBase = ConsoleBase
 
     class RenderableWithConsole(RichRenderable):
         """A renderable that needs a console reference."""

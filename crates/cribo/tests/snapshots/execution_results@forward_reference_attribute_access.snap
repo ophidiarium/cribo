@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/forward_reference_attribute_access/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Caught CustomError: Test error: line 1 column 43 (char 42)\nSUCCESS",
+    stderr: "",
+}

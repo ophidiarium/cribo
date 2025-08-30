@@ -475,6 +475,17 @@ def _cribo_init___cribo_98ecc1_models(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    User = models_user.User
+    models.User = User
+    Logger = models_user.Logger
+    models.Logger = Logger
+    process_user = models_user.process_user
+    models.process_user = process_user
+    global models_base
+    models.__initializing__ = True
+    models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
+    initialize = models.base.initialize
+    self.initialize = initialize
     process = "models_process_string"
     self.process = process
     validate = "models_validate_string"
@@ -493,6 +504,10 @@ def _cribo_init___cribo_62c387_core(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    CoreLogger = core_utils_helpers.Logger
+    core.CoreLogger = CoreLogger
+    core_process = core_utils_helpers.process
+    core.core_process = core_process
     result = "core_package_result"
     self.result = result
     Logger = CoreLogger
@@ -509,6 +524,12 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    Logger = core_utils_helpers.Logger
+    core_utils.Logger = Logger
+    process = core_utils_helpers.process
+    core_utils.process = process
+    validate = core_utils_helpers.validate
+    core_utils.validate = validate
     Connection = "utils_connection_type"
     self.Connection = Connection
     self.helpers = core_utils_helpers
@@ -650,6 +671,18 @@ def _cribo_init___cribo_93a195_services(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    services.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_b16105_services_auth(services_auth)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(services.auth, attr, getattr(__cribo_init_result, attr))
+    global services_auth_manager
+    services.__initializing__ = True
+    services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
+    User = services.auth.manager.User
+    self.User = User
+    process = services.auth.manager.process
+    self.process = process
     Logger = "services_logger_string"
     self.Logger = Logger
     result = {"services": "initialized"}
@@ -664,6 +697,17 @@ def _cribo_init___cribo_b16105_services_auth(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global services_auth_manager
+    services_auth.__initializing__ = True
+    services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
+    User = services.auth.manager.User
+    self.User = User
+    process = services.auth.manager.process
+    self.process = process
+    validate = services.auth.manager.validate
+    self.validate = validate
+    Logger = core_utils_helpers.Logger
+    services_auth.Logger = Logger
     connection = "auth_connection_string"
     self.connection = connection
     self.__initialized__ = True

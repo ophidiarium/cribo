@@ -67,6 +67,16 @@ def _cribo_init___cribo_ddd935_mypackage(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    mypackage.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_ddd935_mypackage(mypackage)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(mypackage, attr, getattr(__cribo_init_result, attr))
+    global mypackage_utils
+    mypackage.__initializing__ = True
+    mypackage_utils = _cribo_init___cribo_09b9b3_mypackage_utils(mypackage_utils)
+    utils = mypackage.utils
+    self.utils = utils
     print("mypackage initialized")
     self.exceptions = mypackage_exceptions
     self.exceptions = mypackage_exceptions
