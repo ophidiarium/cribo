@@ -455,10 +455,6 @@ impl Bundler<'_> {
             Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
             expression_handlers::rewrite_aliases_in_stmt(body_stmt, module_renames);
             // Also apply semantic renames from context
-            let module_id = self
-                .resolver
-                .get_module_id_by_name(module_name)
-                .expect("Module should exist");
             if let Some(semantic_renames) = ctx.module_renames.get(&module_id) {
                 expression_handlers::rewrite_aliases_in_stmt(body_stmt, semantic_renames);
             }
