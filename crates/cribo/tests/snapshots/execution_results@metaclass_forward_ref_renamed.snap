@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/metaclass_forward_ref_renamed/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Module loaded successfully\nOtherYAMLObject source: other\nYAMLObject name: YAMLObject\nLoader: Registering !my\nDumper: Registering <class '__main__.MyYAML'>\nCreated subclass successfully\nLoader: Loader\nDumper: Dumper\nAll tests passed!",
+    stderr: "",
+}

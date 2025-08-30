@@ -601,6 +601,9 @@ pub fn transform_module_to_init_function<'a>(
     // Track which lifted globals we've already initialized to avoid duplicates
     let mut initialized_lifted_globals = FxIndexSet::default();
 
+    // Track which global declarations we've already added to avoid duplicates
+    let mut added_global_declarations = FxIndexSet::default();
+
     // Process each statement from the transformed module body
     // We need to set __initializing__ = True before any statement that calls another module's init
     for (idx, stmt) in processed_body.into_iter().enumerate() {
@@ -673,15 +676,23 @@ pub fn transform_module_to_init_function<'a>(
             && assign.targets.len() == 1
             && let Expr::Name(target) = &assign.targets[0]
         {
-            debug!(
-                "Adding global declaration for wrapper module namespace variable: {}",
-                target.id
-            );
-            body.push(Stmt::Global(StmtGlobal {
-                node_index: AtomicNodeIndex::dummy(),
-                names: vec![Identifier::new(target.id.as_str(), TextRange::default())],
-                range: TextRange::default(),
-            }));
+            // Only add the global declaration if we haven't already added it
+            if added_global_declarations.insert(target.id.to_string()) {
+                debug!(
+                    "Adding global declaration for wrapper module namespace variable: {}",
+                    target.id
+                );
+                body.push(Stmt::Global(StmtGlobal {
+                    node_index: AtomicNodeIndex::dummy(),
+                    names: vec![Identifier::new(target.id.as_str(), TextRange::default())],
+                    range: TextRange::default(),
+                }));
+            } else {
+                debug!(
+                    "Skipping duplicate global declaration for wrapper module namespace variable: {}",
+                    target.id
+                );
+            }
         }
 
         // If this statement contains an init call, set __initializing__ = True first

@@ -7,5 +7,5 @@ ExecutionResults {
         1,
     ),
     stdout: "",
-    stderr: "File \"<stdin>\", line 126\nSyntaxError: name 'pkg_compat' is used prior to global declaration",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 295, in <module>",
 }
