@@ -137,13 +137,6 @@ impl<'a> Bundler<'a> {
             .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
     }
 
-    /// Get the synthetic name for a module if it has one
-    fn get_synthetic_name(&self, module_name: &str) -> Option<&str> {
-        self.get_module_id(module_name)
-            .and_then(|id| self.module_synthetic_names.get(&id))
-            .map(std::string::String::as_str)
-    }
-
     /// Check if a symbol is kept by tree shaking
     pub(crate) fn is_symbol_kept_by_tree_shaking(
         &self,
@@ -253,15 +246,15 @@ impl<'a> Bundler<'a> {
             log::debug!("Handling wildcard import from wrapper module '{module_name}'");
 
             // Ensure the module is initialized
-            if self
-                .get_module_id(module_name)
-                .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
+            if let Some(module_id) = self.get_module_id(module_name)
+                && self.module_synthetic_names.contains_key(&module_id)
                 && !locally_initialized.contains(module_name)
             {
+                let current_module_id = current_module.and_then(|m| self.get_module_id(m));
                 assignments.extend(
                     self.create_module_initialization_for_import_with_current_module(
-                        module_name,
-                        current_module,
+                        module_id,
+                        current_module_id,
                     ),
                 );
                 locally_initialized.insert(module_name.to_string());
@@ -501,26 +494,33 @@ impl<'a> Bundler<'a> {
                     }
 
                     // Now initialize parent module after submodule
-                    if should_initialize_parent {
-                        assignments.extend(
-                            self.create_module_initialization_for_import_with_current_module(
-                                module_name,
-                                current_module,
-                            ),
-                        );
-                        locally_initialized.insert(module_name.to_string());
-                    }
+                    if should_initialize_parent
+                        && let Some(module_id) = self.get_module_id(module_name) {
+                            let current_module_id =
+                                current_module.and_then(|m| self.get_module_id(m));
+                            assignments.extend(
+                                self.create_module_initialization_for_import_with_current_module(
+                                    module_id,
+                                    current_module_id,
+                                ),
+                            );
+                            locally_initialized.insert(module_name.to_string());
+                        }
                 } else {
                     // Normal order: parent first, then submodule
                     if should_initialize_parent {
                         // Initialize parent module first
-                        assignments.extend(
-                            self.create_module_initialization_for_import_with_current_module(
-                                module_name,
-                                current_module,
-                            ),
-                        );
-                        locally_initialized.insert(module_name.to_string());
+                        if let Some(module_id) = self.get_module_id(module_name) {
+                            let current_module_id =
+                                current_module.and_then(|m| self.get_module_id(m));
+                            assignments.extend(
+                                self.create_module_initialization_for_import_with_current_module(
+                                    module_id,
+                                    current_module_id,
+                                ),
+                            );
+                            locally_initialized.insert(module_name.to_string());
+                        }
                     }
 
                     if should_initialize_submodule {
@@ -598,10 +598,11 @@ impl<'a> Bundler<'a> {
                         );
 
                         // Initialize the submodule
-                        assignments.extend(
-                            self.create_module_initialization_for_import(&full_submodule_path),
-                        );
-                        locally_initialized.insert(full_submodule_path.clone());
+                        if let Some(submodule_id) = self.get_module_id(&full_submodule_path) {
+                            assignments
+                                .extend(self.create_module_initialization_for_import(submodule_id));
+                            locally_initialized.insert(full_submodule_path.clone());
+                        }
 
                         // Now create the assignment from the parent namespace
                         let module_expr = expressions::name(module_name, ExprContext::Load);
@@ -682,12 +683,16 @@ impl<'a> Bundler<'a> {
 
                     if !module_init_exists {
                         // Initialize the module before accessing its attributes
-                        assignments.extend(
-                            self.create_module_initialization_for_import_with_current_module(
-                                module_name,
-                                current_module,
-                            ),
-                        );
+                        if let Some(module_id) = self.get_module_id(module_name) {
+                            let current_module_id =
+                                current_module.and_then(|m| self.get_module_id(m));
+                            assignments.extend(
+                                self.create_module_initialization_for_import_with_current_module(
+                                    module_id,
+                                    current_module_id,
+                                ),
+                            );
+                        }
                     }
                     locally_initialized.insert(module_name.to_string());
                 }
@@ -4296,10 +4301,10 @@ impl Bundler<'_> {
     }
 
     /// Create module initialization statements for wrapper modules when they are imported
-    pub(super) fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
+    pub(super) fn create_module_initialization_for_import(&self, module_id: ModuleId) -> Vec<Stmt> {
         let mut locally_initialized = FxIndexSet::default();
         self.create_module_initialization_for_import_with_tracking(
-            module_name,
+            module_id,
             &mut locally_initialized,
             None, // No current module context
         )
@@ -4308,12 +4313,12 @@ impl Bundler<'_> {
     /// Create module initialization statements with current module context
     pub(super) fn create_module_initialization_for_import_with_current_module(
         &self,
-        module_name: &str,
-        current_module: Option<&str>,
+        module_id: ModuleId,
+        current_module: Option<ModuleId>,
     ) -> Vec<Stmt> {
         let mut locally_initialized = FxIndexSet::default();
         self.create_module_initialization_for_import_with_tracking(
-            module_name,
+            module_id,
             &mut locally_initialized,
             current_module,
         )
@@ -4322,63 +4327,68 @@ impl Bundler<'_> {
     /// Create module initialization statements with tracking to avoid duplicates
     fn create_module_initialization_for_import_with_tracking(
         &self,
-        module_name: &str,
-        locally_initialized: &mut FxIndexSet<String>,
-        current_module: Option<&str>,
+        module_id: ModuleId,
+        locally_initialized: &mut FxIndexSet<ModuleId>,
+        current_module: Option<ModuleId>,
     ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
         // Skip if already initialized in this context
-        if locally_initialized.contains(module_name) {
+        if locally_initialized.contains(&module_id) {
             return stmts;
         }
 
         // Skip if we're trying to initialize the current module
         // (we're already inside its init function)
         if let Some(current) = current_module
-            && module_name == current
+            && module_id == current
         {
+            let module_name = self
+                .resolver
+                .get_module(module_id).map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
             log::debug!(
                 "Skipping initialization of module '{module_name}' - already inside its init function"
             );
             return stmts;
         }
 
+        // Get module name for logging and processing
+        let module_name = self
+            .resolver
+            .get_module(module_id).map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+
         // If this is a child module (contains '.'), ensure parent is initialized first
         if module_name.contains('.')
             && let Some((parent_name, _)) = module_name.rsplit_once('.')
         {
             // Check if parent is also a wrapper module
-            if self.get_synthetic_name(parent_name).is_some() {
-                // Check if parent has an init function
-                if self
-                    .get_module_id(parent_name)
-                    .is_some_and(|id| self.module_init_functions.contains_key(&id))
-                {
-                    log::debug!(
-                        "Ensuring parent '{parent_name}' is initialized before child '{module_name}'"
-                    );
+            if let Some(parent_id) = self.get_module_id(parent_name)
+                && self.module_synthetic_names.contains_key(&parent_id) {
+                    // Check if parent has an init function
+                    if self.module_init_functions.contains_key(&parent_id) {
+                        log::debug!(
+                            "Ensuring parent '{parent_name}' is initialized before child '{module_name}'"
+                        );
 
-                    // Recursively ensure parent is initialized
-                    // This will handle multi-level packages like foo.bar.baz
-                    stmts.extend(self.create_module_initialization_for_import_with_tracking(
-                        parent_name,
-                        locally_initialized,
-                        current_module,
-                    ));
+                        // Recursively ensure parent is initialized
+                        // This will handle multi-level packages like foo.bar.baz
+                        stmts.extend(self.create_module_initialization_for_import_with_tracking(
+                            parent_id,
+                            locally_initialized,
+                            current_module,
+                        ));
+                    }
                 }
-            }
         }
 
         // Check if this is a wrapper module that needs initialization
-        if let Some(synthetic_name) = self.get_synthetic_name(module_name) {
+        if let Some(synthetic_name) = self.module_synthetic_names.get(&module_id) {
             // Check if the init function has been defined yet
             // (wrapper modules are processed in dependency order, so it might not exist yet)
             log::debug!(
                 "Checking if wrapper module '{}' has been processed (has init function: {})",
                 module_name,
-                self.get_module_id(module_name)
-                    .is_some_and(|id| self.module_init_functions.contains_key(&id))
+                self.module_init_functions.contains_key(&module_id)
             );
 
             // Generate the init call
@@ -4386,7 +4396,7 @@ impl Bundler<'_> {
                 crate::code_generator::module_registry::get_init_function_name(synthetic_name);
 
             // Call the init function with the module as the self argument
-            let module_var = sanitize_module_name_for_identifier(module_name);
+            let module_var = sanitize_module_name_for_identifier(&module_name);
             let init_call = expressions::call(
                 expressions::name(&init_func_name, ExprContext::Load),
                 vec![expressions::name(&module_var, ExprContext::Load)],
@@ -4394,10 +4404,10 @@ impl Bundler<'_> {
             );
 
             // Generate the appropriate assignment based on module type
-            stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+            stmts.extend(self.generate_module_assignment_from_init(module_id, init_call));
 
             // Mark as initialized to avoid duplicates
-            locally_initialized.insert(module_name.to_string());
+            locally_initialized.insert(module_id);
 
             // Log the initialization for debugging
             if module_name.contains('.') {
@@ -4415,18 +4425,23 @@ impl Bundler<'_> {
     /// Generate module assignment from init function result
     fn generate_module_assignment_from_init(
         &self,
-        module_name: &str,
+        module_id: ModuleId,
         init_call: Expr,
     ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
+        // Get module name for processing
+        let module_name = self
+            .resolver
+            .get_module(module_id).map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+
         // Check if this module is a parent namespace that already exists
-        let is_parent_namespace = self.bundled_modules.iter().any(|module_id| {
-            let Some(module_info) = self.resolver.get_module(*module_id) else {
+        let is_parent_namespace = self.bundled_modules.iter().any(|other_module_id| {
+            let Some(module_info) = self.resolver.get_module(*other_module_id) else {
                 return false;
             };
             let name = &module_info.name;
-            name != module_name && name.starts_with(&format!("{module_name}."))
+            name != &module_name && name.starts_with(&format!("{module_name}."))
         });
 
         if is_parent_namespace {
@@ -4435,13 +4450,14 @@ impl Bundler<'_> {
             stmts.push(statements::simple_assign(INIT_RESULT_VAR, init_call));
 
             // Merge attributes from init result into existing namespace
-            self.generate_merge_module_attributes(&mut stmts, module_name, INIT_RESULT_VAR);
+            self.generate_merge_module_attributes(&mut stmts, &module_name, INIT_RESULT_VAR);
         } else {
             // Direct assignment for simple and dotted modules
             // For wrapper modules with dots, use the sanitized name
-            let target_expr = if module_name.contains('.') && self.has_synthetic_name(module_name) {
+            let target_expr = if module_name.contains('.') && self.has_synthetic_name(&module_name)
+            {
                 // Use sanitized name for wrapper modules
-                let sanitized = sanitize_module_name_for_identifier(module_name);
+                let sanitized = sanitize_module_name_for_identifier(&module_name);
                 expressions::name(&sanitized, ExprContext::Store)
             } else if module_name.contains('.') {
                 // Create attribute expression for dotted modules (inlined)
@@ -4449,7 +4465,7 @@ impl Bundler<'_> {
                 expressions::dotted_name(&parts, ExprContext::Store)
             } else {
                 // Simple name expression
-                expressions::name(module_name, ExprContext::Store)
+                expressions::name(&module_name, ExprContext::Store)
             };
 
             stmts.push(statements::assign(vec![target_expr], init_call));

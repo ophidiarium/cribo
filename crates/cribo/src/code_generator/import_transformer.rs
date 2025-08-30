@@ -1286,13 +1286,17 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if self.is_wrapper_init {
                         // Initialize the wrapper submodule if needed
                         // Pass the current module context to avoid recursive initialization
-                        result_stmts.extend(
-                            self.bundler
-                                .create_module_initialization_for_import_with_current_module(
-                                    &full_module_path,
-                                    Some(&self.get_module_name()),
-                                ),
-                        );
+                        if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
+                            let current_module_id =
+                                self.bundler.get_module_id(&self.get_module_name());
+                            result_stmts.extend(
+                                self.bundler
+                                    .create_module_initialization_for_import_with_current_module(
+                                        module_id,
+                                        current_module_id,
+                                    ),
+                            );
+                        }
 
                         // Create assignment: local_name = parent.submodule
                         let module_expr =
@@ -2953,8 +2957,10 @@ fn rewrite_import_with_renames(
                         bundler.create_parent_namespaces(&parts, &mut result_stmts);
 
                         // Initialize the module at import time
-                        result_stmts
-                            .extend(bundler.create_module_initialization_for_import(module_name));
+                        if let Some(module_id) = bundler.get_module_id(module_name) {
+                            result_stmts
+                                .extend(bundler.create_module_initialization_for_import(module_id));
+                        }
 
                         let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
@@ -3123,7 +3129,9 @@ fn rewrite_import_with_renames(
                 let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                 // First, ensure the module is initialized
-                result_stmts.extend(bundler.create_module_initialization_for_import(module_name));
+                if let Some(module_id) = bundler.get_module_id(module_name) {
+                    result_stmts.extend(bundler.create_module_initialization_for_import(module_id));
+                }
 
                 // Then create assignment if needed (skip self-assignments)
                 if target_name.as_str() != module_name {

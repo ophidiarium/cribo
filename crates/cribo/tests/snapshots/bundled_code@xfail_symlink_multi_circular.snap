@@ -37,19 +37,18 @@ def _cribo_init___cribo_85e139_real_b(self):
         return self
 
     def from_b():
-        link_c = _cribo_init___cribo_5676b5_real_a(link_c)
+        real_a = _cribo_init___cribo_5676b5_real_a(real_a)
         from_c = link_c.from_c
         return f"B -> {from_c()} -> {continue_chain()}"
     self.from_b = from_b
 
     def continue_chain():
-        link_d = _cribo_init___cribo_85e139_real_b(link_d)
         from_d = link_d.from_d
         return from_d()
     self.continue_chain = continue_chain
 
     def from_d():
-        link_e = _cribo_init___cribo_5676b5_real_a(link_e)
+        real_a = _cribo_init___cribo_5676b5_real_a(real_a)
         from_e = link_e.from_e
         return f"D(->B) -> {from_e()}"
     self.from_d = from_d
@@ -59,7 +58,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     self.unused_function_b = unused_function_b
 
     def unused_with_symlink():
-        link_e = _cribo_init___cribo_5676b5_real_a(link_e)
+        real_a = _cribo_init___cribo_5676b5_real_a(real_a)
         unused_function_a = link_e.unused_function_a
         from_a = link_e.from_a
         return f"Unused symlink -> {from_a()}"
@@ -68,7 +67,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     class UnusedClass:
 
         def __init__(self):
-            link_c = _cribo_init___cribo_5676b5_real_a(link_c)
+            real_a = _cribo_init___cribo_5676b5_real_a(real_a)
             from_c = link_c.from_c
             self.value = from_c()
 
