@@ -15,20 +15,22 @@ use crate::{
 
 /// Create module initialization statements for wrapper modules
 pub fn create_module_initialization_for_import(
-    module_name: &str,
-    module_registry: &FxIndexMap<String, String>,
+    module_id: crate::resolver::ModuleId,
+    module_init_functions: &FxIndexMap<crate::resolver::ModuleId, String>,
+    resolver: &crate::resolver::ModuleResolver,
 ) -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
     // Check if this is a wrapper module that needs initialization
-    if let Some(synthetic_name) = module_registry.get(module_name) {
-        // Generate the init call
-        let init_func_name = get_init_function_name(synthetic_name);
+    if let Some(init_func_name) = module_init_functions.get(&module_id) {
+        let module_name = resolver
+            .get_module_name(module_id)
+            .unwrap_or_else(|| "<unknown>".to_string());
 
         // Call the init function with the module as the self argument
-        let module_var = sanitize_module_name_for_identifier(module_name);
+        let module_var = sanitize_module_name_for_identifier(&module_name);
         let init_call = ast_builder::expressions::call(
-            ast_builder::expressions::name(&init_func_name, ExprContext::Load),
+            ast_builder::expressions::name(init_func_name, ExprContext::Load),
             vec![ast_builder::expressions::name(
                 &module_var,
                 ExprContext::Load,
@@ -43,7 +45,7 @@ pub fn create_module_initialization_for_import(
             ));
         } else {
             stmts.push(ast_builder::statements::simple_assign(
-                module_name,
+                &module_name,
                 init_call,
             ));
         }
@@ -162,14 +164,18 @@ fn create_assignment_if_no_stdlib_conflict(
 /// This helper function checks if a module initialization already exists in the assignments
 /// and adds it if needed, updating the tracking sets accordingly.
 pub fn initialize_submodule_if_needed(
-    module_path: &str,
-    module_synthetic_names: &FxIndexMap<crate::resolver::ModuleId, String>,
+    module_id: crate::resolver::ModuleId,
+    module_init_functions: &FxIndexMap<crate::resolver::ModuleId, String>,
     resolver: &crate::resolver::ModuleResolver,
     assignments: &mut Vec<Stmt>,
-    locally_initialized: &mut FxIndexSet<String>,
-    initialized_modules: &mut FxIndexSet<String>,
+    locally_initialized: &mut FxIndexSet<crate::resolver::ModuleId>,
+    initialized_modules: &mut FxIndexSet<crate::resolver::ModuleId>,
 ) {
     use crate::code_generator::expression_handlers;
+
+    let module_path = resolver
+        .get_module_name(module_id)
+        .unwrap_or_else(|| "<unknown>".to_string());
 
     // Check if we already have this module initialization in assignments
     let already_initialized = assignments.iter().any(|stmt| {
@@ -188,24 +194,14 @@ pub fn initialize_submodule_if_needed(
     });
 
     if !already_initialized {
-        // Convert module_synthetic_names back to old format temporarily for compatibility
-        let module_registry: FxIndexMap<String, String> = resolver
-            .get_module_id_by_name(module_path)
-            .and_then(|id| module_synthetic_names.get(&id))
-            .map(|syn_name| {
-                let mut map = FxIndexMap::default();
-                map.insert(module_path.to_string(), syn_name.clone());
-                map
-            })
-            .unwrap_or_default();
-
         assignments.extend(create_module_initialization_for_import(
-            module_path,
-            &module_registry,
+            module_id,
+            module_init_functions,
+            resolver,
         ));
     }
-    locally_initialized.insert(module_path.to_string());
-    initialized_modules.insert(module_path.to_string());
+    locally_initialized.insert(module_id);
+    initialized_modules.insert(module_id);
 }
 
 /// Create assignments for inlined imports
@@ -417,15 +413,10 @@ pub fn register_module(
 /// - It exists in the module registry (meaning it has an init function)
 /// - It is NOT in the inlined modules set
 pub fn is_wrapper_submodule(
-    module_path: &str,
+    module_id: crate::resolver::ModuleId,
     module_info_registry: Option<&crate::orchestrator::ModuleRegistry>,
     inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
-    resolver: &crate::resolver::ModuleResolver,
 ) -> bool {
-    if let Some(module_id) = resolver.get_module_id_by_name(module_path) {
-        module_info_registry.is_some_and(|reg| reg.contains_module(&module_id))
-            && !inlined_modules.contains(&module_id)
-    } else {
-        false
-    }
+    module_info_registry.is_some_and(|reg| reg.contains_module(&module_id))
+        && !inlined_modules.contains(&module_id)
 }

@@ -125,28 +125,21 @@ pub(super) fn transform_namespace_package_imports(
                 if let Some(parent_id) = parent_module_id
                     && bundler.module_synthetic_names.contains_key(&parent_id)
                 {
-                    // Build a temporary map for the module initialization
-                    let mut temp_registry = crate::types::FxIndexMap::default();
-                    if let Some(synthetic_name) = bundler.module_synthetic_names.get(&parent_id) {
-                        temp_registry.insert(module_name.to_string(), synthetic_name.clone());
-                    }
                     result_stmts.extend(
                         crate::code_generator::module_registry::create_module_initialization_for_import(
-                            module_name,
-                            &temp_registry,
+                            parent_id,
+                            &bundler.module_init_functions,
+                            bundler.resolver,
                         ),
                     );
                 }
                 // Initialize the wrapper module if needed
                 if let Some(module_id) = bundler.resolver.get_module_id_by_name(&full_module_path) {
-                    let mut temp_registry = crate::types::FxIndexMap::default();
-                    if let Some(synthetic_name) = bundler.module_synthetic_names.get(&module_id) {
-                        temp_registry.insert(full_module_path.clone(), synthetic_name.clone());
-                    }
                     result_stmts.extend(
                         crate::code_generator::module_registry::create_module_initialization_for_import(
-                            &full_module_path,
-                            &temp_registry,
+                            module_id,
+                            &bundler.module_init_functions,
+                            bundler.resolver,
                         ),
                     );
                 }

@@ -234,11 +234,11 @@ impl<'a> Bundler<'a> {
             inside_wrapper_init
         );
         let mut assignments = Vec::new();
-        let mut initialized_modules = FxIndexSet::default();
+        let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
 
         // Track which modules we've already initialized in this import context
         // to avoid duplicate initialization calls
-        let mut locally_initialized = FxIndexSet::default();
+        let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
 
         // Check if this is a wildcard import
         if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
@@ -248,7 +248,7 @@ impl<'a> Bundler<'a> {
             // Ensure the module is initialized
             if let Some(module_id) = self.get_module_id(module_name)
                 && self.module_synthetic_names.contains_key(&module_id)
-                && !locally_initialized.contains(module_name)
+                && !locally_initialized.contains(&module_id)
             {
                 let current_module_id = current_module.and_then(|m| self.get_module_id(m));
                 assignments.extend(
@@ -257,7 +257,7 @@ impl<'a> Bundler<'a> {
                         current_module_id,
                     ),
                 );
-                locally_initialized.insert(module_name.to_string());
+                locally_initialized.insert(module_id);
             }
 
             // For wildcard imports, we need to handle both wrapper modules and potential symbol
@@ -450,14 +450,19 @@ impl<'a> Bundler<'a> {
                     current_module.is_some_and(|curr| curr.starts_with(&format!("{module_name}.")));
 
                 // Check if parent module should be initialized
-                let should_initialize_parent = self.has_synthetic_name(module_name)
-                    && !locally_initialized.contains(module_name)
-                    && current_module != Some(module_name) // Prevent self-initialization
-                    && !is_submodule_of_target; // Prevent parent initialization from submodule
+                let parent_module_id = self.get_module_id(module_name);
+                let should_initialize_parent = parent_module_id.is_some_and(|id| {
+                    self.has_synthetic_name(module_name)
+                        && !locally_initialized.contains(&id)
+                        && current_module != Some(module_name) // Prevent self-initialization
+                        && !is_submodule_of_target // Prevent parent initialization from submodule
+                });
 
                 // Check if submodule should be initialized
-                let should_initialize_submodule = self.has_synthetic_name(&full_module_path)
-                    && !locally_initialized.contains(&full_module_path);
+                let submodule_id = self.get_module_id(&full_module_path);
+                let should_initialize_submodule = submodule_id.is_some_and(|id| {
+                    self.has_synthetic_name(&full_module_path) && !locally_initialized.contains(&id)
+                });
 
                 // Check if parent imports from this submodule (indicating dependency)
                 // This determines initialization order to avoid forward references
@@ -482,16 +487,17 @@ impl<'a> Bundler<'a> {
                 // references Otherwise, use normal order (parent first)
                 if parent_imports_submodule {
                     // Initialize submodule first since parent depends on it
-                    if should_initialize_submodule {
-                        crate::code_generator::module_registry::initialize_submodule_if_needed(
-                            &full_module_path,
-                            &self.module_synthetic_names,
-                            self.resolver,
-                            &mut assignments,
-                            &mut locally_initialized,
-                            &mut initialized_modules,
-                        );
-                    }
+                    if should_initialize_submodule
+                        && let Some(submodule_id) = self.get_module_id(&full_module_path) {
+                            crate::code_generator::module_registry::initialize_submodule_if_needed(
+                                submodule_id,
+                                &self.module_init_functions,
+                                self.resolver,
+                                &mut assignments,
+                                &mut locally_initialized,
+                                &mut initialized_modules,
+                            );
+                        }
 
                     // Now initialize parent module after submodule
                     if should_initialize_parent
@@ -504,7 +510,9 @@ impl<'a> Bundler<'a> {
                                 current_module_id,
                             ),
                         );
-                        locally_initialized.insert(module_name.to_string());
+                        if let Some(module_id) = self.get_module_id(module_name) {
+                            locally_initialized.insert(module_id);
+                        }
                     }
                 } else {
                     // Normal order: parent first, then submodule
@@ -519,20 +527,21 @@ impl<'a> Bundler<'a> {
                                     current_module_id,
                                 ),
                             );
-                            locally_initialized.insert(module_name.to_string());
+                            locally_initialized.insert(module_id);
                         }
                     }
 
-                    if should_initialize_submodule {
-                        crate::code_generator::module_registry::initialize_submodule_if_needed(
-                            &full_module_path,
-                            &self.module_synthetic_names,
-                            self.resolver,
-                            &mut assignments,
-                            &mut locally_initialized,
-                            &mut initialized_modules,
-                        );
-                    }
+                    if should_initialize_submodule
+                        && let Some(submodule_id) = self.get_module_id(&full_module_path) {
+                            crate::code_generator::module_registry::initialize_submodule_if_needed(
+                                submodule_id,
+                                &self.module_init_functions,
+                                self.resolver,
+                                &mut assignments,
+                                &mut locally_initialized,
+                                &mut initialized_modules,
+                            );
+                        }
                 }
 
                 // Build the direct namespace reference
@@ -601,7 +610,9 @@ impl<'a> Bundler<'a> {
                         if let Some(submodule_id) = self.get_module_id(&full_submodule_path) {
                             assignments
                                 .extend(self.create_module_initialization_for_import(submodule_id));
-                            locally_initialized.insert(full_submodule_path.clone());
+                            if let Some(submodule_id) = self.get_module_id(&full_submodule_path) {
+                                locally_initialized.insert(submodule_id);
+                            }
                         }
 
                         // Now create the assignment from the parent namespace
@@ -652,12 +663,15 @@ impl<'a> Bundler<'a> {
                 // Ensure the module is initialized first if it's a wrapper module
                 // Only initialize if we're inside a wrapper init OR if the module's init
                 // function has already been defined (to avoid forward references)
-                if self.has_synthetic_name(module_name)
-                    && !locally_initialized.contains(module_name)
-                    && current_module != Some(module_name)  // Prevent self-initialization
-                    && (inside_wrapper_init || self.get_module_id(module_name)
-                        .is_some_and(|id| self.module_init_functions.contains_key(&id)))
-                {
+                let needs_init = if let Some(module_id) = self.get_module_id(module_name) {
+                    self.has_synthetic_name(module_name)
+                        && !locally_initialized.contains(&module_id)
+                        && current_module != Some(module_name)  // Prevent self-initialization
+                        && (inside_wrapper_init || self.module_init_functions.contains_key(&module_id))
+                } else {
+                    false
+                };
+                if needs_init {
                     // Check if this module is already initialized in any deferred imports
                     let module_init_exists = assignments.iter().any(|stmt| {
                         if let Stmt::Assign(assign) = stmt
@@ -692,9 +706,9 @@ impl<'a> Bundler<'a> {
                                     current_module_id,
                                 ),
                             );
+                            locally_initialized.insert(module_id);
                         }
                     }
-                    locally_initialized.insert(module_name.to_string());
                 }
 
                 // Check if this symbol is re-exported from an inlined submodule.
