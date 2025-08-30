@@ -29,9 +29,8 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 lib = _cribo.types.SimpleNamespace(__name__='lib')
-shared = _cribo.types.SimpleNamespace(__name__='shared')
-shared_common = _cribo.types.SimpleNamespace(__name__='shared.common')
-shared.common = shared_common
+lib_helpers = _cribo.types.SimpleNamespace(__name__='lib.helpers')
+lib.helpers = lib_helpers
 def get_location():
     return "lib/helpers.py"
 counter = 0
@@ -39,9 +38,10 @@ def increment_counter():
     global counter
     counter += 1
     return counter
-shared_common.counter = counter
-shared_common.get_location = get_location
-shared_common.increment_counter = increment_counter
+lib_helpers.counter = counter
+lib_helpers.get_location = get_location
+lib_helpers.increment_counter = increment_counter
+shared = _cribo.types.SimpleNamespace(__name__='shared')
 helpers = lib_helpers
 common = shared_common
 print(f"helpers location: {helpers.get_location()}")

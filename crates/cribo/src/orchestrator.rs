@@ -118,9 +118,9 @@ fn get_empty_parsed_module() -> &'static ruff_python_parser::Parsed<ModModule> {
 }
 
 /// Type alias for module processing queue
-type ModuleQueue = Vec<(String, PathBuf)>;
+type ModuleQueue = Vec<(ModuleId, PathBuf)>;
 /// Type alias for processed modules set
-type ProcessedModules = IndexSet<String>;
+type ProcessedModules = IndexSet<ModuleId>;
 /// Type alias for parsed module data with AST and source
 /// (`module_id`, imports, ast, source)
 type ParsedModuleData = (crate::resolver::ModuleId, Vec<String>, ModModule, String);
@@ -137,7 +137,7 @@ struct DiscoveryParams<'a> {
     resolver: &'a ModuleResolver,
     modules_to_process: &'a mut ModuleQueue,
     processed_modules: &'a ProcessedModules,
-    queued_modules: &'a mut IndexSet<String>,
+    queued_modules: &'a mut IndexSet<ModuleId>,
 }
 
 /// Parameters for static bundle emission
@@ -1051,10 +1051,6 @@ impl BundleOrchestrator {
     ) -> Result<Vec<ParsedModuleData>> {
         let mut processed_modules = ProcessedModules::new();
         // Get entry module information from resolver
-        let entry_module_name = params
-            .resolver
-            .get_module_name(ModuleId::ENTRY)
-            .expect("Entry module must be registered");
         let entry_path = params
             .resolver
             .get_module_path(ModuleId::ENTRY)
@@ -1062,16 +1058,20 @@ impl BundleOrchestrator {
 
         let mut queued_modules = IndexSet::new();
         let mut modules_to_process = ModuleQueue::new();
-        modules_to_process.push((entry_module_name.clone(), entry_path));
-        queued_modules.insert(entry_module_name);
+        modules_to_process.push((ModuleId::ENTRY, entry_path));
+        queued_modules.insert(ModuleId::ENTRY);
 
         // Store module data for phase 2 including parsed AST
-        type DiscoveryData = (String, PathBuf, Vec<String>, ModModule, String); // (name, path, imports, ast, source) for discovery phase
+        type DiscoveryData = (ModuleId, PathBuf, Vec<String>, ModModule, String); // (id, path, imports, ast, source) for discovery phase
         let mut discovered_modules: Vec<DiscoveryData> = Vec::new();
 
         // PHASE 1: Discover and collect all modules
         info!("Phase 1: Discovering all modules...");
-        while let Some((module_name, module_path)) = modules_to_process.pop() {
+        while let Some((module_id, module_path)) = modules_to_process.pop() {
+            let module_name = params
+                .resolver
+                .get_module_name(module_id)
+                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
             debug!(
                 "Discovering module: {module_name} ({})",
                 module_path.display()
@@ -1099,13 +1099,13 @@ impl BundleOrchestrator {
 
             // Store module data including parsed AST for later processing
             discovered_modules.push((
-                module_name.clone(),
+                module_id,
                 module_path.clone(),
                 imports.clone(),
                 processed.ast,
                 processed.source,
             ));
-            processed_modules.insert(module_name.clone());
+            processed_modules.insert(module_id);
 
             // Find and queue first-party imports for discovery
             for (import, is_in_error_handler, import_type, package_context) in imports_with_context
@@ -1137,7 +1137,11 @@ impl BundleOrchestrator {
         // First, add all modules to the graph and parse them
         let mut parsed_modules: Vec<ParsedModuleData> = Vec::new();
 
-        for (module_name, module_path, imports, _ast, _source) in discovered_modules {
+        for (discovered_module_id, module_path, imports, _ast, _source) in discovered_modules {
+            let module_name = params
+                .resolver
+                .get_module_name(discovered_module_id)
+                .unwrap_or_else(|| format!("module_{}", discovered_module_id.as_u32()));
             debug!("Phase 2: Processing module '{module_name}'");
 
             // Re-process the module WITH graph context this time
@@ -1480,16 +1484,27 @@ impl BundleOrchestrator {
         import_path: PathBuf,
         discovery_params: &mut DiscoveryParams,
     ) {
-        if !discovery_params.processed_modules.contains(import)
-            && !discovery_params.queued_modules.contains(import)
+        // Register the module with resolver to get its ID
+        let module_id = discovery_params
+            .resolver
+            .register_module(import.to_string(), &import_path);
+
+        if !discovery_params.processed_modules.contains(&module_id)
+            && !discovery_params.queued_modules.contains(&module_id)
         {
-            debug!("Adding '{import}' to discovery queue");
+            debug!(
+                "Adding '{import}' (ID: {}) to discovery queue",
+                module_id.as_u32()
+            );
             discovery_params
                 .modules_to_process
-                .push((import.to_owned(), import_path));
-            discovery_params.queued_modules.insert(import.to_owned());
+                .push((module_id, import_path));
+            discovery_params.queued_modules.insert(module_id);
         } else {
-            debug!("Module '{import}' already processed or queued, skipping");
+            debug!(
+                "Module '{import}' (ID: {}) already processed or queued, skipping",
+                module_id.as_u32()
+            );
         }
     }
 
