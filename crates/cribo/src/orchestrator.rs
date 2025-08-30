@@ -866,25 +866,23 @@ impl BundleOrchestrator {
         let all_module_ids: Vec<_> = graph.modules.keys().copied().collect();
 
         // Collect all modules that are part of circular dependencies
-        let mut cycle_module_names = IndexSet::new();
+        let mut cycle_id_set: IndexSet<crate::resolver::ModuleId> = IndexSet::new();
         for cycle in &analysis.resolvable_cycles {
             for module_id in &cycle.modules {
-                if let Some(module) = graph.modules.get(module_id) {
-                    cycle_module_names.insert(module.module_name.clone());
-                }
+                cycle_id_set.insert(*module_id);
             }
         }
 
         // Split modules into non-cycle and cycle modules
-        let (cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) =
-            all_module_ids.into_iter().partition(|&module_id| {
-                if let Some(module) = graph.modules.get(&module_id) {
-                    cycle_module_names.contains(module.module_name.as_str())
-                } else {
-                    false
-                }
-            });
+        let (cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) = all_module_ids
+            .into_iter()
+            .partition(|module_id| cycle_id_set.contains(module_id));
 
+        // Get module names for debug logging
+        let cycle_module_names: Vec<String> = cycle_ids
+            .iter()
+            .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
+            .collect();
         debug!("Modules in cycle: {cycle_module_names:?}");
         debug!(
             "Number of cycle modules: {}, non-cycle modules: {}",
