@@ -571,10 +571,14 @@ fn should_remove_import_stmt(
                     .asname
                     .as_ref()
                     .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
+                let from_module = import_from_stmt
+                    .module
+                    .as_ref()
+                    .map_or("", ruff_python_ast::Identifier::as_str);
 
                 unused_imports.iter().any(|unused| {
                     // Match by both name and module for from imports
-                    unused.name == local_name
+                    unused.name == local_name && unused.module == from_module
                 })
             });
 

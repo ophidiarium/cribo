@@ -55,6 +55,8 @@ def _cribo_init___cribo_d78f34_pkg_compat(self):
     self.basestring = basestring
     integer_types = __import__('builtins').int,
     self.integer_types = integer_types
+    __version__ = _cribo.types.SimpleNamespace()
+    self.__version__ = __version__
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -100,6 +102,8 @@ def _cribo_init___cribo_70cac5_pkg_utils(self):
         self.__initializing__ = False
         return self
     """Utils module that matches requests.utils import pattern."""
+    certs = _cribo.types.SimpleNamespace()
+    self.certs = certs
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
@@ -165,6 +169,16 @@ def _cribo_init___cribo_55aa63_pkg_models(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    global pkg_utils
+    self.__initializing__ = True
+    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
+    utils = pkg.utils
+    self.utils = utils
+    self.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_compat
     self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
@@ -220,6 +234,16 @@ def _cribo_init___cribo_f4100a_pkg_sessions(self):
     pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
     utils = pkg.utils
     self.utils = utils
+    self.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    global pkg_models
+    self.__initializing__ = True
+    pkg_models = _cribo_init___cribo_55aa63_pkg_models(pkg_models)
+    models = pkg.models
+    self.models = models
 
     class Session:
         """Session class that depends on multiple modules."""
