@@ -73,7 +73,7 @@ def _cribo_init___cribo_f96d2c_config(self):
     global _cribo_config__config
     """\nConfiguration module that logs its initialization process.\nThis creates a circular dependency: config -> logger -> config\n"""
     global logger
-    config.__initializing__ = True
+    self.__initializing__ = True
     logger = _cribo_init___cribo_0639af_logger(logger)
     get_logger = logger.get_logger
     self.get_logger = get_logger

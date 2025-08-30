@@ -36,7 +36,7 @@ def _cribo_init___cribo_19d6d4_moduleB(self):
         self.__initializing__ = False
         return self
     global moduleC
-    moduleB.__initializing__ = True
+    self.__initializing__ = True
     moduleC = _cribo_init___cribo_895222_moduleA(moduleC)
     funcC = moduleC.funcC
     self.funcC = funcC

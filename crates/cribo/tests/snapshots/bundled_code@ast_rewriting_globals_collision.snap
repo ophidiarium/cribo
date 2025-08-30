@@ -156,30 +156,30 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
         self.__initializing__ = False
         return self
     """Authentication manager - imports from core and models only, no circular dependencies"""
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_0ac752_core(core)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core, attr, getattr(__cribo_init_result, attr))
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core.database, attr, getattr(__cribo_init_result, attr))
     global core_database_connection
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
     DBConnection = core.database.connection.Connection
     self.DBConnection = DBConnection
     sanitize = core_utils_helpers.sanitize
     services_auth_manager.sanitize = sanitize
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_293a98_models(models)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(models, attr, getattr(__cribo_init_result, attr))
     global models_base
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     base_init = models.base.initialize
     self.base_init = base_init
@@ -341,7 +341,7 @@ def _cribo_init___cribo_b7b3e3_core_database(self):
         self.__initializing__ = False
         return self
     global core_database_connection
-    core_database.__initializing__ = True
+    self.__initializing__ = True
     core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
     Connection = core.database.connection.Connection
     self.Connection = Connection
@@ -359,14 +359,14 @@ def _cribo_init___cribo_0ac752_core(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    core.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_e52b1d_core_utils(core_utils)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core.utils, attr, getattr(__cribo_init_result, attr))
     core_process = core.utils.process
     self.core_process = core_process
-    core.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -411,13 +411,13 @@ def _cribo_init___cribo_1f9e6c_models_user(self):
     models_user.util_process = util_process
     UtilLogger = core_utils_helpers.Logger
     models_user.UtilLogger = UtilLogger
-    models_user.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_293a98_models(models)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(models, attr, getattr(__cribo_init_result, attr))
     global models_base
-    models_user.__initializing__ = True
+    self.__initializing__ = True
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     BaseLogger = models.base.Logger
     self.BaseLogger = BaseLogger
@@ -496,14 +496,14 @@ def _cribo_init___cribo_293a98_models(self):
         self.__initializing__ = False
         return self
     global models_user
-    models.__initializing__ = True
+    self.__initializing__ = True
     models_user = _cribo_init___cribo_1f9e6c_models_user(models_user)
     User = models.user.User
     self.User = User
     process_user = models.user.process_user
     self.process_user = process_user
     global models_base
-    models.__initializing__ = True
+    self.__initializing__ = True
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     initialize = models.base.initialize
     self.initialize = initialize
@@ -521,7 +521,7 @@ def _cribo_init___cribo_b2dda7_services(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    services.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_84bf42_services_auth(services_auth)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -543,7 +543,7 @@ def _cribo_init___cribo_84bf42_services_auth(self):
         self.__initializing__ = False
         return self
     global services_auth_manager
-    services_auth.__initializing__ = True
+    self.__initializing__ = True
     services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
     User = services.auth.manager.User
     self.User = User

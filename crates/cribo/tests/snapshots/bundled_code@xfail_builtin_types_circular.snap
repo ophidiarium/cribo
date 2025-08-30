@@ -1,6 +1,5 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 560
 input_file: crates/cribo/tests/fixtures/xfail_builtin_types_circular/main.py
 ---
 #!/usr/bin/env python3
@@ -69,13 +68,13 @@ def _cribo_init___cribo_5a392a_pkg__internal_utils(self):
         self.__initializing__ = False
         return self
     """Internal utils that depends on compat, creating circular dependency."""
-    pkg__internal_utils.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_compat
-    pkg__internal_utils.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     builtin_str = pkg.compat.builtin_str
     self.builtin_str = builtin_str
@@ -101,34 +100,34 @@ def _cribo_init___cribo_70cac5_pkg_utils(self):
         self.__initializing__ = False
         return self
     """Utils module that matches requests.utils import pattern."""
-    pkg_utils.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg__internal_utils
-    pkg_utils.__initializing__ = True
+    self.__initializing__ = True
     pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)
     HEADER_VALIDATORS = pkg._internal_utils.HEADER_VALIDATORS
     self.HEADER_VALIDATORS = HEADER_VALIDATORS
     to_native_string = pkg._internal_utils.to_native_string
     self.to_native_string = to_native_string
-    pkg_utils.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_compat
-    pkg_utils.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     compat = pkg.compat
     self.compat = compat
-    pkg_utils.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    pkg_utils.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
@@ -161,13 +160,13 @@ def _cribo_init___cribo_55aa63_pkg_models(self):
         self.__initializing__ = False
         return self
     """Models module to add more complexity."""
-    pkg_models.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_compat
-    pkg_models.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
@@ -192,32 +191,32 @@ def _cribo_init___cribo_f4100a_pkg_sessions(self):
         self.__initializing__ = False
         return self
     """Sessions module that creates more circular dependencies."""
-    pkg_sessions.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_compat
-    pkg_sessions.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     compat = pkg.compat
     self.compat = compat
-    pkg_sessions.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    pkg_sessions.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     OrderedDict = pkg.compat.OrderedDict
     self.OrderedDict = OrderedDict
-    pkg_sessions.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_utils
-    pkg_sessions.__initializing__ = True
+    self.__initializing__ = True
     pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
     utils = pkg.utils
     self.utils = utils
@@ -246,30 +245,30 @@ def _cribo_init___cribo_b86557_pkg(self):
         return self
     """Main package that creates wrapper module pattern like requests."""
     global pkg_utils
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
     utils = pkg.utils
     self.utils = utils
     global pkg_compat
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     compat = pkg.compat
     self.compat = compat
     global pkg__internal_utils
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)
     _internal_utils = pkg._internal_utils
     self._internal_utils = _internal_utils
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
     process_data = pkg.utils.process_data
     self.process_data = process_data
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
     global pkg_sessions
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg_sessions = _cribo_init___cribo_f4100a_pkg_sessions(pkg_sessions)
     Session = pkg.sessions.Session
     self.Session = Session

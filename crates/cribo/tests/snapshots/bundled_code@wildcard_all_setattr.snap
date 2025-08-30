@@ -73,7 +73,7 @@ def _cribo_init___cribo_cca96f_package(self):
         self.__initializing__ = False
         return self
     """Package using wildcard imports and setattr pattern like httpx."""
-    package.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_66c36f_package__subpackage(package__subpackage)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):

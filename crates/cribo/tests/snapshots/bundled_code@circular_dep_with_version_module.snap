@@ -79,7 +79,7 @@ def _cribo_init___cribo_a4c23d_package(self):
     __title__ = package___version__.__title__
     package.__title__ = __title__
     global package_module_a
-    package.__initializing__ = True
+    self.__initializing__ = True
     package_module_a = _cribo_init___cribo_cc4906_package_module_a(package_module_a)
     func_a = package.module_a.func_a
     self.func_a = func_a

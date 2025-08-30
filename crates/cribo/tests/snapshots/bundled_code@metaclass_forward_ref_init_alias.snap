@@ -70,7 +70,7 @@ def _cribo_init___cribo_d9a389_yaml_pkg(self):
         self.__initializing__ = False
         return self
     global yaml_pkg_base
-    yaml_pkg.__initializing__ = True
+    self.__initializing__ = True
     yaml_pkg_base = _cribo_init___cribo_6d74f2_yaml_pkg_base(yaml_pkg_base)
     YO = yaml_pkg.base.YAMLObject
     self.YO = YO

@@ -698,9 +698,9 @@ pub fn transform_module_to_init_function<'a>(
         // If this statement contains an init call, set __initializing__ = True first
         if contains_init_call {
             body.push(ast_builder::statements::assign_attribute(
-                &module_var_name,
+                SELF_PARAM,
                 "__initializing__",
-                ast_builder::expressions::name("True", ExprContext::Load),
+                ast_builder::expressions::bool_literal(true),
             ));
         }
         match &stmt {
@@ -1235,12 +1235,12 @@ pub fn transform_module_to_init_function<'a>(
     body.push(ast_builder::statements::assign_attribute(
         SELF_PARAM,
         "__initialized__",
-        ast_builder::expressions::name("True", ExprContext::Load),
+        ast_builder::expressions::bool_literal(true),
     ));
     body.push(ast_builder::statements::assign_attribute(
         SELF_PARAM,
         "__initializing__",
-        ast_builder::expressions::name("False", ExprContext::Load),
+        ast_builder::expressions::bool_literal(false),
     ));
 
     // Return the module object (self)

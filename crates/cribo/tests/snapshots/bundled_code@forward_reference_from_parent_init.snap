@@ -102,7 +102,7 @@ def _cribo_init___cribo_710264_parent(self):
     parent.AnotherClass = AnotherClass
     MyClass = parent_child.MyClass
     parent.MyClass = MyClass
-    parent.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_0ac738_parent_subpkg(parent_subpkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):

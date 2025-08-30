@@ -72,7 +72,7 @@ def _cribo_init___cribo_7e63ae_pkg__client(self):
         self.__initializing__ = False
         return self
     """Client module with circular import and other dependencies."""
-    pkg__client.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_1fb248_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -111,13 +111,13 @@ def _cribo_init___cribo_fc6bcd_pkg__main(self):
         self.__initializing__ = False
         return self
     """Main module that imports client which imports back to parent."""
-    pkg__main.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_1fb248_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg__client
-    pkg__main.__initializing__ = True
+    self.__initializing__ = True
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
     Client = pkg._client.Client
     self.Client = Client
@@ -143,7 +143,7 @@ def _cribo_init___cribo_1fb248_pkg(self):
     self.SyncStream = SyncStream
     """Package that sets __module__ on all exported items, like httpx does."""
     global pkg__client
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
     Client = pkg._client.Client
     self.Client = Client
@@ -152,7 +152,7 @@ def _cribo_init___cribo_1fb248_pkg(self):
     Response = pkg__models.Response
     pkg.Response = Response
     global pkg__main
-    pkg.__initializing__ = True
+    self.__initializing__ = True
     pkg__main = _cribo_init___cribo_fc6bcd_pkg__main(pkg__main)
     main = pkg._main.main
     self.main = main

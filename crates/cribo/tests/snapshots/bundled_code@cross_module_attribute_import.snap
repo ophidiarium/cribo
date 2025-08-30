@@ -42,7 +42,7 @@ def _cribo_init___cribo_e49d78_mypackage_core(self):
         self.__initializing__ = False
         return self
     """Core module that creates circular dependency."""
-    mypackage_core.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_370515_mypackage(mypackage)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -89,12 +89,12 @@ def _cribo_init___cribo_370515_mypackage(self):
         return self
     """Package init that creates circular dependency."""
     global mypackage_utils
-    mypackage.__initializing__ = True
+    self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_35f1d1_mypackage_utils(mypackage_utils)
     get_version_info = mypackage.utils.get_version_info
     self.get_version_info = get_version_info
     global mypackage_core
-    mypackage.__initializing__ = True
+    self.__initializing__ = True
     mypackage_core = _cribo_init___cribo_e49d78_mypackage_core(mypackage_core)
     process_data = mypackage.core.process_data
     self.process_data = process_data

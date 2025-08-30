@@ -70,7 +70,7 @@ def _cribo_init___cribo_99f82c_wildcard_pkg(self):
         self.__initializing__ = False
         return self
     global wildcard_pkg_base
-    wildcard_pkg.__initializing__ = True
+    self.__initializing__ = True
     wildcard_pkg_base = _cribo_init___cribo_5d409b_wildcard_pkg_base(wildcard_pkg_base)
     WildcardObject = wildcard_pkg.base.WildcardObject
     wildcard_pkg.WildcardObject = WildcardObject

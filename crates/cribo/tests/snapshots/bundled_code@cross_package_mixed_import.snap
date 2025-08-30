@@ -215,7 +215,7 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
     core_database_connection.helper_validate = helper_validate
     CORE_MODEL_VERSION = core_version.CORE_MODEL_VERSION
     core_database_connection.CORE_MODEL_VERSION = CORE_MODEL_VERSION
-    core_database_connection.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_563ea2_models(models)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -297,7 +297,7 @@ def _cribo_init___cribo_782908_core_database(self):
         return not any(char in name for char in ["/", "\\", ":"])
     self.validate_db_name = validate_db_name
     global core_database_connection
-    core_database.__initializing__ = True
+    self.__initializing__ = True
     core_database_connection = _cribo_init___cribo_1f0c3d_core_database_connection(core_database_connection)
     connect = core.database.connection.connect
     self.connect = connect

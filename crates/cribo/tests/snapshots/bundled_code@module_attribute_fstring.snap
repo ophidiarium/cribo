@@ -58,7 +58,7 @@ def _cribo_init___cribo_a9fdaa_mypackage(self):
         self.__initializing__ = False
         return self
     global mypackage_utils
-    mypackage.__initializing__ = True
+    self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_dbce9e_mypackage_utils(mypackage_utils)
     get_version = mypackage.utils.get_version
     self.get_version = get_version

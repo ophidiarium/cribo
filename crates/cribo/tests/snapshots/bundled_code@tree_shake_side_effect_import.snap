@@ -1,6 +1,5 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 560
 input_file: crates/cribo/tests/fixtures/tree_shake_side_effect_import/main.py
 ---
 #!/usr/bin/env python3
@@ -69,7 +68,7 @@ def _cribo_init___cribo_ddd935_mypackage(self):
         self.__initializing__ = False
         return self
     global mypackage_utils
-    mypackage.__initializing__ = True
+    self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_09b9b3_mypackage_utils(mypackage_utils)
     utils = mypackage.utils
     self.utils = utils

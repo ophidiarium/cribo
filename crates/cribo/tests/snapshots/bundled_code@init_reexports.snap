@@ -95,11 +95,11 @@ def _cribo_init___cribo_a81151_mypackage(self):
     format_data = mypackage_formatter.format_data
     mypackage.format_data = format_data
     global mypackage_config
-    mypackage.__initializing__ = True
+    self.__initializing__ = True
     mypackage_config = _cribo_init___cribo_de6c46_mypackage_config(mypackage_config)
     config = mypackage.config.config
     self.config = config
-    mypackage.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_99e487_mypackage_utils(mypackage_utils)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):

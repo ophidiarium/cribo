@@ -69,7 +69,7 @@ def _cribo_init___cribo_d7bb86_mymodule(self):
         self.__initializing__ = False
         return self
     global mymodule_exceptions
-    mymodule.__initializing__ = True
+    self.__initializing__ = True
     mymodule_exceptions = _cribo_init___cribo_e5cbf4_mymodule_exceptions(mymodule_exceptions)
     MyError = mymodule.exceptions.MyError
     self.MyError = MyError

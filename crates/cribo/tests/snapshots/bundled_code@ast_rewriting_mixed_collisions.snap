@@ -326,13 +326,13 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
     self.Any = Any
     DBConnection = core_database_connection.Connection
     services_auth_manager.DBConnection = DBConnection
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_98ecc1_models(models)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(models, attr, getattr(__cribo_init_result, attr))
     global models_base
-    services_auth_manager.__initializing__ = True
+    self.__initializing__ = True
     models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
     base = models.base
     self.base = base
@@ -482,7 +482,7 @@ def _cribo_init___cribo_98ecc1_models(self):
     process_user = models_user.process_user
     models.process_user = process_user
     global models_base
-    models.__initializing__ = True
+    self.__initializing__ = True
     models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
     initialize = models.base.initialize
     self.initialize = initialize
@@ -671,13 +671,13 @@ def _cribo_init___cribo_93a195_services(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    services.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b16105_services_auth(services_auth)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(services.auth, attr, getattr(__cribo_init_result, attr))
     global services_auth_manager
-    services.__initializing__ = True
+    self.__initializing__ = True
     services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
     User = services.auth.manager.User
     self.User = User
@@ -698,7 +698,7 @@ def _cribo_init___cribo_b16105_services_auth(self):
         self.__initializing__ = False
         return self
     global services_auth_manager
-    services_auth.__initializing__ = True
+    self.__initializing__ = True
     services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
     User = services.auth.manager.User
     self.User = User

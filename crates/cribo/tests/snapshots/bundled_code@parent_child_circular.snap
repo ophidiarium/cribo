@@ -65,13 +65,13 @@ def _cribo_init___cribo_f2ecbb_foo_boo(self):
         return self
     """Child module boo that imports another sibling."""
     print("Initializing foo.boo module")
-    foo_boo.__initializing__ = True
+    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(foo, attr, getattr(__cribo_init_result, attr))
     global foo_zoo
-    foo_boo.__initializing__ = True
+    self.__initializing__ = True
     foo_zoo = _cribo_init___cribo_83878b_foo_zoo(foo_zoo)
     Zoo = foo.zoo.Zoo
     self.Zoo = Zoo
@@ -101,7 +101,7 @@ def _cribo_init___cribo_97cb47_foo(self):
     """Parent package that imports from its child module."""
     print("Initializing foo package")
     global foo_boo
-    foo.__initializing__ = True
+    self.__initializing__ = True
     foo_boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
     helper_function = foo.boo.helper_function
     self.helper_function = helper_function
