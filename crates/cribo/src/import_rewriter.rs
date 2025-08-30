@@ -10,6 +10,7 @@ use crate::{
     cribo_graph::CriboGraph,
     resolver::ModuleId,
     semantic_bundler::SemanticBundler,
+    types::FxIndexMap,
     visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
 
@@ -28,7 +29,7 @@ pub struct MovableImport {
     /// Functions that use this import
     pub target_functions: Vec<String>,
     /// The source module containing this import
-    pub source_module: String,
+    pub source_module_id: ModuleId,
 }
 
 /// Represents an import statement in a normalized form
@@ -65,7 +66,7 @@ impl ImportRewriter {
         graph: &CriboGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
         semantic_bundler: &SemanticBundler,
-        module_asts: &[(String, &ModModule)],
+        module_asts: &FxIndexMap<ModuleId, &ModModule>,
     ) -> Vec<MovableImport> {
         let mut movable_imports = Vec::new();
 
@@ -90,7 +91,7 @@ impl ImportRewriter {
 
             // For each module in the cycle, find imports that can be moved
             for &module_id in &cycle.modules {
-                // Get module name from graph
+                // Get module name from graph (for logging only)
                 let module_name = if let Some(module) = graph.modules.get(&module_id) {
                     &module.module_name
                 } else {
@@ -104,9 +105,8 @@ impl ImportRewriter {
                     trace!("Using cached import analysis for module '{module_name}'");
                     cached_imports.clone()
                 } else {
-                    // Find the AST for this module
-                    let Some((_, ast)) = module_asts.iter().find(|(name, _)| name == module_name)
-                    else {
+                    // Find the AST for this module using ModuleId
+                    let Some(ast) = module_asts.get(&module_id) else {
                         continue;
                     };
 
@@ -123,18 +123,12 @@ impl ImportRewriter {
                     imports
                 };
 
-                // Convert cycle module IDs to names for comparison
-                let cycle_module_names: Vec<String> = cycle
-                    .modules
-                    .iter()
-                    .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
-                    .collect();
-
                 // Find movable imports based on semantic analysis
                 let candidates = self.find_movable_imports_from_discovered(
                     &discovered_imports,
-                    module_name,
-                    &cycle_module_names,
+                    module_id,
+                    &cycle.modules,
+                    graph,
                 );
                 movable_imports.extend(candidates);
             }
@@ -151,15 +145,22 @@ impl ImportRewriter {
     fn find_movable_imports_from_discovered(
         &self,
         discovered_imports: &[DiscoveredImport],
-        module_name: &str,
-        cycle_modules: &[String],
+        source_module_id: ModuleId,
+        cycle_module_ids: &[ModuleId],
+        graph: &CriboGraph,
     ) -> Vec<MovableImport> {
         let mut movable = Vec::new();
+
+        // Get module name for logging
+        let module_name = graph
+            .modules
+            .get(&source_module_id)
+            .map_or("<unknown>", |m| m.module_name.as_str());
 
         for import_info in discovered_imports {
             // Check if this import is part of the cycle
             if let Some(imported_module) = &import_info.module_name {
-                if !self.is_import_in_cycle(imported_module, cycle_modules) {
+                if !self.is_import_in_cycle(imported_module, cycle_module_ids, graph) {
                     continue;
                 }
 
@@ -201,7 +202,7 @@ impl ImportRewriter {
                 movable.push(MovableImport {
                     import_stmt,
                     target_functions,
-                    source_module: module_name.to_string(),
+                    source_module_id,
                 });
             }
         }
@@ -210,19 +211,25 @@ impl ImportRewriter {
     }
 
     /// Check if an import is part of a circular dependency cycle
-    fn is_import_in_cycle(&self, imported_module: &str, cycle_modules: &[String]) -> bool {
-        // Direct match
-        if cycle_modules.contains(&imported_module.to_string()) {
-            return true;
-        }
-
-        // Check if it's a submodule of any cycle module
-        for cycle_module in cycle_modules {
-            if imported_module.starts_with(&format!("{cycle_module}.")) {
-                return true;
+    fn is_import_in_cycle(
+        &self,
+        imported_module_name: &str,
+        cycle_module_ids: &[ModuleId],
+        graph: &CriboGraph,
+    ) -> bool {
+        // Check each module ID in the cycle
+        for &module_id in cycle_module_ids {
+            if let Some(module) = graph.modules.get(&module_id) {
+                // Direct match
+                if module.module_name == imported_module_name {
+                    return true;
+                }
+                // Check if it's a submodule
+                if imported_module_name.starts_with(&format!("{}.", module.module_name)) {
+                    return true;
+                }
             }
         }
-
         false
     }
 
@@ -231,18 +238,18 @@ impl ImportRewriter {
         &mut self,
         module_ast: &mut ModModule,
         movable_imports: &[MovableImport],
-        module_name: &str,
+        module_id: ModuleId,
     ) {
         debug!(
-            "Rewriting module {} with {} movable imports",
-            module_name,
+            "Rewriting module {:?} with {} movable imports",
+            module_id,
             movable_imports.len()
         );
 
         // Filter imports for this module
         let module_imports: Vec<_> = movable_imports
             .iter()
-            .filter(|mi| mi.source_module == module_name)
+            .filter(|mi| mi.source_module_id == module_id)
             .collect();
 
         if module_imports.is_empty() {

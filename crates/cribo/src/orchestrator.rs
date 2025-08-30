@@ -1811,23 +1811,18 @@ impl BundleOrchestrator {
                 ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
             // Prepare module ASTs for semantic analysis
-            let module_ast_pairs: Vec<(String, &ModModule)> = module_asts
-                .iter()
-                .map(|(id, ast, _)| {
-                    let name = params
-                        .resolver
-                        .get_module_name(*id)
-                        .unwrap_or_else(|| format!("module_{}", id.as_u32()));
-                    (name, ast)
-                })
-                .collect();
+            let module_ast_map: crate::types::FxIndexMap<crate::resolver::ModuleId, &ModModule> =
+                module_asts
+                    .iter()
+                    .map(|(id, ast, _)| (*id, ast as &ModModule))
+                    .collect();
 
             // Analyze movable imports using semantic analysis
             let movable_imports = import_rewriter.analyze_movable_imports_semantic(
                 params.graph,
                 &analysis.resolvable_cycles,
                 &self.semantic_bundler,
-                &module_ast_pairs,
+                &module_ast_map,
             );
 
             debug!(
@@ -1837,11 +1832,7 @@ impl BundleOrchestrator {
 
             // Apply rewriting to each module AST
             for (module_id, ast, _) in &mut module_asts {
-                let module_name = params
-                    .resolver
-                    .get_module_name(*module_id)
-                    .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
-                import_rewriter.rewrite_module(ast, &movable_imports, &module_name);
+                import_rewriter.rewrite_module(ast, &movable_imports, *module_id);
             }
         }
 

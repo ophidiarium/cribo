@@ -1111,13 +1111,14 @@ impl TreeShaker {
     fn find_attribute_in_submodules(&self, base_var: &str, attr: &str) -> Option<ModuleId> {
         for (&module_id, module_name) in &self.module_names {
             if module_name.starts_with(&format!("{base_var}."))
-                && let Some(items) = self.module_items.get(&module_id) {
-                    for item in items {
-                        if item.defined_symbols.contains(attr) {
-                            return Some(module_id);
-                        }
+                && let Some(items) = self.module_items.get(&module_id)
+            {
+                for item in items {
+                    if item.defined_symbols.contains(attr) {
+                        return Some(module_id);
                     }
                 }
+            }
         }
         None
     }
