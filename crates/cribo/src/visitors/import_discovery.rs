@@ -592,8 +592,8 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                     };
                     self.imports.push(import);
 
-                    // Track import mapping - the module itself is what's imported
-                    self.imported_names.insert(module_name.clone(), module_name);
+                    // Do not add to imported_names: importlib.import_module returns a value
+                    // assigned to a variable, but it does not bind `module_name` in scope.
                 }
             }
             Expr::Name(ExprName { id, range, .. }) => {
