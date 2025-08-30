@@ -37,17 +37,8 @@ pub struct NamespacePopulationContext<'a> {
     pub resolver: &'a crate::resolver::ModuleResolver,
 }
 
-impl NamespacePopulationContext<'_> {
-    /// Check if a symbol is kept by tree shaking.
-    pub fn is_symbol_kept_by_tree_shaking(&self, module_id: ModuleId, symbol_name: &str) -> bool {
-        match &self.tree_shaking_keep_symbols {
-            Some(kept_symbols) => kept_symbols
-                .get(&module_id)
-                .is_some_and(|symbols| symbols.contains(symbol_name)),
-            None => true, // No tree shaking, all symbols are kept
-        }
-    }
-}
+// Note: NamespacePopulationContext has no inherent methods currently.
+// All functionality is in the standalone functions that use it.
 
 /// Create an attribute assignment statement, using namespace variables when available.
 ///
@@ -321,44 +312,7 @@ pub fn populate_namespace_with_module_symbols(
         // For each exported symbol that survived tree-shaking, add it to the namespace
         'symbol_loop: for symbol in &filtered_exports {
             let symbol_name = symbol.as_str();
-
-            // For re-exported symbols, check if the original symbol is kept by tree-shaking
-            let should_include = if ctx.tree_shaking_keep_symbols.is_some() {
-                // First check if this symbol is directly defined in this module
-                if ctx.is_symbol_kept_by_tree_shaking(module_id, symbol_name) {
-                    true
-                } else {
-                    // If not, check if this is a re-exported symbol from another module
-                    // For modules with __all__, we always include symbols that are re-exported
-                    // even if they're not directly defined in the module
-                    let module_has_all_export = ctx
-                        .module_exports
-                        .get(&module_id)
-                        .and_then(|exports| exports.as_ref())
-                        .is_some_and(|exports| exports.contains(&symbol_name.to_string()));
-
-                    if module_has_all_export {
-                        debug!(
-                            "Including re-exported symbol {symbol_name} from module {module_name} \
-                             (in __all__)"
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                }
-            } else {
-                // No tree-shaking, include everything
-                true
-            };
-
-            if !should_include {
-                debug!(
-                    "Skipping namespace assignment for {module_name}.{symbol_name} - removed by \
-                     tree-shaking"
-                );
-                continue;
-            }
+            // filtered_exports dictates inclusion; no extra checks needed here.
 
             // Check if this symbol is actually a submodule
             let full_submodule_path = format!("{module_name}.{symbol_name}");

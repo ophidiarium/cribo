@@ -632,23 +632,25 @@ pub fn transform_module_to_init_function<'a>(
                     // Check if the value is a call to an init function
                     if let Expr::Call(call) = assign.value.as_ref()
                         && let Expr::Name(name) = call.func.as_ref()
-                            && name.id.starts_with("_cribo_init_") {
-                                // Check if the assignment target is also used as an argument
-                                if assign.targets.len() == 1
-                                    && let Expr::Name(target) = &assign.targets[0] {
-                                        // Check if the target is also passed as an argument
-                                        let needs_global = call.arguments.args.iter().any(|arg| {
-                                            if let Expr::Name(arg_name) = arg {
-                                                arg_name.id.as_str() == target.id.as_str()
-                                            } else {
-                                                false
-                                            }
-                                        });
-                                        if needs_global {
-                                            self.globals_needed.insert(target.id.to_string());
-                                        }
-                                    }
+                        && name.id.starts_with("_cribo_init_")
+                    {
+                        // Check if the assignment target is also used as an argument
+                        if assign.targets.len() == 1
+                            && let Expr::Name(target) = &assign.targets[0]
+                        {
+                            // Check if the target is also passed as an argument
+                            let needs_global = call.arguments.args.iter().any(|arg| {
+                                if let Expr::Name(arg_name) = arg {
+                                    arg_name.id.as_str() == target.id.as_str()
+                                } else {
+                                    false
+                                }
+                            });
+                            if needs_global {
+                                self.globals_needed.insert(target.id.to_string());
                             }
+                        }
+                    }
                 }
                 // Continue traversing the statement tree
                 source_order::walk_stmt(self, stmt);
@@ -660,7 +662,10 @@ pub fn transform_module_to_init_function<'a>(
 
     // Add global declarations for wrapper module namespace variables at the beginning
     if !wrapper_globals_needed.is_empty() {
-        let mut globals: Vec<&str> = wrapper_globals_needed.iter().map(std::string::String::as_str).collect();
+        let mut globals: Vec<&str> = wrapper_globals_needed
+            .iter()
+            .map(std::string::String::as_str)
+            .collect();
         globals.sort_unstable();
         body.push(ast_builder::statements::global(globals));
     }
