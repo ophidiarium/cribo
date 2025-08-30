@@ -98,6 +98,8 @@ def _cribo_init___cribo_7e63ae_pkg__client(self):
             return Response()
     Client.__module__ = 'pkg._client'
     self.Client = Client
+    self.Request = Request
+    self.Response = Response
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -166,6 +168,8 @@ def _cribo_init___cribo_1fb248_pkg(self):
     self._types = pkg__types
     self._models = pkg__models
     self._types = pkg__types
+    self.Request = Request
+    self.Response = Response
     self.__initialized__ = True
     self.__initializing__ = False
     return self

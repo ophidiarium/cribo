@@ -85,6 +85,7 @@ def _cribo_init___cribo_0ac738_parent_subpkg(self):
     parent_subpkg.SubpkgClass = SubpkgClass
     self.submodule = parent_subpkg_submodule
     self.submodule = parent_subpkg_submodule
+    self.SubpkgClass = SubpkgClass
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -115,6 +116,9 @@ def _cribo_init___cribo_710264_parent(self):
     self.child = parent_child
     self.another = parent_another
     self.base = parent_base
+    self.BaseClass = BaseClass
+    self.AnotherClass = AnotherClass
+    self.MyClass = MyClass
     self.__initialized__ = True
     self.__initializing__ = False
     return self

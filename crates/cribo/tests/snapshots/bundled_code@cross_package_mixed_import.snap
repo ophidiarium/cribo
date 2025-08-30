@@ -108,6 +108,9 @@ def _cribo_init___cribo_f00e4b_core(self):
     self.utils = core_utils
     self.version = core_version
     self.utils = core_utils
+    self.CORE_MODEL_VERSION = CORE_MODEL_VERSION
+    self.validate = validate
+    self.get_config = get_config
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -197,6 +200,7 @@ def _cribo_init___cribo_563ea2_models(self):
     self.base = models_base
     self.user = models_user
     self.base = models_base
+    self.process_user = process_user
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -263,6 +267,8 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
             info["config"] = get_full_config()
         return info
     self.get_connection_info = get_connection_info
+    self.process_user = process_user
+    self.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     self.__initialized__ = True
     self.__initializing__ = False
     return self

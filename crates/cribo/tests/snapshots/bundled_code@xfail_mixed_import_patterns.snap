@@ -119,6 +119,7 @@ def _cribo_init___cribo_f96d2c_config(self):
             return "INFO"
         return "DEBUG" if _config.debug_mode else "INFO"
     self.get_log_level = get_log_level
+    self.format_message = format_message
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -170,6 +171,7 @@ def _cribo_init___cribo_0639af_logger(self):
             _cribo_logger__logger = logger.Logger()
         return _cribo_logger__logger
     self.get_logger = get_logger
+    self.format_message = format_message
     self.__initialized__ = True
     self.__initializing__ = False
     return self

@@ -46,6 +46,7 @@ def _cribo_init___cribo_dbce9e_mypackage_utils(self):
     def get_version():
         return VERSION
     self.get_version = get_version
+    self.VERSION = VERSION
     self.__initialized__ = True
     self.__initializing__ = False
     return self

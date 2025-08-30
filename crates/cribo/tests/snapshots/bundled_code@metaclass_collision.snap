@@ -69,6 +69,7 @@ def _cribo_init___cribo_9c0ae3_pkg(self):
     self.MyObject = MyObject
     self.submodule = pkg_submodule
     self.submodule = pkg_submodule
+    self.create_object = create_object
     self.__initialized__ = True
     self.__initializing__ = False
     return self

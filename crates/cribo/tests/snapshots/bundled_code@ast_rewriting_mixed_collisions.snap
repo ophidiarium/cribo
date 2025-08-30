@@ -494,6 +494,9 @@ def _cribo_init___cribo_98ecc1_models(self):
     self.connection = connection
     self.user = models_user
     self.user = models_user
+    self.User = User
+    self.Logger = Logger
+    self.process_user = process_user
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -534,6 +537,9 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     self.Connection = Connection
     self.helpers = core_utils_helpers
     self.helpers = core_utils_helpers
+    self.Logger = Logger
+    self.process = process
+    self.validate = validate
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -710,6 +716,7 @@ def _cribo_init___cribo_b16105_services_auth(self):
     services_auth.Logger = Logger
     connection = "auth_connection_string"
     self.connection = connection
+    self.Logger = Logger
     self.__initialized__ = True
     self.__initializing__ = False
     return self

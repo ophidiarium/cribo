@@ -1206,7 +1206,7 @@ pub fn transform_module_to_init_function<'a>(
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
                     && let Expr::Name(name) = &*attr.value
                 {
-                    return name.id == module_var_name && attr.attr == imported_name;
+                    return name.id.as_str() == SELF_PARAM && attr.attr == imported_name;
                 }
                 false
             });

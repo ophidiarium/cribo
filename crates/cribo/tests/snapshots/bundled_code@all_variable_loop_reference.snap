@@ -58,6 +58,8 @@ def _cribo_init___cribo_4c9561_mypkg(self):
             setattr(__locals[__name], "__module__", "mypkg")
     self._internal = mypkg__internal
     self._internal = mypkg__internal
+    self.MyClass = MyClass
+    self.my_func = my_func
     self.__initialized__ = True
     self.__initializing__ = False
     return self

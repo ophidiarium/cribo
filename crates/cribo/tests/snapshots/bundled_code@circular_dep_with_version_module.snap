@@ -88,6 +88,8 @@ def _cribo_init___cribo_a4c23d_package(self):
         return func_a() + " from package"
     self.package_func = package_func
     print(f"Package initialized with version {__version__}")
+    self.__version__ = __version__
+    self.__title__ = __title__
     self.__initialized__ = True
     self.__initializing__ = False
     return self

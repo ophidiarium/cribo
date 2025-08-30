@@ -76,6 +76,7 @@ def _cribo_init___cribo_35f1d1_mypackage_utils(self):
         """Return version information using the imported __version__ variable."""
         return VERSION_PREFIX
     self.get_version_info = get_version_info
+    self.__version__ = __version__
     self.__initialized__ = True
     self.__initializing__ = False
     return self

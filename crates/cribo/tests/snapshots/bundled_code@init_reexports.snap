@@ -112,6 +112,8 @@ def _cribo_init___cribo_a81151_mypackage(self):
     self.data_processor = mypackage_data_processor
     self.formatter = mypackage_formatter
     self.data_processor = mypackage_data_processor
+    self.process_data = process_data
+    self.format_data = format_data
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -129,6 +131,7 @@ def _cribo_init___cribo_99e487_mypackage_utils(self):
     self.helper = mypackage_utils_helper
     self.constants = mypackage_utils_constants
     self.helper = mypackage_utils_helper
+    self.helper_function = helper_function
     self.__initialized__ = True
     self.__initializing__ = False
     return self
