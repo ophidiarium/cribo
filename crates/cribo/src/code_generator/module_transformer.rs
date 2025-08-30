@@ -1155,7 +1155,7 @@ pub fn transform_module_to_init_function<'a>(
                     bundler,
                     &full_name,
                     &relative_name,
-                    &module_var_name,
+                    SELF_PARAM,
                     symbol_renames,
                 );
                 body.extend(create_namespace_stmts);
