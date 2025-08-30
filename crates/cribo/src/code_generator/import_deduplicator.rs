@@ -480,7 +480,7 @@ fn is_import_used_by_side_effect_code(
             crate::cribo_graph::ItemType::Expression
                 | crate::cribo_graph::ItemType::Assignment { .. }
                 | crate::cribo_graph::ItemType::Other
-        ) && item.read_vars.contains(local_name)
+        ) && (item.read_vars.contains(local_name) || item.eventual_read_vars.contains(local_name))
     })
 }
 
