@@ -1129,14 +1129,18 @@ impl<'a> Bundler<'a> {
         }
 
         // Extract modules that access __all__ from the pre-computed graph data
-        // Store (accessing_module, accessed_alias) pairs to handle alias collisions
-        for (alias_name, accessing_modules) in params.graph.get_modules_accessing_all() {
-            for accessing_module in accessing_modules {
-                if let Some(module_id) = self.get_module_id(accessing_module) {
-                    self.modules_with_accessed_all
-                        .insert((module_id, alias_name.clone()));
-                    log::debug!("Module '{accessing_module}' accesses {alias_name}.__all__");
-                }
+        // Store (accessing_module_id, accessed_module_name) pairs to handle alias collisions
+        for &(accessing_module_id, accessed_module_id) in params.graph.get_modules_accessing_all() {
+            // Get the accessed module's name for the alias tracking
+            if let Some(accessed_module_info) = self.resolver.get_module(accessed_module_id) {
+                self.modules_with_accessed_all
+                    .insert((accessing_module_id, accessed_module_info.name.clone()));
+                log::debug!(
+                    "Module ID {:?} accesses {}.__all__ (ID {:?})",
+                    accessing_module_id,
+                    accessed_module_info.name,
+                    accessed_module_id
+                );
             }
         }
 

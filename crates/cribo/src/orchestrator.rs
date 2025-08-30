@@ -1183,13 +1183,13 @@ impl BundleOrchestrator {
 
         // Aggregate __all__ access information from all modules
         let mut all_accesses = Vec::new();
-        for module_graph in params.graph.modules.values() {
+        for (accessing_module_id, module_graph) in &params.graph.modules {
             for item in module_graph.items.values() {
                 // Check attribute accesses for __all__
                 for (base_name, attributes) in &item.attribute_accesses {
                     if attributes.contains("__all__") {
                         // Resolve the base_name to the actual module if it's an alias
-                        let resolved_module = module_graph
+                        let resolved_module_name = module_graph
                             .items
                             .values()
                             .find_map(|i| {
@@ -1208,24 +1208,36 @@ impl BundleOrchestrator {
                             })
                             .unwrap_or_else(|| base_name.clone());
 
-                        // This module accesses resolved_module.__all__
-                        all_accesses
-                            .push((resolved_module.clone(), module_graph.module_name.clone()));
-                        log::debug!(
-                            "Module '{}' accesses {}.__all__ (resolved from alias '{base_name}')",
-                            module_graph.module_name,
-                            resolved_module
-                        );
+                        // Try to resolve the accessed module name to a ModuleId
+                        if let Some(accessed_module) =
+                            params.graph.get_module_by_name(&resolved_module_name)
+                        {
+                            // This module accesses resolved_module.__all__
+                            all_accesses.push((*accessing_module_id, accessed_module.module_id));
+                            log::debug!(
+                                "Module '{}' (ID {:?}) accesses {}.__all__ (ID {:?}, resolved from alias '{base_name}')",
+                                module_graph.module_name,
+                                accessing_module_id,
+                                resolved_module_name,
+                                accessed_module.module_id
+                            );
+                        } else {
+                            log::debug!(
+                                "Could not resolve module '{}' to ID when tracking __all__ access from '{}'",
+                                resolved_module_name,
+                                module_graph.module_name
+                            );
+                        }
                     }
                 }
             }
         }
 
         // Now update the graph with the collected accesses
-        for (base_name, accessing_module) in all_accesses {
+        for (accessing_module_id, accessed_module_id) in all_accesses {
             params
                 .graph
-                .add_module_accessing_all(base_name, accessing_module);
+                .add_module_accessing_all(accessing_module_id, accessed_module_id);
         }
 
         info!(
