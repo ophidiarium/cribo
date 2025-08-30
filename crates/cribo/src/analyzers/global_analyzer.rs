@@ -2,7 +2,7 @@
 //!
 //! This analyzer traverses module ASTs to identify:
 //! - Module-level variable definitions
-//! - Global declarations within functions
+//! - Global declarations within functions (including async functions)
 //! - Functions that use global statements
 //!
 //! This information is used to determine which variables need to be lifted
@@ -95,7 +95,8 @@ impl GlobalAnalyzer {
         }
     }
 
-    /// Process a function definition
+    /// Process a function definition (handles both sync and async functions)
+    /// Note: Async functions are represented as `StmtFunctionDef` with `is_async` flag
     fn process_function(&mut self, func_def: &StmtFunctionDef) {
         // Push function name onto stack
         self.function_stack.push(func_def.name.id.to_string());
@@ -155,7 +156,8 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
                 source_order::walk_stmt(self, stmt);
             }
 
-            // Process function definitions
+            // Process function definitions (includes async functions)
+            // Note: In ruff's AST, async functions are represented as FunctionDef with is_async flag
             Stmt::FunctionDef(func_def) => {
                 self.process_function(func_def);
                 // Don't use walk_stmt here as we already visited the body
@@ -270,5 +272,42 @@ def foo():
         let info = GlobalAnalyzer::analyze("test_module", parsed.syntax());
 
         assert!(info.is_none());
+    }
+
+    #[test]
+    fn test_async_function_globals() {
+        let source = r"
+x = 10
+y = 20
+
+async def async_func():
+    global x
+    x = 100
+    return x
+
+async def nested_async():
+    async def inner():
+        global y
+        y = 200
+    await inner()
+        ";
+
+        let parsed = parse_module(source).expect("Failed to parse module with async functions");
+        let info = GlobalAnalyzer::analyze("test_module", parsed.syntax());
+
+        assert!(info.is_some());
+        let info = info.expect("Expected global info for async functions");
+
+        // Check that async functions are recognized
+        assert!(info.functions_using_globals.contains("async_func"));
+        assert!(info.functions_using_globals.contains("nested_async.inner"));
+
+        // Check that global declarations in async functions are tracked
+        assert!(info.global_declarations.contains_key("x"));
+        assert!(info.global_declarations.contains_key("y"));
+
+        // Check module-level vars
+        assert!(info.module_level_vars.contains("x"));
+        assert!(info.module_level_vars.contains("y"));
     }
 }
