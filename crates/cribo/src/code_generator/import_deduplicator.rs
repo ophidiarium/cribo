@@ -255,7 +255,7 @@ pub(super) fn trim_unused_imports_from_modules(
                                     // survived Even if no
                                     // symbols survived, if it has side effects, we need to keep it
                                     let has_side_effects =
-                                        shaker.module_has_side_effects(&submodule_name);
+                                        shaker.module_has_side_effects_by_name(&submodule_name);
                                     let has_used_symbols = !shaker
                                         .get_used_symbols_for_module(&submodule_name)
                                         .is_empty();
@@ -329,7 +329,8 @@ pub(super) fn trim_unused_imports_from_modules(
                             // Check if the imported module itself has side effects and needs initialization
                             // This handles the case where a wrapper module with side effects is imported
                             // but not directly used (e.g., import mypackage where mypackage has print statements)
-                            let module_has_side_effects = shaker.module_has_side_effects(module);
+                            let module_has_side_effects =
+                                shaker.module_has_side_effects_by_name(module);
                             if module_has_side_effects {
                                 log::debug!(
                                     "Module '{module}' has side effects - preserving import for initialization"
@@ -470,7 +471,7 @@ fn is_import_used_by_side_effect_code(
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
-    if !shaker.module_has_side_effects(module_name) {
+    if !shaker.module_has_side_effects_by_name(module_name) {
         return false;
     }
 

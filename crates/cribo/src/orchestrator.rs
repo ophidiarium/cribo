@@ -553,8 +553,8 @@ impl BundleOrchestrator {
             let mut modules_with_side_effects = Vec::new();
             let mut modules_for_tree_shaking = Vec::new();
 
-            for module in graph.modules.values() {
-                if shaker.module_has_side_effects(&module.module_name) {
+            for (&module_id, module) in &graph.modules {
+                if shaker.module_has_side_effects(module_id) {
                     modules_with_side_effects.push(&module.module_name);
                 } else {
                     modules_for_tree_shaking.push(&module.module_name);
