@@ -74,7 +74,7 @@ def _cribo_init___cribo_f275a8_schemas_user(self):
         bio: _cribo.typing.Optional[str] = None
     UserResponse.__module__ = 'schemas.user'
     self.UserResponse = UserResponse
-    schemas_user.Optional = _cribo.typing.Optional
+    self.Optional = _cribo.typing.Optional
     self.__initialized__ = True
     self.__initializing__ = False
     return self

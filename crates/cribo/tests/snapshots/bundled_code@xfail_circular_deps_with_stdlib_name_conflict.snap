@@ -76,7 +76,7 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
         ConsoleBase = pkg.console.ConsoleBase
         pass
     self.apply_style_to_console = apply_style_to_console
-    pkg_style.Optional = _cribo.typing.Optional
+    self.Optional = _cribo.typing.Optional
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -143,8 +143,8 @@ def _cribo_init___cribo_02808e_pkg_color(self):
         ConsoleBase = pkg.console.ConsoleBase
         pass
     self.apply_color_to_console = apply_color_to_console
-    pkg_color.Optional = _cribo.typing.Optional
-    pkg_color.Tuple = _cribo.typing.Tuple
+    self.Optional = _cribo.typing.Optional
+    self.Tuple = _cribo.typing.Tuple
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -238,8 +238,8 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
         """Format object using pretty printer."""
         return format_pretty(obj, console)
     self.format_with_pretty = format_with_pretty
-    pkg_console.Any = _cribo.typing.Any
-    pkg_console.Optional = _cribo.typing.Optional
+    self.Any = _cribo.typing.Any
+    self.Optional = _cribo.typing.Optional
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -300,7 +300,7 @@ def _cribo_init___cribo_2353ad_pkg_pretty(self):
             return f"<Renderable: {obj}>"
         return repr(obj)
     self.format_pretty = format_pretty
-    pkg_pretty.Any = _cribo.typing.Any
+    self.Any = _cribo.typing.Any
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -380,8 +380,8 @@ def _cribo_init___cribo_5f60be_pkg_abc(self):
             return f"Rendering with {console}"
     RenderableWithConsole.__module__ = 'pkg.abc'
     self.RenderableWithConsole = RenderableWithConsole
-    pkg_abc.ABC = _cribo.abc.ABC
-    pkg_abc.abstractmethod = _cribo.abc.abstractmethod
+    self.ABC = _cribo.abc.ABC
+    self.abstractmethod = _cribo.abc.abstractmethod
     self.__initialized__ = True
     self.__initializing__ = False
     return self

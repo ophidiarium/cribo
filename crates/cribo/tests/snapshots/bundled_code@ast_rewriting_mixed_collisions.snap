@@ -458,9 +458,9 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
             return {"manager_results": result}
     AuthManager.__module__ = 'services.auth.manager'
     self.AuthManager = AuthManager
-    services_auth_manager.Optional = _cribo.typing.Optional
-    services_auth_manager.Dict = _cribo.typing.Dict
-    services_auth_manager.Any = _cribo.typing.Any
+    self.Optional = _cribo.typing.Optional
+    self.Dict = _cribo.typing.Dict
+    self.Any = _cribo.typing.Any
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -664,8 +664,8 @@ def _cribo_init___cribo_bca2f6_models_base(self):
         shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
         return shadows
     self.shadow_test = shadow_test
-    models_base.Any = _cribo.typing.Any
-    models_base.Dict = _cribo.typing.Dict
+    self.Any = _cribo.typing.Any
+    self.Dict = _cribo.typing.Dict
     self.__initialized__ = True
     self.__initializing__ = False
     return self

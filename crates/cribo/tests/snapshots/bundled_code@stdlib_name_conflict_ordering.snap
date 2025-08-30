@@ -81,10 +81,10 @@ def _cribo_init___cribo_beaba5_complex_pkg_console(self):
             print(*args)
     Console.__module__ = 'complex_pkg.console'
     self.Console = Console
-    complex_pkg_console.Any = _cribo.typing.Any
-    complex_pkg_console.Optional = _cribo.typing.Optional
-    complex_pkg_console.List = _cribo.typing.List
-    complex_pkg_console.Enum = _cribo.enum.Enum
+    self.Any = _cribo.typing.Any
+    self.Optional = _cribo.typing.Optional
+    self.List = _cribo.typing.List
+    self.Enum = _cribo.enum.Enum
     self.Base = Base
     self.__initialized__ = True
     self.__initializing__ = False

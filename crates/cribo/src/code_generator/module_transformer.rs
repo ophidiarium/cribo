@@ -1181,7 +1181,7 @@ pub fn transform_module_to_init_function<'a>(
 
         body.push(ast_builder::statements::assign(
             vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name(&module_var_name, ExprContext::Load),
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
                 &local_name,
                 ExprContext::Store,
             )],

@@ -41,8 +41,8 @@ def _cribo_init___cribo_f0aa89_compat(self):
     self.MutableMapping = MutableMapping
     Mapping = _cribo.collections.abc.Mapping
     self.Mapping = Mapping
-    compat.MutableMapping = _cribo.collections.abc.MutableMapping
-    compat.Mapping = _cribo.collections.abc.Mapping
+    self.MutableMapping = _cribo.collections.abc.MutableMapping
+    self.Mapping = _cribo.collections.abc.Mapping
     self.__initialized__ = True
     self.__initializing__ = False
     return self

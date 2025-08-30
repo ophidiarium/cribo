@@ -64,12 +64,12 @@ def _cribo_init___cribo_5ad29b_myrequests_compat(self):
     self.urlunparse = urlunparse
     urljoin = _cribo.urllib.parse.urljoin
     self.urljoin = urljoin
-    myrequests_compat.MutableMapping = _cribo.collections.abc.MutableMapping
-    myrequests_compat.Mapping = _cribo.collections.abc.Mapping
-    myrequests_compat.cookielib = _cribo.http.cookiejar
-    myrequests_compat.urlparse = _cribo.urllib.parse.urlparse
-    myrequests_compat.urlunparse = _cribo.urllib.parse.urlunparse
-    myrequests_compat.urljoin = _cribo.urllib.parse.urljoin
+    self.MutableMapping = _cribo.collections.abc.MutableMapping
+    self.Mapping = _cribo.collections.abc.Mapping
+    self.cookielib = _cribo.http.cookiejar
+    self.urlparse = _cribo.urllib.parse.urlparse
+    self.urlunparse = _cribo.urllib.parse.urlunparse
+    self.urljoin = _cribo.urllib.parse.urljoin
     self.__initialized__ = True
     self.__initializing__ = False
     return self

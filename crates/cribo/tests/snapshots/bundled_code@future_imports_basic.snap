@@ -55,9 +55,9 @@ def _cribo_init___cribo_41d36f_mypackage_core(self):
     self._transform_data = _transform_data
     ProcessingResult = _cribo.typing.Dict[str, _cribo.typing.Any]
     self.ProcessingResult = ProcessingResult
-    mypackage_core.Dict = _cribo.typing.Dict
-    mypackage_core.List = _cribo.typing.List
-    mypackage_core.Any = _cribo.typing.Any
+    self.Dict = _cribo.typing.Dict
+    self.List = _cribo.typing.List
+    self.Any = _cribo.typing.Any
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -94,9 +94,9 @@ def _cribo_init___cribo_c3d681_mypackage_submodule_utils(self):
     self.InputData = InputData
     FormattedOutput = _cribo.typing.Union[str, _cribo.typing.Dict[str, _cribo.typing.Any]]
     self.FormattedOutput = FormattedOutput
-    mypackage_submodule_utils.Dict = _cribo.typing.Dict
-    mypackage_submodule_utils.Any = _cribo.typing.Any
-    mypackage_submodule_utils.Union = _cribo.typing.Union
+    self.Dict = _cribo.typing.Dict
+    self.Any = _cribo.typing.Any
+    self.Union = _cribo.typing.Union
     self.__initialized__ = True
     self.__initializing__ = False
     return self
