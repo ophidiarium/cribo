@@ -858,12 +858,11 @@ impl BundleOrchestrator {
         let all_module_ids: Vec<_> = graph.modules.keys().copied().collect();
 
         // Collect all modules that are part of circular dependencies
-        let mut cycle_id_set: IndexSet<crate::resolver::ModuleId> = IndexSet::new();
-        for cycle in &analysis.resolvable_cycles {
-            for module_id in &cycle.modules {
-                cycle_id_set.insert(*module_id);
-            }
-        }
+        let cycle_id_set: IndexSet<crate::resolver::ModuleId> = analysis
+            .resolvable_cycles
+            .iter()
+            .flat_map(|c| c.modules.iter().copied())
+            .collect();
 
         // Split modules into non-cycle and cycle modules
         let (cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) = all_module_ids
