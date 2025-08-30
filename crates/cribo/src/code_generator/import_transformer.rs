@@ -59,7 +59,7 @@ pub struct RecursiveImportTransformer<'a> {
     /// Track which modules have already been populated with symbols in this transformation session
     /// This prevents duplicate namespace assignments when multiple imports reference the same
     /// module
-    populated_modules: FxIndexSet<String>,
+    populated_modules: FxIndexSet<crate::resolver::ModuleId>,
     /// Track which stdlib modules were actually imported in this module
     /// This prevents transforming references to stdlib modules that weren't imported
     imported_stdlib_modules: FxIndexSet<String>,
@@ -1590,8 +1590,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     }
 
                                     // Only populate the namespace if it wasn't already populated
-                                    let namespace_already_populated =
-                                        self.populated_modules.contains(&full_module_path);
+                                    let full_module_id =
+                                        self.bundler.get_module_id(&full_module_path);
+                                    let namespace_already_populated = full_module_id
+                                        .is_some_and(|id| self.populated_modules.contains(&id));
 
                                     // Don't populate namespaces for bundled modules - they're already populated
                                     // by the bundler when the module is processed
@@ -1606,7 +1608,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         }
                                         // Mark this module as populated to prevent duplicate
                                         // assignments
-                                        self.populated_modules.insert(full_module_path.clone());
+                                        if let Some(id) = full_module_id {
+                                            self.populated_modules.insert(id);
+                                        }
                                     }
                                 }
                             } else {
@@ -2937,7 +2941,7 @@ fn rewrite_import_with_renames(
     bundler: &Bundler,
     import_stmt: StmtImport,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-    populated_modules: &mut FxIndexSet<String>,
+    populated_modules: &mut FxIndexSet<crate::resolver::ModuleId>,
 ) -> Vec<Stmt> {
     // Check each import individually
     let mut result_stmts = Vec::new();
@@ -3044,7 +3048,7 @@ fn rewrite_import_with_renames(
                                 if let Some(partial_module_id) =
                                     bundler.get_module_id(&partial_module)
                                     && bundler.bundled_modules.contains(&partial_module_id)
-                                    && !populated_modules.contains(&partial_module)
+                                    && !populated_modules.contains(&partial_module_id)
                                     && !bundler
                                         .modules_with_populated_symbols
                                         .contains(&partial_module_id)
@@ -3066,7 +3070,7 @@ fn rewrite_import_with_renames(
                                             symbol_renames,
                                         );
                                     result_stmts.extend(new_stmts);
-                                    populated_modules.insert(partial_module.clone());
+                                    populated_modules.insert(partial_module_id);
                                 }
                             }
                         } else {
@@ -3164,7 +3168,7 @@ fn rewrite_import_with_renames(
                 }
 
                 // Populate the namespace with symbols only if not already populated
-                if populated_modules.contains(module_name)
+                if populated_modules.contains(&module_id)
                     || bundler.modules_with_populated_symbols.contains(&module_id)
                 {
                     log::debug!(
@@ -3184,7 +3188,7 @@ fn rewrite_import_with_renames(
                         symbol_renames,
                     );
                     result_stmts.extend(new_stmts);
-                    populated_modules.insert(module_name.to_string());
+                    populated_modules.insert(module_id);
                 }
             }
         }
