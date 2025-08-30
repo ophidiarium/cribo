@@ -56,6 +56,7 @@ class Application:
         """Show how the same module can be imported different ways"""
         self.logger.log("Using module-level logger import", "DEBUG")
         print(format_message("Mixed import patterns working correctly!"))
+        global logger
         logger = logger.__init__(logger)
         local_logger = logger.get_logger()
         local_logger.log("Function-level import gives same logger instance", "DEBUG")

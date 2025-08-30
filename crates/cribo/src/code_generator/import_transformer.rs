@@ -65,6 +65,8 @@ pub struct RecursiveImportTransformer<'a> {
     imported_stdlib_modules: FxIndexSet<String>,
     /// Python version for compatibility checks
     python_version: u8,
+    /// Track whether we're at module level (false when inside any local scope like function, class, etc.)
+    at_module_level: bool,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -107,6 +109,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             populated_modules: FxIndexSet::default(),
             imported_stdlib_modules: FxIndexSet::default(),
             python_version: params.python_version,
+            at_module_level: true,
         }
     }
 
@@ -413,8 +416,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                             );
                         }
 
+                        // Save the current scope level and mark that we're entering a local scope
+                        let saved_at_module_level = self.at_module_level;
+                        self.at_module_level = false;
+
                         // Transform the function body
                         self.transform_statements(&mut func_def.body);
+
+                        // Restore the previous scope level
+                        self.at_module_level = saved_at_module_level;
 
                         // Restore the previous scope's local variables
                         self.local_variables = saved_locals;
@@ -525,6 +535,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 }
                             }
                         }
+
+                        // Note: Class bodies in Python don't create a local scope that requires 'global'
+                        // declarations for assignments. They execute in a temporary namespace but can
+                        // still read from and assign to the enclosing scope without 'global'.
                         self.transform_statements(&mut class_def.body);
                     }
                     Stmt::If(if_stmt) => {
@@ -1926,6 +1940,20 @@ impl<'a> RecursiveImportTransformer<'a> {
                         use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
 
                         let module_var = sanitize_module_name_for_identifier(resolved);
+
+                        // If we're not at module level (i.e., inside any local scope), we need to declare
+                        // the module variable as global to avoid UnboundLocalError when the init assignment
+                        // tries to read it
+                        if !self.at_module_level {
+                            log::debug!(
+                                "  Adding global declaration for '{module_var}' (inside local scope)"
+                            );
+                            // Create a global statement: global module_var
+                            init_stmts.push(crate::ast_builder::statements::global(vec![
+                                module_var.as_str(),
+                            ]));
+                        }
+
                         init_stmts
                             .push(module_wrapper::create_wrapper_module_init_call(&module_var));
                     }
