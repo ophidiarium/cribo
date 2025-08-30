@@ -438,12 +438,11 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 let name = alias.name.to_string();
                 let asname = alias.asname.as_ref().map(std::string::ToString::to_string);
 
-                // Track import mappings
-                let imported_as = asname.as_ref().unwrap_or(&name).clone();
-                if let Some(mod_name) = &module_name {
-                    self.imported_names
-                        .insert(imported_as.clone(), format!("{mod_name}.{name}"));
-                }
+                // Track import mappings (also for relative imports with no module_name)
+                let imported_as = asname.clone().unwrap_or_else(|| name.clone());
+                let module_key = module_name
+                    .as_ref().map_or_else(|| name.clone(), |m| format!("{m}.{name}"));
+                self.imported_names.insert(imported_as.clone(), module_key);
 
                 // Check if we're importing import_module from importlib
                 if module_name.as_deref() == Some("importlib") && name == "import_module" {
