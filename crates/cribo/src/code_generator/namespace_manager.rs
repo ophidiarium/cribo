@@ -40,6 +40,26 @@ pub struct NamespacePopulationContext<'a> {
 // Note: NamespacePopulationContext has no inherent methods currently.
 // All functionality is in the standalone functions that use it.
 
+/// Helper to check if an expression matches a qualified name.
+///
+/// This function reconstructs the dotted name from an expression and compares it
+/// to the given qualified name string. For example, `pkg.submodule` would match
+/// an `Expr::Attribute` with base `Expr::Name("pkg`") and attr "submodule".
+fn expr_matches_qualified_name(expr: &Expr, qname: &str) -> bool {
+    // Reconstruct dotted string from expr
+    fn to_qname(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Name(n) => Some(n.id.to_string()),
+            Expr::Attribute(a) => {
+                let base = to_qname(&a.value)?;
+                Some(format!("{base}.{}", a.attr.as_str()))
+            }
+            _ => None,
+        }
+    }
+    to_qname(expr).as_deref() == Some(qname)
+}
+
 /// Create an attribute assignment statement, using namespace variables when available.
 ///
 /// This function creates `parent.attr = value` statements, but intelligently uses
@@ -408,11 +428,9 @@ pub fn populate_namespace_with_module_symbols(
                     && assign.targets.len() == 1
                     && let Expr::Attribute(attr) = &assign.targets[0]
                 {
-                    // Check if this is the same assignment target
-                    if let Expr::Name(base) = attr.value.as_ref() {
-                        return base.id.as_str() == target_name
-                            && attr.attr.as_str() == symbol_name;
-                    }
+                    // Check if this is the same assignment target using full qualified name
+                    return expr_matches_qualified_name(&attr.value, target_name)
+                        && attr.attr.as_str() == symbol_name;
                 }
                 false
             });
@@ -446,11 +464,9 @@ pub fn populate_namespace_with_module_symbols(
                             && assign.targets.len() == 1
                             && let Expr::Attribute(attr) = &assign.targets[0]
                         {
-                            // Check if this is the same assignment
-                            if let Expr::Name(base) = attr.value.as_ref() {
-                                return base.id.as_str() == parent_module
-                                    && attr.attr.as_str() == symbol_name;
-                            }
+                            // Check if this is the same assignment using full qualified name
+                            return expr_matches_qualified_name(&attr.value, parent_module)
+                                && attr.attr.as_str() == symbol_name;
                         }
                         false
                     });

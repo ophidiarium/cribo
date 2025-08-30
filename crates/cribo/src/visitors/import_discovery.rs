@@ -441,7 +441,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 // Track import mappings (also for relative imports with no module_name)
                 let imported_as = asname.clone().unwrap_or_else(|| name.clone());
                 let module_key = module_name
-                    .as_ref().map_or_else(|| name.clone(), |m| format!("{m}.{name}"));
+                    .as_ref()
+                    .map_or_else(|| name.clone(), |m| format!("{m}.{name}"));
                 self.imported_names.insert(imported_as.clone(), module_key);
 
                 // Check if we're importing import_module from importlib
