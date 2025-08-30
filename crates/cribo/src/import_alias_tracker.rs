@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::cribo_graph::ModuleId;
+use crate::resolver::ModuleId;
 
 /// Enhanced information about a from-import that tracks both the original name and alias
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

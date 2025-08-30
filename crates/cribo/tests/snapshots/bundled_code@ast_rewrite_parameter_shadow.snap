@@ -28,6 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+models = _cribo.types.SimpleNamespace(__name__='models')
+"""Models module containing classes that will be shadowed by parameters."""
 class User:
     """User class that will be shadowed by function parameters."""
 
@@ -37,6 +39,7 @@ class User:
 
     def __repr__(self):
         return f"User(name={self.name!r}, id={self.id})"
+User.__module__ = 'models'
 class Connection:
     """Connection class that will be shadowed by function parameters."""
 
@@ -52,9 +55,9 @@ class Connection:
 
     def __repr__(self):
         return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
-"""Models module containing classes that will be shadowed by parameters."""
-User.__module__ = 'models'
 Connection.__module__ = 'models'
+models.Connection = Connection
+models.User = User
 """Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""
 result = "global_result"
 def process_user(User: "User") -> str:

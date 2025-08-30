@@ -28,15 +28,17 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-schemas = _cribo.types.SimpleNamespace(__name__='schemas')
-@_cribo.functools.cache
-def _cribo_init___cribo_f275a8_schemas_user():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'schemas.user'
+schemas_user = _cribo.types.SimpleNamespace(__name__='schemas.user', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_f275a8_schemas_user(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     """User schema definitions using Pydantic."""
     from pydantic import BaseModel, EmailStr, Field
     Optional = _cribo.typing.Optional
-    _cribo_module.Optional = Optional
+    self.Optional = Optional
 
     class UserSchema(BaseModel):
         """User model with Pydantic validation."""
@@ -51,7 +53,7 @@ def _cribo_init___cribo_f275a8_schemas_user():
             json_encoders = {}
             json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
     UserSchema.__module__ = 'schemas.user'
-    _cribo_module.UserSchema = UserSchema
+    self.UserSchema = UserSchema
 
     class CreateUserRequest(BaseModel):
         """Request model for creating a new user."""
@@ -60,7 +62,7 @@ def _cribo_init___cribo_f275a8_schemas_user():
         age: _cribo.typing.Optional[int] = Field(default=None, ge=0, le=150)
         bio: _cribo.typing.Optional[str] = Field(default=None, max_length=500)
     CreateUserRequest.__module__ = 'schemas.user'
-    _cribo_module.CreateUserRequest = CreateUserRequest
+    self.CreateUserRequest = CreateUserRequest
 
     class UserResponse(BaseModel):
         """Response model for user data."""
@@ -71,10 +73,20 @@ def _cribo_init___cribo_f275a8_schemas_user():
         is_active: bool
         bio: _cribo.typing.Optional[str] = None
     UserResponse.__module__ = 'schemas.user'
-    _cribo_module.UserResponse = UserResponse
-    _cribo_module.Optional = _cribo.typing.Optional
-    return _cribo_module
-schemas.user = _cribo_init___cribo_f275a8_schemas_user()
+    self.UserResponse = UserResponse
+    schemas_user.Optional = _cribo.typing.Optional
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+schemas_user.__init__ = _cribo_init___cribo_f275a8_schemas_user
+schemas = _cribo.types.SimpleNamespace(__name__='schemas', __initializing__=False, __initialized__=False)
+schemas.user = schemas_user
+"""Schemas package initialization."""
+schemas_user = schemas_user.__init__(schemas_user)
+utils_validation = _cribo.types.SimpleNamespace(__name__='utils.validation')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
+utils.validation = utils_validation
+"""Validation utilities."""
 def validate_email(email: str) -> bool:
     """Simple email validation."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -93,18 +105,13 @@ def validate_age(age: _cribo.typing.Union[int, str]) -> bool:
         return 0 <= age_int <= 150
     except (ValueError, TypeError):
         return False
-"""Utils package initialization."""
-"""Validation utilities."""
-"""Schemas package initialization."""
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_validation = _cribo.types.SimpleNamespace(__name__='utils.validation')
-utils.validation = utils_validation
-schemas.user = _cribo_init___cribo_f275a8_schemas_user()
-utils_validation.validate_email = validate_email
 utils_validation.sanitize_input = sanitize_input
 utils_validation.validate_age = validate_age
+utils_validation.validate_email = validate_email
+"""Utils package initialization."""
 """Pydantic test project entry point."""
 from pydantic import ValidationError
+schemas_user = _cribo_init___cribo_f275a8_schemas_user(schemas_user)
 UserSchema = schemas.user.UserSchema
 CreateUserRequest = schemas.user.CreateUserRequest
 def main():

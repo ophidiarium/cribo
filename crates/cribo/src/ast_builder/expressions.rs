@@ -5,10 +5,11 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprCall,
-    ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
-    ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart, FStringValue, Keyword,
-    Operator, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprBooleanLiteral,
+    ExprCall, ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral,
+    ExprStringLiteral, ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart,
+    FStringValue, Keyword, Operator, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -110,6 +111,25 @@ pub fn string_literal(value: &str) -> Expr {
 /// ```
 pub fn none_literal() -> Expr {
     Expr::NoneLiteral(ExprNoneLiteral {
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a boolean literal expression node.
+///
+/// # Arguments
+/// * `value` - The boolean value
+///
+/// # Example
+/// ```rust
+/// // Creates: `True` or `False`
+/// let true_expr = bool_literal(true);
+/// let false_expr = bool_literal(false);
+/// ```
+pub fn bool_literal(value: bool) -> Expr {
+    Expr::BooleanLiteral(ExprBooleanLiteral {
+        value,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     })
@@ -455,5 +475,26 @@ pub fn expr_to_dotted_name(expr: &Expr) -> String {
             }
         }
         _ => String::new(),
+    }
+}
+
+/// Creates a keyword argument node.
+///
+/// # Arguments
+/// * `arg` - The keyword argument name (None for **kwargs)
+/// * `value` - The value expression
+///
+/// # Example
+/// ```rust
+/// // Creates: `key=value` (as part of a function call)
+/// let value_expr = name("value", ExprContext::Load);
+/// let kw = keyword(Some("key"), value_expr);
+/// ```
+pub fn keyword(arg: Option<&str>, value: Expr) -> Keyword {
+    Keyword {
+        node_index: AtomicNodeIndex::dummy(),
+        arg: arg.map(|s| ruff_python_ast::Identifier::new(s, TextRange::default())),
+        value,
+        range: TextRange::default(),
     }
 }

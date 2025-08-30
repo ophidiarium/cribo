@@ -29,10 +29,14 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def func_b():
-    print("Function B")
+module_a = _cribo.types.SimpleNamespace(__name__='module_a')
 def func_a():
     print("Function A")
+module_a.func_a = func_a
+module_b = _cribo.types.SimpleNamespace(__name__='module_b')
+def func_b():
+    print("Function B")
+module_b.func_b = func_b
 def main():
     func_a()
     func_b()

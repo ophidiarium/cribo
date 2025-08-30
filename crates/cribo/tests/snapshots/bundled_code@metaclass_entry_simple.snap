@@ -28,26 +28,30 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+loader = _cribo.types.SimpleNamespace(__name__='loader')
 class BaseLoader:
     """Base loader class"""
 
     def __init__(self):
         self.name = "BaseLoader"
+BaseLoader.__module__ = 'loader'
 class Loader(BaseLoader):
     """Standard YAML loader"""
 
     def __init__(self):
         super().__init__()
         self.name = "Loader"
+Loader.__module__ = 'loader'
 class FullLoader(BaseLoader):
     """Full featured YAML loader"""
 
     def __init__(self):
         super().__init__()
         self.name = "FullLoader"
-BaseLoader.__module__ = 'loader'
-Loader.__module__ = 'loader'
 FullLoader.__module__ = 'loader'
+loader.BaseLoader = BaseLoader
+loader.Loader = Loader
+loader.FullLoader = FullLoader
 """\nTest case where entry file has metaclasses and wildcard imports.\nThis reproduces the PyYAML issue.\n"""
 class YAMLObjectMetaclass(type):
     """The metaclass for YAMLObject."""

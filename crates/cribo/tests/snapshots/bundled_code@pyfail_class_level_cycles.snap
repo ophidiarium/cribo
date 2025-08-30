@@ -28,36 +28,71 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-User = None
-class User:
-    """User class that references Admin class."""
+user_class = _cribo.types.SimpleNamespace(__name__='user_class', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_f4b9e6_user_class(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """User class module with circular dependency."""
+    global admin_class
+    user_class.__initializing__ = True
+    admin_class = _cribo_init___cribo_7f7c68_admin_class(admin_class)
+    Admin = admin_class.Admin
+    self.Admin = Admin
 
-    def __init__(self, name):
-        self.name = name
-        self.admin_reference = Admin
+    class User:
+        """User class that references Admin class."""
 
-    def promote_to_admin(self):
-        """Promote user to admin."""
-        return self.admin_reference(self.name)
-class Admin(User):
-    """Admin class that inherits from User."""
+        def __init__(self, name):
+            self.name = name
+            self.admin_reference = Admin
 
-    def __init__(self, name):
-        super().__init__(name)
-        self.is_admin = True
+        def promote_to_admin(self):
+            """Promote user to admin."""
+            return self.admin_reference(self.name)
+    User.__module__ = 'user_class'
+    self.User = User
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+user_class.__init__ = _cribo_init___cribo_f4b9e6_user_class
+admin_class = _cribo.types.SimpleNamespace(__name__='admin_class', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_7f7c68_admin_class(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Admin class module with circular dependency."""
+    global user_class
+    admin_class.__initializing__ = True
+    user_class = _cribo_init___cribo_f4b9e6_user_class(user_class)
+    User = user_class.User
+    self.User = User
 
-    def demote_to_user(self):
-        """Demote admin to regular user."""
-        return User(self.name)
-Admin.__module__ = 'admin_class'
-"""Admin class module with circular dependency."""
-User.__module__ = 'user_class'
-"""User class module with circular dependency."""
-admin_class = _cribo.types.SimpleNamespace(__name__='admin_class')
-user_class = _cribo.types.SimpleNamespace(__name__='user_class')
-admin_class.Admin = Admin
-user_class.User = User
+    class Admin(User):
+        """Admin class that inherits from User."""
+
+        def __init__(self, name):
+            super().__init__(name)
+            self.is_admin = True
+
+        def demote_to_user(self):
+            """Demote admin to regular user."""
+            return User(self.name)
+    Admin.__module__ = 'admin_class'
+    self.Admin = Admin
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+admin_class.__init__ = _cribo_init___cribo_7f7c68_admin_class
 """Test case with class-level circular dependencies."""
+user_class = _cribo_init___cribo_f4b9e6_user_class(user_class)
+User = user_class.User
+admin_class = _cribo_init___cribo_7f7c68_admin_class(admin_class)
+Admin = admin_class.Admin
 def main():
     user = User("Alice")
     admin = Admin("Bob")

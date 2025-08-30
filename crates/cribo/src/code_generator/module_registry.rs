@@ -5,20 +5,13 @@
 //! - Module attribute assignments
 //! - Module initialization functions
 
-use log::debug;
-use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImport, StmtImportFrom};
+use ruff_python_ast::{Expr, ExprContext, Stmt, StmtImportFrom};
 use ruff_python_stdlib::keyword::is_keyword;
 
 use crate::{
     ast_builder,
     types::{FxIndexMap, FxIndexSet},
 };
-
-/// Generate registries and hook
-pub fn generate_registries_and_hook() -> Vec<Stmt> {
-    // No longer needed - we don't use sys.modules or import hooks
-    Vec::new()
-}
 
 /// Create module initialization statements for wrapper modules
 pub fn create_module_initialization_for_import(
@@ -32,10 +25,14 @@ pub fn create_module_initialization_for_import(
         // Generate the init call
         let init_func_name = get_init_function_name(synthetic_name);
 
-        // Call the init function and get the result
+        // Call the init function with the module as the self argument
+        let module_var = sanitize_module_name_for_identifier(module_name);
         let init_call = ast_builder::expressions::call(
             ast_builder::expressions::name(&init_func_name, ExprContext::Load),
-            vec![],
+            vec![ast_builder::expressions::name(
+                &module_var,
+                ExprContext::Load,
+            )],
             vec![],
         );
 
@@ -47,77 +44,6 @@ pub fn create_module_initialization_for_import(
     }
 
     stmts
-}
-
-/// Generate module init call
-pub fn generate_module_init_call(
-    _synthetic_name: &str,
-    module_name: &str,
-    init_func_name: Option<&str>,
-    module_registry: &FxIndexMap<String, String>,
-    generate_merge_module_attributes: impl Fn(&mut Vec<Stmt>, &str, &str),
-) -> Vec<Stmt> {
-    let mut statements = Vec::new();
-
-    if let Some(init_func_name) = init_func_name {
-        // Check if this module is a parent namespace that already exists
-        // This happens when a module like 'services.auth' has both:
-        // 1. Its own __init__.py (wrapper module)
-        // 2. Submodules like 'services.auth.manager'
-        let is_parent_namespace = module_registry
-            .iter()
-            .any(|(name, _)| name != module_name && name.starts_with(&format!("{module_name}.")));
-
-        if is_parent_namespace {
-            // For parent namespaces, we need to merge attributes instead of overwriting
-            // Generate code that calls the init function and merges its attributes
-            debug!("Module '{module_name}' is a parent namespace - generating merge code");
-
-            // First, create a variable to hold the init result
-            statements.push(ast_builder::statements::simple_assign(
-                INIT_RESULT_VAR,
-                ast_builder::expressions::call(
-                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![],
-                    vec![],
-                ),
-            ));
-
-            // Generate the merge attributes code
-            generate_merge_module_attributes(&mut statements, module_name, INIT_RESULT_VAR);
-
-            // Assign the init result to the module variable
-            statements.push(ast_builder::statements::simple_assign(
-                module_name,
-                ast_builder::expressions::name(INIT_RESULT_VAR, ExprContext::Load),
-            ));
-        } else {
-            // Direct assignment for modules that aren't parent namespaces
-            let target_expr = if module_name.contains('.') {
-                // For dotted modules like models.base, create an attribute expression
-                let parts: Vec<&str> = module_name.split('.').collect();
-                ast_builder::expressions::dotted_name(&parts, ExprContext::Store)
-            } else {
-                // For simple modules, use direct name
-                ast_builder::expressions::name(module_name, ExprContext::Store)
-            };
-
-            // Generate: module_name = <cribo_init_prefix>synthetic_name()
-            // or: parent.child = <cribo_init_prefix>synthetic_name()
-            statements.push(ast_builder::statements::assign(
-                vec![target_expr],
-                ast_builder::expressions::call(
-                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![],
-                    vec![],
-                ),
-            ));
-        }
-    } else {
-        statements.push(ast_builder::statements::pass());
-    }
-
-    statements
 }
 
 /// Get synthetic module name
@@ -165,53 +91,6 @@ pub fn generate_unique_name(base_name: &str, existing_symbols: &FxIndexSet<Strin
 
     // Fallback with module prefix
     format!("__cribo_renamed_{base_name}")
-}
-
-/// Check if a local name conflicts with any symbol in the module
-pub fn check_local_name_conflict(ast: &ModModule, name: &str) -> bool {
-    for stmt in &ast.body {
-        match stmt {
-            Stmt::ClassDef(class_def) => {
-                if class_def.name.as_str() == name {
-                    return true;
-                }
-            }
-            Stmt::FunctionDef(func_def) => {
-                if func_def.name.as_str() == name {
-                    return true;
-                }
-            }
-            Stmt::Assign(assign_stmt) => {
-                for target in &assign_stmt.targets {
-                    if let Expr::Name(name_expr) = target
-                        && name_expr.id.as_str() == name
-                    {
-                        return true;
-                    }
-                }
-            }
-            Stmt::Import(StmtImport { names, .. }) => {
-                // Check import statements that remain in the module (third-party imports)
-                for alias in names {
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    if local_name.as_str() == name {
-                        return true;
-                    }
-                }
-            }
-            Stmt::ImportFrom(StmtImportFrom { names, .. }) => {
-                // Check from imports that remain in the module (third-party imports)
-                for alias in names {
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    if local_name.as_str() == name {
-                        return true;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    false
 }
 
 /// Create a module attribute assignment statement
@@ -278,7 +157,8 @@ fn create_assignment_if_no_stdlib_conflict(
 /// and adds it if needed, updating the tracking sets accordingly.
 pub fn initialize_submodule_if_needed(
     module_path: &str,
-    module_registry: &FxIndexMap<String, String>,
+    module_synthetic_names: &FxIndexMap<crate::resolver::ModuleId, String>,
+    resolver: &crate::resolver::ModuleResolver,
     assignments: &mut Vec<Stmt>,
     locally_initialized: &mut FxIndexSet<String>,
     initialized_modules: &mut FxIndexSet<String>,
@@ -302,9 +182,20 @@ pub fn initialize_submodule_if_needed(
     });
 
     if !already_initialized {
+        // Convert module_synthetic_names back to old format temporarily for compatibility
+        let module_registry: FxIndexMap<String, String> = resolver
+            .get_module_id_by_name(module_path)
+            .and_then(|id| module_synthetic_names.get(&id))
+            .map(|syn_name| {
+                let mut map = FxIndexMap::default();
+                map.insert(module_path.to_string(), syn_name.clone());
+                map
+            })
+            .unwrap_or_default();
+
         assignments.extend(create_module_initialization_for_import(
             module_path,
-            module_registry,
+            &module_registry,
         ));
     }
     locally_initialized.insert(module_path.to_string());
@@ -317,11 +208,14 @@ pub fn initialize_submodule_if_needed(
 pub fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    module_registry: &FxIndexMap<String, String>,
-    inlined_modules: &FxIndexSet<String>,
-    bundled_modules: &FxIndexSet<String>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    module_registry: Option<&crate::orchestrator::ModuleRegistry>,
+    inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
+    bundled_modules: &FxIndexSet<crate::resolver::ModuleId>,
+    resolver: &crate::resolver::ModuleResolver,
     python_version: u8,
+    is_wrapper_init: bool,
+    tree_shaking_check: Option<&dyn Fn(crate::resolver::ModuleId, &str) -> bool>,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();
@@ -336,41 +230,99 @@ pub fn create_assignments_for_inlined_imports(
 
         // Check if this is a module import
         // First check if it's a wrapped module
-        if module_registry.contains_key(&full_module_path) {
-            // Skip wrapped modules - they will be handled as deferred imports
-            log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
-            continue;
-        } else if inlined_modules.contains(&full_module_path)
-            || bundled_modules.contains(&full_module_path)
-        {
-            // Create a namespace object for the inlined module
-            log::debug!(
-                "Creating namespace object for module '{imported_name}' imported from \
+        if let Some(module_id) = resolver.get_module_id_by_name(&full_module_path) {
+            if module_registry.is_some_and(|reg| reg.contains_module(&module_id)) {
+                // Skip wrapped modules - they will be handled as deferred imports
+                log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
+                continue;
+            } else if inlined_modules.contains(&module_id) || bundled_modules.contains(&module_id) {
+                // Create a namespace object for the inlined module
+                log::debug!(
+                    "Creating namespace object for module '{imported_name}' imported from \
                  '{module_name}' - module was inlined"
-            );
-
-            // Record that we need a namespace for this module
-            let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
-
-            namespace_requirements.push(NamespaceRequirement {
-                path: full_module_path.clone(),
-                var_name: sanitized_name.clone(),
-            });
-
-            // If local name differs from sanitized name, create alias
-            // But skip if it would conflict with a stdlib name in scope
-            if local_name.as_str() != sanitized_name {
-                create_assignment_if_no_stdlib_conflict(
-                    local_name.as_str(),
-                    &sanitized_name,
-                    &mut assignments,
-                    python_version,
                 );
+
+                // Record that we need a namespace for this module
+                let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
+
+                namespace_requirements.push(NamespaceRequirement {
+                    path: full_module_path.clone(),
+                    var_name: sanitized_name.clone(),
+                });
+
+                // If local name differs from sanitized name, create alias
+                // But skip if it would conflict with a stdlib name in scope
+                if local_name.as_str() != sanitized_name {
+                    create_assignment_if_no_stdlib_conflict(
+                        local_name.as_str(),
+                        &sanitized_name,
+                        &mut assignments,
+                        python_version,
+                    );
+                }
+            } else {
+                // Regular symbol import
+                // Check if this symbol was renamed during inlining
+                let module_id = resolver
+                    .get_module_id_by_name(module_name)
+                    .expect("Module should exist");
+
+                let actual_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
+                    module_renames
+                        .get(imported_name)
+                        .map_or(imported_name, std::string::String::as_str)
+                } else {
+                    imported_name
+                };
+
+                // When we're inside a wrapper init function and importing from an inlined module,
+                // we need to qualify the symbol with the module's namespace variable
+                let source_ref = if is_wrapper_init && inlined_modules.contains(&module_id) {
+                    // The module is inlined, so its symbols are attached to a namespace object
+                    let sanitized_module = sanitize_module_name_for_identifier(module_name);
+                    format!("{sanitized_module}.{actual_name}")
+                } else {
+                    actual_name.to_string()
+                };
+
+                // Only create assignment if the names are different or we need qualification
+                // But skip if it would conflict with a stdlib name in scope
+                if local_name.as_str() != source_ref {
+                    create_assignment_if_no_stdlib_conflict(
+                        local_name.as_str(),
+                        &source_ref,
+                        &mut assignments,
+                        python_version,
+                    );
+                } else if is_wrapper_init && inlined_modules.contains(&module_id) {
+                    // Even if names match, we need the assignment to access through namespace
+                    create_assignment_if_no_stdlib_conflict(
+                        local_name.as_str(),
+                        &source_ref,
+                        &mut assignments,
+                        python_version,
+                    );
+                }
             }
         } else {
-            // Regular symbol import
+            // Module doesn't exist, treat as regular symbol import
             // Check if this symbol was renamed during inlining
-            let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+            let module_id = resolver.get_module_id_by_name(module_name);
+
+            // Check if the symbol was tree-shaken
+            if let Some(id) = module_id
+                && let Some(check_fn) = tree_shaking_check
+                && !check_fn(id, imported_name)
+            {
+                log::debug!(
+                    "Skipping assignment for tree-shaken symbol '{imported_name}' from module '{module_name}'"
+                );
+                continue;
+            }
+
+            let actual_name = if let Some(id) = module_id
+                && let Some(module_renames) = symbol_renames.get(&id)
+            {
                 module_renames
                     .get(imported_name)
                     .map_or(imported_name, std::string::String::as_str)
@@ -378,12 +330,31 @@ pub fn create_assignments_for_inlined_imports(
                 imported_name
             };
 
-            // Only create assignment if the names are different
+            // When we're inside a wrapper init function and importing from an inlined module,
+            // we need to qualify the symbol with the module's namespace variable
+            let source_ref =
+                if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
+                    // The module is inlined, so its symbols are attached to a namespace object
+                    let sanitized_module = sanitize_module_name_for_identifier(module_name);
+                    format!("{sanitized_module}.{actual_name}")
+                } else {
+                    actual_name.to_string()
+                };
+
+            // Only create assignment if the names are different or we need qualification
             // But skip if it would conflict with a stdlib name in scope
-            if local_name.as_str() != actual_name {
+            if local_name.as_str() != source_ref {
                 create_assignment_if_no_stdlib_conflict(
                     local_name.as_str(),
-                    actual_name,
+                    &source_ref,
+                    &mut assignments,
+                    python_version,
+                );
+            } else if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
+                // Even if names match, we need the assignment to access through namespace
+                create_assignment_if_no_stdlib_conflict(
+                    local_name.as_str(),
+                    &source_ref,
                     &mut assignments,
                     python_version,
                 );
@@ -402,8 +373,6 @@ pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
 
 /// The module `SimpleNamespace` variable name in init functions
 /// Use single underscore to prevent Python mangling
-pub const MODULE_VAR: &str = "_cribo_module";
-
 /// Generate init function name from synthetic name
 pub fn get_init_function_name(synthetic_name: &str) -> String {
     format!("{CRIBO_INIT_PREFIX}{synthetic_name}")
@@ -417,20 +386,21 @@ pub fn is_init_function(name: &str) -> bool {
 /// Register a module with its synthetic name and init function
 /// Returns (`synthetic_name`, `init_func_name`)
 pub fn register_module(
+    module_id: crate::resolver::ModuleId,
     module_name: &str,
     content_hash: &str,
-    module_registry: &mut FxIndexMap<String, String>,
-    init_functions: &mut FxIndexMap<String, String>,
+    module_synthetic_names: &mut FxIndexMap<crate::resolver::ModuleId, String>,
+    module_init_functions: &mut FxIndexMap<crate::resolver::ModuleId, String>,
 ) -> (String, String) {
     // Generate synthetic name
     let synthetic_name = get_synthetic_module_name(module_name, content_hash);
 
     // Register module with synthetic name
-    module_registry.insert(module_name.to_string(), synthetic_name.clone());
+    module_synthetic_names.insert(module_id, synthetic_name.clone());
 
     // Register init function
     let init_func_name = get_init_function_name(&synthetic_name);
-    init_functions.insert(synthetic_name.clone(), init_func_name.clone());
+    module_init_functions.insert(module_id, init_func_name.clone());
 
     (synthetic_name, init_func_name)
 }
@@ -442,8 +412,14 @@ pub fn register_module(
 /// - It is NOT in the inlined modules set
 pub fn is_wrapper_submodule(
     module_path: &str,
-    module_registry: &FxIndexMap<String, String>,
-    inlined_modules: &FxIndexSet<String>,
+    module_info_registry: Option<&crate::orchestrator::ModuleRegistry>,
+    inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
+    resolver: &crate::resolver::ModuleResolver,
 ) -> bool {
-    module_registry.contains_key(module_path) && !inlined_modules.contains(module_path)
+    if let Some(module_id) = resolver.get_module_id_by_name(module_path) {
+        module_info_registry.is_some_and(|reg| reg.contains_module(&module_id))
+            && !inlined_modules.contains(&module_id)
+    } else {
+        false
+    }
 }

@@ -28,35 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_276673_module_b():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'module_b'
-    """Second module with same-named metaclass and class - will get renamed."""
-
-    class YAMLObjectMetaclass(type):
-        """Another metaclass with the same name."""
-
-        def __init__(cls, name, bases, kwds):
-            super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
-            if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
-                cls._registered_b = True
-    YAMLObjectMetaclass.__module__ = 'module_b'
-    _cribo_module.YAMLObjectMetaclass = YAMLObjectMetaclass
-
-    class YAMLObject(metaclass=YAMLObjectMetaclass):
-        """Another class with the same name but different metaclass."""
-        yaml_tag = None
-
-        def __init__(self):
-            pass
-    YAMLObject.__module__ = 'module_b'
-    _cribo_module.YAMLObject = YAMLObject
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_12d4a8_module_a():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'module_a'
+module_a = _cribo.types.SimpleNamespace(__name__='module_a', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_12d4a8_module_a(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
     """First module with metaclass and class - will have original names."""
 
     class YAMLObjectMetaclass(type):
@@ -67,7 +45,7 @@ def _cribo_init___cribo_12d4a8_module_a():
             if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
                 cls._registered_a = True
     YAMLObjectMetaclass.__module__ = 'module_a'
-    _cribo_module.YAMLObjectMetaclass = YAMLObjectMetaclass
+    self.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
         """An object with metaclass from module_a."""
@@ -76,12 +54,46 @@ def _cribo_init___cribo_12d4a8_module_a():
         def __init__(self):
             pass
     YAMLObject.__module__ = 'module_a'
-    _cribo_module.YAMLObject = YAMLObject
-    return _cribo_module
+    self.YAMLObject = YAMLObject
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+module_a.__init__ = _cribo_init___cribo_12d4a8_module_a
+module_b = _cribo.types.SimpleNamespace(__name__='module_b', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_276673_module_b(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        self.__initializing__ = False
+        return self
+    """Second module with same-named metaclass and class - will get renamed."""
+
+    class YAMLObjectMetaclass(type):
+        """Another metaclass with the same name."""
+
+        def __init__(cls, name, bases, kwds):
+            super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
+            if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
+                cls._registered_b = True
+    YAMLObjectMetaclass.__module__ = 'module_b'
+    self.YAMLObjectMetaclass = YAMLObjectMetaclass
+
+    class YAMLObject(metaclass=YAMLObjectMetaclass):
+        """Another class with the same name but different metaclass."""
+        yaml_tag = None
+
+        def __init__(self):
+            pass
+    YAMLObject.__module__ = 'module_b'
+    self.YAMLObject = YAMLObject
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+module_b.__init__ = _cribo_init___cribo_276673_module_b
 """Test that demonstrates metaclass ordering issue with name collisions."""
-module_a = _cribo_init___cribo_12d4a8_module_a()
+module_a = _cribo_init___cribo_12d4a8_module_a(module_a)
 YAMLObject = module_a.YAMLObject
-module_b = _cribo_init___cribo_276673_module_b()
+module_b = _cribo_init___cribo_276673_module_b(module_b)
 YAMLObjectB = module_b.YAMLObject
 def test_both_classes():
     """Test that both metaclass-based classes work."""

@@ -7,7 +7,8 @@ use ruff_python_ast::{
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    cribo_graph::{CriboGraph, ModuleId},
+    cribo_graph::CriboGraph,
+    resolver::ModuleId,
     semantic_bundler::SemanticBundler,
     visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
@@ -88,44 +89,54 @@ impl ImportRewriter {
             }
 
             // For each module in the cycle, find imports that can be moved
-            for module_name in &cycle.modules {
-                if let Some(module_id) = graph.module_names.get(module_name) {
-                    // Check if we've already analyzed this module
-                    let discovered_imports =
-                        if let Some(cached_imports) = module_import_cache.get(module_id) {
-                            trace!("Using cached import analysis for module '{module_name}'");
-                            cached_imports.clone()
-                        } else {
-                            // Find the AST for this module
-                            if let Some((_, ast)) =
-                                module_asts.iter().find(|(name, _)| name == module_name)
-                            {
-                                // Perform semantic analysis using enhanced ImportDiscoveryVisitor
-                                let mut visitor = ImportDiscoveryVisitor::with_semantic_bundler(
-                                    semantic_bundler,
-                                    *module_id,
-                                );
-                                for stmt in &ast.body {
-                                    visitor.visit_stmt(stmt);
-                                }
-                                let imports = visitor.into_imports();
+            for &module_id in &cycle.modules {
+                // Get module name from graph
+                let module_name = if let Some(module) = graph.modules.get(&module_id) {
+                    &module.module_name
+                } else {
+                    continue;
+                };
 
-                                // Cache the results for future use
-                                module_import_cache.insert(*module_id, imports.clone());
-                                imports
-                            } else {
-                                continue;
-                            }
-                        };
+                // Check if we've already analyzed this module
+                let discovered_imports = if let Some(cached_imports) =
+                    module_import_cache.get(&module_id)
+                {
+                    trace!("Using cached import analysis for module '{module_name}'");
+                    cached_imports.clone()
+                } else {
+                    // Find the AST for this module
+                    let Some((_, ast)) = module_asts.iter().find(|(name, _)| name == module_name)
+                    else {
+                        continue;
+                    };
 
-                    // Find movable imports based on semantic analysis
-                    let candidates = self.find_movable_imports_from_discovered(
-                        &discovered_imports,
-                        module_name,
-                        &cycle.modules,
-                    );
-                    movable_imports.extend(candidates);
-                }
+                    // Perform semantic analysis using enhanced ImportDiscoveryVisitor
+                    let mut visitor =
+                        ImportDiscoveryVisitor::with_semantic_bundler(semantic_bundler, module_id);
+                    for stmt in &ast.body {
+                        visitor.visit_stmt(stmt);
+                    }
+                    let imports = visitor.into_imports();
+
+                    // Cache the results for future use
+                    module_import_cache.insert(module_id, imports.clone());
+                    imports
+                };
+
+                // Convert cycle module IDs to names for comparison
+                let cycle_module_names: Vec<String> = cycle
+                    .modules
+                    .iter()
+                    .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
+                    .collect();
+
+                // Find movable imports based on semantic analysis
+                let candidates = self.find_movable_imports_from_discovered(
+                    &discovered_imports,
+                    module_name,
+                    &cycle_module_names,
+                );
+                movable_imports.extend(candidates);
             }
         }
 

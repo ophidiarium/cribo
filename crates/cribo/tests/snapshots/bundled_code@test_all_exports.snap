@@ -28,6 +28,11 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+"""\nUtility module that demonstrates __all__ handling.\nOnly exports helper_function and UtilityClass, not _internal_function.\n"""
+def helper_function():
+    """A public helper function."""
+    return "helper_result"
 class UtilityClass:
     """A utility class that should be exposed."""
 
@@ -36,11 +41,9 @@ class UtilityClass:
 
     def get_value(self):
         return self.value
-def helper_function():
-    """A public helper function."""
-    return "helper_result"
-"""\nUtility module that demonstrates __all__ handling.\nOnly exports helper_function and UtilityClass, not _internal_function.\n"""
 UtilityClass.__module__ = 'utils'
+utils.helper_function = helper_function
+utils.UtilityClass = UtilityClass
 """\nTest fixture for __all__ handling in bundled modules.\nThis tests that modules with __all__ only expose listed symbols.\n"""
 def main():
     """Test that only exported symbols are accessible."""
