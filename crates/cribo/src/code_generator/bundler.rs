@@ -495,17 +495,17 @@ impl<'a> Bundler<'a> {
 
                     // Now initialize parent module after submodule
                     if should_initialize_parent
-                        && let Some(module_id) = self.get_module_id(module_name) {
-                            let current_module_id =
-                                current_module.and_then(|m| self.get_module_id(m));
-                            assignments.extend(
-                                self.create_module_initialization_for_import_with_current_module(
-                                    module_id,
-                                    current_module_id,
-                                ),
-                            );
-                            locally_initialized.insert(module_name.to_string());
-                        }
+                        && let Some(module_id) = self.get_module_id(module_name)
+                    {
+                        let current_module_id = current_module.and_then(|m| self.get_module_id(m));
+                        assignments.extend(
+                            self.create_module_initialization_for_import_with_current_module(
+                                module_id,
+                                current_module_id,
+                            ),
+                        );
+                        locally_initialized.insert(module_name.to_string());
+                    }
                 } else {
                     // Normal order: parent first, then submodule
                     if should_initialize_parent {
@@ -4345,7 +4345,8 @@ impl Bundler<'_> {
         {
             let module_name = self
                 .resolver
-                .get_module(module_id).map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+                .get_module(module_id)
+                .map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
             log::debug!(
                 "Skipping initialization of module '{module_name}' - already inside its init function"
             );
@@ -4355,7 +4356,8 @@ impl Bundler<'_> {
         // Get module name for logging and processing
         let module_name = self
             .resolver
-            .get_module(module_id).map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+            .get_module(module_id)
+            .map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
 
         // If this is a child module (contains '.'), ensure parent is initialized first
         if module_name.contains('.')
@@ -4363,22 +4365,23 @@ impl Bundler<'_> {
         {
             // Check if parent is also a wrapper module
             if let Some(parent_id) = self.get_module_id(parent_name)
-                && self.module_synthetic_names.contains_key(&parent_id) {
-                    // Check if parent has an init function
-                    if self.module_init_functions.contains_key(&parent_id) {
-                        log::debug!(
-                            "Ensuring parent '{parent_name}' is initialized before child '{module_name}'"
-                        );
+                && self.module_synthetic_names.contains_key(&parent_id)
+            {
+                // Check if parent has an init function
+                if self.module_init_functions.contains_key(&parent_id) {
+                    log::debug!(
+                        "Ensuring parent '{parent_name}' is initialized before child '{module_name}'"
+                    );
 
-                        // Recursively ensure parent is initialized
-                        // This will handle multi-level packages like foo.bar.baz
-                        stmts.extend(self.create_module_initialization_for_import_with_tracking(
-                            parent_id,
-                            locally_initialized,
-                            current_module,
-                        ));
-                    }
+                    // Recursively ensure parent is initialized
+                    // This will handle multi-level packages like foo.bar.baz
+                    stmts.extend(self.create_module_initialization_for_import_with_tracking(
+                        parent_id,
+                        locally_initialized,
+                        current_module,
+                    ));
                 }
+            }
         }
 
         // Check if this is a wrapper module that needs initialization
@@ -4433,7 +4436,8 @@ impl Bundler<'_> {
         // Get module name for processing
         let module_name = self
             .resolver
-            .get_module(module_id).map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+            .get_module(module_id)
+            .map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
 
         // Check if this module is a parent namespace that already exists
         let is_parent_namespace = self.bundled_modules.iter().any(|other_module_id| {

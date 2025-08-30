@@ -381,41 +381,49 @@ pub fn populate_namespace_with_module_symbols(
                 // module)
                 if is_inlined {
                     // Check if the submodule has a symbol with the same name as itself
-                    if let Some(submodule_id) = submodule_id
-                        && let Some(submodule_exports) = ctx
-                            .module_exports
-                            .get(&submodule_id)
-                            .and_then(|e| e.as_ref())
-                        && submodule_exports.contains(&symbol_name.to_string())
+                    let Some(submodule_id) = submodule_id else {
+                        continue;
+                    };
+
+                    let Some(submodule_exports) = ctx
+                        .module_exports
+                        .get(&submodule_id)
+                        .and_then(|e| e.as_ref())
+                    else {
+                        continue;
+                    };
+
+                    if !submodule_exports.contains(&symbol_name.to_string()) {
+                        continue;
+                    }
+
+                    // The submodule exports a symbol with the same name as itself
+                    // Check if the parent module re-exports this symbol
+                    debug!(
+                        "Submodule '{full_submodule_path}' exports symbol '{symbol_name}' \
+                         with same name"
+                    );
+
+                    // Get the renamed symbol from the submodule
+                    if let Some(submodule_renames) = symbol_renames.get(&submodule_id)
+                        && let Some(renamed) = submodule_renames.get(symbol_name)
                     {
-                        // The submodule exports a symbol with the same name as itself
-                        // Check if the parent module re-exports this symbol
                         debug!(
-                            "Submodule '{full_submodule_path}' exports symbol '{symbol_name}' \
-                             with same name"
+                            "Creating namespace assignment: {target_name}.{symbol_name} = \
+                             {renamed} (re-exported from submodule)"
                         );
 
-                        // Get the renamed symbol from the submodule
-                        if let Some(submodule_renames) = symbol_renames.get(&submodule_id)
-                            && let Some(renamed) = submodule_renames.get(symbol_name)
-                        {
-                            debug!(
-                                "Creating namespace assignment: {target_name}.{symbol_name} = \
-                                 {renamed} (re-exported from submodule)"
-                            );
-
-                            // Create the assignment
-                            let target = expressions::dotted_name(&parts, ExprContext::Load);
-                            result_stmts.push(statements::assign(
-                                vec![expressions::attribute(
-                                    target,
-                                    symbol_name,
-                                    ExprContext::Store,
-                                )],
-                                expressions::name(renamed, ExprContext::Load),
-                            ));
-                            continue 'symbol_loop;
-                        }
+                        // Create the assignment
+                        let target = expressions::dotted_name(&parts, ExprContext::Load);
+                        result_stmts.push(statements::assign(
+                            vec![expressions::attribute(
+                                target,
+                                symbol_name,
+                                ExprContext::Store,
+                            )],
+                            expressions::name(renamed, ExprContext::Load),
+                        ));
+                        continue 'symbol_loop;
                     }
                 }
 
