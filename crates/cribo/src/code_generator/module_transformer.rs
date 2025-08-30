@@ -774,7 +774,7 @@ pub fn transform_module_to_init_function<'a>(
                         &global_info.module_level_vars,
                         &global_info.global_declarations,
                         lifted_names.as_ref(),
-                        &module_var_name,
+                        SELF_PARAM,
                     );
                 }
 

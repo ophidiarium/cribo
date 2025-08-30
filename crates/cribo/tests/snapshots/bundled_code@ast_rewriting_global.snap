@@ -106,7 +106,7 @@ def _cribo_init___cribo_c75306_module_mixed_patterns(self):
 
     def get_values():
         """Get module globals using different methods."""
-        direct_foo = module_mixed_patterns.foo
+        direct_foo = self.foo
         dict_bar = module_mixed_patterns.__dict__["bar"]
         counter_val = module_mixed_patterns.__dict__.get("counter", -1)
         return {"foo": direct_foo, "bar": dict_bar, "counter": counter_val}

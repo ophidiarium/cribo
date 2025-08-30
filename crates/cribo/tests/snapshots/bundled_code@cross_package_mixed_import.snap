@@ -102,7 +102,7 @@ def _cribo_init___cribo_f00e4b_core(self):
 
     def is_initialized():
         """Check if core is initialized."""
-        return core._initialized
+        return self._initialized
     self.is_initialized = is_initialized
     self.version = core_version
     self.utils = core_utils
@@ -156,7 +156,7 @@ def _cribo_init___cribo_563ea2_models(self):
 
     def get_model_version():
         """Get the models package version."""
-        return models._VERSION
+        return self._VERSION
     self.get_model_version = get_model_version
     if _cribo.sys.version_info >= (3, 9):
         TypeAlias = _cribo.typing.TypeAlias

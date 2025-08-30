@@ -109,7 +109,7 @@ def _cribo_init___cribo_f96d2c_config(self):
     def get_config():
         global _cribo_config__config
         if _cribo_config__config is None:
-            _cribo_config__config = config.Config()
+            _cribo_config__config = self.Config()
         return _cribo_config__config
     self.get_config = get_config
 
@@ -168,7 +168,7 @@ def _cribo_init___cribo_0639af_logger(self):
         get_log_level = config.get_log_level
         global _cribo_logger__logger
         if _cribo_logger__logger is None:
-            _cribo_logger__logger = logger.Logger()
+            _cribo_logger__logger = self.Logger()
         return _cribo_logger__logger
     self.get_logger = get_logger
     self.format_message = format_message

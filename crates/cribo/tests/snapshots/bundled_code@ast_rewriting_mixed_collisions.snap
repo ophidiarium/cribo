@@ -419,7 +419,7 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
 
     def connect(User: _cribo.typing.Optional["User"]=None) -> Connection:
         """Connect function with parameter conflict"""
-        connection = services_auth_manager.Connection("auth_manager")
+        connection = self.Connection("auth_manager")
         if User:
             connection.add_user(User)
         return connection
@@ -606,7 +606,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     def initialize() -> str:
         """Module initialization function"""
         global _cribo_models_base_result
-        base = models_base.BaseModel("default")
+        base = self.BaseModel("default")
         init_result = base.initialize()
         logger = UserLogger("base_init")
         logger._log_process("Base module initialized")
@@ -623,7 +623,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     def process(data: _cribo.typing.Any) -> str:
         """Base process function - conflicts everywhere"""
         global _cribo_models_base_result
-        validated = models_base.validate(data)
+        validated = self.validate(data)
         if validated:
             processed = f"base_module_process: {data}"
         else:
