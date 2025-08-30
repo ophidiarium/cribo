@@ -1214,6 +1214,25 @@ impl<'a> Bundler<'a> {
         &mut self,
         params: &BundleParams<'a>,
     ) -> FxIndexMap<ModuleId, (ModModule, PathBuf, String)> {
+        // Identify all modules that are part of circular dependencies FIRST
+        // This must be done before trimming imports
+        if let Some(analysis) = params.circular_dep_analysis {
+            log::debug!("CircularDependencyAnalysis received:");
+            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
+            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
+            for group in &analysis.resolvable_cycles {
+                for &module_id in &group.modules {
+                    self.circular_modules.insert(module_id);
+                }
+            }
+            for group in &analysis.unresolvable_cycles {
+                for &module_id in &group.modules {
+                    self.circular_modules.insert(module_id);
+                }
+            }
+            log::debug!("Circular modules: {:?}", self.circular_modules);
+        }
+
         // Convert modules to the format expected by functions
         let modules_with_paths: Vec<(ModuleId, ModModule, PathBuf, String)> = params
             .modules
@@ -1245,6 +1264,7 @@ impl<'a> Bundler<'a> {
             params.graph,
             params.tree_shaker,
             params.python_version,
+            &self.circular_modules,
         );
 
         // Index all module ASTs to assign node indices and initialize transformation context
@@ -1311,23 +1331,9 @@ impl<'a> Bundler<'a> {
         // The modules vector already contains all modules including the entry module
         self.find_namespace_imported_modules(&modules);
 
-        // Identify all modules that are part of circular dependencies
-        if let Some(analysis) = params.circular_dep_analysis {
-            log::debug!("CircularDependencyAnalysis received:");
-            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
-            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
-            for group in &analysis.resolvable_cycles {
-                for &module_id in &group.modules {
-                    self.circular_modules.insert(module_id);
-                }
-            }
-            for group in &analysis.unresolvable_cycles {
-                for &module_id in &group.modules {
-                    self.circular_modules.insert(module_id);
-                }
-            }
-            log::debug!("Circular modules: {:?}", self.circular_modules);
-
+        // Note: Circular dependencies have already been identified at the beginning of prepare_modules
+        // to ensure imports are properly handled before tree-shaking
+        if params.circular_dep_analysis.is_some() {
             // If entry module is __init__.py, also remove the entry package from circular modules
             // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove "yaml"
             // as they're the same file (yaml/__init__.py)
@@ -1348,8 +1354,6 @@ impl<'a> Bundler<'a> {
                     }
                 }
             }
-        } else {
-            log::debug!("No circular dependency analysis provided");
         }
 
         modules

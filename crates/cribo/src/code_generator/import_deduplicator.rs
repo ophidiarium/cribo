@@ -128,6 +128,7 @@ pub(super) fn trim_unused_imports_from_modules(
     graph: &DependencyGraph,
     tree_shaker: Option<&TreeShaker>,
     python_version: u8,
+    circular_modules: &FxIndexSet<crate::resolver::ModuleId>,
 ) -> FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)> {
     let mut trimmed_modules = FxIndexMap::default();
 
@@ -156,11 +157,26 @@ pub(super) fn trim_unused_imports_from_modules(
                     is_init_py,
                 );
 
+            // Skip tree-shaking based import removal for circular modules
+            // Circular modules become init functions that include ALL their original code,
+            // even the parts that would be tree-shaken, so we need to keep all imports
+            let is_circular_module = circular_modules.contains(module_id);
+            log::debug!(
+                "Module {module_id:?} - checking if circular: {is_circular_module}, circular_modules: {circular_modules:?}"
+            );
+            if is_circular_module {
+                log::debug!(
+                    "Module {module_id:?} is circular - skipping tree-shaking based import removal"
+                );
+            }
+
             // If tree shaking is enabled, also check if imported symbols were removed
             // Note: We only apply tree-shaking logic to "from module import symbol" style
             // imports, not to "import module" style imports, since module
             // imports set up namespace objects
-            if let Some(shaker) = tree_shaker {
+            if let Some(shaker) = tree_shaker
+                && !is_circular_module
+            {
                 // Only apply tree-shaking-aware import removal if tree shaking is actually
                 // enabled Get the symbols that survive tree-shaking for
                 // this module
