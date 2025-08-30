@@ -326,6 +326,17 @@ pub(super) fn trim_unused_imports_from_modules(
                                 continue;
                             }
 
+                            // Check if the imported module itself has side effects and needs initialization
+                            // This handles the case where a wrapper module with side effects is imported
+                            // but not directly used (e.g., import mypackage where mypackage has print statements)
+                            let module_has_side_effects = shaker.module_has_side_effects(module);
+                            if module_has_side_effects {
+                                log::debug!(
+                                    "Module '{module}' has side effects - preserving import for initialization"
+                                );
+                                continue;
+                            }
+
                             // Check if this import is only used by symbols that were
                             // tree-shaken
                             log::debug!(

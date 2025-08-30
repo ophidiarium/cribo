@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/stdlib_decorator/main.py
 ---
 #!/usr/bin/env python3
@@ -70,11 +71,6 @@ def _cribo_init___cribo_41b947_mypackage(self):
         self.__initializing__ = False
         return self
     """Package init file."""
-    mypackage.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_41b947_mypackage(mypackage)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(mypackage, attr, getattr(__cribo_init_result, attr))
     global mypackage_utils
     mypackage.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_7c69fc_mypackage_utils(mypackage_utils)

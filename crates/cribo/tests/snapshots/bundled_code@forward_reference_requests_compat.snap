@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/forward_reference_requests_compat/main.py
 ---
 #!/usr/bin/env python3
@@ -227,41 +228,21 @@ def _cribo_init___cribo_a5ac5e_myrequests(self):
         self.__initializing__ = False
         return self
     """Main package that imports from multiple submodules."""
-    myrequests.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     global myrequests_compat
     myrequests.__initializing__ = True
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     compat = myrequests.compat
     self.compat = compat
-    myrequests.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     global myrequests_cookies
     myrequests.__initializing__ = True
     myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
     cookies = myrequests.cookies
     self.cookies = cookies
-    myrequests.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     global myrequests_exceptions
     myrequests.__initializing__ = True
     myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
     exceptions = myrequests.exceptions
     self.exceptions = exceptions
-    myrequests.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     global myrequests_utils
     myrequests.__initializing__ = True
     myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)

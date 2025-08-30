@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/stdlib_module_name_collision/main.py
 ---
 #!/usr/bin/env python3
@@ -93,11 +94,6 @@ def _cribo_init___cribo_9a2a8c_mypkg(self):
     self.abc = abc
     abc.MyBaseClass = MyBaseClass
     abc.create_object = create_object
-    mypkg.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_9a2a8c_mypkg(mypkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(mypkg, attr, getattr(__cribo_init_result, attr))
     global mypkg_console
     mypkg.__initializing__ = True
     mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)

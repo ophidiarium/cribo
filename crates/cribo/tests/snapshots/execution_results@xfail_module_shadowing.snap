@@ -1,9 +1,12 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 563
 input_file: crates/cribo/tests/fixtures/xfail_module_shadowing/main.py
 ---
 ExecutionResults {
-    status: Success,
-    stdout: "=== Module Shadowing Test ===\nThis test demonstrates Python's behavior when a first-party module\nshadows a third-party package name.\n\n\n=== Test Complete ===",
-    stderr: "",
+    status: Failed(
+        1,
+    ),
+    stdout: "=== Module Shadowing Test ===\nThis test demonstrates Python's behavior when a first-party module\nshadows a third-party package name.\n\nStarting test_import.py\nSuccessfully imported pandera.polars\npandera.polars module: pandera.polars",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 83, in <module>",
 }

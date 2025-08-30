@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 563
 input_file: crates/cribo/tests/fixtures/xfail_builtin_types_circular/main.py
 ---
 ExecutionResults {
@@ -7,5 +8,5 @@ ExecutionResults {
         1,
     ),
     stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 295, in <module>",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 280, in <module>",
 }

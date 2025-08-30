@@ -1,0 +1,7 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 569
+input_file: crates/cribo/tests/fixtures/tree_shake_side_effect_import/main.py
+---
+packages: []
+count: 0

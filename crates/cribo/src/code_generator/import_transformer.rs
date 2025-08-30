@@ -1285,9 +1285,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // For wrapper modules importing wrapper submodules from the same package
                     if self.is_wrapper_init {
                         // Initialize the wrapper submodule if needed
+                        // Pass the current module context to avoid recursive initialization
                         result_stmts.extend(
                             self.bundler
-                                .create_module_initialization_for_import(&full_module_path),
+                                .create_module_initialization_for_import_with_current_module(
+                                    &full_module_path,
+                                    Some(&self.get_module_name()),
+                                ),
                         );
 
                         // Create assignment: local_name = parent.submodule

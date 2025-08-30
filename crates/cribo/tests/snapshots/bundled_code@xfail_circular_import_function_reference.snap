@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/xfail_circular_import_function_reference/main.py
 ---
 #!/usr/bin/env python3
@@ -189,21 +190,11 @@ def _cribo_init___cribo_6d9930_pkg(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    pkg.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_adapters
     pkg.__initializing__ = True
     pkg_adapters = _cribo_init___cribo_12d613_pkg_adapters(pkg_adapters)
     adapters = pkg.adapters
     self.adapters = adapters
-    pkg.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_auth
     pkg.__initializing__ = True
     pkg_auth = _cribo_init___cribo_e94ab8_pkg_auth(pkg_auth)

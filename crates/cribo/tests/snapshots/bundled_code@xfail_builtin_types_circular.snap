@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/xfail_builtin_types_circular/main.py
 ---
 #!/usr/bin/env python3
@@ -244,31 +245,16 @@ def _cribo_init___cribo_b86557_pkg(self):
         self.__initializing__ = False
         return self
     """Main package that creates wrapper module pattern like requests."""
-    pkg.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_utils
     pkg.__initializing__ = True
     pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
     utils = pkg.utils
     self.utils = utils
-    pkg.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg_compat
     pkg.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     compat = pkg.compat
     self.compat = compat
-    pkg.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     global pkg__internal_utils
     pkg.__initializing__ = True
     pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)

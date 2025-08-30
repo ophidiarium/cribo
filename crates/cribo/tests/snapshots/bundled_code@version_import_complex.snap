@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/version_import_complex/main.py
 ---
 #!/usr/bin/env python3
@@ -43,11 +44,6 @@ def _cribo_init___cribo_623f97_mypackage(self):
     """Main package that exposes version and imports submodules."""
     __version__ = mypackage___version__.__version__
     mypackage.__version__ = __version__
-    mypackage.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_623f97_mypackage(mypackage)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(mypackage, attr, getattr(__cribo_init_result, attr))
     global mypackage_utils
     mypackage.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)

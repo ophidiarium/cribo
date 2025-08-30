@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 560
 input_file: crates/cribo/tests/fixtures/xfail_module_side_effects_circular_order/main.py
 ---
 #!/usr/bin/env python3
@@ -117,11 +118,6 @@ def _cribo_init___cribo_c04dc3_my_package(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    my_package.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_c04dc3_my_package(my_package)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(my_package, attr, getattr(__cribo_init_result, attr))
     global my_package_mod_a
     my_package.__initializing__ = True
     my_package_mod_a = _cribo_init___cribo_e90488_my_package_mod_a(my_package_mod_a)
