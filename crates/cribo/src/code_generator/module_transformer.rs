@@ -819,10 +819,11 @@ pub fn transform_module_to_init_function<'a>(
                     transform_expr_for_builtin_shadowing(&mut assign_clone.value, &builtin_locals);
 
                     // Also transform module-level variable references
+                    // Inside the init function, use "self" to refer to the module
                     transform_expr_for_module_vars(
                         &mut assign_clone.value,
                         &module_level_vars,
-                        &module_var_name,
+                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
                         ctx.python_version,
                     );
 
@@ -941,10 +942,11 @@ pub fn transform_module_to_init_function<'a>(
                         transform_expr_for_builtin_shadowing(value, &builtin_locals);
 
                         // Also transform module-level variable references
+                        // Inside the init function, use "self" to refer to the module
                         transform_expr_for_module_vars(
                             value,
                             &module_level_vars,
-                            &module_var_name,
+                            SELF_PARAM, // Use "self" instead of module_var_name inside init function
                             ctx.python_version,
                         );
                     }
@@ -957,7 +959,7 @@ pub fn transform_module_to_init_function<'a>(
                     transform_expr_for_module_vars(
                         &mut ann_assign_clone.annotation,
                         &module_level_vars,
-                        &module_var_name,
+                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
                         ctx.python_version,
                     );
 
@@ -1039,7 +1041,7 @@ pub fn transform_module_to_init_function<'a>(
                     &mut stmt_clone,
                     bundler,
                     &module_level_vars,
-                    &module_var_name,
+                    SELF_PARAM, // Use "self" instead of module_var_name inside init function
                     ctx.global_info.as_ref().map(|g| &g.global_declarations),
                     lifted_names.as_ref(),
                     ctx.python_version,

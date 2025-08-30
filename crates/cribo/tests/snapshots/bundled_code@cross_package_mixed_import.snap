@@ -87,7 +87,7 @@ def _cribo_init___cribo_f00e4b_core(self):
     core.get_config = get_config
     set_config_reference = core_utils_config.set_config_reference
     core.set_config_reference = set_config_reference
-    set_config_reference(core._config)
+    set_config_reference(self._config)
 
     def initialize_core(debug=False):
         """Initialize the core package with configuration."""
@@ -161,7 +161,7 @@ def _cribo_init___cribo_563ea2_models(self):
         ModelID: _cribo.typing.TypeAlias = str
     else:
         ModelID = str
-        models.ModelID = models.ModelID
+        models.ModelID = self.ModelID
     _base_model = None
     _cribo_models__base_model = _base_model
     self._base_model = _cribo_models__base_model
@@ -177,7 +177,7 @@ def _cribo_init___cribo_563ea2_models(self):
     self.get_base_model = get_base_model
     process_user = models_user.process_user
     models.process_user = process_user
-    DEFAULT_MODEL_CONFIG = {"version": models._VERSION, "features": ["user_processing", "lazy_loading"]}
+    DEFAULT_MODEL_CONFIG = {"version": self._VERSION, "features": ["user_processing", "lazy_loading"]}
     self.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
     try:
         from models.advanced import AdvancedModel
@@ -191,7 +191,7 @@ def _cribo_init___cribo_563ea2_models(self):
         AdvancedModel = None
         models.AdvancedModel = AdvancedModel
     __all__ = ["get_model_version", "process_user", "get_base_model", "ModelID", "DEFAULT_MODEL_CONFIG", "HAS_ADVANCED"]
-    if models.HAS_ADVANCED:
+    if self.HAS_ADVANCED:
         __all__.append("AdvancedModel")
     self.user = models_user
     self.base = models_base
