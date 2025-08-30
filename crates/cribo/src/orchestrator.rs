@@ -230,13 +230,9 @@ impl BundleOrchestrator {
             // we need to add it to the graph
             let module_id = if let Some(graph) = graph {
                 if cached.module_id.is_none() {
-                    // Get or register module ID with resolver
-                    let module_id = if let Some(resolver) = resolver {
-                        resolver.register_module(module_name.to_string(), module_path)
-                    } else {
-                        // Fallback for tests or special cases
-                        crate::resolver::ModuleId::new(999)
-                    };
+                    // Get or register module ID with resolver (required when graph is Some)
+                    let resolver = resolver.expect("Resolver must be provided when graph is Some");
+                    let module_id = resolver.register_module(module_name.to_string(), module_path);
 
                     graph.add_module(module_id, module_name.to_string(), module_path);
 
@@ -283,13 +279,9 @@ impl BundleOrchestrator {
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
-            // Get or register module ID with resolver
-            let module_id = if let Some(resolver) = resolver {
-                resolver.register_module(module_name.to_string(), module_path)
-            } else {
-                // Fallback for tests or special cases
-                crate::resolver::ModuleId::new(999)
-            };
+            // Get or register module ID with resolver (required when graph is Some)
+            let resolver = resolver.expect("Resolver must be provided when graph is Some");
+            let module_id = resolver.register_module(module_name.to_string(), module_path);
 
             graph.add_module(module_id, module_name.to_string(), module_path);
 
