@@ -1371,6 +1371,26 @@ impl<'a> Bundler<'a> {
         // Initialize bundler settings and collect preliminary data
         self.initialize_bundler(params);
 
+        // Add collected future imports at the beginning of the bundle
+        if !self.future_imports.is_empty() {
+            let mut future_import_names: Vec<String> =
+                self.future_imports.iter().cloned().collect();
+            // Sort for deterministic output
+            future_import_names.sort();
+
+            let aliases = future_import_names
+                .iter()
+                .map(|name| crate::ast_builder::other::alias(name, None))
+                .collect();
+
+            let future_import_stmt =
+                crate::ast_builder::statements::import_from(Some("__future__"), aliases, 0);
+
+            final_body.push(future_import_stmt);
+
+            log::debug!("Added future imports to bundle: {future_import_names:?}");
+        }
+
         // Prepare modules: trim imports, index ASTs, detect circular dependencies
         let mut modules = self.prepare_modules(params);
 
