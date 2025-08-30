@@ -56,12 +56,12 @@ def _cribo_init___cribo_72b028_mypkg_exceptions(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global mypkg_compat
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_30661c_mypkg(mypkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(mypkg, attr, getattr(__cribo_init_result, attr))
-    global mypkg_compat
     self.__initializing__ = True
     mypkg_compat = _cribo_init___cribo_4089db_mypkg_compat(mypkg_compat)
     CompatJSONDecodeError = mypkg.compat.JSONDecodeError

@@ -35,8 +35,8 @@ def _cribo_init___cribo_f4b9e6_user_class(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    """User class module with circular dependency."""
     global admin_class
+    """User class module with circular dependency."""
     self.__initializing__ = True
     admin_class = _cribo_init___cribo_7f7c68_admin_class(admin_class)
     Admin = admin_class.Admin
@@ -65,8 +65,8 @@ def _cribo_init___cribo_7f7c68_admin_class(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    """Admin class module with circular dependency."""
     global user_class
+    """Admin class module with circular dependency."""
     self.__initializing__ = True
     user_class = _cribo_init___cribo_f4b9e6_user_class(user_class)
     User = user_class.User

@@ -88,12 +88,12 @@ def _cribo_init___cribo_9a2a8c_mypkg(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global mypkg_console
     """Package with modules including one named 'abc' (same as stdlib)."""
     abc = _cribo.types.SimpleNamespace()
     self.abc = abc
     abc.MyBaseClass = MyBaseClass
     abc.create_object = create_object
-    global mypkg_console
     self.__initializing__ = True
     mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
     console = mypkg.console

@@ -7,5 +7,5 @@ ExecutionResults {
         1,
     ),
     stdout: "Testing symlink circular dependency handling",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 80, in <module>",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 81, in <module>",
 }

@@ -83,13 +83,13 @@ def _cribo_init___cribo_530a30_myrequests_exceptions(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global myrequests_compat
     """Exceptions module that uses compat types in class inheritance."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-    global myrequests_compat
     self.__initializing__ = True
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     CompatJSONDecodeError = myrequests.compat.JSONDecodeError
@@ -124,13 +124,13 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global myrequests_compat, myrequests_exceptions
     """Utils module that also uses compat."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-    global myrequests_compat
     self.__initializing__ = True
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     json = myrequests.compat.json
@@ -170,13 +170,13 @@ def _cribo_init___cribo_135ee1_myrequests_cookies(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global myrequests_compat
     """Cookies module that uses compat's MutableMapping in class inheritance."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-    global myrequests_compat
     self.__initializing__ = True
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     cookielib = myrequests.compat.cookielib
@@ -226,23 +226,20 @@ def _cribo_init___cribo_a5ac5e_myrequests(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global myrequests_compat, myrequests_cookies, myrequests_exceptions, myrequests_utils
     """Main package that imports from multiple submodules."""
-    global myrequests_compat
     self.__initializing__ = True
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     compat = myrequests.compat
     self.compat = compat
-    global myrequests_cookies
     self.__initializing__ = True
     myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
     cookies = myrequests.cookies
     self.cookies = cookies
-    global myrequests_exceptions
     self.__initializing__ = True
     myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
     exceptions = myrequests.exceptions
     self.exceptions = exceptions
-    global myrequests_utils
     self.__initializing__ = True
     myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)
     utils = myrequests.utils

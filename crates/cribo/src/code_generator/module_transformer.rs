@@ -601,99 +601,104 @@ pub fn transform_module_to_init_function<'a>(
     // Track which lifted globals we've already initialized to avoid duplicates
     let mut initialized_lifted_globals = FxIndexSet::default();
 
-    // Track which global declarations we've already added to avoid duplicates
-    let mut added_global_declarations = FxIndexSet::default();
+    // First pass: collect all wrapper module namespace variables that need global declarations
+    // Use a visitor to properly traverse the AST
+    let wrapper_globals_needed = {
+        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
+
+        struct WrapperGlobalCollector {
+            globals_needed: FxIndexSet<String>,
+        }
+
+        impl WrapperGlobalCollector {
+            fn new() -> Self {
+                Self {
+                    globals_needed: FxIndexSet::default(),
+                }
+            }
+
+            fn collect(processed_body: &[Stmt]) -> FxIndexSet<String> {
+                let mut collector = Self::new();
+                for stmt in processed_body {
+                    collector.visit_stmt(stmt);
+                }
+                collector.globals_needed
+            }
+        }
+
+        impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                if let Stmt::Assign(assign) = stmt {
+                    // Check if the value is a call to an init function
+                    if let Expr::Call(call) = assign.value.as_ref()
+                        && let Expr::Name(name) = call.func.as_ref()
+                            && name.id.starts_with("_cribo_init_") {
+                                // Check if the assignment target is also used as an argument
+                                if assign.targets.len() == 1
+                                    && let Expr::Name(target) = &assign.targets[0] {
+                                        // Check if the target is also passed as an argument
+                                        let needs_global = call.arguments.args.iter().any(|arg| {
+                                            if let Expr::Name(arg_name) = arg {
+                                                arg_name.id.as_str() == target.id.as_str()
+                                            } else {
+                                                false
+                                            }
+                                        });
+                                        if needs_global {
+                                            self.globals_needed.insert(target.id.to_string());
+                                        }
+                                    }
+                            }
+                }
+                // Continue traversing the statement tree
+                source_order::walk_stmt(self, stmt);
+            }
+        }
+
+        WrapperGlobalCollector::collect(&processed_body)
+    };
+
+    // Add global declarations for wrapper module namespace variables at the beginning
+    if !wrapper_globals_needed.is_empty() {
+        let mut globals: Vec<&str> = wrapper_globals_needed.iter().map(std::string::String::as_str).collect();
+        globals.sort_unstable();
+        body.push(ast_builder::statements::global(globals));
+    }
 
     // Process each statement from the transformed module body
     // We need to set __initializing__ = True before any statement that calls another module's init
     for (idx, stmt) in processed_body.into_iter().enumerate() {
         // Check if this statement contains a call to another module's init function
-        // and needs a global declaration
-        let (contains_init_call, needs_global_declaration) = match &stmt {
+        let contains_init_call = match &stmt {
             Stmt::Assign(assign) => {
                 // Check if the value is a call to an init function
                 if let Expr::Call(call) = assign.value.as_ref() {
                     if let Expr::Name(name) = call.func.as_ref() {
-                        if name.id.starts_with("_cribo_init_") {
-                            // Check if the assignment target is also used as an argument
-                            // This indicates we're initializing a wrapper module namespace variable
-                            // Example: core_database_connection = _cribo_init_...(core_database_connection)
-                            let target_name = if assign.targets.len() == 1 {
-                                if let Expr::Name(target) = &assign.targets[0] {
-                                    Some(target.id.as_str())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            let needs_global = if let Some(target) = target_name {
-                                // Check if the target is also passed as an argument to the init function
-                                call.arguments.args.iter().any(|arg| {
-                                    if let Expr::Name(arg_name) = arg {
-                                        arg_name.id.as_str() == target
-                                    } else {
-                                        false
-                                    }
-                                })
-                            } else {
-                                false
-                            };
-
-                            (true, needs_global)
-                        } else {
-                            (false, false)
-                        }
+                        name.id.starts_with("_cribo_init_")
                     } else {
-                        (false, false)
+                        false
                     }
                 } else {
-                    (false, false)
+                    false
                 }
             }
             Stmt::Expr(expr_stmt) => {
                 // Check if it's a direct init call
                 if let Expr::Call(call) = expr_stmt.value.as_ref() {
                     if let Expr::Name(name) = call.func.as_ref() {
-                        (name.id.starts_with("_cribo_init_"), false)
+                        name.id.starts_with("_cribo_init_")
                     } else if let Expr::Attribute(attr) = call.func.as_ref() {
                         // Check for module.__init__() calls
-                        (attr.attr.as_str() == "__init__", false)
+                        attr.attr.as_str() == "__init__"
                     } else {
-                        (false, false)
+                        false
                     }
                 } else {
-                    (false, false)
+                    false
                 }
             }
-            _ => (false, false),
+            _ => false,
         };
-
-        // If we need a global declaration for the wrapper module namespace variable
-        if needs_global_declaration
-            && let Stmt::Assign(assign) = &stmt
-            && assign.targets.len() == 1
-            && let Expr::Name(target) = &assign.targets[0]
-        {
-            // Only add the global declaration if we haven't already added it
-            if added_global_declarations.insert(target.id.to_string()) {
-                debug!(
-                    "Adding global declaration for wrapper module namespace variable: {}",
-                    target.id
-                );
-                body.push(Stmt::Global(StmtGlobal {
-                    node_index: AtomicNodeIndex::dummy(),
-                    names: vec![Identifier::new(target.id.as_str(), TextRange::default())],
-                    range: TextRange::default(),
-                }));
-            } else {
-                debug!(
-                    "Skipping duplicate global declaration for wrapper module namespace variable: {}",
-                    target.id
-                );
-            }
-        }
 
         // If this statement contains an init call, set __initializing__ = True first
         if contains_init_call {

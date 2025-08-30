@@ -55,6 +55,7 @@ def _cribo_init___cribo_895222_moduleA(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global moduleB
 
     def funcA():
         moduleB = _cribo_init___cribo_19d6d4_moduleB(moduleB)

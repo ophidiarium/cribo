@@ -35,13 +35,13 @@ def _cribo_init___cribo_12d613_pkg_adapters(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global pkg_auth, pkg_models
     """Adapters module that imports a function from auth."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    global pkg_auth
     self.__initializing__ = True
     pkg_auth = _cribo_init___cribo_e94ab8_pkg_auth(pkg_auth)
     _basic_auth_str = pkg.auth._basic_auth_str
@@ -51,7 +51,6 @@ def _cribo_init___cribo_12d613_pkg_adapters(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    global pkg_models
     self.__initializing__ = True
     pkg_models = _cribo_init___cribo_01ad7c_pkg_models(pkg_models)
     BaseModel = pkg.models.BaseModel
@@ -84,13 +83,13 @@ def _cribo_init___cribo_01ad7c_pkg_models(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global pkg_adapters
     """Models module that creates part of the circular chain."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    global pkg_adapters
     self.__initializing__ = True
     pkg_adapters = _cribo_init___cribo_12d613_pkg_adapters(pkg_adapters)
     _adapters_module = pkg.adapters
@@ -119,13 +118,13 @@ def _cribo_init___cribo_bdb497_pkg_utils(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global pkg_models
     """Utils module that completes the circular chain."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    global pkg_models
     self.__initializing__ = True
     pkg_models = _cribo_init___cribo_01ad7c_pkg_models(pkg_models)
     BaseModel = pkg.models.BaseModel
@@ -149,13 +148,13 @@ def _cribo_init___cribo_e94ab8_pkg_auth(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global pkg_utils
     """Auth module that defines a utility function."""
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    global pkg_utils
     self.__initializing__ = True
     pkg_utils = _cribo_init___cribo_bdb497_pkg_utils(pkg_utils)
     utils = pkg.utils
@@ -189,12 +188,11 @@ def _cribo_init___cribo_6d9930_pkg(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    global pkg_adapters
+    global pkg_adapters, pkg_auth
     self.__initializing__ = True
     pkg_adapters = _cribo_init___cribo_12d613_pkg_adapters(pkg_adapters)
     adapters = pkg.adapters
     self.adapters = adapters
-    global pkg_auth
     self.__initializing__ = True
     pkg_auth = _cribo_init___cribo_e94ab8_pkg_auth(pkg_auth)
     auth = pkg.auth

@@ -63,6 +63,7 @@ def _cribo_init___cribo_f2ecbb_foo_boo(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global foo_zoo
     """Child module boo that imports another sibling."""
     print("Initializing foo.boo module")
     self.__initializing__ = True
@@ -70,7 +71,6 @@ def _cribo_init___cribo_f2ecbb_foo_boo(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(foo, attr, getattr(__cribo_init_result, attr))
-    global foo_zoo
     self.__initializing__ = True
     foo_zoo = _cribo_init___cribo_83878b_foo_zoo(foo_zoo)
     Zoo = foo.zoo.Zoo
@@ -98,9 +98,9 @@ def _cribo_init___cribo_97cb47_foo(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global foo_boo
     """Parent package that imports from its child module."""
     print("Initializing foo package")
-    global foo_boo
     self.__initializing__ = True
     foo_boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
     helper_function = foo.boo.helper_function

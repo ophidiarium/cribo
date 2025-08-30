@@ -282,6 +282,7 @@ def _cribo_init___cribo_782908_core_database(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global core_database_connection
     """Database subpackage with import-time initialization and re-exports."""
     validate = core_utils_helpers.validate
     core_database.validate = validate
@@ -302,7 +303,6 @@ def _cribo_init___cribo_782908_core_database(self):
             return False
         return not any(char in name for char in ["/", "\\", ":"])
     self.validate_db_name = validate_db_name
-    global core_database_connection
     self.__initializing__ = True
     core_database_connection = _cribo_init___cribo_1f0c3d_core_database_connection(core_database_connection)
     connect = core.database.connection.connect

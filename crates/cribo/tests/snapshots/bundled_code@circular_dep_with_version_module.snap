@@ -73,12 +73,12 @@ def _cribo_init___cribo_a4c23d_package(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global package_module_a
     """Package with circular dependency and __version__ import"""
     __version__ = package___version__.__version__
     package.__version__ = __version__
     __title__ = package___version__.__title__
     package.__title__ = __title__
-    global package_module_a
     self.__initializing__ = True
     package_module_a = _cribo_init___cribo_cc4906_package_module_a(package_module_a)
     func_a = package.module_a.func_a

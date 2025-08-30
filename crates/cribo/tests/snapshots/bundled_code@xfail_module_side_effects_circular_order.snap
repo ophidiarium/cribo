@@ -38,12 +38,12 @@ def _cribo_init___cribo_748052_my_package_mod_c(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global my_package_mod_a
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_c04dc3_my_package(my_package)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(my_package, attr, getattr(__cribo_init_result, attr))
-    global my_package_mod_a
     self.__initializing__ = True
     my_package_mod_a = _cribo_init___cribo_e90488_my_package_mod_a(my_package_mod_a)
     mod_a = my_package.mod_a
@@ -66,12 +66,12 @@ def _cribo_init___cribo_d862bd_my_package_mod_b(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global my_package_mod_c
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_c04dc3_my_package(my_package)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(my_package, attr, getattr(__cribo_init_result, attr))
-    global my_package_mod_c
     self.__initializing__ = True
     my_package_mod_c = _cribo_init___cribo_748052_my_package_mod_c(my_package_mod_c)
     mod_c = my_package.mod_c
@@ -94,12 +94,12 @@ def _cribo_init___cribo_e90488_my_package_mod_a(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global my_package_mod_b
     self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_c04dc3_my_package(my_package)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(my_package, attr, getattr(__cribo_init_result, attr))
-    global my_package_mod_b
     self.__initializing__ = True
     my_package_mod_b = _cribo_init___cribo_d862bd_my_package_mod_b(my_package_mod_b)
     mod_b = my_package.mod_b

@@ -1,6 +1,5 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 563
 input_file: crates/cribo/tests/fixtures/xfail_circular_import_function_reference/main.py
 ---
 ExecutionResults {
@@ -8,5 +7,5 @@ ExecutionResults {
         1,
     ),
     stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 203, in <module>",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 201, in <module>",
 }

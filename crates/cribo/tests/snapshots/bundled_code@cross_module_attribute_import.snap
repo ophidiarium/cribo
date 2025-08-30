@@ -88,13 +88,12 @@ def _cribo_init___cribo_370515_mypackage(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global mypackage_core, mypackage_utils
     """Package init that creates circular dependency."""
-    global mypackage_utils
     self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_35f1d1_mypackage_utils(mypackage_utils)
     get_version_info = mypackage.utils.get_version_info
     self.get_version_info = get_version_info
-    global mypackage_core
     self.__initializing__ = True
     mypackage_core = _cribo_init___cribo_e49d78_mypackage_core(mypackage_core)
     process_data = mypackage.core.process_data

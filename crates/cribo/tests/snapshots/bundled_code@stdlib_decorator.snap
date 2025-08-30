@@ -69,8 +69,8 @@ def _cribo_init___cribo_41b947_mypackage(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    """Package init file."""
     global mypackage_utils
+    """Package init file."""
     self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_7c69fc_mypackage_utils(mypackage_utils)
     utils = mypackage.utils

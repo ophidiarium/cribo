@@ -35,6 +35,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global real_a
 
     def from_b():
         real_a = _cribo_init___cribo_5676b5_real_a(real_a)
@@ -86,6 +87,7 @@ def _cribo_init___cribo_5676b5_real_a(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global real_b
 
     def start_chain():
         real_b = _cribo_init___cribo_85e139_real_b(real_b)

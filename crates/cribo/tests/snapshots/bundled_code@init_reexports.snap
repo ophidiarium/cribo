@@ -89,12 +89,12 @@ def _cribo_init___cribo_a81151_mypackage(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global mypackage_config
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     process_data = mypackage_data_processor.process_data
     mypackage.process_data = process_data
     format_data = mypackage_formatter.format_data
     mypackage.format_data = format_data
-    global mypackage_config
     self.__initializing__ = True
     mypackage_config = _cribo_init___cribo_de6c46_mypackage_config(mypackage_config)
     config = mypackage.config.config

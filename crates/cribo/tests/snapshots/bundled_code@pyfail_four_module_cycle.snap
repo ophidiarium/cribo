@@ -35,6 +35,7 @@ def _cribo_init___cribo_f1543a_module_d(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global module_a
 
     def process_in_d():
         """Process in D, depends back on A - completes the 4-module cycle"""
@@ -59,6 +60,7 @@ def _cribo_init___cribo_21fc08_module_c(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global module_d
 
     def process_in_c():
         """Process in C, depends on D"""
@@ -83,6 +85,7 @@ def _cribo_init___cribo_277dcc_module_b(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global module_c
 
     def process_in_b():
         """Process in B, depends on C"""
@@ -107,6 +110,7 @@ def _cribo_init___cribo_1444c2_module_a(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global module_b
 
     def start_process():
         """Start the processing chain A -> B -> C -> D -> A"""

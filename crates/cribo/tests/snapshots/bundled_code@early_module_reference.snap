@@ -87,8 +87,8 @@ def _cribo_init___cribo_b0d212_mypkg(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    """Package that demonstrates early module reference issue."""
     global mypkg_api
+    """Package that demonstrates early module reference issue."""
     self.__initializing__ = True
     mypkg_api = _cribo_init___cribo_d2a83c_mypkg_api(mypkg_api)
     api = mypkg.api

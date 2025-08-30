@@ -40,10 +40,10 @@ def _cribo_init___cribo_623f97_mypackage(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global mypackage_utils
     """Main package that exposes version and imports submodules."""
     __version__ = mypackage___version__.__version__
     mypackage.__version__ = __version__
-    global mypackage_utils
     self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)
     utils = mypackage.utils

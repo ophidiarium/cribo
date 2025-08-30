@@ -95,12 +95,11 @@ def _cribo_init___cribo_d4de1c_mypkg(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
-    global mypkg_compat
+    global mypkg_compat, mypkg_exceptions
     self.__initializing__ = True
     mypkg_compat = _cribo_init___cribo_19d82f_mypkg_compat(mypkg_compat)
     compat = mypkg.compat
     self.compat = compat
-    global mypkg_exceptions
     self.__initializing__ = True
     mypkg_exceptions = _cribo_init___cribo_4c6596_mypkg_exceptions(mypkg_exceptions)
     exceptions = mypkg.exceptions

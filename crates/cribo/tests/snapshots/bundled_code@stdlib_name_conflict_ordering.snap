@@ -97,9 +97,9 @@ def _cribo_init___cribo_937418_complex_pkg(self):
     if getattr(self, '__initializing__', False):
         self.__initializing__ = False
         return self
+    global complex_pkg_console
     Base = complex_pkg_abc.Base
     complex_pkg.Base = Base
-    global complex_pkg_console
     self.__initializing__ = True
     complex_pkg_console = _cribo_init___cribo_beaba5_complex_pkg_console(complex_pkg_console)
     Console = complex_pkg.console.Console
