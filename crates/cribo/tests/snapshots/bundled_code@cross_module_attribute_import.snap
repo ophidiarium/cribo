@@ -35,14 +35,41 @@ mypackage.__version__ = mypackage___version__
 __version__ = "1.0.0"
 mypackage___version__.__version__ = __version__
 mypackage_core = _cribo.types.SimpleNamespace(__name__='mypackage.core', __initializing__=False, __initialized__=False)
+mypackage.core = mypackage_core
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
+mypackage.utils = mypackage_utils
+def _cribo_init___cribo_370515_mypackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypackage_core, mypackage_utils
+    """Package init that creates circular dependency."""
+    mypackage_utils = _cribo_init___cribo_35f1d1_mypackage_utils(mypackage_utils)
+    get_version_info = mypackage.utils.get_version_info
+    self.get_version_info = get_version_info
+    mypackage_core = _cribo_init___cribo_e49d78_mypackage_core(mypackage_core)
+    process_data = mypackage.core.process_data
+    self.process_data = process_data
+
+    def get_full_info():
+        """Combine version and processed data."""
+        return f"{get_version_info()} - {process_data()}"
+    self.get_full_info = get_full_info
+    self.__version__ = mypackage___version__
+    self.__version__ = mypackage___version__
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage.__init__ = _cribo_init___cribo_370515_mypackage
 def _cribo_init___cribo_e49d78_mypackage_core(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
-    """Core module that creates circular dependency."""
     self.__initializing__ = True
+    """Core module that creates circular dependency."""
     __cribo_init_result = _cribo_init___cribo_370515_mypackage(mypackage)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -58,14 +85,12 @@ def _cribo_init___cribo_e49d78_mypackage_core(self):
     self.__initializing__ = False
     return self
 mypackage_core.__init__ = _cribo_init___cribo_e49d78_mypackage_core
-mypackage.core = mypackage_core
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_35f1d1_mypackage_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Utils module that imports from __version__ module and uses it at module level."""
     __version__ = mypackage___version__.__version__
     mypackage_utils.__version__ = __version__
@@ -81,34 +106,6 @@ def _cribo_init___cribo_35f1d1_mypackage_utils(self):
     self.__initializing__ = False
     return self
 mypackage_utils.__init__ = _cribo_init___cribo_35f1d1_mypackage_utils
-mypackage.utils = mypackage_utils
-def _cribo_init___cribo_370515_mypackage(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global mypackage_core, mypackage_utils
-    """Package init that creates circular dependency."""
-    self.__initializing__ = True
-    mypackage_utils = _cribo_init___cribo_35f1d1_mypackage_utils(mypackage_utils)
-    get_version_info = mypackage.utils.get_version_info
-    self.get_version_info = get_version_info
-    self.__initializing__ = True
-    mypackage_core = _cribo_init___cribo_e49d78_mypackage_core(mypackage_core)
-    process_data = mypackage.core.process_data
-    self.process_data = process_data
-
-    def get_full_info():
-        """Combine version and processed data."""
-        return f"{get_version_info()} - {process_data()}"
-    self.get_full_info = get_full_info
-    self.__version__ = mypackage___version__
-    self.__version__ = mypackage___version__
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-mypackage.__init__ = _cribo_init___cribo_370515_mypackage
 """Test cross-module attribute import with circular dependencies that require init functions."""
 __cribo_init_result = _cribo_init___cribo_370515_mypackage(mypackage)
 for attr in dir(__cribo_init_result):

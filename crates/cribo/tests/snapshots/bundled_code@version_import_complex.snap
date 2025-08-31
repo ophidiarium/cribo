@@ -34,17 +34,18 @@ mypackage.__version__ = mypackage___version__
 """Version information."""
 __version__ = "2.0.0"
 mypackage___version__.__version__ = __version__
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
+mypackage.utils = mypackage_utils
 def _cribo_init___cribo_623f97_mypackage(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global mypackage_utils
     """Main package that exposes version and imports submodules."""
     __version__ = mypackage___version__.__version__
     mypackage.__version__ = __version__
-    self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)
     utils = mypackage.utils
     self.utils = utils
@@ -53,13 +54,12 @@ def _cribo_init___cribo_623f97_mypackage(self):
     self.__initializing__ = False
     return self
 mypackage.__init__ = _cribo_init___cribo_623f97_mypackage
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_254d99_mypackage_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Utility module that imports __version__ from a sibling module."""
     __version__ = mypackage___version__.__version__
     mypackage_utils.__version__ = __version__
@@ -73,7 +73,6 @@ def _cribo_init___cribo_254d99_mypackage_utils(self):
     self.__initializing__ = False
     return self
 mypackage_utils.__init__ = _cribo_init___cribo_254d99_mypackage_utils
-mypackage.utils = mypackage_utils
 """Test fixture for importing __version__ in a complex module structure."""
 __cribo_init_result = _cribo_init___cribo_623f97_mypackage(mypackage)
 for attr in dir(__cribo_init_result):

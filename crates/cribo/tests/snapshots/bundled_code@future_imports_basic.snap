@@ -34,8 +34,8 @@ def _cribo_init___cribo_41d36f_mypackage_core(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     Dict = _cribo.typing.Dict
     self.Dict = Dict
     List = _cribo.typing.List
@@ -70,8 +70,8 @@ def _cribo_init___cribo_c3d681_mypackage_submodule_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     Dict = _cribo.typing.Dict
     self.Dict = Dict
     Any = _cribo.typing.Any

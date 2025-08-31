@@ -28,33 +28,14 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-moduleB = _cribo.types.SimpleNamespace(__name__='moduleB', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_19d6d4_moduleB(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global moduleA
-    self.__initializing__ = True
-    moduleA = _cribo_init___cribo_895222_moduleA(moduleA)
-    funcC = moduleC.funcC
-    self.funcC = funcC
-
-    def funcB():
-        return f"B calls {funcC()}"
-    self.funcB = funcB
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-moduleB.__init__ = _cribo_init___cribo_19d6d4_moduleB
 moduleA = _cribo.types.SimpleNamespace(__name__='moduleA', __initializing__=False, __initialized__=False)
+moduleB = _cribo.types.SimpleNamespace(__name__='moduleB', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_895222_moduleA(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global moduleB
 
     def funcA():
@@ -78,6 +59,24 @@ def _cribo_init___cribo_895222_moduleA(self):
     self.__initializing__ = False
     return self
 moduleA.__init__ = _cribo_init___cribo_895222_moduleA
+def _cribo_init___cribo_19d6d4_moduleB(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global moduleA
+    moduleA = _cribo_init___cribo_895222_moduleA(moduleA)
+    funcC = moduleC.funcC
+    self.funcC = funcC
+
+    def funcB():
+        return f"B calls {funcC()}"
+    self.funcB = funcB
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+moduleB.__init__ = _cribo_init___cribo_19d6d4_moduleB
 moduleA = _cribo_init___cribo_895222_moduleA(moduleA)
 funcA = moduleA.funcA
 get_chain = moduleA.get_chain

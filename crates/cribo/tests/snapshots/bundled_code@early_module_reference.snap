@@ -57,12 +57,32 @@ def session():
 mypkg_sessions.Session = Session
 mypkg_sessions.session = session
 mypkg_api = _cribo.types.SimpleNamespace(__name__='mypkg.api', __initializing__=False, __initialized__=False)
+mypkg.api = mypkg_api
+def _cribo_init___cribo_b0d212_mypkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypkg_api
+    """Package that demonstrates early module reference issue."""
+    mypkg_api = _cribo_init___cribo_d2a83c_mypkg_api(mypkg_api)
+    api = mypkg.api
+    self.api = api
+    sessions = _cribo.types.SimpleNamespace()
+    self.sessions = sessions
+    sessions.Session = Session
+    sessions.session = session
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg.__init__ = _cribo_init___cribo_b0d212_mypkg
 def _cribo_init___cribo_d2a83c_mypkg_api(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """API module that references sessions module early.\n\nThis reproduces the issue where a module-level variable references\nanother module before it's fully initialized.\n"""
     sessions = _cribo.types.SimpleNamespace()
     self.sessions = sessions
@@ -80,27 +100,6 @@ def _cribo_init___cribo_d2a83c_mypkg_api(self):
     self.__initializing__ = False
     return self
 mypkg_api.__init__ = _cribo_init___cribo_d2a83c_mypkg_api
-mypkg.api = mypkg_api
-def _cribo_init___cribo_b0d212_mypkg(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global mypkg_api
-    """Package that demonstrates early module reference issue."""
-    self.__initializing__ = True
-    mypkg_api = _cribo_init___cribo_d2a83c_mypkg_api(mypkg_api)
-    api = mypkg.api
-    self.api = api
-    sessions = _cribo.types.SimpleNamespace()
-    self.sessions = sessions
-    sessions.Session = Session
-    sessions.session = session
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-mypkg.__init__ = _cribo_init___cribo_b0d212_mypkg
 """Test case for early module reference before initialization.\n\nThis reproduces the issue where a module tries to reference another module\nbefore it has been fully initialized through its init function.\n"""
 __cribo_init_result = _cribo_init___cribo_b0d212_mypkg(mypkg)
 for attr in dir(__cribo_init_result):

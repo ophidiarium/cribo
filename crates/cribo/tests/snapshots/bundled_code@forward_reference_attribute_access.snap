@@ -34,12 +34,29 @@ mymodule.compat = mymodule_compat
 JSONDecodeError = _cribo.json.JSONDecodeError
 mymodule_compat.JSONDecodeError = JSONDecodeError
 mymodule_exceptions = _cribo.types.SimpleNamespace(__name__='mymodule.exceptions', __initializing__=False, __initialized__=False)
+mymodule.exceptions = mymodule_exceptions
+def _cribo_init___cribo_d7bb86_mymodule(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mymodule_exceptions
+    mymodule_exceptions = _cribo_init___cribo_e5cbf4_mymodule_exceptions(mymodule_exceptions)
+    MyError = mymodule.exceptions.MyError
+    self.MyError = MyError
+    self.compat = mymodule_compat
+    self.compat = mymodule_compat
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mymodule.__init__ = _cribo_init___cribo_d7bb86_mymodule
 def _cribo_init___cribo_e5cbf4_mymodule_exceptions(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     CompatJSONDecodeError = mymodule_compat.JSONDecodeError
     mymodule_exceptions.CompatJSONDecodeError = CompatJSONDecodeError
 
@@ -61,24 +78,6 @@ def _cribo_init___cribo_e5cbf4_mymodule_exceptions(self):
     self.__initializing__ = False
     return self
 mymodule_exceptions.__init__ = _cribo_init___cribo_e5cbf4_mymodule_exceptions
-mymodule.exceptions = mymodule_exceptions
-def _cribo_init___cribo_d7bb86_mymodule(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global mymodule_exceptions
-    self.__initializing__ = True
-    mymodule_exceptions = _cribo_init___cribo_e5cbf4_mymodule_exceptions(mymodule_exceptions)
-    MyError = mymodule.exceptions.MyError
-    self.MyError = MyError
-    self.compat = mymodule_compat
-    self.compat = mymodule_compat
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-mymodule.__init__ = _cribo_init___cribo_d7bb86_mymodule
 __cribo_init_result = _cribo_init___cribo_d7bb86_mymodule(mymodule)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

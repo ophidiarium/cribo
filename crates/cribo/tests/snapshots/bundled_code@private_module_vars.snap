@@ -33,8 +33,8 @@ def _cribo_init___cribo_73cafd_pkg__internal(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Internal module with private variables."""
     re = _cribo.re
     self.re = re

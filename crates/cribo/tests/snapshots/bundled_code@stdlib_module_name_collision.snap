@@ -45,12 +45,32 @@ def create_object():
 mypkg_abc.MyBaseClass = MyBaseClass
 mypkg_abc.create_object = create_object
 mypkg_console = _cribo.types.SimpleNamespace(__name__='mypkg.console', __initializing__=False, __initialized__=False)
+mypkg.console = mypkg_console
+def _cribo_init___cribo_9a2a8c_mypkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypkg_console
+    """Package with modules including one named 'abc' (same as stdlib)."""
+    abc = _cribo.types.SimpleNamespace()
+    self.abc = abc
+    abc.MyBaseClass = MyBaseClass
+    abc.create_object = create_object
+    mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
+    console = mypkg.console
+    self.console = console
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg.__init__ = _cribo_init___cribo_9a2a8c_mypkg
 def _cribo_init___cribo_6558da_mypkg_console(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Console module that imports various stdlib modules."""
     abc = _cribo.abc
     self.abc = abc
@@ -81,27 +101,6 @@ def _cribo_init___cribo_6558da_mypkg_console(self):
     self.__initializing__ = False
     return self
 mypkg_console.__init__ = _cribo_init___cribo_6558da_mypkg_console
-mypkg.console = mypkg_console
-def _cribo_init___cribo_9a2a8c_mypkg(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global mypkg_console
-    """Package with modules including one named 'abc' (same as stdlib)."""
-    abc = _cribo.types.SimpleNamespace()
-    self.abc = abc
-    abc.MyBaseClass = MyBaseClass
-    abc.create_object = create_object
-    self.__initializing__ = True
-    mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
-    console = mypkg.console
-    self.console = console
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-mypkg.__init__ = _cribo_init___cribo_9a2a8c_mypkg
 """Test that triggers stdlib import collision bug when bundling packages."""
 __cribo_init_result = _cribo_init___cribo_9a2a8c_mypkg(mypkg)
 for attr in dir(__cribo_init_result):

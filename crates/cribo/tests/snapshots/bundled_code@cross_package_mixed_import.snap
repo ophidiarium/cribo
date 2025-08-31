@@ -69,8 +69,8 @@ def _cribo_init___cribo_f00e4b_core(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global _cribo_core__config, _cribo_core__initialized
     """Core package with initialization logic and cross-package imports."""
     _initialized = False
@@ -145,8 +145,8 @@ def _cribo_init___cribo_563ea2_models(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global _cribo_models__base_model
     """Models package with conditional imports and circular dependency handling."""
     sys = _cribo.sys
@@ -210,8 +210,8 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Database connection module demonstrating mixed import patterns.\n\nThis module combines:\n1. Absolute import from a different package (models.user)\n2. Relative import from within the same package (..utils.helpers)\n3. Import from parent package's version module (not __init__.py)\n4. No imports from parent package's __init__.py to avoid circular dependencies\n"""
     process_user = models_user.process_user
     core_database_connection.process_user = process_user
@@ -219,7 +219,6 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
     core_database_connection.helper_validate = helper_validate
     CORE_MODEL_VERSION = core_version.CORE_MODEL_VERSION
     core_database_connection.CORE_MODEL_VERSION = CORE_MODEL_VERSION
-    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_563ea2_models(models)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -280,8 +279,8 @@ def _cribo_init___cribo_782908_core_database(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global core_database_connection
     """Database subpackage with import-time initialization and re-exports."""
     validate = core_utils_helpers.validate
@@ -303,7 +302,6 @@ def _cribo_init___cribo_782908_core_database(self):
             return False
         return not any(char in name for char in ["/", "\\", ":"])
     self.validate_db_name = validate_db_name
-    self.__initializing__ = True
     core_database_connection = _cribo_init___cribo_1f0c3d_core_database_connection(core_database_connection)
     connect = core.database.connection.connect
     self.connect = connect

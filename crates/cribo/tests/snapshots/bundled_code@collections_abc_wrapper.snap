@@ -33,8 +33,8 @@ def _cribo_init___cribo_f0aa89_compat(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """compat.py - Compatibility module with side effects."""
     print("Loading compat module...")
     MutableMapping = _cribo.collections.abc.MutableMapping

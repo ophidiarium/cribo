@@ -33,8 +33,8 @@ def _cribo_init___cribo_26ef78_mymodule(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     print("mymodule.py is being executed!")
     counter = 1
     self.counter = counter
@@ -49,8 +49,8 @@ def _cribo_init___cribo_20ca72_package(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     print("package/__init__.py is being executed!")
     self.__initialized__ = True
     self.__initializing__ = False
@@ -61,8 +61,8 @@ def _cribo_init___cribo_75ebb7_package_submodule(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     print("package/submodule.py is being executed!")
     sub_counter = 10
     self.sub_counter = sub_counter

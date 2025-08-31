@@ -464,45 +464,10 @@ impl<'a> Bundler<'a> {
                     self.has_synthetic_name(&full_module_path) && !locally_initialized.contains(&id)
                 });
 
-                // Check if parent imports from this submodule (indicating dependency)
-                // This determines initialization order to avoid forward references
-                let parent_imports_submodule = should_initialize_parent
-                    && should_initialize_submodule
-                    && self.has_synthetic_name(module_name)
-                    && self.has_synthetic_name(&full_module_path)
-                    && self.graph.is_some_and(|graph| {
-                        let parent_module = graph.get_module_by_name(module_name);
-                        let child_module = graph.get_module_by_name(&full_module_path);
-                        if let (Some(parent), Some(child)) = (parent_module, child_module) {
-                            // Check if parent has child as a dependency
-                            let parent_deps = graph.get_dependencies(parent.module_id);
-                            parent_deps.contains(&child.module_id)
-                        } else {
-                            false
-                        }
-                    });
-
-                // Initialize modules in the correct order based on dependencies
-                // If parent imports submodule, initialize submodule first to avoid forward
-                // references Otherwise, use normal order (parent first)
-                if parent_imports_submodule {
-                    // Initialize submodule first since parent depends on it
-                    if should_initialize_submodule
-                        && let Some(submodule_id) = self.get_module_id(&full_module_path) {
-                            crate::code_generator::module_registry::initialize_submodule_if_needed(
-                                submodule_id,
-                                &self.module_init_functions,
-                                self.resolver,
-                                &mut assignments,
-                                &mut locally_initialized,
-                                &mut initialized_modules,
-                            );
-                        }
-
-                    // Now initialize parent module after submodule
-                    if should_initialize_parent
-                        && let Some(module_id) = self.get_module_id(module_name)
-                    {
+                // Always initialize parent first, then submodule (caller-driven order)
+                if should_initialize_parent {
+                    // Initialize parent module first
+                    if let Some(module_id) = self.get_module_id(module_name) {
                         let current_module_id = current_module.and_then(|m| self.get_module_id(m));
                         assignments.extend(
                             self.create_module_initialization_for_import_with_current_module(
@@ -510,38 +475,21 @@ impl<'a> Bundler<'a> {
                                 current_module_id,
                             ),
                         );
-                        if let Some(module_id) = self.get_module_id(module_name) {
-                            locally_initialized.insert(module_id);
-                        }
+                        locally_initialized.insert(module_id);
                     }
-                } else {
-                    // Normal order: parent first, then submodule
-                    if should_initialize_parent {
-                        // Initialize parent module first
-                        if let Some(module_id) = self.get_module_id(module_name) {
-                            let current_module_id =
-                                current_module.and_then(|m| self.get_module_id(m));
-                            assignments.extend(
-                                self.create_module_initialization_for_import_with_current_module(
-                                    module_id,
-                                    current_module_id,
-                                ),
-                            );
-                            locally_initialized.insert(module_id);
-                        }
-                    }
+                }
 
-                    if should_initialize_submodule
-                        && let Some(submodule_id) = self.get_module_id(&full_module_path) {
-                            crate::code_generator::module_registry::initialize_submodule_if_needed(
-                                submodule_id,
-                                &self.module_init_functions,
-                                self.resolver,
-                                &mut assignments,
-                                &mut locally_initialized,
-                                &mut initialized_modules,
-                            );
-                        }
+                if should_initialize_submodule
+                    && let Some(submodule_id) = self.get_module_id(&full_module_path)
+                {
+                    crate::code_generator::module_registry::initialize_submodule_if_needed(
+                        submodule_id,
+                        &self.module_init_functions,
+                        self.resolver,
+                        &mut assignments,
+                        &mut locally_initialized,
+                        &mut initialized_modules,
+                    );
                 }
 
                 // Build the direct namespace reference
@@ -1704,6 +1652,24 @@ impl<'a> Bundler<'a> {
         let mut all_inlined_stmts = Vec::new();
         let mut processed_modules = FxIndexSet::default();
 
+        // Build SCC groups (cycles) mapping for two-phase emission
+        let mut cycle_groups: Vec<Vec<ModuleId>> = Vec::new();
+        if let Some(analysis) = params.circular_dep_analysis {
+            for group in &analysis.resolvable_cycles {
+                cycle_groups.push(group.modules.clone());
+            }
+            for group in &analysis.unresolvable_cycles {
+                cycle_groups.push(group.modules.clone());
+            }
+        }
+        let mut member_to_group: FxIndexMap<ModuleId, usize> = FxIndexMap::default();
+        for (idx, group) in cycle_groups.iter().enumerate() {
+            for &mid in group {
+                member_to_group.insert(mid, idx);
+            }
+        }
+        let mut processed_cycle_groups: FxIndexSet<usize> = FxIndexSet::default();
+
         // Log the dependency order from the graph
         log::info!("Module processing order from dependency graph:");
         for (i, module_id) in params.sorted_module_ids.iter().enumerate() {
@@ -1715,12 +1681,152 @@ impl<'a> Bundler<'a> {
             log::info!("  {}. {} (path: {:?})", i + 1, module_name, module_path);
         }
 
-        // Process each module in dependency order
+        // Process each module/component in dependency order
         for module_id in params.sorted_module_ids {
             let module_name = params
                 .resolver
                 .get_module_name(*module_id)
                 .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+
+            // Skip modules already processed (e.g., via SCC group handling)
+            if processed_modules.contains(&module_name) {
+                continue;
+            }
+
+            // If this module is part of a cycle group, process the whole group once in two phases
+            if let Some(group_idx) = member_to_group.get(module_id)
+                && !processed_cycle_groups.contains(group_idx)
+            {
+                // Collect and sort members by package depth (parents first), then by name
+                let mut members: Vec<(ModuleId, String)> = cycle_groups[*group_idx]
+                    .iter()
+                    .filter_map(|mid| {
+                        params
+                            .resolver
+                            .get_module_name(*mid)
+                            .map(|name| (*mid, name))
+                    })
+                    .collect();
+                members.sort_by(|a, b| {
+                    let depth_a = a.1.matches('.').count();
+                    let depth_b = b.1.matches('.').count();
+                    depth_a.cmp(&depth_b).then_with(|| a.1.cmp(&b.1))
+                });
+
+                log::debug!(
+                    "Processing SCC group ({} modules): {:?}",
+                    members.len(),
+                    members.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>()
+                );
+
+                // Phase A: Predeclare module objects and attach to parents
+                for (mid, mname) in &members {
+                    // Skip if we already processed this module (defensive)
+                    if processed_modules.contains(mname) {
+                        continue;
+                    }
+
+                    // Ensure this module is registered as a wrapper (synthetic name/init)
+                    if !self.module_synthetic_names.contains_key(mid) {
+                        // Get hash/content and register
+                        if let Some((_, _path, hash)) = modules.get(mid) {
+                            crate::code_generator::module_registry::register_module(
+                                *mid,
+                                mname,
+                                hash,
+                                &mut self.module_synthetic_names,
+                                &mut self.module_init_functions,
+                            );
+                        }
+                        // Remove from inlined set to enforce wrapper treatment
+                        self.inlined_modules.shift_remove(mid);
+                    }
+
+                    // Determine if this is a package (ends with __init__.py)
+                    let is_package = modules
+                        .get(mid)
+                        .is_some_and(|(_, p, _)| p.ends_with("__init__.py"));
+
+                    // Create namespace only (no init yet)
+                    let sanitized = sanitize_module_name_for_identifier(mname);
+                    if !self.created_namespaces.contains(&sanitized) {
+                        let synthetic = self
+                            .module_synthetic_names
+                            .get(mid)
+                            .expect("synthetic name must exist for cycle member");
+                        let mut ns_stmts =
+                            crate::ast_builder::module_wrapper::create_wrapper_module(
+                                mname, synthetic, None, is_package,
+                            );
+                        all_inlined_stmts.append(&mut ns_stmts);
+                        self.created_namespaces.insert(sanitized.clone());
+                    }
+
+                    // Ensure parent-child attribute attachment exists
+                    self.create_namespace_chain_for_module(
+                        mname,
+                        &sanitized,
+                        &mut all_inlined_stmts,
+                    );
+
+                    processed_modules.insert(mname.clone());
+                }
+
+                // Phase B: Define all init functions after objects exist
+                for (mid, mname) in &members {
+                    // Prepare analysis context
+                    let (ast, path, _hash) = modules
+                        .get(mid)
+                        .expect("cycle member must exist in modules")
+                        .clone();
+
+                    let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
+                    let transform_ctx = ModuleTransformContext {
+                        module_name: mname,
+                        module_path: &path,
+                        global_info: global_info.clone(),
+                        semantic_bundler: self.semantic_bundler,
+                        python_version,
+                        is_wrapper_body: true,
+                    };
+
+                    let init_function = module_transformer::transform_module_to_init_function(
+                        self,
+                        &transform_ctx,
+                        ast.clone(),
+                        &symbol_renames,
+                    );
+
+                    let synthetic = self
+                        .module_synthetic_names
+                        .get(mid)
+                        .expect("synthetic name must exist for cycle member")
+                        .clone();
+
+                    // Insert lifted global declarations (before init), if any
+                    if let Some(ref info) = global_info
+                        && !info.global_declarations.is_empty() {
+                            let lifter = crate::code_generator::globals::GlobalsLifter::new(info);
+                            for (_, lifted_name) in &lifter.lifted_names {
+                                all_inlined_stmts.push(statements::simple_assign(
+                                    lifted_name,
+                                    expressions::none_literal(),
+                                ));
+                            }
+                        }
+
+                    let mut init_stmts =
+                        crate::ast_builder::module_wrapper::create_init_function_statements(
+                            mname,
+                            &synthetic,
+                            init_function,
+                        );
+                    all_inlined_stmts.append(&mut init_stmts);
+                }
+
+                processed_cycle_groups.insert(*group_idx);
+                continue; // Skip normal processing for this module
+            }
 
             // Skip if not in our module set (e.g., stdlib modules)
             if !module_map.contains_key(&module_name) {

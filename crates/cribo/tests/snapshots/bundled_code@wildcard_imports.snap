@@ -48,8 +48,8 @@ def _cribo_init___cribo_9a9871_with_side_effects(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Module with side-effects and no explicit __all__."""
     print("Loading with_side_effects module")
     _module_state = []

@@ -33,8 +33,8 @@ def _cribo_init___cribo_d8297b_data_processor(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Module with hyphen in name - can't be imported with regular import statement."""
 
     class DataProcessor:
@@ -61,8 +61,8 @@ def _cribo_init___cribo_64c186_api_client(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Another module with hyphen - demonstrating API client functionality."""
 
     class APIClient:
@@ -92,8 +92,8 @@ def _cribo_init___cribo_004e55_class_(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Module named 'class' - a Python keyword that can't be used in import statements."""
 
     class MetaClass:
@@ -123,8 +123,8 @@ def _cribo_init___cribo_944eb6_def_(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Module named 'def' - another Python keyword."""
 
     class FunctionDefinition:
@@ -155,8 +155,8 @@ def _cribo_init___cribo_ec6681_for_(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Module named 'for' - a Python keyword for loops."""
 
     class ForLoop:
@@ -189,8 +189,8 @@ def _cribo_init___cribo_5687a6__2024_config(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Module starting with a number - can't be imported with regular import."""
 
     class Config2024:

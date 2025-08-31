@@ -35,13 +35,84 @@ pkg.__version__ = pkg___version__
 pkg_certs = _cribo.types.SimpleNamespace(__name__='pkg.certs')
 pkg.certs = pkg_certs
 """Certs module."""
+pkg__internal_utils = _cribo.types.SimpleNamespace(__name__='pkg._internal_utils', __initializing__=False, __initialized__=False)
+pkg._internal_utils = pkg__internal_utils
 pkg_compat = _cribo.types.SimpleNamespace(__name__='pkg.compat', __initializing__=False, __initialized__=False)
+pkg.compat = pkg_compat
+pkg_models = _cribo.types.SimpleNamespace(__name__='pkg.models', __initializing__=False, __initialized__=False)
+pkg.models = pkg_models
+pkg_sessions = _cribo.types.SimpleNamespace(__name__='pkg.sessions', __initializing__=False, __initialized__=False)
+pkg.sessions = pkg_sessions
+pkg_utils = _cribo.types.SimpleNamespace(__name__='pkg.utils', __initializing__=False, __initialized__=False)
+pkg.utils = pkg_utils
+def _cribo_init___cribo_b86557_pkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global pkg__internal_utils, pkg_compat, pkg_sessions, pkg_utils
+    """Main package that creates wrapper module pattern like requests."""
+    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
+    utils = pkg.utils
+    self.utils = utils
+    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
+    compat = pkg.compat
+    self.compat = compat
+    pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)
+    _internal_utils = pkg._internal_utils
+    self._internal_utils = _internal_utils
+    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
+    process_data = pkg.utils.process_data
+    self.process_data = process_data
+    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
+    basestring = pkg.compat.basestring
+    self.basestring = basestring
+    pkg_sessions = _cribo_init___cribo_f4100a_pkg_sessions(pkg_sessions)
+    Session = pkg.sessions.Session
+    self.Session = Session
+    self.__version__ = pkg___version__
+    self.certs = pkg_certs
+    self.__version__ = pkg___version__
+    self.certs = pkg_certs
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg.__init__ = _cribo_init___cribo_b86557_pkg
+def _cribo_init___cribo_5a392a_pkg__internal_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global pkg_compat
+    """Internal utils that depends on compat, creating circular dependency."""
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
+    builtin_str = pkg.compat.builtin_str
+    self.builtin_str = builtin_str
+    HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
+    self.HEADER_VALIDATORS = HEADER_VALIDATORS
+
+    def to_native_string(value):
+        """Convert to native string."""
+        if isinstance(value, builtin_str):
+            return value
+        return str(value)
+    self.to_native_string = to_native_string
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg__internal_utils.__init__ = _cribo_init___cribo_5a392a_pkg__internal_utils
 def _cribo_init___cribo_d78f34_pkg_compat(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Compatibility module that matches requests.compat pattern exactly."""
     str = __import__('builtins').str
     self.str = str
@@ -61,76 +132,122 @@ def _cribo_init___cribo_d78f34_pkg_compat(self):
     self.__initializing__ = False
     return self
 pkg_compat.__init__ = _cribo_init___cribo_d78f34_pkg_compat
-pkg.compat = pkg_compat
-pkg__internal_utils = _cribo.types.SimpleNamespace(__name__='pkg._internal_utils', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_5a392a_pkg__internal_utils(self):
+def _cribo_init___cribo_55aa63_pkg_models(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
-    global pkg_compat
-    """Internal utils that depends on compat, creating circular dependency."""
     self.__initializing__ = True
+    global pkg_compat, pkg_utils
+    """Models module to add more complexity."""
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
+    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
+    utils = pkg.utils
+    self.utils = utils
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
-    builtin_str = pkg.compat.builtin_str
-    self.builtin_str = builtin_str
-    HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
-    self.HEADER_VALIDATORS = HEADER_VALIDATORS
+    basestring = pkg.compat.basestring
+    self.basestring = basestring
 
-    def to_native_string(value):
-        """Convert to native string."""
-        if isinstance(value, builtin_str):
-            return value
-        return str(value)
-    self.to_native_string = to_native_string
+    class Request:
+        """Request model."""
+
+        def __init__(self, data):
+            self.data = data
+    Request.__module__ = 'pkg.models'
+    self.Request = Request
     self.__initialized__ = True
     self.__initializing__ = False
     return self
-pkg__internal_utils.__init__ = _cribo_init___cribo_5a392a_pkg__internal_utils
-pkg._internal_utils = pkg__internal_utils
-pkg_utils = _cribo.types.SimpleNamespace(__name__='pkg.utils', __initializing__=False, __initialized__=False)
+pkg_models.__init__ = _cribo_init___cribo_55aa63_pkg_models
+def _cribo_init___cribo_f4100a_pkg_sessions(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global pkg_compat, pkg_models, pkg_utils
+    """Sessions module that creates more circular dependencies."""
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
+    compat = pkg.compat
+    self.compat = compat
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
+    OrderedDict = pkg.compat.OrderedDict
+    self.OrderedDict = OrderedDict
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
+    utils = pkg.utils
+    self.utils = utils
+    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(pkg, attr, getattr(__cribo_init_result, attr))
+    pkg_models = _cribo_init___cribo_55aa63_pkg_models(pkg_models)
+    models = pkg.models
+    self.models = models
+
+    class Session:
+        """Session class that depends on multiple modules."""
+
+        def __init__(self):
+            self.headers = OrderedDict() if hasattr(compat, "OrderedDict") else {}
+
+        def request(self, data):
+            """Make a request using utils."""
+            return utils.process_data(data)
+    Session.__module__ = 'pkg.sessions'
+    self.Session = Session
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg_sessions.__init__ = _cribo_init___cribo_f4100a_pkg_sessions
 def _cribo_init___cribo_70cac5_pkg_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global pkg__internal_utils, pkg_compat
     """Utils module that matches requests.utils import pattern."""
     certs = _cribo.types.SimpleNamespace()
     self.certs = certs
-    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
     pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)
     HEADER_VALIDATORS = pkg._internal_utils.HEADER_VALIDATORS
     self.HEADER_VALIDATORS = HEADER_VALIDATORS
     to_native_string = pkg._internal_utils.to_native_string
     self.to_native_string = to_native_string
-    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     compat = pkg.compat
     self.compat = compat
-    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
@@ -154,149 +271,6 @@ def _cribo_init___cribo_70cac5_pkg_utils(self):
     self.__initializing__ = False
     return self
 pkg_utils.__init__ = _cribo_init___cribo_70cac5_pkg_utils
-pkg.utils = pkg_utils
-pkg_models = _cribo.types.SimpleNamespace(__name__='pkg.models', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_55aa63_pkg_models(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global pkg_compat, pkg_utils
-    """Models module to add more complexity."""
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
-    utils = pkg.utils
-    self.utils = utils
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
-    basestring = pkg.compat.basestring
-    self.basestring = basestring
-
-    class Request:
-        """Request model."""
-
-        def __init__(self, data):
-            self.data = data
-    Request.__module__ = 'pkg.models'
-    self.Request = Request
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-pkg_models.__init__ = _cribo_init___cribo_55aa63_pkg_models
-pkg.models = pkg_models
-pkg_sessions = _cribo.types.SimpleNamespace(__name__='pkg.sessions', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_f4100a_pkg_sessions(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global pkg_compat, pkg_models, pkg_utils
-    """Sessions module that creates more circular dependencies."""
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
-    compat = pkg.compat
-    self.compat = compat
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
-    OrderedDict = pkg.compat.OrderedDict
-    self.OrderedDict = OrderedDict
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
-    utils = pkg.utils
-    self.utils = utils
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    pkg_models = _cribo_init___cribo_55aa63_pkg_models(pkg_models)
-    models = pkg.models
-    self.models = models
-
-    class Session:
-        """Session class that depends on multiple modules."""
-
-        def __init__(self):
-            self.headers = OrderedDict() if hasattr(compat, "OrderedDict") else {}
-
-        def request(self, data):
-            """Make a request using utils."""
-            return utils.process_data(data)
-    Session.__module__ = 'pkg.sessions'
-    self.Session = Session
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-pkg_sessions.__init__ = _cribo_init___cribo_f4100a_pkg_sessions
-pkg.sessions = pkg_sessions
-def _cribo_init___cribo_b86557_pkg(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global pkg__internal_utils, pkg_compat, pkg_sessions, pkg_utils
-    """Main package that creates wrapper module pattern like requests."""
-    self.__initializing__ = True
-    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
-    utils = pkg.utils
-    self.utils = utils
-    self.__initializing__ = True
-    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
-    compat = pkg.compat
-    self.compat = compat
-    self.__initializing__ = True
-    pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)
-    _internal_utils = pkg._internal_utils
-    self._internal_utils = _internal_utils
-    self.__initializing__ = True
-    pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
-    process_data = pkg.utils.process_data
-    self.process_data = process_data
-    self.__initializing__ = True
-    pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
-    basestring = pkg.compat.basestring
-    self.basestring = basestring
-    self.__initializing__ = True
-    pkg_sessions = _cribo_init___cribo_f4100a_pkg_sessions(pkg_sessions)
-    Session = pkg.sessions.Session
-    self.Session = Session
-    self.__version__ = pkg___version__
-    self.certs = pkg_certs
-    self.__version__ = pkg___version__
-    self.certs = pkg_certs
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-pkg.__init__ = _cribo_init___cribo_b86557_pkg
 """Test wrapper module pattern that triggers init functions with builtin types bug.\n\nThis reproduces the exact pattern from requests where:\n1. Multiple modules form circular dependencies (wrapper modules)\n2. One wrapper module (compat) has self-referential builtin assignments\n3. Another wrapper module (utils) accesses these as attributes\n4. The bundler generates init functions for wrapper modules\n"""
 __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
 for attr in dir(__cribo_init_result):

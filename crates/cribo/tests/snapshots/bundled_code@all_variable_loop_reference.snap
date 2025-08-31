@@ -44,8 +44,8 @@ def _cribo_init___cribo_4c9561_mypkg(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     MyClass = mypkg__internal.MyClass
     mypkg.MyClass = MyClass
     my_func = mypkg__internal.my_func

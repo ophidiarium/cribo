@@ -63,17 +63,17 @@ class Application:
 Application.__module__ = 'app'
 app.Application = Application
 config = _cribo.types.SimpleNamespace(__name__='config', __initializing__=False, __initialized__=False)
+logger = _cribo.types.SimpleNamespace(__name__='logger', __initializing__=False, __initialized__=False)
 _cribo_config__config = None
 def _cribo_init___cribo_f96d2c_config(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global _cribo_config__config
     global logger
     """\nConfiguration module that logs its initialization process.\nThis creates a circular dependency: config -> logger -> config\n"""
-    self.__initializing__ = True
     logger = _cribo_init___cribo_0639af_logger(logger)
     get_logger = logger.get_logger
     self.get_logger = get_logger
@@ -124,14 +124,13 @@ def _cribo_init___cribo_f96d2c_config(self):
     self.__initializing__ = False
     return self
 config.__init__ = _cribo_init___cribo_f96d2c_config
-logger = _cribo.types.SimpleNamespace(__name__='logger', __initializing__=False, __initialized__=False)
 _cribo_logger__logger = None
 def _cribo_init___cribo_0639af_logger(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global _cribo_logger__logger
     global config
     """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""

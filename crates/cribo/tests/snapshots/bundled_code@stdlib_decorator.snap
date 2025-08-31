@@ -33,8 +33,8 @@ def _cribo_init___cribo_7c69fc_mypackage_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Utils module with contextlib decorator.\n\nThis module must have side effects to become a wrapper module,\nand uses contextlib as a decorator which should be preserved in\nthe init function but currently isn't.\n"""
     contextlib = _cribo.contextlib
     self.contextlib = contextlib
@@ -67,11 +67,10 @@ def _cribo_init___cribo_41b947_mypackage(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global mypackage_utils
     """Package init file."""
-    self.__initializing__ = True
     mypackage_utils = _cribo_init___cribo_7c69fc_mypackage_utils(mypackage_utils)
     utils = mypackage.utils
     self.utils = utils

@@ -46,8 +46,8 @@ def _cribo_init___cribo_de6c46_mypackage_config(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Configuration module."""
     os = _cribo.os
     self.os = os
@@ -87,19 +87,17 @@ def _cribo_init___cribo_a81151_mypackage(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global mypackage_config
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     process_data = mypackage_data_processor.process_data
     mypackage.process_data = process_data
     format_data = mypackage_formatter.format_data
     mypackage.format_data = format_data
-    self.__initializing__ = True
     mypackage_config = _cribo_init___cribo_de6c46_mypackage_config(mypackage_config)
     config = mypackage.config.config
     self.config = config
-    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_99e487_mypackage_utils(mypackage_utils)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -122,8 +120,8 @@ def _cribo_init___cribo_99e487_mypackage_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Utils subpackage with re-exports."""
     helper_function = mypackage_utils_helper.helper_function
     mypackage_utils.helper_function = helper_function

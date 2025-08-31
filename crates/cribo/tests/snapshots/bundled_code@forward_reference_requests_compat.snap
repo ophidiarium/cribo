@@ -33,8 +33,8 @@ def _cribo_init___cribo_5ad29b_myrequests_compat(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Compat module that provides base classes and utilities used by other modules."""
     try:
         import simplejson as json
@@ -76,108 +76,57 @@ def _cribo_init___cribo_5ad29b_myrequests_compat(self):
 myrequests_compat.__init__ = _cribo_init___cribo_5ad29b_myrequests_compat
 myrequests = _cribo.types.SimpleNamespace(__name__='myrequests', __initializing__=False, __initialized__=False)
 myrequests.compat = myrequests_compat
+myrequests_cookies = _cribo.types.SimpleNamespace(__name__='myrequests.cookies', __initializing__=False, __initialized__=False)
+myrequests.cookies = myrequests_cookies
 myrequests_exceptions = _cribo.types.SimpleNamespace(__name__='myrequests.exceptions', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_530a30_myrequests_exceptions(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global myrequests_compat
-    """Exceptions module that uses compat types in class inheritance."""
-    self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
-    myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
-    CompatJSONDecodeError = myrequests.compat.JSONDecodeError
-    self.CompatJSONDecodeError = CompatJSONDecodeError
-
-    class RequestException(Exception):
-        """Base exception for all request errors."""
-        pass
-    RequestException.__module__ = 'myrequests.exceptions'
-    self.RequestException = RequestException
-
-    class InvalidJSONError(RequestException):
-        """A JSON error occurred."""
-        pass
-    InvalidJSONError.__module__ = 'myrequests.exceptions'
-    self.InvalidJSONError = InvalidJSONError
-
-    class JSONDecodeError(InvalidJSONError, CompatJSONDecodeError):
-        """Couldn't decode the text into json."""
-        pass
-    JSONDecodeError.__module__ = 'myrequests.exceptions'
-    self.JSONDecodeError = JSONDecodeError
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-myrequests_exceptions.__init__ = _cribo_init___cribo_530a30_myrequests_exceptions
 myrequests.exceptions = myrequests_exceptions
 myrequests_utils = _cribo.types.SimpleNamespace(__name__='myrequests.utils', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_ce8acb_myrequests_utils(self):
+myrequests.utils = myrequests_utils
+def _cribo_init___cribo_a5ac5e_myrequests(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
-    global myrequests_compat, myrequests_exceptions
-    """Utils module that also uses compat."""
     self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
+    global myrequests_compat, myrequests_cookies, myrequests_exceptions, myrequests_utils
+    """Main package that imports from multiple submodules."""
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
-    json = myrequests.compat.json
-    self.json = json
-    builtin_str = myrequests.compat.builtin_str
-    self.builtin_str = builtin_str
-
-    def to_native_string(string):
-        """Convert to native string type."""
-        if isinstance(string, builtin_str):
-            return string
-        return str(string)
-    self.to_native_string = to_native_string
-
-    def decode_json(content):
-        """Decode JSON content."""
-        try:
-            return _cribo.json.loads(content)
-        except (ValueError, TypeError) as e:
-            __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-            for attr in dir(__cribo_init_result):
-                if not attr.startswith('_'):
-                    setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-            myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
-            OurJSONDecodeError = myrequests.exceptions.JSONDecodeError
-            raise OurJSONDecodeError(str(e))
+    compat = myrequests.compat
+    self.compat = compat
+    myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
+    cookies = myrequests.cookies
+    self.cookies = cookies
+    myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
+    exceptions = myrequests.exceptions
+    self.exceptions = exceptions
+    myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)
+    utils = myrequests.utils
+    self.utils = utils
+    myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
+    CookieJar = myrequests.cookies.CookieJar
+    self.CookieJar = CookieJar
+    myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
+    JSONDecodeError = myrequests.exceptions.JSONDecodeError
+    self.JSONDecodeError = JSONDecodeError
+    myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)
+    decode_json = myrequests.utils.decode_json
     self.decode_json = decode_json
     self.__initialized__ = True
     self.__initializing__ = False
     return self
-myrequests_utils.__init__ = _cribo_init___cribo_ce8acb_myrequests_utils
-myrequests.utils = myrequests_utils
-myrequests_cookies = _cribo.types.SimpleNamespace(__name__='myrequests.cookies', __initializing__=False, __initialized__=False)
+myrequests.__init__ = _cribo_init___cribo_a5ac5e_myrequests
 def _cribo_init___cribo_135ee1_myrequests_cookies(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global myrequests_compat
     """Cookies module that uses compat's MutableMapping in class inheritance."""
-    self.__initializing__ = True
     __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(myrequests, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     cookielib = myrequests.compat.cookielib
     self.cookielib = cookielib
@@ -219,47 +168,85 @@ def _cribo_init___cribo_135ee1_myrequests_cookies(self):
     self.__initializing__ = False
     return self
 myrequests_cookies.__init__ = _cribo_init___cribo_135ee1_myrequests_cookies
-myrequests.cookies = myrequests_cookies
-def _cribo_init___cribo_a5ac5e_myrequests(self):
+def _cribo_init___cribo_530a30_myrequests_exceptions(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
-    global myrequests_compat, myrequests_cookies, myrequests_exceptions, myrequests_utils
-    """Main package that imports from multiple submodules."""
     self.__initializing__ = True
+    global myrequests_compat
+    """Exceptions module that uses compat types in class inheritance."""
+    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
-    compat = myrequests.compat
-    self.compat = compat
-    self.__initializing__ = True
-    myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
-    cookies = myrequests.cookies
-    self.cookies = cookies
-    self.__initializing__ = True
-    myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
-    exceptions = myrequests.exceptions
-    self.exceptions = exceptions
-    self.__initializing__ = True
-    myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)
-    utils = myrequests.utils
-    self.utils = utils
-    self.__initializing__ = True
-    myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
-    CookieJar = myrequests.cookies.CookieJar
-    self.CookieJar = CookieJar
-    self.__initializing__ = True
-    myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
-    JSONDecodeError = myrequests.exceptions.JSONDecodeError
+    CompatJSONDecodeError = myrequests.compat.JSONDecodeError
+    self.CompatJSONDecodeError = CompatJSONDecodeError
+
+    class RequestException(Exception):
+        """Base exception for all request errors."""
+        pass
+    RequestException.__module__ = 'myrequests.exceptions'
+    self.RequestException = RequestException
+
+    class InvalidJSONError(RequestException):
+        """A JSON error occurred."""
+        pass
+    InvalidJSONError.__module__ = 'myrequests.exceptions'
+    self.InvalidJSONError = InvalidJSONError
+
+    class JSONDecodeError(InvalidJSONError, CompatJSONDecodeError):
+        """Couldn't decode the text into json."""
+        pass
+    JSONDecodeError.__module__ = 'myrequests.exceptions'
     self.JSONDecodeError = JSONDecodeError
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+myrequests_exceptions.__init__ = _cribo_init___cribo_530a30_myrequests_exceptions
+def _cribo_init___cribo_ce8acb_myrequests_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
     self.__initializing__ = True
-    myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)
-    decode_json = myrequests.utils.decode_json
+    global myrequests_compat, myrequests_exceptions
+    """Utils module that also uses compat."""
+    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
+    myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
+    json = myrequests.compat.json
+    self.json = json
+    builtin_str = myrequests.compat.builtin_str
+    self.builtin_str = builtin_str
+
+    def to_native_string(string):
+        """Convert to native string type."""
+        if isinstance(string, builtin_str):
+            return string
+        return str(string)
+    self.to_native_string = to_native_string
+
+    def decode_json(content):
+        """Decode JSON content."""
+        try:
+            return _cribo.json.loads(content)
+        except (ValueError, TypeError) as e:
+            __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
+            for attr in dir(__cribo_init_result):
+                if not attr.startswith('_'):
+                    setattr(myrequests, attr, getattr(__cribo_init_result, attr))
+            myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
+            OurJSONDecodeError = myrequests.exceptions.JSONDecodeError
+            raise OurJSONDecodeError(str(e))
     self.decode_json = decode_json
     self.__initialized__ = True
     self.__initializing__ = False
     return self
-myrequests.__init__ = _cribo_init___cribo_a5ac5e_myrequests
+myrequests_utils.__init__ = _cribo_init___cribo_ce8acb_myrequests_utils
 """Test that mimics requests' pattern causing forward reference."""
 __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
 for attr in dir(__cribo_init_result):

@@ -48,32 +48,13 @@ class MyClass:
         self.value = "from module_a"
 MyClass.__module__ = 'package._subpackage.module_a'
 package__subpackage_module_a.MyClass = MyClass
-def _cribo_init___cribo_66c36f_package__subpackage(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global MyClass, my_function
-    self.MyClass = MyClass
-    self.my_function = my_function
-    """Subpackage that re-exports from modules using wildcards."""
-    self.module_b = package__subpackage_module_b
-    self.module_a = package__subpackage_module_a
-    self.module_b = package__subpackage_module_b
-    self.module_a = package__subpackage_module_a
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-package__subpackage.__init__ = _cribo_init___cribo_66c36f_package__subpackage
 def _cribo_init___cribo_cca96f_package(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
-    """Package using wildcard imports and setattr pattern like httpx."""
     self.__initializing__ = True
+    """Package using wildcard imports and setattr pattern like httpx."""
     __cribo_init_result = _cribo_init___cribo_66c36f_package__subpackage(package__subpackage)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -92,6 +73,24 @@ def _cribo_init___cribo_cca96f_package(self):
     self.__initializing__ = False
     return self
 package.__init__ = _cribo_init___cribo_cca96f_package
+def _cribo_init___cribo_66c36f_package__subpackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global MyClass, my_function
+    self.MyClass = MyClass
+    self.my_function = my_function
+    """Subpackage that re-exports from modules using wildcards."""
+    self.module_b = package__subpackage_module_b
+    self.module_a = package__subpackage_module_a
+    self.module_b = package__subpackage_module_b
+    self.module_a = package__subpackage_module_a
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+package__subpackage.__init__ = _cribo_init___cribo_66c36f_package__subpackage
 """Test wildcard imports with __all__ and setattr pattern."""
 __cribo_init_result = _cribo_init___cribo_cca96f_package(package)
 for attr in dir(__cribo_init_result):

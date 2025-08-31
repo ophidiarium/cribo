@@ -73,10 +73,8 @@ pub fn transform_module_to_init_function<'a>(
     body.push(check_initialized);
 
     // Check if currently initializing (circular dependency)
-    // When we detect recursion, set __initializing__ = False to allow next call to proceed further
     // if getattr(self, "__initializing__", False):
-    //     self.__initializing__ = False  # Allow incremental progress
-    //     return self  # Return partial module
+    //     return self  # Return partial module in partially-initialized state
     let check_initializing = ast_builder::statements::if_stmt(
         ast_builder::expressions::call(
             ast_builder::expressions::name("getattr", ExprContext::Load),
@@ -87,25 +85,19 @@ pub fn transform_module_to_init_function<'a>(
             ],
             vec![],
         ),
-        vec![
-            // Set __initializing__ = False to allow incremental progress
-            ast_builder::statements::assign_attribute(
-                SELF_PARAM,
-                "__initializing__",
-                ast_builder::expressions::bool_literal(false),
-            ),
-            // Return the partial module
-            ast_builder::statements::return_stmt(Some(ast_builder::expressions::name(
-                SELF_PARAM,
-                ExprContext::Load,
-            ))),
-        ],
+        vec![ast_builder::statements::return_stmt(Some(
+            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+        ))],
         vec![],
     );
     body.push(check_initializing);
 
-    // We no longer set __initializing__ globally at the beginning
-    // Instead, we'll set it strategically before each import call
+    // Mark as initializing at the start of init to emulate Python's partial module semantics
+    body.push(ast_builder::statements::assign_attribute(
+        SELF_PARAM,
+        "__initializing__",
+        ast_builder::expressions::bool_literal(true),
+    ));
 
     // NOTE: We do NOT call parent init from child modules
     // In Python, the import machinery ensures parent is initialized before child,
@@ -671,48 +663,7 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Process each statement from the transformed module body
-    // We need to set __initializing__ = True before any statement that calls another module's init
     for (idx, stmt) in processed_body.into_iter().enumerate() {
-        // Check if this statement contains a call to another module's init function
-        let contains_init_call = match &stmt {
-            Stmt::Assign(assign) => {
-                // Check if the value is a call to an init function
-                if let Expr::Call(call) = assign.value.as_ref() {
-                    if let Expr::Name(name) = call.func.as_ref() {
-                        name.id.starts_with("_cribo_init_")
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            Stmt::Expr(expr_stmt) => {
-                // Check if it's a direct init call
-                if let Expr::Call(call) = expr_stmt.value.as_ref() {
-                    if let Expr::Name(name) = call.func.as_ref() {
-                        name.id.starts_with("_cribo_init_")
-                    } else if let Expr::Attribute(attr) = call.func.as_ref() {
-                        // Check for module.__init__() calls
-                        attr.attr.as_str() == "__init__"
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        };
-
-        // If this statement contains an init call, set __initializing__ = True first
-        if contains_init_call {
-            body.push(ast_builder::statements::assign_attribute(
-                SELF_PARAM,
-                "__initializing__",
-                ast_builder::expressions::bool_literal(true),
-            ));
-        }
         match &stmt {
             Stmt::Assign(_) => debug!("Processing statement {idx} in init function: Assign"),
             Stmt::ImportFrom(_) => {

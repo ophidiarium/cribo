@@ -33,8 +33,8 @@ def _cribo_init___cribo_dca395_pkg_submodule(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Submodule that becomes a wrapper module due to module-level import from parent."""
     get_base = pkg.get_base
     pkg_submodule.get_base = get_base

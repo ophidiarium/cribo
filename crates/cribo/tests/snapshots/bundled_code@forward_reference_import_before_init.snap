@@ -33,8 +33,8 @@ def _cribo_init___cribo_4089db_mypkg_compat(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     try:
         from fakejson import JSONDecodeError
         mypkg_compat.JSONDecodeError = JSONDecodeError
@@ -50,19 +50,32 @@ mypkg_compat.__init__ = _cribo_init___cribo_4089db_mypkg_compat
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
 mypkg.compat = mypkg_compat
 mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions', __initializing__=False, __initialized__=False)
+mypkg.exceptions = mypkg_exceptions
+def _cribo_init___cribo_30661c_mypkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypkg_exceptions
+    mypkg_exceptions = _cribo_init___cribo_72b028_mypkg_exceptions(mypkg_exceptions)
+    CustomJSONError = mypkg.exceptions.CustomJSONError
+    self.CustomJSONError = CustomJSONError
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg.__init__ = _cribo_init___cribo_30661c_mypkg
 def _cribo_init___cribo_72b028_mypkg_exceptions(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
-    global mypkg_compat
     self.__initializing__ = True
+    global mypkg_compat
     __cribo_init_result = _cribo_init___cribo_30661c_mypkg(mypkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(mypkg, attr, getattr(__cribo_init_result, attr))
-    self.__initializing__ = True
     mypkg_compat = _cribo_init___cribo_4089db_mypkg_compat(mypkg_compat)
     CompatJSONDecodeError = mypkg.compat.JSONDecodeError
     self.CompatJSONDecodeError = CompatJSONDecodeError
@@ -88,22 +101,6 @@ def _cribo_init___cribo_72b028_mypkg_exceptions(self):
     self.__initializing__ = False
     return self
 mypkg_exceptions.__init__ = _cribo_init___cribo_72b028_mypkg_exceptions
-mypkg.exceptions = mypkg_exceptions
-def _cribo_init___cribo_30661c_mypkg(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global mypkg_exceptions
-    self.__initializing__ = True
-    mypkg_exceptions = _cribo_init___cribo_72b028_mypkg_exceptions(mypkg_exceptions)
-    CustomJSONError = mypkg.exceptions.CustomJSONError
-    self.CustomJSONError = CustomJSONError
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-mypkg.__init__ = _cribo_init___cribo_30661c_mypkg
 __cribo_init_result = _cribo_init___cribo_30661c_mypkg(mypkg)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

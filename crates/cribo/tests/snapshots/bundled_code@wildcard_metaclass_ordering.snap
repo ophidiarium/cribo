@@ -99,8 +99,8 @@ def _cribo_init___cribo_952a76_yaml_module(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, SafeDumper, SafeLoader, UnsafeLoader
     self.BaseDumper = BaseDumper
     self.BaseLoader = BaseLoader

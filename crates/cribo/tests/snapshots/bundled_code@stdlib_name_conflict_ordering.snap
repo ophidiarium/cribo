@@ -44,12 +44,37 @@ class Base(_cribo.abc.ABC):
 Base.__module__ = 'complex_pkg.abc'
 complex_pkg_abc.Base = Base
 complex_pkg_console = _cribo.types.SimpleNamespace(__name__='complex_pkg.console', __initializing__=False, __initialized__=False)
+complex_pkg.console = complex_pkg_console
+def _cribo_init___cribo_937418_complex_pkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global complex_pkg_console
+    Base = complex_pkg_abc.Base
+    complex_pkg.Base = Base
+    complex_pkg_console = _cribo_init___cribo_beaba5_complex_pkg_console(complex_pkg_console)
+    Console = complex_pkg.console.Console
+    self.Console = Console
+
+    def main():
+        console = Console()
+        console.print("Testing")
+    self.main = main
+    self.abc = complex_pkg_abc
+    self.abc = complex_pkg_abc
+    self.Base = Base
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+complex_pkg.__init__ = _cribo_init___cribo_937418_complex_pkg
 def _cribo_init___cribo_beaba5_complex_pkg_console(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     Any = _cribo.typing.Any
     self.Any = Any
     Optional = _cribo.typing.Optional
@@ -90,32 +115,6 @@ def _cribo_init___cribo_beaba5_complex_pkg_console(self):
     self.__initializing__ = False
     return self
 complex_pkg_console.__init__ = _cribo_init___cribo_beaba5_complex_pkg_console
-complex_pkg.console = complex_pkg_console
-def _cribo_init___cribo_937418_complex_pkg(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
-        return self
-    global complex_pkg_console
-    Base = complex_pkg_abc.Base
-    complex_pkg.Base = Base
-    self.__initializing__ = True
-    complex_pkg_console = _cribo_init___cribo_beaba5_complex_pkg_console(complex_pkg_console)
-    Console = complex_pkg.console.Console
-    self.Console = Console
-
-    def main():
-        console = Console()
-        console.print("Testing")
-    self.main = main
-    self.abc = complex_pkg_abc
-    self.abc = complex_pkg_abc
-    self.Base = Base
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-complex_pkg.__init__ = _cribo_init___cribo_937418_complex_pkg
 __cribo_init_result = _cribo_init___cribo_937418_complex_pkg(complex_pkg)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

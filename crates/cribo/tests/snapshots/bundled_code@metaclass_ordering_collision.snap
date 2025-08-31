@@ -33,8 +33,8 @@ def _cribo_init___cribo_12d4a8_module_a(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """First module with metaclass and class - will have original names."""
 
     class YAMLObjectMetaclass(type):
@@ -64,8 +64,8 @@ def _cribo_init___cribo_276673_module_b(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Second module with same-named metaclass and class - will get renamed."""
 
     class YAMLObjectMetaclass(type):

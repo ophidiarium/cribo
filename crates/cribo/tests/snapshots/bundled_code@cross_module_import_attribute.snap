@@ -34,8 +34,8 @@ def _cribo_init___cribo_699da1_my_package___version__(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     """Version information for my_package"""
     __version__ = "1.2.3"
     self.__version__ = __version__
@@ -50,11 +50,10 @@ def _cribo_init___cribo_1f0580_my_package_utils(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
-        self.__initializing__ = False
         return self
+    self.__initializing__ = True
     global my_package___version__
     """Utility module that imports version from another module"""
-    self.__initializing__ = True
     my_package___version__ = _cribo_init___cribo_699da1_my_package___version__(my_package___version__)
     __version__ = my_package.__version__.__version__
     self.__version__ = __version__
