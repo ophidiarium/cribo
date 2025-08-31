@@ -49,8 +49,8 @@ etcetera  = "0.10"
 regex     = "1.11.1"
 
 # Python bindings (optional)
-pyo3              = "0.25"
-pyo3-build-config = "0.25"
+pyo3              = "0.26"
+pyo3-build-config = "0.26"
 
 # Testing
 insta             = { version = "1.43.1", features = ["filters", "glob", "yaml"] }
