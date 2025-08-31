@@ -15,8 +15,6 @@ use crate::{
 pub struct TreeShaker {
     /// Module items from semantic analysis (reused from `CriboGraph`)
     module_items: FxIndexMap<ModuleId, Vec<ItemData>>,
-    /// Track which symbols are used across module boundaries
-    cross_module_refs: FxIndexMap<(ModuleId, String), FxIndexSet<ModuleId>>,
     /// Final set of symbols to keep (`module_id`, `symbol_name`)
     used_symbols: FxIndexSet<(ModuleId, String)>,
     /// Map from module ID to module name (for display/logging)
@@ -48,7 +46,6 @@ impl TreeShaker {
 
         Self {
             module_items,
-            cross_module_refs: FxIndexMap::default(),
             used_symbols: FxIndexSet::default(),
             module_names,
             module_name_to_id,
@@ -67,9 +64,6 @@ impl TreeShaker {
     pub fn analyze(&mut self, entry_module: &str) {
         debug!("Starting tree-shaking analysis from entry module: {entry_module}");
 
-        // First, build cross-module reference information
-        self.build_cross_module_refs();
-
         // Verify that the entry module is registered with the expected ID
         let entry_id = self.module_name_to_id.get(entry_module).copied();
         if entry_id != Some(ModuleId::ENTRY) {
@@ -87,46 +81,6 @@ impl TreeShaker {
             "Tree-shaking complete. Keeping {} symbols",
             self.used_symbols.len()
         );
-    }
-
-    /// Build cross-module reference information
-    fn build_cross_module_refs(&mut self) {
-        trace!("Building cross-module reference information");
-
-        for (&module_id, items) in &self.module_items {
-            for item in items {
-                // Track which external symbols this item references
-                for read_var in &item.read_vars {
-                    // Check if this is a reference to another module's symbol
-                    if self.is_external_symbol(module_id, read_var) {
-                        // Find which module defines this symbol
-                        if let Some(defining_module) = self.find_defining_module(read_var) {
-                            self.cross_module_refs
-                                .entry((defining_module, read_var.clone()))
-                                .or_default()
-                                .insert(module_id);
-                        }
-                    }
-                }
-
-                // Also check eventual_read_vars for function-level imports
-                for read_var in &item.eventual_read_vars {
-                    if self.is_external_symbol(module_id, read_var)
-                        && let Some(defining_module) = self.find_defining_module(read_var)
-                    {
-                        self.cross_module_refs
-                            .entry((defining_module, read_var.clone()))
-                            .or_default()
-                            .insert(module_id);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Check if a symbol is external to the current module
-    fn is_external_symbol(&self, module_id: ModuleId, symbol: &str) -> bool {
-        !self.is_defined_in_module(module_id, symbol)
     }
 
     /// Check if a symbol is defined in a specific module
@@ -600,18 +554,6 @@ impl TreeShaker {
 
             // Process the item that defines this symbol
             self.process_symbol_definition(module_id, &symbol, &mut worklist);
-
-            // Check if other modules reference this symbol
-            if let Some(referencing_modules) =
-                self.cross_module_refs.get(&(module_id, symbol.clone()))
-            {
-                trace!(
-                    "Symbol {}::{} is referenced by {} modules",
-                    module_display,
-                    symbol,
-                    referencing_modules.len()
-                );
-            }
         }
     }
 
