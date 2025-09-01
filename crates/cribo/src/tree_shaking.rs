@@ -57,7 +57,7 @@ impl TreeShaker {
         self.module_names
             .get(&module_id)
             .cloned()
-            .unwrap_or_else(|| format!("<unknown module {}>", module_id.0))
+            .unwrap_or_else(|| format!("<unknown module {module_id}>"))
     }
 
     /// Analyze which symbols should be kept based on entry point
