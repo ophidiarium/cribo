@@ -247,11 +247,12 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                     &self.scope_stack[last_fn_idx - 1],
                     &self.scope_stack[last_fn_idx],
                 )
-                    && last_fn_idx == self.scope_stack.len() - 1 {
-                        return ExecutionContext::ClassMethod {
-                            is_init: method_name == "__init__",
-                        };
-                    }
+                && last_fn_idx == self.scope_stack.len() - 1
+            {
+                return ExecutionContext::ClassMethod {
+                    is_init: method_name == "__init__",
+                };
+            }
             return ExecutionContext::FunctionBody;
         }
 
