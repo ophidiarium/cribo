@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use log::{debug, trace};
+use log::{debug, info, trace, warn};
 
 use crate::{
     cribo_graph::{CriboGraph, ItemData, ItemType},
@@ -62,14 +62,14 @@ impl TreeShaker {
 
     /// Analyze which symbols should be kept based on entry point
     pub fn analyze(&mut self, entry_module: &str) {
-        debug!("Starting tree-shaking analysis from entry module: {entry_module}");
+        info!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // Verify that the entry module is registered with the expected ID
         let entry_id = self.module_name_to_id.get(entry_module).copied();
         if entry_id != Some(ModuleId::ENTRY) {
-            debug!("Warning: Entry module '{entry_module}' not registered as ModuleId::ENTRY");
+            warn!("Entry module '{entry_module}' not registered as ModuleId::ENTRY");
             if entry_id.is_none() {
-                debug!("Entry module not found in module registry");
+                warn!("Entry module '{entry_module}' not found in module registry");
                 return;
             }
         }
@@ -77,7 +77,7 @@ impl TreeShaker {
         // Then, mark symbols used from the entry module
         self.mark_used_symbols();
 
-        debug!(
+        info!(
             "Tree-shaking complete. Keeping {} symbols",
             self.used_symbols.len()
         );
@@ -288,8 +288,8 @@ impl TreeShaker {
 
         // If we need to go up more levels than we have, something is wrong
         if levels_to_remove > parts.len() {
-            debug!(
-                "Warning: relative import level {} exceeds module depth {} for module {}",
+            warn!(
+                "Relative import level {} exceeds module depth {} for module {}",
                 level,
                 parts.len(),
                 current_module
@@ -811,8 +811,8 @@ impl TreeShaker {
                 );
                 worklist.push_back((module_id, var.clone()));
             } else {
-                debug!(
-                    "Warning: {} writes to {} but cannot find defining module",
+                warn!(
+                    "{} writes to {} but cannot find defining module",
                     item.item_type.name().unwrap_or("<unknown>"),
                     var
                 );
@@ -1042,9 +1042,7 @@ impl TreeShaker {
                 debug!("Found {attr} defined in {module_name}");
                 worklist.push_back((module_name, attr.clone()));
             } else {
-                debug!(
-                    "Warning: Could not find {attr} in any submodule of {base_var} from {context}"
-                );
+                warn!("Could not find {attr} in any submodule of {base_var} from {context}");
             }
         }
     }
