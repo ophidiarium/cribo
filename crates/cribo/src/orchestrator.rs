@@ -905,7 +905,7 @@ impl BundleOrchestrator {
         fn visit_cycle_module(
             module_id: crate::resolver::ModuleId,
             graph: &CriboGraph,
-            cycle_ids: &[crate::resolver::ModuleId],
+            cycle_ids: &IndexSet<crate::resolver::ModuleId>,
             visited: &mut IndexSet<crate::resolver::ModuleId>,
             stack: &mut IndexSet<crate::resolver::ModuleId>,
             result: &mut Vec<crate::resolver::ModuleId>,
@@ -940,11 +940,15 @@ impl BundleOrchestrator {
         // We need to process them using DFS to get the right order
         debug!("Processing {} cycle modules", cycle_ids.len());
 
+        // Convert to IndexSet for O(1) membership checks
+        let cycle_ids_set: IndexSet<crate::resolver::ModuleId> =
+            cycle_ids.iter().copied().collect();
+
         for &module_id in &cycle_ids {
             visit_cycle_module(
                 module_id,
                 graph,
-                &cycle_ids,
+                &cycle_ids_set,
                 &mut visited,
                 &mut stack,
                 &mut cycle_module_order,
@@ -952,7 +956,7 @@ impl BundleOrchestrator {
         }
 
         // Debug log the cycle module order
-        debug!("Cycle module order (before reversal):");
+        debug!("Cycle module order:");
         for &module_id in &cycle_module_order {
             if let Some(module) = graph.modules.get(&module_id) {
                 debug!("  - {}", module.module_name);
