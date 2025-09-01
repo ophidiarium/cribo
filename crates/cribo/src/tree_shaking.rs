@@ -429,11 +429,10 @@ impl TreeShaker {
                                 && let Some(target_items) = self.module_items.get(&target_module_id)
                             {
                                 // Check if the module has __all__ defined
-                                let has_all = target_items
-                                    .iter()
-                                    .any(|item| item.defined_symbols.contains("__all__"));
+                                let has_explicit_all =
+                                    target_items.iter().any(Self::is_all_assignment);
 
-                                if has_all {
+                                if has_explicit_all {
                                     // Mark only symbols in __all__ for star imports
                                     self.mark_all_defined_symbols_as_used(
                                         target_items,
@@ -713,10 +712,9 @@ impl TreeShaker {
                                 && let Some(target_items) =
                                     self.module_items.get(&resolved_module_id)
                             {
-                                let has_all = target_items
-                                    .iter()
-                                    .any(|it| it.defined_symbols.contains("__all__"));
-                                if has_all {
+                                let has_explicit_all =
+                                    target_items.iter().any(Self::is_all_assignment);
+                                if has_explicit_all {
                                     self.mark_all_defined_symbols_as_used(
                                         target_items,
                                         resolved_module_id,
@@ -1089,21 +1087,15 @@ impl TreeShaker {
             .get(&resolved_from_module_id)
             .map_or("", std::string::String::as_str);
         for item in target_items {
-            if item.defined_symbols.contains("__all__")
-                && let ItemType::Assignment { targets, .. } = &item.item_type
-            {
-                for target in targets {
-                    if target == "__all__" {
-                        // Mark all symbols listed in __all__
-                        for symbol in &item.eventual_read_vars {
-                            if !symbol.starts_with('_') {
-                                debug!(
-                                    "Marking {symbol} from star import of {resolved_from_module} \
-                                     as used"
-                                );
-                                worklist.push_back((resolved_from_module_id, symbol.clone()));
-                            }
-                        }
+            if Self::is_all_assignment(item) {
+                // Mark all symbols listed in __all__
+                for symbol in &item.eventual_read_vars {
+                    if !symbol.starts_with('_') {
+                        debug!(
+                            "Marking {symbol} from star import of {resolved_from_module} \
+                             as used"
+                        );
+                        worklist.push_back((resolved_from_module_id, symbol.clone()));
                     }
                 }
             }
