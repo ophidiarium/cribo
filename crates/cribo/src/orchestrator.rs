@@ -1632,9 +1632,10 @@ impl BundleOrchestrator {
                 // Add dependency edge if the imported module exists
                 if let Some(to_module_id) = context.resolver.get_module_id_by_name(import) {
                     debug!(
-                        "Adding dependency edge: {} -> module_id_{}",
+                        "Adding dependency edge: module_id_{} -> {} (to: module_id_{})",
+                        context.current_module_id.as_u32(),
                         import,
-                        context.current_module_id.as_u32()
+                        to_module_id.as_u32()
                     );
                     // TODO: Properly track TYPE_CHECKING information from ImportDiscoveryVisitor
                     // For now, we use the default (is_type_checking_only = false)
@@ -1644,9 +1645,10 @@ impl BundleOrchestrator {
                         .graph
                         .add_module_dependency(context.current_module_id, to_module_id);
                     debug!(
-                        "Successfully added dependency edge: {} -> module_id_{}",
+                        "Successfully added dependency edge: module_id_{} -> {} (to: module_id_{})",
+                        context.current_module_id.as_u32(),
                         import,
-                        context.current_module_id.as_u32()
+                        to_module_id.as_u32()
                     );
                 } else {
                     debug!("Module {import} not found in graph, skipping dependency edge");
