@@ -486,34 +486,20 @@ impl TreeShaker {
                 }
 
                 // Add symbols from read_vars
-                for var in &item.read_vars {
-                    // Check if this var is an imported alias first
-                    if let Some((source_module_id, original_name)) =
-                        self.resolve_import_alias(ModuleId::ENTRY, var)
-                    {
-                        let source_display = self.get_module_display_name(source_module_id);
-                        debug!("Found import alias: {var} -> {source_display}::{original_name}");
-                        worklist.push_back((source_module_id, original_name));
-                    } else if let Some(module_id) = self.find_defining_module(var) {
-                        let module_display = self.get_module_display_name(module_id);
-                        debug!("Found direct symbol usage: {var} in module {module_display}");
-                        worklist.push_back((module_id, var.clone()));
-                    } else {
-                        debug!("Symbol {var} not found in any module");
-                    }
-                }
+                self.add_vars_to_worklist(
+                    &item.read_vars,
+                    ModuleId::ENTRY,
+                    &mut worklist,
+                    "entry module",
+                );
 
                 // Add symbols from eventual_read_vars
-                for var in &item.eventual_read_vars {
-                    // Check if this var is an imported alias first
-                    if let Some((source_module_id, original_name)) =
-                        self.resolve_import_alias(ModuleId::ENTRY, var)
-                    {
-                        worklist.push_back((source_module_id, original_name));
-                    } else if let Some(module_id) = self.find_defining_module(var) {
-                        worklist.push_back((module_id, var.clone()));
-                    }
-                }
+                self.add_vars_to_worklist(
+                    &item.eventual_read_vars,
+                    ModuleId::ENTRY,
+                    &mut worklist,
+                    "entry module (eventual)",
+                );
 
                 // Mark all side-effect items as used
                 if item.has_side_effects {
