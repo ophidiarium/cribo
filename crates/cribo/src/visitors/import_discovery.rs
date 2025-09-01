@@ -440,9 +440,15 @@ impl<'a> ImportDiscoveryVisitor<'a> {
 
                 // Track import mappings (also for relative imports with no module_name)
                 let imported_as = asname.clone().unwrap_or_else(|| name.clone());
-                let module_key = module_name
-                    .as_ref()
-                    .map_or_else(|| name.clone(), |m| format!("{m}.{name}"));
+                // Encode level into the key to avoid conflating different relatives
+                let module_key = match (module_name.as_ref(), stmt.level) {
+                    (Some(m), 0) => format!("{m}.{name}"),
+                    (Some(m), level) => format!(".{}{}.{}", ".".repeat(level as usize), m, name),
+                    (None, level) if level > 0 => {
+                        format!(".{}{}", ".".repeat(level as usize), name)
+                    }
+                    (None, _) => name.clone(),
+                };
                 self.imported_names.insert(imported_as.clone(), module_key);
 
                 // Check if we're importing import_module from importlib
