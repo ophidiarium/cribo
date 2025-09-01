@@ -1200,19 +1200,13 @@ impl BundleOrchestrator {
                         let resolved_module_name = module_graph
                             .items
                             .values()
-                            .find_map(|i| {
-                                if let crate::cribo_graph::ItemType::Import { module, alias } =
-                                    &i.item_type
+                            .find_map(|i| match &i.item_type {
+                                crate::cribo_graph::ItemType::Import { module, alias }
+                                    if alias.as_deref() == Some(base_name) =>
                                 {
-                                    if alias.as_deref() == Some(base_name) {
-                                        // Found the import with this alias
-                                        Some(module.clone())
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
+                                    Some(module.clone())
                                 }
+                                _ => None,
                             })
                             .unwrap_or_else(|| base_name.clone());
 
