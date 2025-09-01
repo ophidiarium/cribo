@@ -1805,15 +1805,16 @@ impl<'a> Bundler<'a> {
 
                     // Insert lifted global declarations (before init), if any
                     if let Some(ref info) = global_info
-                        && !info.global_declarations.is_empty() {
-                            let lifter = crate::code_generator::globals::GlobalsLifter::new(info);
-                            for (_, lifted_name) in &lifter.lifted_names {
-                                all_inlined_stmts.push(statements::simple_assign(
-                                    lifted_name,
-                                    expressions::none_literal(),
-                                ));
-                            }
+                        && !info.global_declarations.is_empty()
+                    {
+                        let lifter = crate::code_generator::globals::GlobalsLifter::new(info);
+                        for (_, lifted_name) in &lifter.lifted_names {
+                            all_inlined_stmts.push(statements::simple_assign(
+                                lifted_name,
+                                expressions::none_literal(),
+                            ));
                         }
+                    }
 
                     let mut init_stmts =
                         crate::ast_builder::module_wrapper::create_init_function_statements(
