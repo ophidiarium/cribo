@@ -247,6 +247,14 @@ impl TreeShaker {
     }
 
     /// Resolve a relative module import to an absolute module name
+    ///
+    /// Note: We cannot use `resolver::resolve_relative_import_from_name` directly because:
+    /// 1. The resolver expects module names ending with "__init__" for packages, but we have
+    ///    module names like "parent.subpkg" that are packages
+    /// 2. We need to determine if a module is a package based on whether it has submodules,
+    ///    which requires access to `self.module_names`
+    /// 3. The resolver's heuristics don't match our tree-shaking context where we're working
+    ///    with already-resolved module names rather than file paths
     fn resolve_relative_module(
         &self,
         current_module: &str,
@@ -256,33 +264,27 @@ impl TreeShaker {
         // Split current module into parts
         let parts: Vec<&str> = current_module.split('.').collect();
 
-        // Check if current module is a package (has sub-modules or is known to be a package)
-        // Note: A module is a package if:
-        // 1. It has sub-modules in module_items, OR
-        // 2. The module name suggests it's a package (e.g., "greetings.greeting" where both parts
-        //    could be packages)
-        // For relative imports with level > 1, the importing module must be in a package
+        // Check if current module is a package (has sub-modules)
+        // A module is a package if it has sub-modules in our module registry
         let has_submodules = self
             .module_names
             .values()
             .any(|name| name != current_module && name.starts_with(&format!("{current_module}.")));
 
-        // If we're doing a level 2+ import, the current module must be a package
-        // because you can only go up multiple levels from within a package structure
+        // For relative imports with level > 1, the importing module must be in a package
         let is_package = has_submodules || (level > 1 && parts.len() > 1);
 
         debug!(
-            "resolve_relative_module: current_module='{current_module}', \
-             relative_module='{relative_module}', level={level}, parts={parts:?}, \
-             is_package={is_package}"
+            "resolve_relative_module: current_module='{current_module}', relative_module='{relative_module}', \
+             level={level}, is_package={is_package}"
         );
 
         // Calculate how many levels to actually remove
+        // For packages, level 1 means current package, not parent
+        // For regular modules, we remove 'level' parts
         let levels_to_remove = if is_package {
-            // For packages, level 1 means current package, not parent
             if level > 0 { level - 1 } else { 0 }
         } else {
-            // For regular modules, remove 'level' parts
             level
         } as usize;
 
@@ -303,11 +305,6 @@ impl TreeShaker {
         // Remove the dots from the relative module name
         let relative_part = relative_module.trim_start_matches('.');
 
-        debug!(
-            "levels_to_remove={levels_to_remove}, parent_parts={parent_parts:?}, \
-             relative_part='{relative_part}'"
-        );
-
         // Combine parent parts with relative module
         let result = if relative_part.is_empty() {
             // Import from parent package itself
@@ -320,7 +317,7 @@ impl TreeShaker {
             format!("{}.{}", parent_parts.join("."), relative_part)
         };
 
-        debug!("resolve_relative_module result: '{result}'");
+        debug!("Resolved relative import to: '{result}'");
         result
     }
 
