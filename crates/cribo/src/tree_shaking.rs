@@ -324,6 +324,41 @@ impl TreeShaker {
         result
     }
 
+    /// Seed side effects for a module that has been reached via imports
+    fn seed_side_effects_for_module(
+        &self,
+        module_id: ModuleId,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        if let Some(items) = self.module_items.get(&module_id) {
+            let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
+            debug!("Seeding side effects for reachable module: {module_name}");
+            for item in items {
+                match item.item_type {
+                    ItemType::Expression | ItemType::Assignment { .. } => {
+                        self.add_vars_to_worklist(
+                            &item.read_vars,
+                            module_id,
+                            worklist,
+                            "reachable side-effect module",
+                        );
+                        self.add_attribute_accesses_to_worklist(
+                            &item.attribute_accesses,
+                            module_id,
+                            worklist,
+                        );
+                    }
+                    ItemType::FunctionDef { .. } | ItemType::ClassDef { .. } => {
+                        for symbol in &item.defined_symbols {
+                            worklist.push_back((module_id, symbol.clone()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     /// Mark all symbols transitively used from entry module
     pub fn mark_used_symbols(&mut self) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
@@ -352,6 +387,12 @@ impl TreeShaker {
                     ItemType::Import { module, .. } => {
                         let module_display = self.get_module_display_name(module_id);
                         debug!("Found direct import of module {module} in {module_display}");
+                        // If this imported module has side effects, seed them
+                        if let Some(&imported_module_id) = self.module_name_to_id.get(module)
+                            && self.module_has_side_effects(imported_module_id)
+                        {
+                            self.seed_side_effects_for_module(imported_module_id, &mut worklist);
+                        }
                     }
                     // Check for from imports that import the module itself (from x import module)
                     ItemType::FromImport {
@@ -367,6 +408,16 @@ impl TreeShaker {
                         } else {
                             from_module.clone()
                         };
+
+                        // When importing from a module, if that module has side effects, seed them
+                        // This handles cases like: from .utils.config import some_function
+                        // where .utils.config has side effects that need to run
+                        if let Some(&from_module_id) =
+                            self.module_name_to_id.get(&resolved_from_module)
+                            && self.module_has_side_effects(from_module_id)
+                        {
+                            self.seed_side_effects_for_module(from_module_id, &mut worklist);
+                        }
 
                         // Handle star imports - from module import *
                         if *is_star {
@@ -404,12 +455,17 @@ impl TreeShaker {
                                 // Check if this is importing a submodule directly
                                 let potential_module = format!("{resolved_from_module}.{name}");
                                 // Check if this module exists
-                                if self.module_name_to_id.contains_key(&potential_module) {
+                                if let Some(&submodule_id) =
+                                    self.module_name_to_id.get(&potential_module)
+                                    && self.module_has_side_effects(submodule_id)
+                                {
                                     let module_display = self.get_module_display_name(module_id);
                                     debug!(
                                         "Found from import of module {potential_module} in \
                                          {module_display}"
                                     );
+                                    // If this submodule has side effects, seed them
+                                    self.seed_side_effects_for_module(submodule_id, &mut worklist);
                                 }
                             }
                         }
@@ -477,67 +533,6 @@ impl TreeShaker {
                     ModuleId::ENTRY,
                     &mut worklist,
                 );
-            }
-        }
-
-        // Process all modules with side effects - their module-level code will run
-        for (&module_id, items) in &self.module_items {
-            let module_name = self
-                .module_names
-                .get(&module_id)
-                .map_or("", std::string::String::as_str);
-            if self.module_has_side_effects(module_id) {
-                debug!("Processing side-effect module: {module_name}");
-                for item in items {
-                    // For side-effect modules, we need to process ALL items since they will all be
-                    // included This includes functions that might use imports
-                    if matches!(
-                        item.item_type,
-                        ItemType::Expression | ItemType::Assignment { .. }
-                    ) {
-                        // Process module-level expressions and assignments
-                        debug!(
-                            "Processing module-level item in {}: read_vars={:?}",
-                            module_name, item.read_vars
-                        );
-                        self.add_vars_to_worklist(
-                            &item.read_vars,
-                            module_id,
-                            &mut worklist,
-                            "side-effect module",
-                        );
-                        // Also process attribute accesses for module-level items in side-effect
-                        // modules
-                        self.add_attribute_accesses_to_worklist(
-                            &item.attribute_accesses,
-                            module_id,
-                            &mut worklist,
-                        );
-                    } else if matches!(
-                        item.item_type,
-                        ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
-                    ) {
-                        // For functions and classes in side-effect modules, we need to track their
-                        // dependencies since they will be included in the
-                        // bundle
-                        debug!(
-                            "Processing function/class '{}' in side-effect module {}: \
-                             eventual_read_vars={:?}",
-                            item.item_type.name().unwrap_or("<unknown>"),
-                            module_name,
-                            item.eventual_read_vars
-                        );
-
-                        // Mark the symbol itself as used (since the module will be included)
-                        for symbol in &item.defined_symbols {
-                            worklist.push_back((module_id, symbol.clone()));
-                        }
-
-                        // Dependencies from the function/class body (eventual reads/writes,
-                        // attribute accesses, base classes, decorators, etc.) will be discovered
-                        // when this symbol is processed in `process_symbol_definition`.
-                    }
-                }
             }
         }
 
@@ -682,6 +677,13 @@ impl TreeShaker {
                             debug!("  Adding imported variable {var} to worklist");
                             worklist.push_back((module_id, var.clone()));
                         }
+                        // If this imported module has side effects, seed them
+                        if let Some(&imported_module_id) =
+                            self.module_name_to_id.get(imported_module)
+                            && self.module_has_side_effects(imported_module_id)
+                        {
+                            self.seed_side_effects_for_module(imported_module_id, worklist);
+                        }
                     }
                     ItemType::FromImport {
                         module: from_module,
@@ -700,6 +702,9 @@ impl TreeShaker {
                         } else {
                             from_module.clone()
                         };
+
+                        // Note: Side effects for the source module are already seeded
+                        // in the first pass when we encounter the FromImport
 
                         if *is_star {
                             // Handle star imports
@@ -735,6 +740,15 @@ impl TreeShaker {
                                         "Marking {resolved_module_name}::{name} as used (imported in scope {scope_name})"
                                     );
                                     worklist.push_back((resolved_module_id, name.clone()));
+
+                                    // Check if this is importing a submodule
+                                    let potential_module = format!("{resolved_module_name}.{name}");
+                                    if let Some(&submodule_id) =
+                                        self.module_name_to_id.get(&potential_module)
+                                        && self.module_has_side_effects(submodule_id)
+                                    {
+                                        self.seed_side_effects_for_module(submodule_id, worklist);
+                                    }
                                 }
                             }
                         }
