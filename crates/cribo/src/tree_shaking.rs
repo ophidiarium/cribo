@@ -1,5 +1,3 @@
-#![allow(clippy::excessive_nesting)]
-
 use std::collections::VecDeque;
 
 use log::{debug, info, trace, warn};
@@ -641,108 +639,172 @@ impl TreeShaker {
         };
 
         for item in items {
-            // Check if this item is an import within the given scope
-            if let Some(ref containing_scope) = item.containing_scope
-                && containing_scope == scope_name
-            {
-                // This import is inside the function/class being marked as used
-                match &item.item_type {
-                    ItemType::Import {
-                        module: imported_module,
-                        ..
-                    } => {
-                        debug!(
-                            "Marking import {imported_module} as used (inside scope {scope_name})"
-                        );
-                        // For direct imports, we need to mark the variables they declare as used
-                        for var in &item.var_decls {
-                            debug!("  Adding imported variable {var} to worklist");
-                            worklist.push_back((module_id, var.clone()));
-                        }
-                        // If this imported module has side effects, seed them
-                        if let Some(&imported_module_id) =
-                            self.module_name_to_id.get(imported_module)
-                            && self.module_has_side_effects(imported_module_id)
-                        {
-                            self.seed_side_effects_for_module(imported_module_id, worklist);
-                        }
-                    }
-                    ItemType::FromImport {
-                        module: from_module,
-                        names,
-                        level,
-                        is_star,
-                        ..
-                    } => {
-                        // Resolve relative imports
-                        let module_name = self
-                            .module_names
-                            .get(&module_id)
-                            .map_or("", std::string::String::as_str);
-                        let resolved_module_name = if *level > 0 {
-                            self.resolve_relative_module(module_name, from_module, *level)
-                        } else {
-                            from_module.clone()
-                        };
-
-                        // Note: Side effects for the source module are already seeded
-                        // in the first pass when we encounter the FromImport
-
-                        if *is_star {
-                            // Handle star imports
-                            if let Some(&resolved_module_id) =
-                                self.module_name_to_id.get(&resolved_module_name)
-                                && let Some(target_items) =
-                                    self.module_items.get(&resolved_module_id)
-                            {
-                                let has_explicit_all =
-                                    target_items.iter().any(Self::is_all_assignment);
-                                if has_explicit_all {
-                                    self.mark_all_defined_symbols_as_used(
-                                        target_items,
-                                        resolved_module_id,
-                                        worklist,
-                                    );
-                                } else {
-                                    self.mark_non_private_symbols_as_used(
-                                        target_items,
-                                        resolved_module_id,
-                                        worklist,
-                                    );
-                                }
-                            }
-                        } else {
-                            // Mark upstream symbols
-                            if let Some(&resolved_module_id) =
-                                self.module_name_to_id.get(&resolved_module_name)
-                            {
-                                for (name, _alias) in names {
-                                    debug!(
-                                        "Marking {resolved_module_name}::{name} as used (imported in scope {scope_name})"
-                                    );
-                                    worklist.push_back((resolved_module_id, name.clone()));
-
-                                    // Check if this is importing a submodule
-                                    let potential_module = format!("{resolved_module_name}.{name}");
-                                    if let Some(&submodule_id) =
-                                        self.module_name_to_id.get(&potential_module)
-                                        && self.module_has_side_effects(submodule_id)
-                                    {
-                                        self.seed_side_effects_for_module(submodule_id, worklist);
-                                    }
-                                }
-                            }
-                        }
-                        // Always mark the local bindings declared by this import as used,
-                        // so the in-scope import statement is preserved.
-                        for var in &item.var_decls {
-                            debug!("  Adding local imported binding {var} to worklist");
-                            worklist.push_back((module_id, var.clone()));
-                        }
-                    }
-                    _ => {}
-                }
+            // Skip items not in the target scope
+            let Some(ref containing_scope) = item.containing_scope else {
+                continue;
+            };
+            if containing_scope != scope_name {
+                continue;
             }
+
+            // This import is inside the function/class being marked as used
+            match &item.item_type {
+                ItemType::Import {
+                    module: imported_module,
+                    ..
+                } => self.handle_direct_import(
+                    item,
+                    imported_module,
+                    module_id,
+                    scope_name,
+                    worklist,
+                ),
+                ItemType::FromImport {
+                    module: from_module,
+                    names,
+                    level,
+                    is_star,
+                    ..
+                } => self.handle_from_import(
+                    item,
+                    from_module,
+                    names,
+                    *level,
+                    *is_star,
+                    module_id,
+                    scope_name,
+                    worklist,
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    /// Handle direct import statements within a scope
+    fn handle_direct_import(
+        &self,
+        item: &ItemData,
+        imported_module: &str,
+        module_id: ModuleId,
+        scope_name: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        debug!("Marking import {imported_module} as used (inside scope {scope_name})");
+
+        // For direct imports, we need to mark the variables they declare as used
+        for var in &item.var_decls {
+            debug!("  Adding imported variable {var} to worklist");
+            worklist.push_back((module_id, var.clone()));
+        }
+
+        // If this imported module has side effects, seed them
+        let Some(&imported_module_id) = self.module_name_to_id.get(imported_module) else {
+            return;
+        };
+
+        if self.module_has_side_effects(imported_module_id) {
+            self.seed_side_effects_for_module(imported_module_id, worklist);
+        }
+    }
+
+    /// Handle from import statements within a scope
+    fn handle_from_import(
+        &self,
+        item: &ItemData,
+        from_module: &str,
+        names: &[(String, Option<String>)],
+        level: u32,
+        is_star: bool,
+        module_id: ModuleId,
+        scope_name: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        // Resolve relative imports
+        let module_name = self
+            .module_names
+            .get(&module_id)
+            .map_or("", std::string::String::as_str);
+        let resolved_module_name = if level > 0 {
+            self.resolve_relative_module(module_name, from_module, level)
+        } else {
+            from_module.to_string()
+        };
+
+        // Note: Side effects for the source module are already seeded
+        // in the first pass when we encounter the FromImport
+
+        if is_star {
+            self.handle_star_import(&resolved_module_name, worklist);
+        } else {
+            self.handle_named_imports(&resolved_module_name, names, scope_name, worklist);
+        }
+
+        // Always mark the local bindings declared by this import as used,
+        // so the in-scope import statement is preserved.
+        for var in &item.var_decls {
+            debug!("  Adding local imported binding {var} to worklist");
+            worklist.push_back((module_id, var.clone()));
+        }
+    }
+
+    /// Handle star imports
+    fn handle_star_import(
+        &self,
+        resolved_module_name: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        let Some(&resolved_module_id) = self.module_name_to_id.get(resolved_module_name) else {
+            return;
+        };
+
+        let Some(target_items) = self.module_items.get(&resolved_module_id) else {
+            return;
+        };
+
+        let has_explicit_all = target_items.iter().any(Self::is_all_assignment);
+        if has_explicit_all {
+            self.mark_all_defined_symbols_as_used(target_items, resolved_module_id, worklist);
+        } else {
+            self.mark_non_private_symbols_as_used(target_items, resolved_module_id, worklist);
+        }
+    }
+
+    /// Handle named imports
+    fn handle_named_imports(
+        &self,
+        resolved_module_name: &str,
+        names: &[(String, Option<String>)],
+        scope_name: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        let Some(&resolved_module_id) = self.module_name_to_id.get(resolved_module_name) else {
+            return;
+        };
+
+        for (name, _alias) in names {
+            debug!(
+                "Marking {resolved_module_name}::{name} as used (imported in scope {scope_name})"
+            );
+            worklist.push_back((resolved_module_id, name.clone()));
+
+            // Check if this is importing a submodule
+            let potential_module = format!("{resolved_module_name}.{name}");
+            self.check_and_seed_submodule(&potential_module, worklist);
+        }
+    }
+
+    /// Check if a potential module name is a submodule with side effects and seed them
+    fn check_and_seed_submodule(
+        &self,
+        potential_module: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        let Some(&submodule_id) = self.module_name_to_id.get(potential_module) else {
+            return;
+        };
+
+        if self.module_has_side_effects(submodule_id) {
+            self.seed_side_effects_for_module(submodule_id, worklist);
         }
     }
 
