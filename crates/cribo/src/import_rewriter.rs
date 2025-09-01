@@ -1,17 +1,15 @@
+use crate::{
+    cribo_graph::CriboGraph,
+    resolver::ModuleId,
+    semantic_bundler::SemanticBundler,
+    types::{FxIndexMap, FxIndexSet},
+    visitors::{DiscoveredImport, ImportDiscoveryVisitor},
+};
 /// Import rewriter that moves module-level imports into function scope
 /// to resolve circular dependencies
 use log::{debug, trace};
 use ruff_python_ast::{
     self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom, visitor::Visitor,
-};
-use rustc_hash::{FxHashMap, FxHashSet};
-
-use crate::{
-    cribo_graph::CriboGraph,
-    resolver::ModuleId,
-    semantic_bundler::SemanticBundler,
-    types::FxIndexMap,
-    visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
 
 /// Strategy for deduplicating imports within functions
@@ -71,8 +69,8 @@ impl ImportRewriter {
         let mut movable_imports = Vec::new();
 
         // Cache to avoid re-analyzing modules that appear in multiple cycles
-        let mut module_import_cache: FxHashMap<ModuleId, Vec<DiscoveredImport>> =
-            FxHashMap::default();
+        let mut module_import_cache: FxIndexMap<ModuleId, Vec<DiscoveredImport>> =
+            FxIndexMap::default();
 
         for cycle in resolvable_cycles {
             debug!(
@@ -269,8 +267,8 @@ impl ImportRewriter {
         &self,
         movable_imports: &[&MovableImport],
         body: &[Stmt],
-    ) -> FxHashSet<usize> {
-        let mut indices_to_remove = FxHashSet::default();
+    ) -> FxIndexSet<usize> {
+        let mut indices_to_remove = FxIndexSet::default();
 
         for (idx, stmt) in body.iter().enumerate() {
             match stmt {
@@ -383,7 +381,7 @@ impl ImportRewriter {
     fn remove_module_imports(
         &self,
         module_ast: &mut ModModule,
-        indices_to_remove: &FxHashSet<usize>,
+        indices_to_remove: &FxIndexSet<usize>,
     ) {
         // Remove imports in reverse order to maintain indices
         let mut indices: Vec<_> = indices_to_remove.iter().copied().collect();
@@ -397,7 +395,8 @@ impl ImportRewriter {
     /// Add imports to function bodies
     fn add_function_imports(&self, module_ast: &mut ModModule, module_imports: &[&MovableImport]) {
         // Group imports by target function
-        let mut imports_by_function: FxHashMap<String, Vec<&MovableImport>> = FxHashMap::default();
+        let mut imports_by_function: FxIndexMap<String, Vec<&MovableImport>> =
+            FxIndexMap::default();
 
         for import in module_imports {
             for func_name in &import.target_functions {
@@ -435,7 +434,7 @@ impl ImportRewriter {
         imports: &[&MovableImport],
     ) {
         // First, collect existing imports in the function to avoid duplicates
-        let mut existing_imports = FxHashSet::default();
+        let mut existing_imports = FxIndexSet::default();
         for stmt in &func_def.body {
             match stmt {
                 Stmt::Import(import_stmt) => {
