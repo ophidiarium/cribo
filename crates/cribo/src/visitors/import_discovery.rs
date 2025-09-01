@@ -234,28 +234,34 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             return ExecutionContext::TypeAnnotation;
         }
 
-        // Analyze scope stack to determine context
-        for (i, scope) in self.scope_stack.iter().enumerate() {
-            match scope {
-                ScopeElement::Class(_) => {
-                    // Check if we're in a method within this class
-                    if i + 1 < self.scope_stack.len()
-                        && let ScopeElement::Function(method_name) = &self.scope_stack[i + 1]
-                    {
+        // Prefer innermost function scope when present.
+        if let Some(last_fn_idx) = self
+            .scope_stack
+            .iter()
+            .rposition(|s| matches!(s, ScopeElement::Function(_)))
+        {
+            // If the innermost function is the method itself (directly under a class)
+            // and not a nested function, classify as ClassMethod. Otherwise FunctionBody.
+            if last_fn_idx > 0
+                && let (ScopeElement::Class(_), ScopeElement::Function(method_name)) = (
+                    &self.scope_stack[last_fn_idx - 1],
+                    &self.scope_stack[last_fn_idx],
+                )
+                    && last_fn_idx == self.scope_stack.len() - 1 {
                         return ExecutionContext::ClassMethod {
                             is_init: method_name == "__init__",
                         };
                     }
-                    return ExecutionContext::ClassBody;
-                }
-                ScopeElement::Function(_) => {
-                    // If we're in a function at module level, it's a function body
-                    if i == 0 {
-                        return ExecutionContext::FunctionBody;
-                    }
-                }
-                _ => {}
-            }
+            return ExecutionContext::FunctionBody;
+        }
+
+        // No functions in scope; check for class body.
+        if self
+            .scope_stack
+            .iter()
+            .any(|s| matches!(s, ScopeElement::Class(_)))
+        {
+            return ExecutionContext::ClassBody;
         }
 
         self.current_context
