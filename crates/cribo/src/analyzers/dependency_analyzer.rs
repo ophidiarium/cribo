@@ -42,10 +42,7 @@ impl DependencyAnalyzer {
 
             // Work directly with module IDs (already resolver::ModuleId since CriboGraph re-exports it)
             let module_ids: Vec<crate::resolver::ModuleId> = scc.clone();
-
-            if module_ids.is_empty() {
-                continue;
-            }
+            // Non-empty by construction (scc.len() > 1 above)
 
             let cycle_type = Self::classify_cycle_type(graph, &module_ids);
             let suggested_resolution = Self::suggest_resolution_for_cycle(&cycle_type, &module_ids);
