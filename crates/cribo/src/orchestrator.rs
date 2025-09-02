@@ -884,13 +884,15 @@ impl BundleOrchestrator {
 
             // Add edges among component nodes
             for &nx in &comp_sorted {
-                let midx = mini_map[&nx];
+                let from_idx = mini_map[&nx];
                 for edge in subgraph.edges(nx) {
                     let tgt = edge.target();
-                    if let Some(&tmini) = mini_map.get(&tgt)
-                        && !mini.contains_edge(midx, tmini)
+                    if let Some(&to_idx) = mini_map.get(&tgt)
+                        && !mini.contains_edge(to_idx, from_idx)
                     {
-                        mini.add_edge(midx, tmini, ());
+                        // Reverse orientation: dependent -> dependency
+                        // so DfsPostOrder emits dependencies before dependents
+                        mini.add_edge(to_idx, from_idx, ());
                     }
                 }
             }
