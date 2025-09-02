@@ -4,6 +4,7 @@ use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
+    resolver::ModuleId,
     semantic_bundler::{SemanticBundler, SymbolRegistry},
     types::{FxIndexMap, FxIndexSet},
 };
@@ -12,13 +13,13 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardDependency {
     /// The module where the class is defined
-    pub module_name: String,
+    pub module_id: ModuleId,
     /// The name of the class
     pub class_name: String,
     /// The imported base class (module.attribute format)
     pub base_class: String,
     /// The source module of the base class
-    pub source_module: String,
+    pub source_module_id: ModuleId,
     /// The attribute being imported
     pub imported_attr: String,
     /// The alias used for the import (if any)

@@ -1025,8 +1025,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Check if this hard dependency is from stdlib
         let is_from_stdlib = class_hard_deps.iter().any(|dep| {
+            // Get the source module name from the ID
+            let source_module_name = self
+                .bundler
+                .resolver
+                .get_module_name(dep.source_module_id)
+                .unwrap_or_else(|| format!("module_{}", dep.source_module_id.as_u32()));
+
             self.base_matches_dependency(&base_str, dep)
-                && crate::resolver::is_stdlib_module(&dep.source_module, self.python_version)
+                && crate::resolver::is_stdlib_module(&source_module_name, self.python_version)
         });
 
         if is_from_stdlib {
@@ -1058,11 +1065,20 @@ impl<'a> RecursiveImportTransformer<'a> {
         let class_name = class_def.name.as_str();
 
         // Pre-filter hard dependencies for this specific class
+        let current_module_name = self.get_module_name();
         let class_hard_deps: Vec<_> = self
             .bundler
             .hard_dependencies
             .iter()
-            .filter(|dep| dep.module_name == self.get_module_name() && dep.class_name == class_name)
+            .filter(|dep| {
+                // Get the module name from the ID to compare
+                let dep_module_name = self
+                    .bundler
+                    .resolver
+                    .get_module_name(dep.module_id)
+                    .unwrap_or_else(|| format!("module_{}", dep.module_id.as_u32()));
+                dep_module_name == current_module_name && dep.class_name == class_name
+            })
             .collect();
 
         let Some(ref mut arguments) = class_def.arguments else {

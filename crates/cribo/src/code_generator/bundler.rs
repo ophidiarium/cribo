@@ -4179,21 +4179,27 @@ impl<'a> Bundler<'a> {
 
     /// Create a rewritten base class expression for hard dependencies
     fn create_rewritten_base_expr(&self, hard_dep: &HardDependency, class_name: &str) -> Expr {
+        // Get the source module name from the ID
+        let source_module_name = self
+            .resolver
+            .get_module_name(hard_dep.source_module_id)
+            .unwrap_or_else(|| format!("module_{}", hard_dep.source_module_id.as_u32()));
+
         // Check if the source module is a wrapper module
-        let source_is_wrapper = self.has_synthetic_name(&hard_dep.source_module);
+        let source_is_wrapper = self.has_synthetic_name(&source_module_name);
 
         if source_is_wrapper && !hard_dep.base_class.contains('.') {
             // For imports from wrapper modules, we need to use module.attr pattern
             log::info!(
                 "Rewrote base class {} to {}.{} for class {} in inlined module (source is wrapper)",
                 hard_dep.base_class,
-                hard_dep.source_module,
+                source_module_name,
                 hard_dep.imported_attr,
                 class_name
             );
 
             expressions::name_attribute(
-                &hard_dep.source_module,
+                &source_module_name,
                 &hard_dep.imported_attr,
                 ExprContext::Load,
             )
@@ -4256,7 +4262,13 @@ impl<'a> Bundler<'a> {
         log::debug!("    Base class: {base_str}");
 
         for hard_dep in &self.hard_dependencies {
-            if hard_dep.module_name != module_name || hard_dep.class_name != class_name {
+            // Get the module name from the ID to compare
+            let dep_module_name = self
+                .resolver
+                .get_module_name(hard_dep.module_id)
+                .unwrap_or_else(|| format!("module_{}", hard_dep.module_id.as_u32()));
+
+            if dep_module_name != module_name || hard_dep.class_name != class_name {
                 continue;
             }
             log::debug!(
