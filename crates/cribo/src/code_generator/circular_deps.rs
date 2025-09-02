@@ -52,11 +52,9 @@ impl SymbolDependencyGraph {
             algo::toposort,
             graph::{DiGraph, NodeIndex},
         };
-        use rustc_hash::FxHashMap;
-
         // Build a directed graph of symbol dependencies ONLY for this module
         let mut graph = DiGraph::new();
-        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
+        let mut node_map: FxIndexMap<String, NodeIndex> = FxIndexMap::default();
         let mut symbols_in_module = Vec::new();
 
         // Add nodes for all symbols in this specific module
