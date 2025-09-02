@@ -1,12 +1,10 @@
-#![allow(clippy::excessive_nesting)]
-
 use std::path::Path;
 
 use cow_utils::CowUtils;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprCall, ExprContext, ExprFString, ExprName, FString,
     FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, ModModule, Stmt, StmtImport, StmtImportFrom,
+    InterpolatedStringElements, ModModule, Stmt, StmtClassDef, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -435,106 +433,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             self.transform_expr(&mut decorator.expression);
                         }
 
-                        // Check if this class has hard dependencies that should not be transformed
-                        let class_name = class_def.name.as_str();
-
-                        // Pre-filter hard dependencies for this specific class to avoid repeated
-                        // scans
-                        let class_hard_deps: Vec<_> = self
-                            .bundler
-                            .hard_dependencies
-                            .iter()
-                            .filter(|dep| {
-                                dep.module_name == self.get_module_name()
-                                    && dep.class_name == class_name
-                            })
-                            .collect();
-
-                        let has_hard_deps = !class_hard_deps.is_empty();
-
-                        // Transform base classes only if there are no hard dependencies
-                        if let Some(ref mut arguments) = class_def.arguments {
-                            for base in &mut arguments.args {
-                                if has_hard_deps {
-                                    // For classes with hard dependencies, check if this base is a
-                                    // hard dep
-                                    let base_str =
-                                        Self::extract_base_class_name(base).unwrap_or_default();
-
-                                    // Closure to check if a dependency base matches
-                                    let base_matches_dep = |dep: &&crate::code_generator::context::HardDependency| -> bool {
-                                        dep.base_class == base_str
-                                            || base_str.starts_with(&format!("{}.", dep.imported_attr))
-                                            || dep.imported_attr == base_str
-                                    };
-
-                                    // Check if this specific base is a hard dependency
-                                    let is_hard_dep_base = if base_str.is_empty() {
-                                        // If we can't extract the base class name, skip
-                                        // transformation to be safe
-                                        true
-                                    } else {
-                                        class_hard_deps.iter().any(base_matches_dep)
-                                    };
-
-                                    if is_hard_dep_base {
-                                        // Check if this specific hard dependency is from a stdlib
-                                        // module
-                                        // If so, still transform it since stdlib normalization
-                                        // handles it
-                                        let is_from_stdlib = if base_str.is_empty() {
-                                            // For complex/unknown base expressions, don't attempt
-                                            // transformation
-                                            false
-                                        } else {
-                                            class_hard_deps.iter().any(|dep| {
-                                                base_matches_dep(dep)
-                                                    && crate::resolver::is_stdlib_module(
-                                                        &dep.source_module,
-                                                        self.python_version,
-                                                    )
-                                            })
-                                        };
-
-                                        if is_from_stdlib {
-                                            log::debug!(
-                                                "Transforming stdlib hard dependency base class \
-                                                 {} for class {class_name} - stdlib normalization \
-                                                 will handle it",
-                                                if base_str.is_empty() {
-                                                    "<complex expression>"
-                                                } else {
-                                                    &base_str
-                                                }
-                                            );
-                                        } else {
-                                            // Even if it's not from stdlib, we still need to
-                                            // transform it
-                                            // in case it's a wrapper module import that needs
-                                            // rewriting
-                                            log::debug!(
-                                                "Transforming hard dependency base class {} for \
-                                                 class {class_name} - checking for wrapper module \
-                                                 imports",
-                                                if base_str.is_empty() {
-                                                    "<complex expression>"
-                                                } else {
-                                                    &base_str
-                                                }
-                                            );
-                                        }
-                                        // Transform the base expression (common to both branches)
-                                        self.transform_expr(base);
-                                    } else {
-                                        // Not a hard dependency base, transform normally
-                                        self.transform_expr(base);
-                                    }
-                                } else {
-                                    // No hard dependencies, transform normally
-                                    self.transform_expr(base);
-                                }
-                            }
-                        }
+                        // Transform base classes
+                        self.transform_class_bases(class_def);
 
                         // Note: Class bodies in Python don't create a local scope that requires 'global'
                         // declarations for assignments. They execute in a temporary namespace but can
@@ -710,6 +610,117 @@ impl<'a> RecursiveImportTransformer<'a> {
                 i += 1;
             }
         }
+    }
+
+    /// Check if a base class should be transformed based on hard dependencies
+    fn should_transform_base(
+        &self,
+        base: &Expr,
+        class_hard_deps: &[&crate::code_generator::context::HardDependency],
+    ) -> bool {
+        if class_hard_deps.is_empty() {
+            return true;
+        }
+
+        let base_str = Self::extract_base_class_name(base).unwrap_or_default();
+        if base_str.is_empty() {
+            // If we can't extract the base class name, transform anyway to be safe
+            return true;
+        }
+
+        // Check if this base matches any hard dependency
+        let is_hard_dep = class_hard_deps
+            .iter()
+            .any(|dep| self.base_matches_dependency(&base_str, dep));
+
+        if !is_hard_dep {
+            return true;
+        }
+
+        // Check if this hard dependency is from stdlib
+        let is_from_stdlib = class_hard_deps.iter().any(|dep| {
+            self.base_matches_dependency(&base_str, dep)
+                && crate::resolver::is_stdlib_module(&dep.source_module, self.python_version)
+        });
+
+        if is_from_stdlib {
+            log::debug!(
+                "Transforming stdlib hard dependency base class {base_str} - stdlib normalization will handle it"
+            );
+        } else {
+            log::debug!(
+                "Transforming hard dependency base class {base_str} - checking for wrapper module imports"
+            );
+        }
+
+        true // Always transform, logging helps with debugging
+    }
+
+    /// Check if a base class name matches a hard dependency
+    fn base_matches_dependency(
+        &self,
+        base_str: &str,
+        dep: &crate::code_generator::context::HardDependency,
+    ) -> bool {
+        dep.base_class == base_str
+            || base_str.starts_with(&format!("{}.", dep.imported_attr))
+            || dep.imported_attr == base_str
+    }
+
+    /// Transform a class definition's base classes
+    fn transform_class_bases(&mut self, class_def: &mut StmtClassDef) {
+        let class_name = class_def.name.as_str();
+
+        // Pre-filter hard dependencies for this specific class
+        let class_hard_deps: Vec<_> = self
+            .bundler
+            .hard_dependencies
+            .iter()
+            .filter(|dep| dep.module_name == self.get_module_name() && dep.class_name == class_name)
+            .collect();
+
+        let Some(ref mut arguments) = class_def.arguments else {
+            return;
+        };
+
+        for base in &mut arguments.args {
+            // Always transform - the should_transform_base is only for logging
+            self.should_transform_base(base, &class_hard_deps);
+            self.transform_expr(base);
+        }
+    }
+
+    /// Handle stdlib imports in wrapper modules
+    fn handle_wrapper_stdlib_imports(
+        &mut self,
+        stdlib_imports: &[(String, Option<String>)],
+    ) -> Vec<Stmt> {
+        let mut assignments = Vec::new();
+
+        for (module_name, alias) in stdlib_imports {
+            // Determine the local name that the import creates
+            let local_name = if let Some(alias_name) = alias {
+                // Aliased import: "import json as j" creates local "j"
+                alias_name.clone()
+            } else if module_name.contains('.') {
+                // Dotted import without alias doesn't create a binding
+                continue;
+            } else {
+                // Simple import: "import json" creates local "json"
+                module_name.clone()
+            };
+
+            let proxy_path = format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
+            let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
+            let value_expr =
+                crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
+            let target =
+                crate::ast_builder::expressions::name(local_name.as_str(), ExprContext::Store);
+            let assign_stmt = crate::ast_builder::statements::assign(vec![target], value_expr);
+            assignments.push(assign_stmt);
+        }
+
+        assignments
     }
 
     /// Transform a statement, potentially returning multiple statements
