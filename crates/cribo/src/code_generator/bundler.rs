@@ -2817,11 +2817,6 @@ impl<'a> Bundler<'a> {
         result
     }
 
-    /// Check if a namespace is already registered
-    pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
-        self.namespace_registry.contains_key(sanitized_name)
-    }
-
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
     pub fn get_rewritten_stdlib_path(module_name: &str) -> String {
         format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX)
