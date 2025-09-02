@@ -4,9 +4,7 @@
 //! between imported names and their aliases, which is crucial for correctly
 //! rewriting imports in the bundled output.
 
-use rustc_hash::FxHashMap;
-
-use crate::resolver::ModuleId;
+use crate::{resolver::ModuleId, types::FxIndexMap};
 
 /// Enhanced information about a from-import that tracks both the original name and alias
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -25,7 +23,7 @@ pub struct EnhancedFromImport {
 #[derive(Debug, Default)]
 pub struct ImportAliasTracker {
     /// Maps (`module_id`, `local_name`) to the enhanced import information
-    imports: FxHashMap<(ModuleId, String), EnhancedFromImport>,
+    imports: FxIndexMap<(ModuleId, String), EnhancedFromImport>,
 }
 
 impl ImportAliasTracker {
