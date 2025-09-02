@@ -690,6 +690,79 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
+    /// Track aliases for from-import statements
+    fn track_from_import_aliases(&mut self, import_from: &StmtImportFrom, resolved_module: &str) {
+        // Skip importlib tracking (handled separately)
+        if resolved_module == "importlib" {
+            return;
+        }
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            self.track_single_from_import_alias(resolved_module, imported_name, local_name);
+        }
+    }
+
+    /// Track a single from-import alias
+    fn track_single_from_import_alias(
+        &mut self,
+        resolved_module: &str,
+        imported_name: &str,
+        local_name: &str,
+    ) {
+        let full_module_path = format!("{resolved_module}.{imported_name}");
+
+        // Check if we're importing a submodule
+        if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
+            self.handle_submodule_import(module_id, local_name, &full_module_path);
+        } else if self.is_importing_from_inlined_module(resolved_module) {
+            // Importing from an inlined module - don't track as module alias
+            log::debug!(
+                "Not tracking symbol import as module alias: {local_name} \
+                 is a symbol from {resolved_module}, not a module alias"
+            );
+        }
+    }
+
+    /// Check if importing from an inlined module
+    fn is_importing_from_inlined_module(&self, module_name: &str) -> bool {
+        self.bundler
+            .get_module_id(module_name)
+            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+    }
+
+    /// Handle submodule import tracking
+    fn handle_submodule_import(
+        &mut self,
+        module_id: crate::resolver::ModuleId,
+        local_name: &str,
+        full_module_path: &str,
+    ) {
+        if !self.bundler.inlined_modules.contains(&module_id) {
+            return;
+        }
+
+        // Check if this is a namespace-imported module
+        if self
+            .bundler
+            .namespace_imported_modules
+            .contains_key(&module_id)
+        {
+            log::debug!("Not tracking namespace import as alias: {local_name} (namespace module)");
+        } else if !self.is_entry_module() {
+            // Track as alias in non-entry modules
+            log::debug!("Tracking module import alias: {local_name} -> {full_module_path}");
+            self.import_aliases
+                .insert(local_name.to_string(), full_module_path.to_string());
+        } else {
+            log::debug!(
+                "Not tracking module import as alias in entry module: \
+                 {local_name} -> {full_module_path} (namespace object)"
+            );
+        }
+    }
+
     /// Handle stdlib imports in wrapper modules
     fn handle_wrapper_stdlib_imports(
         &mut self,
@@ -993,65 +1066,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     };
 
                     if let Some(resolved) = &resolved_module {
-                        // Track aliases for imported symbols (non-importlib)
-                        if resolved != "importlib" {
-                            for alias in &import_from.names {
-                                let imported_name = alias.name.as_str();
-                                let local_name =
-                                    alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                                // Check if we're importing a submodule
-                                let full_module_path = format!("{resolved}.{imported_name}");
-                                if let Some(module_id) =
-                                    self.bundler.get_module_id(&full_module_path)
-                                {
-                                    if self.bundler.inlined_modules.contains(&module_id) {
-                                        // Check if this is a namespace-imported module
-                                        if self
-                                            .bundler
-                                            .namespace_imported_modules
-                                            .contains_key(&module_id)
-                                        {
-                                            // Don't track namespace imports as aliases in the entry
-                                            // module
-                                            // They remain as namespace object references
-                                            log::debug!(
-                                                "Not tracking namespace import as alias: {local_name} \
-                                             (namespace module)"
-                                            );
-                                        } else if !self.is_entry_module() {
-                                            // This is importing a submodule as a name (inlined module)
-                                            // Don't track in entry module - namespace objects are
-                                            // created instead
-                                            log::debug!(
-                                                "Tracking module import alias: {local_name} -> \
-                                             {full_module_path}"
-                                            );
-                                            self.import_aliases
-                                                .insert(local_name.to_string(), full_module_path);
-                                        } else {
-                                            log::debug!(
-                                                "Not tracking module import as alias in entry module: \
-                                             {local_name} -> {full_module_path} (namespace object)"
-                                            );
-                                        }
-                                    }
-                                } else if self
-                                    .bundler
-                                    .get_module_id(resolved)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                                {
-                                    // Importing from an inlined module
-                                    // Don't track symbol imports as module aliases!
-                                    // import_aliases should only contain actual module imports,
-                                    // not "from module import symbol" style imports
-                                    log::debug!(
-                                        "Not tracking symbol import as module alias: {local_name} \
-                                         is a symbol from {resolved}, not a module alias"
-                                    );
-                                }
-                            }
-                        }
+                        // Track aliases for imported symbols
+                        self.track_from_import_aliases(import_from, resolved);
                     }
                 }
 
