@@ -191,67 +191,6 @@ impl<'a> RecursiveImportTransformer<'a> {
             .is_some_and(|id| self.bundler.namespace_imported_modules.contains_key(&id))
     }
 
-    /// Emit `parent.attr = <full_path>` assignment for dotted imports when needed
-    fn emit_dotted_assignment_if_needed(
-        &self,
-        bundler: &Bundler,
-        parent: &str,
-        attr: &str,
-        full_path: &str,
-        result_stmts: &mut Vec<Stmt>,
-    ) {
-        let sanitized = sanitize_module_name_for_identifier(full_path);
-        let has_namespace_var = bundler.created_namespaces.contains(&sanitized);
-        let is_wrapper = bundler
-            .get_module_id(full_path)
-            .is_some_and(|id| bundler.bundled_modules.contains(&id));
-        if !(has_namespace_var || is_wrapper) {
-            log::debug!("Skipping redundant self-assignment: {parent}.{attr} = {full_path}");
-            return;
-        }
-        result_stmts.push(
-            crate::code_generator::namespace_manager::create_attribute_assignment(
-                bundler, parent, attr, full_path,
-            ),
-        );
-    }
-
-    /// Populate namespace levels for non-aliased dotted imports
-    fn populate_all_namespace_levels(
-        &self,
-        bundler: &Bundler,
-        parts: &[&str],
-        populated_modules: &mut FxIndexSet<crate::resolver::ModuleId>,
-        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-        result_stmts: &mut Vec<Stmt>,
-    ) {
-        for i in 1..=parts.len() {
-            let partial_module = parts[..i].join(".");
-            if let Some(partial_module_id) = bundler.get_module_id(&partial_module) {
-                let should_populate = bundler.bundled_modules.contains(&partial_module_id)
-                    && !populated_modules.contains(&partial_module_id)
-                    && !bundler
-                        .modules_with_populated_symbols
-                        .contains(&partial_module_id);
-                if !should_populate {
-                    continue;
-                }
-                log::debug!(
-                    "Cannot track namespace assignments for '{partial_module}' in import transformer due to immutability"
-                );
-                let mut ctx = create_namespace_population_context(bundler);
-                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                    &mut ctx,
-                    &partial_module,
-                    partial_module_id,
-                    symbol_renames,
-                );
-                result_stmts.extend(new_stmts);
-                populated_modules.insert(partial_module_id);
-            }
-        }
-    }
-
     /// Log information about wrapper wildcard exports (keeps previous behavior without generating code)
     fn log_wrapper_wildcard_info(&self, resolved: &str) {
         log::debug!("  Handling wildcard import from wrapper module '{resolved}'");
