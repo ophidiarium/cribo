@@ -27,19 +27,19 @@ cargo build
 cargo build --release
 
 # Run the tool directly
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py
+cargo run -- --entry path/to/main.py --output bundle.py
 
 # Output to stdout for debugging (no temporary files)
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --stdout
+cargo run -- --entry path/to/main.py --stdout
 
 # Run with verbose output for debugging
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vv
+cargo run -- --entry path/to/main.py --output bundle.py -vv
 
 # Run with trace-level output for detailed debugging
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vvv
+cargo run -- --entry path/to/main.py --output bundle.py -vvv
 
 # Combine stdout output with verbose logging for development
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --stdout -vv
+cargo run -- --entry path/to/main.py --stdout -vv
 ```
 
 ### CLI Usage
@@ -70,7 +70,7 @@ The `--stdout` flag is especially valuable for debugging workflows as it avoids 
 
 ```bash
 # Run all tests
-cargo test --workspace
+cargo nextest --workspace
 
 # Run with code coverage
 cargo llvm-cov --json
@@ -134,16 +134,24 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 **Usage Pattern**:
 
 ```bash
-# 1. Create fixture directory
+# Create fixture directory
 mkdir crates/cribo/tests/fixtures/my_new_feature
-
-# 2. Add test files (main.py + any supporting modules)
+# Add test files (main.py + any supporting modules)
 echo "print('Hello Feature')" > crates/cribo/tests/fixtures/my_new_feature/main.py
 
-# 3. Run tests - automatically discovered and tested
-cargo test test_all_bundling_fixtures
+# Run a specific fixture using environment variable
+INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
 
-# 4. Accept snapshots
+# Run all fixtures matching a pattern
+INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
+
+# Run fixture with debug output to see which fixture is running
+INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --no-capture --test test_bundling_snapshots --cargo-quiet --cargo-quiet
+
+# List available fixtures (useful for finding fixture names)
+find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||' | sed 's|/main.py||' | sort
+
+# Accept snapshots
 cargo insta accept
 ```
 
