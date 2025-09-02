@@ -28,8 +28,25 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models')
+pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types')
 pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg._types = pkg__types
+"""Types module with stream classes."""
+class AsyncStream:
+    """Async stream implementation."""
+
+    def read(self):
+        return "async data"
+AsyncStream.__module__ = 'pkg._types'
+class SyncStream:
+    """Sync stream implementation."""
+
+    def read(self):
+        return "sync data"
+SyncStream.__module__ = 'pkg._types'
+pkg__types.AsyncStream = AsyncStream
+pkg__types.SyncStream = SyncStream
+pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models')
 pkg._models = pkg__models
 """Models module that also imports from parent."""
 pkg = pkg.__init__(pkg)
@@ -47,23 +64,6 @@ class Response:
 Response.__module__ = 'pkg._models'
 pkg__models.Request = Request
 pkg__models.Response = Response
-pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types')
-pkg._types = pkg__types
-"""Types module with stream classes."""
-class AsyncStream:
-    """Async stream implementation."""
-
-    def read(self):
-        return "async data"
-AsyncStream.__module__ = 'pkg._types'
-class SyncStream:
-    """Sync stream implementation."""
-
-    def read(self):
-        return "sync data"
-SyncStream.__module__ = 'pkg._types'
-pkg__types.AsyncStream = AsyncStream
-pkg__types.SyncStream = SyncStream
 pkg__client = _cribo.types.SimpleNamespace(__name__='pkg._client', __initializing__=False, __initialized__=False)
 pkg._client = pkg__client
 pkg__main = _cribo.types.SimpleNamespace(__name__='pkg._main', __initializing__=False, __initialized__=False)

@@ -28,19 +28,23 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants')
+mypackage_data_processor = _cribo.types.SimpleNamespace(__name__='mypackage.data_processor')
 mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False, __path__=[])
-mypackage.utils = mypackage_utils
-mypackage_utils.constants = mypackage_utils_constants
-"""Constants module."""
-mypackage_utils_helper = _cribo.types.SimpleNamespace(__name__='mypackage.utils.helper')
-mypackage_utils.helper = mypackage_utils_helper
-"""Helper utilities."""
-def helper_function(data):
-    """Helper function for processing data."""
-    return f"Helped: {data}"
-mypackage_utils_helper.helper_function = helper_function
+mypackage.data_processor = mypackage_data_processor
+"""Data processing module."""
+def process_data(data):
+    """Process the input data."""
+    processed = data.copy()
+    processed["processed"] = True
+    return processed
+mypackage_data_processor.process_data = process_data
+mypackage_formatter = _cribo.types.SimpleNamespace(__name__='mypackage.formatter')
+mypackage.formatter = mypackage_formatter
+"""Data formatting module."""
+def format_data(data):
+    """Format the processed data."""
+    return f"Formatted: {data}"
+mypackage_formatter.format_data = format_data
 mypackage_config = _cribo.types.SimpleNamespace(__name__='mypackage.config', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_de6c46_mypackage_config(self):
     if getattr(self, '__initialized__', False):
@@ -67,22 +71,18 @@ def _cribo_init___cribo_de6c46_mypackage_config(self):
     return self
 mypackage_config.__init__ = _cribo_init___cribo_de6c46_mypackage_config
 mypackage.config = mypackage_config
-mypackage_formatter = _cribo.types.SimpleNamespace(__name__='mypackage.formatter')
-mypackage.formatter = mypackage_formatter
-"""Data formatting module."""
-def format_data(data):
-    """Format the processed data."""
-    return f"Formatted: {data}"
-mypackage_formatter.format_data = format_data
-mypackage_data_processor = _cribo.types.SimpleNamespace(__name__='mypackage.data_processor')
-mypackage.data_processor = mypackage_data_processor
-"""Data processing module."""
-def process_data(data):
-    """Process the input data."""
-    processed = data.copy()
-    processed["processed"] = True
-    return processed
-mypackage_data_processor.process_data = process_data
+mypackage_utils_helper = _cribo.types.SimpleNamespace(__name__='mypackage.utils.helper')
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False, __path__=[])
+mypackage.utils = mypackage_utils
+mypackage_utils.helper = mypackage_utils_helper
+"""Helper utilities."""
+def helper_function(data):
+    """Helper function for processing data."""
+    return f"Helped: {data}"
+mypackage_utils_helper.helper_function = helper_function
+mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants')
+mypackage_utils.constants = mypackage_utils_constants
+"""Constants module."""
 def _cribo_init___cribo_a81151_mypackage(self):
     if getattr(self, '__initialized__', False):
         return self

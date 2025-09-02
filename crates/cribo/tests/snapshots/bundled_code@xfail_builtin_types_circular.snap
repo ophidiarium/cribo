@@ -28,13 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg___version__ = _cribo.types.SimpleNamespace(__name__='pkg.__version__')
-pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
-pkg.__version__ = pkg___version__
-"""Version info."""
 pkg_certs = _cribo.types.SimpleNamespace(__name__='pkg.certs')
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
 pkg.certs = pkg_certs
 """Certs module."""
+pkg___version__ = _cribo.types.SimpleNamespace(__name__='pkg.__version__')
+pkg.__version__ = pkg___version__
+"""Version info."""
 pkg__internal_utils = _cribo.types.SimpleNamespace(__name__='pkg._internal_utils', __initializing__=False, __initialized__=False)
 pkg._internal_utils = pkg__internal_utils
 pkg_compat = _cribo.types.SimpleNamespace(__name__='pkg.compat', __initializing__=False, __initialized__=False)

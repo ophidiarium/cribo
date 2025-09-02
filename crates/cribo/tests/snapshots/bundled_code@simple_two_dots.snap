@@ -28,13 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo')
-foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False)
-foo.boo = foo_boo
 foo_zoo = _cribo.types.SimpleNamespace(__name__='foo.zoo')
+foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False)
 foo.zoo = foo_zoo
 ANIMAL = "cat"
 foo_zoo.ANIMAL = ANIMAL
+foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo')
+foo.boo = foo_boo
 foo_boo___main__ = _cribo.types.SimpleNamespace(__name__='foo.boo.__main__', __initializing__=False, __initialized__=False)
 foo_boo.__main__ = foo_boo___main__
 def _cribo_init___cribo_35e8d2_foo(self):
