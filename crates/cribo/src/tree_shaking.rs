@@ -1072,9 +1072,12 @@ impl TreeShaker {
             debug!("Looking for {attr} in submodules of {base_var}");
 
             // Find which submodule defines this attribute
-            if let Some(module_name) = self.find_attribute_in_submodules(base_var, attr) {
-                debug!("Found {attr} defined in {module_name}");
-                worklist.push_back((module_name, attr.clone()));
+            if let Some(module_id) = self.find_attribute_in_submodules(base_var, attr) {
+                debug!(
+                    "Found {attr} defined in {}",
+                    self.get_module_display_name(module_id)
+                );
+                worklist.push_back((module_id, attr.clone()));
             } else {
                 warn!("Could not find {attr} in any submodule of {base_var} from {context}");
             }
