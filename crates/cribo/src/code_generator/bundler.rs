@@ -634,6 +634,11 @@ impl<'a> Bundler<'a> {
             .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
     }
 
+    /// Check if a module has a synthetic name by its ID (i.e., is a wrapper module)
+    pub(crate) fn module_has_synthetic_name(&self, module_id: ModuleId) -> bool {
+        self.module_synthetic_names.contains_key(&module_id)
+    }
+
     /// Check if a symbol is kept by tree shaking
     pub(crate) fn is_symbol_kept_by_tree_shaking(
         &self,
@@ -4179,16 +4184,16 @@ impl<'a> Bundler<'a> {
 
     /// Create a rewritten base class expression for hard dependencies
     fn create_rewritten_base_expr(&self, hard_dep: &HardDependency, class_name: &str) -> Expr {
-        // Get the source module name from the ID
-        let source_module_name = self
-            .resolver
-            .get_module_name(hard_dep.source_module_id)
-            .unwrap_or_else(|| format!("module_{}", hard_dep.source_module_id.as_u32()));
-
         // Check if the source module is a wrapper module
-        let source_is_wrapper = self.has_synthetic_name(&source_module_name);
+        let source_is_wrapper = self.module_has_synthetic_name(hard_dep.source_module_id);
 
         if source_is_wrapper && !hard_dep.base_class.contains('.') {
+            // Get the source module name only when needed for the expression
+            let source_module_name = self
+                .resolver
+                .get_module_name(hard_dep.source_module_id)
+                .unwrap_or_else(|| format!("module_{}", hard_dep.source_module_id.as_u32()));
+
             // For imports from wrapper modules, we need to use module.attr pattern
             log::info!(
                 "Rewrote base class {} to {}.{} for class {} in inlined module (source is wrapper)",
@@ -4238,8 +4243,12 @@ impl<'a> Bundler<'a> {
     pub(crate) fn rewrite_hard_dependencies_in_module(
         &self,
         ast: &mut ModModule,
-        module_name: &str,
+        module_id: ModuleId,
     ) {
+        let module_name = self
+            .resolver
+            .get_module_name(module_id)
+            .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
         log::debug!("Rewriting hard dependencies in module {module_name}");
 
         for stmt in &mut ast.body {
@@ -4249,7 +4258,7 @@ impl<'a> Bundler<'a> {
 
                 if let Some(arguments) = &mut class_def.arguments {
                     for arg in &mut arguments.args {
-                        self.rewrite_base_arg_if_hard_dep(arg, module_name, class_name);
+                        self.rewrite_base_arg_if_hard_dep(arg, module_id, class_name);
                     }
                 }
             }
@@ -4257,18 +4266,12 @@ impl<'a> Bundler<'a> {
     }
 
     /// Rewrite a class base argument if it matches a configured hard dependency
-    fn rewrite_base_arg_if_hard_dep(&self, arg: &mut Expr, module_name: &str, class_name: &str) {
+    fn rewrite_base_arg_if_hard_dep(&self, arg: &mut Expr, module_id: ModuleId, class_name: &str) {
         let base_str = expr_to_dotted_name(arg);
         log::debug!("    Base class: {base_str}");
 
         for hard_dep in &self.hard_dependencies {
-            // Get the module name from the ID to compare
-            let dep_module_name = self
-                .resolver
-                .get_module_name(hard_dep.module_id)
-                .unwrap_or_else(|| format!("module_{}", hard_dep.module_id.as_u32()));
-
-            if dep_module_name != module_name || hard_dep.class_name != class_name {
+            if hard_dep.module_id != module_id || hard_dep.class_name != class_name {
                 continue;
             }
             log::debug!(

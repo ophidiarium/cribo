@@ -70,7 +70,7 @@ impl Bundler<'_> {
 
         // Apply hard dependency rewriting BEFORE import transformation
         if !self.hard_dependencies.is_empty() && self.circular_modules.contains(&module_id) {
-            self.rewrite_hard_dependencies_in_module(&mut ast, module_name);
+            self.rewrite_hard_dependencies_in_module(&mut ast, module_id);
         }
 
         // Then apply recursive import transformation to the module

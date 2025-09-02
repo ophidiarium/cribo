@@ -1065,20 +1065,11 @@ impl<'a> RecursiveImportTransformer<'a> {
         let class_name = class_def.name.as_str();
 
         // Pre-filter hard dependencies for this specific class
-        let current_module_name = self.get_module_name();
         let class_hard_deps: Vec<_> = self
             .bundler
             .hard_dependencies
             .iter()
-            .filter(|dep| {
-                // Get the module name from the ID to compare
-                let dep_module_name = self
-                    .bundler
-                    .resolver
-                    .get_module_name(dep.module_id)
-                    .unwrap_or_else(|| format!("module_{}", dep.module_id.as_u32()));
-                dep_module_name == current_module_name && dep.class_name == class_name
-            })
+            .filter(|dep| dep.module_id == self.module_id && dep.class_name == class_name)
             .collect();
 
         let Some(ref mut arguments) = class_def.arguments else {
