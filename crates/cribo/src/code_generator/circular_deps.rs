@@ -28,9 +28,9 @@ impl SymbolDependencyGraph {
     where
         T: Clone,
     {
-        use petgraph::algo::kosaraju_scc;
+        use petgraph::algo::tarjan_scc;
 
-        let components = kosaraju_scc(graph);
+        let components = tarjan_scc(graph);
 
         // Prefer SCCs with more than one node (true cycles)
         if let Some(component) = components
