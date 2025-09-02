@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 /// - Side effect preservation
 use anyhow::{Result, anyhow};
 use petgraph::{
-    algo::{is_cyclic_directed, toposort},
+    algo::{is_cyclic_directed, tarjan_scc, toposort},
     graph::{DiGraph, NodeIndex},
 };
 
@@ -247,15 +247,7 @@ impl ModuleDepGraph {
     }
 }
 
-/// State for Tarjan's strongly connected components algorithm
-struct TarjanState {
-    index_counter: usize,
-    stack: Vec<NodeIndex>,
-    indices: FxIndexMap<NodeIndex, usize>,
-    lowlinks: FxIndexMap<NodeIndex, usize>,
-    on_stack: FxIndexMap<NodeIndex, bool>,
-    components: Vec<Vec<NodeIndex>>,
-}
+// Note: Custom Tarjan SCC implementation removed in favor of petgraph::algo::tarjan_scc
 
 /// High-level dependency graph managing multiple modules
 /// Combines the best of three approaches:
@@ -468,78 +460,15 @@ impl CriboGraph {
     /// This is more efficient than Kosaraju for our use case and provides components in
     /// reverse topological order
     pub fn find_strongly_connected_components(&self) -> Vec<Vec<ModuleId>> {
-        let mut state = TarjanState {
-            index_counter: 0,
-            stack: Vec::new(),
-            indices: FxIndexMap::default(),
-            lowlinks: FxIndexMap::default(),
-            on_stack: FxIndexMap::default(),
-            components: Vec::new(),
-        };
+        // Use petgraph's implementation for correctness and maintainability
+        let components = tarjan_scc(&self.graph);
 
-        for node_index in self.graph.node_indices() {
-            if !state.indices.contains_key(&node_index) {
-                self.tarjan_strongconnect(node_index, &mut state);
-            }
-        }
-
-        // Convert NodeIndex components to ModuleId components
-        state
-            .components
+        // Convert NodeIndex components to ModuleId components and keep only real cycles (>1)
+        components
             .into_iter()
+            .filter(|component| component.len() > 1)
             .map(|component| component.into_iter().map(|idx| self.graph[idx]).collect())
             .collect()
-    }
-
-    /// Helper for Tarjan's algorithm
-    fn tarjan_strongconnect(&self, v: NodeIndex, state: &mut TarjanState) {
-        state.indices.insert(v, state.index_counter);
-        state.lowlinks.insert(v, state.index_counter);
-        state.index_counter += 1;
-        state.stack.push(v);
-        state.on_stack.insert(v, true);
-
-        // Note: Our edges go from dependency to dependent, so we traverse outgoing edges
-        for w in self
-            .graph
-            .neighbors_directed(v, petgraph::Direction::Outgoing)
-        {
-            if !state.indices.contains_key(&w) {
-                self.tarjan_strongconnect(w, state);
-                let w_lowlink = *state.lowlinks.get(&w).expect("w should exist in lowlinks");
-                let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
-                state.lowlinks.insert(v, v_lowlink.min(w_lowlink));
-            } else if *state.on_stack.get(&w).unwrap_or(&false) {
-                let w_index = *state.indices.get(&w).expect("w should exist in indices");
-                let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
-                state.lowlinks.insert(v, v_lowlink.min(w_index));
-            }
-        }
-
-        if state.lowlinks[&v] == state.indices[&v] {
-            let component = self.pop_scc_component(&mut state.stack, &mut state.on_stack, v);
-            if component.len() > 1 {
-                state.components.push(component);
-            }
-        }
-    }
-
-    /// Pop a strongly connected component from the stack
-    fn pop_scc_component(
-        &self,
-        stack: &mut Vec<NodeIndex>,
-        on_stack: &mut FxIndexMap<NodeIndex, bool>,
-        v: NodeIndex,
-    ) -> Vec<NodeIndex> {
-        let mut component = Vec::new();
-        while let Some(w) = stack.pop() {
-            on_stack.insert(w, false);
-            component.push(w);
-            if w == v {
-                break;
-            }
-        }
-        component
     }
 }
 
