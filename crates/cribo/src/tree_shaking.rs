@@ -665,16 +665,33 @@ impl TreeShaker {
                     level,
                     is_star,
                     ..
-                } => self.handle_from_import(
-                    item,
-                    from_module,
-                    names,
-                    *level,
-                    *is_star,
-                    module_id,
-                    scope_name,
-                    worklist,
-                ),
+                } => {
+                    // Resolve relative imports
+                    let module_name = self
+                        .module_names
+                        .get(&module_id)
+                        .map_or("", std::string::String::as_str);
+                    let resolved_module_name = if *level > 0 {
+                        self.resolve_relative_module(module_name, from_module, *level)
+                    } else {
+                        from_module.clone()
+                    };
+                    if *is_star {
+                        self.handle_star_import(&resolved_module_name, worklist);
+                    } else {
+                        self.handle_named_imports(
+                            &resolved_module_name,
+                            names,
+                            scope_name,
+                            worklist,
+                        );
+                    }
+                    // Preserve local bindings declared by this import
+                    for var in &item.var_decls {
+                        debug!("  Adding local imported binding {var} to worklist");
+                        worklist.push_back((module_id, var.clone()));
+                    }
+                }
                 _ => {}
             }
         }
@@ -704,46 +721,6 @@ impl TreeShaker {
 
         if self.module_has_side_effects(imported_module_id) {
             self.seed_side_effects_for_module(imported_module_id, worklist);
-        }
-    }
-
-    /// Handle from import statements within a scope
-    fn handle_from_import(
-        &self,
-        item: &ItemData,
-        from_module: &str,
-        names: &[(String, Option<String>)],
-        level: u32,
-        is_star: bool,
-        module_id: ModuleId,
-        scope_name: &str,
-        worklist: &mut VecDeque<(ModuleId, String)>,
-    ) {
-        // Resolve relative imports
-        let module_name = self
-            .module_names
-            .get(&module_id)
-            .map_or("", std::string::String::as_str);
-        let resolved_module_name = if level > 0 {
-            self.resolve_relative_module(module_name, from_module, level)
-        } else {
-            from_module.to_string()
-        };
-
-        // Note: Side effects for the source module are already seeded
-        // in the first pass when we encounter the FromImport
-
-        if is_star {
-            self.handle_star_import(&resolved_module_name, worklist);
-        } else {
-            self.handle_named_imports(&resolved_module_name, names, scope_name, worklist);
-        }
-
-        // Always mark the local bindings declared by this import as used,
-        // so the in-scope import statement is preserved.
-        for var in &item.var_decls {
-            debug!("  Adding local imported binding {var} to worklist");
-            worklist.push_back((module_id, var.clone()));
         }
     }
 
