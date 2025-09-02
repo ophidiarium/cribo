@@ -32,11 +32,10 @@ impl SymbolDependencyGraph {
 
         let components = tarjan_scc(graph);
 
-        // Prefer SCCs with more than one node (true cycles)
-        if let Some(component) = components
-            .into_iter()
-            .find(|c| c.len() > 1 && c.contains(&cycle_node))
-        {
+        // Include self-loops (single-node SCC with self-edge) as cycles
+        if let Some(component) = components.into_iter().find(|c| {
+            c.contains(&cycle_node) && (c.len() > 1 || graph.contains_edge(cycle_node, cycle_node))
+        }) {
             return component
                 .into_iter()
                 .map(|idx| graph[idx].clone())
