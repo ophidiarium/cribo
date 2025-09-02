@@ -1005,15 +1005,15 @@ pub fn transform_module_to_init_function<'a>(
                 } else {
                     FxIndexSet::default()
                 };
-                transform_stmt_for_module_vars_with_bundler(
-                    &mut stmt_clone,
+                let transform_ctx = ModuleVarTransformContext {
                     bundler,
-                    &module_level_vars,
-                    SELF_PARAM, // Use "self" instead of module_var_name inside init function
-                    ctx.global_info.as_ref().map(|g| &g.global_declarations),
-                    lifted_names.as_ref(),
-                    ctx.python_version,
-                );
+                    module_level_vars: &module_level_vars,
+                    module_var_name: SELF_PARAM, // Use "self" instead of module_var_name inside init function
+                    global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
+                    lifted_names: lifted_names.as_ref(),
+                    python_version: ctx.python_version,
+                };
+                transform_stmt_for_module_vars_with_bundler(&mut stmt_clone, &transform_ctx);
                 body.push(stmt_clone);
             }
         }
@@ -2008,40 +2008,48 @@ fn transform_stmt_for_module_vars(
     }
 }
 
+/// Context for transforming statements with module variable awareness
+struct ModuleVarTransformContext<'a> {
+    bundler: &'a Bundler<'a>,
+    module_level_vars: &'a FxIndexSet<String>,
+    module_var_name: &'a str,
+    global_declarations: Option<&'a FxIndexMap<String, Vec<ruff_text_size::TextRange>>>,
+    lifted_names: Option<&'a FxIndexMap<String, String>>,
+    python_version: u8,
+}
+
 /// Transform a statement to use module attributes for module-level variables,
 /// with awareness of lifted globals for nested functions
-fn transform_stmt_for_module_vars_with_bundler(
-    stmt: &mut Stmt,
-    bundler: &Bundler,
-    module_level_vars: &FxIndexSet<String>,
-    module_var_name: &str,
-    global_declarations: Option<&FxIndexMap<String, Vec<ruff_text_size::TextRange>>>,
-    lifted_names: Option<&FxIndexMap<String, String>>,
-    python_version: u8,
-) {
+fn transform_stmt_for_module_vars_with_bundler(stmt: &mut Stmt, ctx: &ModuleVarTransformContext) {
     if let Stmt::FunctionDef(nested_func) = stmt {
         // For function definitions, use the global-aware transformation
-        if let Some(globals_map) = global_declarations {
-            bundler.transform_nested_function_for_module_vars_with_global_info(
-                nested_func,
-                module_level_vars,
-                globals_map,
-                lifted_names,
-                module_var_name,
-            );
+        if let Some(globals_map) = ctx.global_declarations {
+            ctx.bundler
+                .transform_nested_function_for_module_vars_with_global_info(
+                    nested_func,
+                    ctx.module_level_vars,
+                    globals_map,
+                    ctx.lifted_names,
+                    ctx.module_var_name,
+                );
         } else {
             // Fallback to legacy path when no global info is available
             transform_nested_function_for_module_vars(
                 nested_func,
-                module_level_vars,
-                module_var_name,
-                python_version,
+                ctx.module_level_vars,
+                ctx.module_var_name,
+                ctx.python_version,
             );
         }
         return;
     }
     // Non-function statements: reuse the existing traversal
-    transform_stmt_for_module_vars(stmt, module_level_vars, module_var_name, python_version);
+    transform_stmt_for_module_vars(
+        stmt,
+        ctx.module_level_vars,
+        ctx.module_var_name,
+        ctx.python_version,
+    );
 }
 
 /// Transform nested function to use module attributes for module-level variables
