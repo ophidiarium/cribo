@@ -632,11 +632,7 @@ pub fn transform_module_to_init_function<'a>(
                         {
                             // Check if the target is also passed as an argument
                             let needs_global = call.arguments.args.iter().any(|arg| {
-                                if let Expr::Name(arg_name) = arg {
-                                    arg_name.id.as_str() == target.id.as_str()
-                                } else {
-                                    false
-                                }
+                                matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
                             });
                             if needs_global {
                                 self.globals_needed.insert(target.id.to_string());

@@ -204,7 +204,7 @@ def foo():
     x = 10
         ";
 
-        let parsed = parse_module(source).unwrap();
+        let parsed = parse_module(source).expect("Test code should parse successfully");
         let info = GlobalAnalyzer::analyze("test_module", parsed.syntax())
             .expect("Should return Some when there are global declarations");
 
@@ -228,11 +228,11 @@ def bar():
     y = 3  # local
         ";
 
-        let parsed = parse_module(source).unwrap();
+        let parsed = parse_module(source).expect("Test code should parse successfully");
         let info = GlobalAnalyzer::analyze("test_module", parsed.syntax());
 
         assert!(info.is_some());
-        let info = info.unwrap();
+        let info = info.expect("Should return Some when there are global declarations");
 
         assert!(info.global_declarations.contains_key("x"));
         assert!(info.functions_using_globals.contains("foo"));
@@ -250,11 +250,11 @@ def outer():
         x = 2
         ";
 
-        let parsed = parse_module(source).unwrap();
+        let parsed = parse_module(source).expect("Test code should parse successfully");
         let info = GlobalAnalyzer::analyze("test_module", parsed.syntax());
 
         assert!(info.is_some());
-        let info = info.unwrap();
+        let info = info.expect("Should return Some when there are global declarations");
 
         assert!(info.global_declarations.contains_key("x"));
         assert!(info.functions_using_globals.contains("outer.inner"));
@@ -268,7 +268,7 @@ def foo():
     return x
         ";
 
-        let parsed = parse_module(source).unwrap();
+        let parsed = parse_module(source).expect("Test code should parse successfully");
         let info = GlobalAnalyzer::analyze("test_module", parsed.syntax());
 
         assert!(info.is_none());
