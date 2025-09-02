@@ -763,6 +763,66 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
+    /// Handle stdlib from-imports in wrapper modules
+    fn handle_stdlib_from_import(
+        &mut self,
+        import_from: &StmtImportFrom,
+        module_str: &str,
+    ) -> Option<Vec<Stmt>> {
+        if import_from.level != 0 || !self.should_normalize_stdlib_import(module_str) {
+            return None;
+        }
+
+        // Track that this stdlib module was imported
+        self.imported_stdlib_modules.insert(module_str.to_string());
+        // Also track parent modules for dotted imports
+        if let Some(dot_pos) = module_str.find('.') {
+            let parent = &module_str[..dot_pos];
+            self.imported_stdlib_modules.insert(parent.to_string());
+        }
+
+        // If we're in a wrapper module, create local assignments
+        if !self.is_wrapper_init {
+            return None;
+        }
+
+        let mut assignments = Vec::new();
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            if imported_name == "*" {
+                // Preserve wildcard imports from stdlib to avoid incorrect symbol drops
+                return Some(vec![Stmt::ImportFrom(import_from.clone())]);
+            }
+
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            let full_path = format!(
+                "{}.{module_str}.{imported_name}",
+                crate::ast_builder::CRIBO_PREFIX
+            );
+
+            // Track this renaming for expression rewriting
+            if module_str == "importlib" && imported_name == "import_module" {
+                self.import_aliases.insert(
+                    local_name.to_string(),
+                    format!("{module_str}.{imported_name}"),
+                );
+            } else {
+                self.import_aliases
+                    .insert(local_name.to_string(), full_path.clone());
+            }
+
+            // Create local assignment: local_name = _cribo.module.symbol
+            let proxy_parts: Vec<&str> = full_path.split('.').collect();
+            let value_expr =
+                crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
+            let target = crate::ast_builder::expressions::name(local_name, ExprContext::Store);
+            let assign_stmt = crate::ast_builder::statements::assign(vec![target], value_expr);
+            assignments.push(assign_stmt);
+        }
+
+        Some(assignments)
+    }
+
     /// Handle stdlib imports in wrapper modules
     fn handle_wrapper_stdlib_imports(
         &mut self,
