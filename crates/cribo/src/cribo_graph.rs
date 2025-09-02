@@ -463,10 +463,15 @@ impl CriboGraph {
         // Use petgraph's implementation for correctness and maintainability
         let components = tarjan_scc(&self.graph);
 
-        // Convert NodeIndex components to ModuleId components and keep only real cycles (>1)
+        // Convert NodeIndex components to ModuleId components and keep only real cycles
+        // Include single-node components if there is a self-loop edge
         components
             .into_iter()
-            .filter(|component| component.len() > 1)
+            .filter(|component| {
+                component.len() > 1
+                    || (component.len() == 1
+                        && self.graph.contains_edge(component[0], component[0]))
+            })
             .map(|component| component.into_iter().map(|idx| self.graph[idx]).collect())
             .collect()
     }
