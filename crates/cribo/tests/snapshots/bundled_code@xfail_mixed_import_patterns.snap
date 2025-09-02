@@ -34,34 +34,6 @@ def format_message(message):
     """Format a message with decorative borders"""
     return f">>> {message} <<<"
 utils.format_message = format_message
-app = _cribo.types.SimpleNamespace(__name__='app')
-"""\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
-config = config.__init__(config)
-logger = logger.__init__(logger)
-class Application:
-
-    def __init__(self):
-        self.config = config.get_config()
-        self.logger = logger.get_logger()
-        self.logger.log(f"Creating {self.config.app_name} v{self.config.version} application instance")
-
-    def run(self):
-        """Run the application with various logging examples"""
-        self.logger.log("Application.run() called", "DEBUG")
-        print(format_message("Performing application tasks..."))
-        self.demonstrate_import_patterns()
-        self.logger.log("Application tasks completed", "INFO")
-
-    def demonstrate_import_patterns(self):
-        """Show how the same module can be imported different ways"""
-        self.logger.log("Using module-level logger import", "DEBUG")
-        print(format_message("Mixed import patterns working correctly!"))
-        global logger
-        logger = logger.__init__(logger)
-        local_logger = logger.get_logger()
-        local_logger.log("Function-level import gives same logger instance", "DEBUG")
-Application.__module__ = 'app'
-app.Application = Application
 config = _cribo.types.SimpleNamespace(__name__='config', __initializing__=False, __initialized__=False)
 logger = _cribo.types.SimpleNamespace(__name__='logger', __initializing__=False, __initialized__=False)
 _cribo_config__config = None
@@ -176,6 +148,34 @@ def _cribo_init___cribo_0639af_logger(self):
     self.__initializing__ = False
     return self
 logger.__init__ = _cribo_init___cribo_0639af_logger
+app = _cribo.types.SimpleNamespace(__name__='app')
+"""\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
+config = config.__init__(config)
+logger = logger.__init__(logger)
+class Application:
+
+    def __init__(self):
+        self.config = config.get_config()
+        self.logger = logger.get_logger()
+        self.logger.log(f"Creating {self.config.app_name} v{self.config.version} application instance")
+
+    def run(self):
+        """Run the application with various logging examples"""
+        self.logger.log("Application.run() called", "DEBUG")
+        print(format_message("Performing application tasks..."))
+        self.demonstrate_import_patterns()
+        self.logger.log("Application tasks completed", "INFO")
+
+    def demonstrate_import_patterns(self):
+        """Show how the same module can be imported different ways"""
+        self.logger.log("Using module-level logger import", "DEBUG")
+        print(format_message("Mixed import patterns working correctly!"))
+        global logger
+        logger = logger.__init__(logger)
+        local_logger = logger.get_logger()
+        local_logger.log("Function-level import gives same logger instance", "DEBUG")
+Application.__module__ = 'app'
+app.Application = Application
 """\nSimulates a software architecture with:\n- A logger that needs configuration\n- A configuration system that logs its initialization\n- An application that uses both\n- Utilities that are used everywhere (no circular deps)\n"""
 def main():
     print(format_message("=== Application Starting ==="))

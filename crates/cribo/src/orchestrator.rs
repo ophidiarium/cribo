@@ -761,135 +761,34 @@ impl BundleOrchestrator {
         Ok(())
     }
 
-    /// Topologically sort a subset of modules based on their dependencies
-    /// Uses petgraph's `toposort` on a filtered subgraph for consistency
-    fn topologically_sort_modules(
-        &self,
-        graph: &CriboGraph,
-        module_ids: &[crate::resolver::ModuleId],
-    ) -> Vec<crate::resolver::ModuleId> {
-        use petgraph::{algo::toposort, graph::DiGraph};
-
-        let module_set: IndexSet<_> = module_ids.iter().copied().collect();
-
-        // Build a filtered subgraph containing only nodes in `module_set`
-        let mut subgraph: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
-        let mut node_map: FxIndexMap<crate::resolver::ModuleId, petgraph::graph::NodeIndex> =
-            FxIndexMap::default();
-
-        for &id in &module_set {
-            let idx = subgraph.add_node(id);
-            node_map.insert(id, idx);
-        }
-
-        // Add edges between nodes in the subset (dependency -> dependent)
-        for &id in &module_set {
-            let deps = graph.get_dependencies(id);
-            for dep in deps {
-                if module_set.contains(&dep) {
-                    let Some(&from) = node_map.get(&dep) else {
-                        continue;
-                    };
-                    let Some(&to) = node_map.get(&id) else {
-                        continue;
-                    };
-                    if !subgraph.contains_edge(from, to) {
-                        subgraph.add_edge(from, to, ());
-                    }
-                }
-            }
-        }
-
-        // Perform topological sort on the subgraph
-        match toposort(&subgraph, None) {
-            Ok(sorted_nodes) => sorted_nodes.into_iter().map(|n| subgraph[n]).collect(),
-            Err(_cycle) => {
-                // Best-effort fallback for cyclic subset; maintain deterministic order
-                log::warn!(
-                    "Cycle detected within subset during topological sort; falling back to input order ({} modules)",
-                    module_set.len()
-                );
-                module_ids.to_vec()
-            }
-        }
-    }
+    // Removed: unused helper `topologically_sort_modules` — we now sort via full-graph SCC condensation.
 
     /// Get modules in a valid order for bundling when there are resolvable circular dependencies
     fn get_modules_with_cycle_resolution(
         &self,
         graph: &CriboGraph,
-        analysis: &crate::analyzers::types::CircularDependencyAnalysis,
+        _analysis: &crate::analyzers::types::CircularDependencyAnalysis,
     ) -> Vec<crate::resolver::ModuleId> {
-        debug!(
-            "get_modules_with_cycle_resolution called with {} resolvable cycles",
-            analysis.resolvable_cycles.len()
-        );
-        // For simple function-level cycles, we can use a modified topological sort
-        // that breaks cycles by removing edges within strongly connected components
+        debug!("get_modules_with_cycle_resolution: computing SCC condensation over full graph");
 
-        // Get all module IDs
-        let all_module_ids: Vec<_> = graph.modules.keys().copied().collect();
-
-        // Collect all modules that are part of circular dependencies
-        let cycle_id_set: IndexSet<crate::resolver::ModuleId> = analysis
-            .resolvable_cycles
-            .iter()
-            .flat_map(|c| c.modules.iter().copied())
-            .collect();
-
-        // Split modules into non-cycle and cycle modules
-        let (cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) = all_module_ids
-            .into_iter()
-            .partition(|module_id| cycle_id_set.contains(module_id));
-
-        // Get module names for debug logging
-        let cycle_module_names: Vec<String> = cycle_ids
-            .iter()
-            .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
-            .collect();
-        debug!("Modules in cycle: {cycle_module_names:?}");
-        debug!(
-            "Number of cycle modules: {}, non-cycle modules: {}",
-            cycle_ids.len(),
-            non_cycle_ids.len()
-        );
-
-        // For non-cycle modules, we can still use topological sorting on the subgraph
-        let mut result = Vec::new();
-
-        // Sort non-cycle modules topologically among themselves
-        // This is critical - they must respect their dependency order
-        let sorted_non_cycle_ids = self.topologically_sort_modules(graph, &non_cycle_ids);
-        debug!(
-            "Sorted {} non-cycle modules topologically",
-            sorted_non_cycle_ids.len()
-        );
-
-        // Add sorted non-cycle modules first
-        result.extend(sorted_non_cycle_ids);
-
-        // For cycle modules, collapse SCCs and order components using petgraph
         use petgraph::{
             algo::{tarjan_scc, toposort},
             graph::DiGraph,
             visit::{DfsPostOrder, EdgeRef},
         };
-        debug!("Processing {} cycle modules", cycle_ids.len());
+
+        // Build subgraph over ALL modules to maintain deps-before-dependents globally
+        let all_module_ids: Vec<_> = graph.modules.keys().copied().collect();
 
         let mut subgraph: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
         let mut node_map: FxIndexMap<crate::resolver::ModuleId, petgraph::graph::NodeIndex> =
             FxIndexMap::default();
-
-        for &id in &cycle_ids {
-            let idx = subgraph.add_node(id);
-            node_map.insert(id, idx);
+        for &id in &all_module_ids {
+            node_map.insert(id, subgraph.add_node(id));
         }
-
-        for &id in &cycle_ids {
-            let dependencies = graph.get_dependencies(id);
-            for dep_id in dependencies {
-                if let Some(&from) = node_map.get(&dep_id)
-                    && let Some(&to) = node_map.get(&id)
+        for &id in &all_module_ids {
+            for dep in graph.get_dependencies(id) {
+                if let (Some(&from), Some(&to)) = (node_map.get(&dep), node_map.get(&id))
                     && !subgraph.contains_edge(from, to)
                 {
                     subgraph.add_edge(from, to, ());
@@ -897,7 +796,7 @@ impl BundleOrchestrator {
             }
         }
 
-        // Compute SCCs on the cycle subgraph
+        // Compute SCCs on the full subgraph
         let sccs = tarjan_scc(&subgraph);
 
         // Map each node to its SCC index
@@ -908,18 +807,18 @@ impl BundleOrchestrator {
             }
         }
 
-        // Compute a stable rank for nodes based on their order in cycle_ids
+        // Deterministic rank using discovery order from all_module_ids
         let mut rank: FxIndexMap<crate::resolver::ModuleId, usize> = FxIndexMap::default();
-        for (i, &mid) in cycle_ids.iter().enumerate() {
+        for (i, &mid) in all_module_ids.iter().enumerate() {
             rank.insert(mid, i);
         }
 
-        // Build a component DAG (condensation) and topologically sort components
+        // Build condensation DAG of components
         let mut comp_graph: DiGraph<usize, ()> = DiGraph::new();
         let mut comp_node_map: FxIndexMap<usize, petgraph::graph::NodeIndex> =
             FxIndexMap::default();
 
-        // Order component insertion by minimal rank among its nodes for determinism
+        // Insert components in deterministic order by minimal member rank
         let mut comp_indices: Vec<usize> = (0..sccs.len()).collect();
         comp_indices.sort_by_key(|&cid| {
             sccs[cid]
@@ -929,8 +828,7 @@ impl BundleOrchestrator {
                 .unwrap_or(usize::MAX)
         });
         for cid in comp_indices.iter().copied() {
-            let idx = comp_graph.add_node(cid);
-            comp_node_map.insert(cid, idx);
+            comp_node_map.insert(cid, comp_graph.add_node(cid));
         }
 
         // Add edges between components (dependency -> dependent)
@@ -952,16 +850,23 @@ impl BundleOrchestrator {
         let comp_order = match toposort(&comp_graph, None) {
             Ok(nodes) => nodes.into_iter().map(|n| comp_graph[n]).collect::<Vec<_>>(),
             Err(_) => {
-                // Fallback: use insertion order, though condensation should be a DAG
+                // Condensation should be a DAG; if not, fall back to insertion order
                 comp_indices
             }
         };
 
-        // Within each component, produce a stable dependency-first order using DfsPostOrder
+        // Emit modules: singleton SCCs directly; multi-node SCCs with stable DFS-post-order
         let mut visited = IndexSet::new();
-        let mut cycle_module_order = Vec::new();
+        let mut result = Vec::with_capacity(all_module_ids.len());
         for cid in comp_order {
             let comp_nodes = &sccs[cid];
+            if comp_nodes.len() == 1 {
+                let mid = subgraph[comp_nodes[0]];
+                if visited.insert(mid) {
+                    result.push(mid);
+                }
+                continue;
+            }
 
             // Build a mini-subgraph containing only nodes in this component
             let mut mini: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
@@ -990,29 +895,27 @@ impl BundleOrchestrator {
                 }
             }
 
-            // Traverse the mini-subgraph
+            // Traverse the mini-subgraph to ensure dependency-first order within the SCC
             for &nx in &comp_sorted {
                 if let Some(&start) = mini_map.get(&nx) {
                     let mut dfs = DfsPostOrder::new(&mini, start);
                     while let Some(nid) = dfs.next(&mini) {
                         let mid = mini[nid];
                         if visited.insert(mid) {
-                            cycle_module_order.push(mid);
+                            result.push(mid);
                         }
                     }
                 }
             }
         }
 
-        // Debug log the cycle module order
-        debug!("Cycle module order:");
-        for &module_id in &cycle_module_order {
+        // Debug log resulting order
+        debug!("Resolved module order (including cycles):");
+        for &module_id in &result {
             if let Some(module) = graph.modules.get(&module_id) {
                 debug!("  - {}", module.module_name);
             }
         }
-
-        result.extend(cycle_module_order);
 
         result
     }

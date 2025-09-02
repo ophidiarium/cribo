@@ -110,6 +110,49 @@ core_utils_helpers.process = process_6
 core_utils_helpers.process_with_conflicts = process_with_conflicts
 core_utils_helpers.result = result_6
 core_utils_helpers.validate = validate_6
+def _cribo_init___cribo_62c387_core(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    CoreLogger = core_utils_helpers.Logger
+    core.CoreLogger = CoreLogger
+    core_process = core_utils_helpers.process
+    core.core_process = core_process
+    result = "core_package_result"
+    self.result = result
+    Logger = CoreLogger
+    self.Logger = Logger
+    self.database = core_database
+    self.database = core_database
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+core.__init__ = _cribo_init___cribo_62c387_core
+def _cribo_init___cribo_c57a32_core_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    Logger = core_utils_helpers.Logger
+    core_utils.Logger = Logger
+    process = core_utils_helpers.process
+    core_utils.process = process
+    validate = core_utils_helpers.validate
+    core_utils.validate = validate
+    Connection = "utils_connection_type"
+    self.Connection = Connection
+    self.helpers = core_utils_helpers
+    self.helpers = core_utils_helpers
+    self.Logger = Logger
+    self.process = process
+    self.validate = validate
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+core_utils.__init__ = _cribo_init___cribo_c57a32_core_utils
 models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.user = models_user
@@ -254,6 +297,164 @@ models_user.process = process_4
 models_user.process_user = process_user
 models_user.result = result_3
 models_user.validate = validate_4
+models_base = _cribo.types.SimpleNamespace(__name__='models.base', __initializing__=False, __initialized__=False)
+models.base = models_base
+def _cribo_init___cribo_98ecc1_models(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global models_base
+    User = models_user.User
+    models.User = User
+    Logger = models_user.Logger
+    models.Logger = Logger
+    process_user = models_user.process_user
+    models.process_user = process_user
+    models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
+    initialize = models.base.initialize
+    self.initialize = initialize
+    process = "models_process_string"
+    self.process = process
+    validate = "models_validate_string"
+    self.validate = validate
+    connection = "models_connection_string"
+    self.connection = connection
+    self.user = models_user
+    self.user = models_user
+    self.User = User
+    self.Logger = Logger
+    self.process_user = process_user
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+models.__init__ = _cribo_init___cribo_98ecc1_models
+_cribo_models_base_result = None
+def _cribo_init___cribo_bca2f6_models_base(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global _cribo_models_base_result
+    """\nBase model functionality with relative import conflicts\n"""
+    Any = _cribo.typing.Any
+    self.Any = Any
+    Dict = _cribo.typing.Dict
+    self.Dict = Dict
+    core_validate = core_utils_helpers.validate
+    models_base.core_validate = core_validate
+    UserLogger = models_user.Logger
+    models_base.UserLogger = UserLogger
+    result = "base_result"
+    _cribo_models_base_result = result
+    self.result = _cribo_models_base_result
+    process = "base_process_string"
+    self.process = process
+
+    class BaseModel:
+        """Base model class with method name conflicts"""
+
+        def __init__(self, model_type: str):
+            self.model_type = model_type
+            self.initialized = False
+            self.validate = self._base_validate
+            self.process = self._base_process
+            self.Logger = UserLogger("base_model")
+
+        def _base_validate(self, data: _cribo.typing.Any) -> bool:
+            """Base validation using relative imports"""
+            return core_validate(data)
+
+        def _base_process(self, data: _cribo.typing.Any) -> str:
+            """Base processing with conflicts"""
+            validated = self.validate(data)
+            if validated:
+                self.Logger._log_process(f"Base processing: {data}")
+                return f"base_processed: {data}"
+            return "base_invalid"
+
+        def initialize(self) -> str:
+            """Initialize with name conflicts"""
+            global _cribo_models_base_result
+            self.initialized = True
+            _cribo_models_base_result = f"base_initialized_{self.model_type}"
+            self.result = _cribo_models_base_result
+            return _cribo_models_base_result
+    BaseModel.__module__ = 'models.base'
+    self.BaseModel = BaseModel
+
+    def initialize() -> str:
+        """Module initialization function"""
+        global _cribo_models_base_result
+        base = self.BaseModel("default")
+        init_result = base.initialize()
+        logger = UserLogger("base_init")
+        logger._log_process("Base module initialized")
+        _cribo_models_base_result = f"module_init: {init_result}"
+        self.result = _cribo_models_base_result
+        return _cribo_models_base_result
+    self.initialize = initialize
+
+    def validate(data: _cribo.typing.Any) -> bool:
+        """Base validate function - conflicts everywhere"""
+        return core_validate(data) and data != "invalid"
+    self.validate = validate
+
+    def process(data: _cribo.typing.Any) -> str:
+        """Base process function - conflicts everywhere"""
+        global _cribo_models_base_result
+        validated = self.validate(data)
+        if validated:
+            processed = f"base_module_process: {data}"
+        else:
+            processed = "base_module_invalid"
+        _cribo_models_base_result = f"base_last_process: {processed}"
+        self.result = _cribo_models_base_result
+        return processed
+    self.process = process
+
+    class Logger:
+        """Base Logger class - yet another Logger conflict"""
+
+        def __init__(self, source: str):
+            self.source = source
+            self.logs = []
+
+        def log(self, message: str) -> None:
+            self.logs.append(f"[BASE {self.source}] {message}")
+
+        def process(self, log_data: _cribo.typing.Any) -> str:
+            """Logger process method - conflicts with global process"""
+            self.log(f"Processing: {log_data}")
+            return f"base_logger_process: {log_data}"
+    Logger.__module__ = 'models.base'
+    self.Logger = Logger
+
+    def connect() -> str:
+        """Base connect function"""
+        return "base_connected"
+    self.connect = connect
+
+    def shadow_test(validate: _cribo.typing.Any=None, process: _cribo.typing.Any=None, Logger: _cribo.typing.Any=None, result: _cribo.typing.Any=None, initialize: _cribo.typing.Any=None) -> _cribo.typing.Dict[str, _cribo.typing.Any]:
+        """Function that shadows all major conflict names with parameters"""
+        shadows = {"validate_param": validate, "process_param": process, "Logger_param": Logger, "result_param": result, "initialize_param": initialize}
+        validate = models_base.__dict__["validate"]
+        process = models_base.__dict__["process"]
+        Logger = models_base.__dict__["Logger"]
+        validation_result = validate("test_data")
+        process_result = process("test_data")
+        logger = Logger("shadow_test")
+        shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
+        return shadows
+    self.shadow_test = shadow_test
+    self.Any = _cribo.typing.Any
+    self.Dict = _cribo.typing.Dict
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+models_base.__init__ = _cribo_init___cribo_bca2f6_models_base
 core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection')
 core_database = _cribo.types.SimpleNamespace(__name__='core.database', __initializing__=False, __initialized__=False, __path__=[])
 core.database = core_database
@@ -470,49 +671,6 @@ services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=Fa
 services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False, __path__=[])
 services.auth = services_auth
 services_auth.manager = services_auth_manager
-def _cribo_init___cribo_62c387_core(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    CoreLogger = core_utils_helpers.Logger
-    core.CoreLogger = CoreLogger
-    core_process = core_utils_helpers.process
-    core.core_process = core_process
-    result = "core_package_result"
-    self.result = result
-    Logger = CoreLogger
-    self.Logger = Logger
-    self.database = core_database
-    self.database = core_database
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-core.__init__ = _cribo_init___cribo_62c387_core
-def _cribo_init___cribo_c57a32_core_utils(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    Logger = core_utils_helpers.Logger
-    core_utils.Logger = Logger
-    process = core_utils_helpers.process
-    core_utils.process = process
-    validate = core_utils_helpers.validate
-    core_utils.validate = validate
-    Connection = "utils_connection_type"
-    self.Connection = Connection
-    self.helpers = core_utils_helpers
-    self.helpers = core_utils_helpers
-    self.Logger = Logger
-    self.process = process
-    self.validate = validate
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-core_utils.__init__ = _cribo_init___cribo_c57a32_core_utils
 def _cribo_init___cribo_93a195_services(self):
     if getattr(self, '__initialized__', False):
         return self
@@ -560,164 +718,6 @@ def _cribo_init___cribo_b16105_services_auth(self):
     self.__initializing__ = False
     return self
 services_auth.__init__ = _cribo_init___cribo_b16105_services_auth
-models_base = _cribo.types.SimpleNamespace(__name__='models.base', __initializing__=False, __initialized__=False)
-models.base = models_base
-def _cribo_init___cribo_98ecc1_models(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    global models_base
-    User = models_user.User
-    models.User = User
-    Logger = models_user.Logger
-    models.Logger = Logger
-    process_user = models_user.process_user
-    models.process_user = process_user
-    models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
-    initialize = models.base.initialize
-    self.initialize = initialize
-    process = "models_process_string"
-    self.process = process
-    validate = "models_validate_string"
-    self.validate = validate
-    connection = "models_connection_string"
-    self.connection = connection
-    self.user = models_user
-    self.user = models_user
-    self.User = User
-    self.Logger = Logger
-    self.process_user = process_user
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-models.__init__ = _cribo_init___cribo_98ecc1_models
-_cribo_models_base_result = None
-def _cribo_init___cribo_bca2f6_models_base(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    global _cribo_models_base_result
-    """\nBase model functionality with relative import conflicts\n"""
-    Any = _cribo.typing.Any
-    self.Any = Any
-    Dict = _cribo.typing.Dict
-    self.Dict = Dict
-    core_validate = core_utils_helpers.validate
-    models_base.core_validate = core_validate
-    UserLogger = models_user.Logger
-    models_base.UserLogger = UserLogger
-    result = "base_result"
-    _cribo_models_base_result = result
-    self.result = _cribo_models_base_result
-    process = "base_process_string"
-    self.process = process
-
-    class BaseModel:
-        """Base model class with method name conflicts"""
-
-        def __init__(self, model_type: str):
-            self.model_type = model_type
-            self.initialized = False
-            self.validate = self._base_validate
-            self.process = self._base_process
-            self.Logger = UserLogger("base_model")
-
-        def _base_validate(self, data: _cribo.typing.Any) -> bool:
-            """Base validation using relative imports"""
-            return core_validate(data)
-
-        def _base_process(self, data: _cribo.typing.Any) -> str:
-            """Base processing with conflicts"""
-            validated = self.validate(data)
-            if validated:
-                self.Logger._log_process(f"Base processing: {data}")
-                return f"base_processed: {data}"
-            return "base_invalid"
-
-        def initialize(self) -> str:
-            """Initialize with name conflicts"""
-            global _cribo_models_base_result
-            self.initialized = True
-            _cribo_models_base_result = f"base_initialized_{self.model_type}"
-            self.result = _cribo_models_base_result
-            return _cribo_models_base_result
-    BaseModel.__module__ = 'models.base'
-    self.BaseModel = BaseModel
-
-    def initialize() -> str:
-        """Module initialization function"""
-        global _cribo_models_base_result
-        base = self.BaseModel("default")
-        init_result = base.initialize()
-        logger = UserLogger("base_init")
-        logger._log_process("Base module initialized")
-        _cribo_models_base_result = f"module_init: {init_result}"
-        self.result = _cribo_models_base_result
-        return _cribo_models_base_result
-    self.initialize = initialize
-
-    def validate(data: _cribo.typing.Any) -> bool:
-        """Base validate function - conflicts everywhere"""
-        return core_validate(data) and data != "invalid"
-    self.validate = validate
-
-    def process(data: _cribo.typing.Any) -> str:
-        """Base process function - conflicts everywhere"""
-        global _cribo_models_base_result
-        validated = self.validate(data)
-        if validated:
-            processed = f"base_module_process: {data}"
-        else:
-            processed = "base_module_invalid"
-        _cribo_models_base_result = f"base_last_process: {processed}"
-        self.result = _cribo_models_base_result
-        return processed
-    self.process = process
-
-    class Logger:
-        """Base Logger class - yet another Logger conflict"""
-
-        def __init__(self, source: str):
-            self.source = source
-            self.logs = []
-
-        def log(self, message: str) -> None:
-            self.logs.append(f"[BASE {self.source}] {message}")
-
-        def process(self, log_data: _cribo.typing.Any) -> str:
-            """Logger process method - conflicts with global process"""
-            self.log(f"Processing: {log_data}")
-            return f"base_logger_process: {log_data}"
-    Logger.__module__ = 'models.base'
-    self.Logger = Logger
-
-    def connect() -> str:
-        """Base connect function"""
-        return "base_connected"
-    self.connect = connect
-
-    def shadow_test(validate: _cribo.typing.Any=None, process: _cribo.typing.Any=None, Logger: _cribo.typing.Any=None, result: _cribo.typing.Any=None, initialize: _cribo.typing.Any=None) -> _cribo.typing.Dict[str, _cribo.typing.Any]:
-        """Function that shadows all major conflict names with parameters"""
-        shadows = {"validate_param": validate, "process_param": process, "Logger_param": Logger, "result_param": result, "initialize_param": initialize}
-        validate = models_base.__dict__["validate"]
-        process = models_base.__dict__["process"]
-        Logger = models_base.__dict__["Logger"]
-        validation_result = validate("test_data")
-        process_result = process("test_data")
-        logger = Logger("shadow_test")
-        shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
-        return shadows
-    self.shadow_test = shadow_test
-    self.Any = _cribo.typing.Any
-    self.Dict = _cribo.typing.Dict
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-models_base.__init__ = _cribo_init___cribo_bca2f6_models_base
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = core_database_connection.process
 __cribo_init_result = _cribo_init___cribo_93a195_services(services)

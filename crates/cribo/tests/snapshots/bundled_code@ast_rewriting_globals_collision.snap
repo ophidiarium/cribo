@@ -90,165 +90,6 @@ core_utils_helpers.process_count = process_count
 core_utils_helpers.sanitize = sanitize
 core_utils_helpers.validate = validate_6
 core_utils_helpers.validate_cache = validate_cache
-models_base = _cribo.types.SimpleNamespace(__name__='models.base', __initializing__=False, __initialized__=False)
-_cribo_models_base_Connection = None
-def _cribo_init___cribo_0a162a_models_base(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    global _cribo_models_base_Connection
-    """Base models module - imports only from core to avoid circular dependencies"""
-    util_validate = core_utils_helpers.validate
-    models_base.util_validate = util_validate
-    process = lambda x: f"base_process: {x}"
-    self.process = process
-    validate = 123
-    self.validate = validate
-    Logger = None
-    self.Logger = Logger
-    Connection = []
-    _cribo_models_base_Connection = Connection
-    self.Connection = _cribo_models_base_Connection
-
-    def process(data):
-        """Process function in base module"""
-        return f"base_process: {data} (overrides lambda)"
-    self.process = process
-
-    def validate(data):
-        """Validate function that uses imported validate"""
-        base_check = f"base_validate: {data}"
-        util_check = util_validate(data)
-        return f"{base_check} + {util_check}"
-    self.validate = validate
-
-    class Logger:
-        """Base logger class"""
-
-        def __init__(self, prefix="BASE"):
-            self.prefix = prefix
-
-        def get_message(self):
-            return f"base_logger_{self.prefix}"
-    Logger.__module__ = 'models.base'
-    self.Logger = Logger
-
-    def initialize():
-        """Initialize base module"""
-        global _cribo_models_base_Connection
-        _cribo_models_base_Connection = type("Connection", (), {"type": "base_connection"})
-        self.Connection = _cribo_models_base_Connection
-        return "base_initialized"
-    self.initialize = initialize
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-models_base.__init__ = _cribo_init___cribo_0a162a_models_base
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
-models.base = models_base
-services_auth_manager = _cribo.types.SimpleNamespace(__name__='services.auth.manager', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_0ecebd_services_auth_manager(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    global core_database_connection, models_base
-    """Authentication manager - imports from core and models only, no circular dependencies"""
-    __cribo_init_result = _cribo_init___cribo_0ac752_core(core)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(core, attr, getattr(__cribo_init_result, attr))
-    __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(core.database, attr, getattr(__cribo_init_result, attr))
-    core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
-    DBConnection = core.database.connection.Connection
-    self.DBConnection = DBConnection
-    sanitize = core_utils_helpers.sanitize
-    services_auth_manager.sanitize = sanitize
-    __cribo_init_result = _cribo_init___cribo_293a98_models(models)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(models, attr, getattr(__cribo_init_result, attr))
-    models_base = _cribo_init___cribo_0a162a_models_base(models_base)
-    base_init = models.base.initialize
-    self.base_init = base_init
-    process = [1, 2, 3]
-    self.process = process
-    validate = None
-    self.validate = validate
-    User = "auth_user_string"
-    self.User = User
-    Logger = set()
-    self.Logger = Logger
-    Connection = {"auth": True}
-    self.Connection = Connection
-
-    def process(data):
-        """Process function in auth module"""
-        sanitized = sanitize(data)
-        return f"auth_process: {sanitized}"
-    self.process = process
-
-    def validate(data):
-        """Validate function in auth module"""
-        if not isinstance(data, str):
-            return f"auth_validate_failed: {data}"
-        return f"auth_validate: {data}"
-    self.validate = validate
-
-    class User:
-        """Auth user class"""
-
-        def __init__(self, username):
-            self.username = username
-            self.connection = Connection
-
-        def authenticate(self):
-            return f"auth_user_{self.username}"
-    User.__module__ = 'services.auth.manager'
-    self.User = User
-
-    class Connection:
-        """Auth connection - overrides the global dict"""
-
-        def __init__(self):
-            self.db_conn = DBConnection("auth_db")
-            self.status = "auth_connection"
-
-        def connect(self):
-            db_result = self.db_conn.connect()
-            return f"auth_wrapped_{db_result}"
-    Connection.__module__ = 'services.auth.manager'
-    self.Connection = Connection
-
-    class AuthManager:
-        """Non-conflicting class name"""
-
-        def __init__(self):
-            self.users = {}
-            self.base_initialized = base_init()
-
-        def add_user(self, user):
-            self.users[user.username] = user
-
-        def process_auth(self, username, data):
-            return process(f"{username}:{data}")
-    AuthManager.__module__ = 'services.auth.manager'
-    self.AuthManager = AuthManager
-    self.sanitize = sanitize
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-services_auth_manager.__init__ = _cribo_init___cribo_0ecebd_services_auth_manager
-services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
-services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False, __path__=[])
-services.auth = services_auth
-services_auth.manager = services_auth_manager
 core_database = _cribo.types.SimpleNamespace(__name__='core.database', __initializing__=False, __initialized__=False, __path__=[])
 core.database = core_database
 core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection', __initializing__=False, __initialized__=False)
@@ -394,48 +235,64 @@ def _cribo_init___cribo_df9c8d_core_database_connection(self):
     self.__initializing__ = False
     return self
 core_database_connection.__init__ = _cribo_init___cribo_df9c8d_core_database_connection
-def _cribo_init___cribo_b2dda7_services(self):
+models_base = _cribo.types.SimpleNamespace(__name__='models.base', __initializing__=False, __initialized__=False)
+_cribo_models_base_Connection = None
+def _cribo_init___cribo_0a162a_models_base(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    __cribo_init_result = _cribo_init___cribo_84bf42_services_auth(services_auth)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(services.auth, attr, getattr(__cribo_init_result, attr))
-    ServiceUser = services.auth.User
-    self.ServiceUser = ServiceUser
-    process = lambda x, y: f"services_process: {x}, {y}"
+    global _cribo_models_base_Connection
+    """Base models module - imports only from core to avoid circular dependencies"""
+    util_validate = core_utils_helpers.validate
+    models_base.util_validate = util_validate
+    process = lambda x: f"base_process: {x}"
     self.process = process
-    validate = "services_validate"
+    validate = 123
     self.validate = validate
-    self.__initialized__ = True
-    self.__initializing__ = False
-    return self
-services.__init__ = _cribo_init___cribo_b2dda7_services
-def _cribo_init___cribo_84bf42_services_auth(self):
-    if getattr(self, '__initialized__', False):
-        return self
-    if getattr(self, '__initializing__', False):
-        return self
-    self.__initializing__ = True
-    global services_auth_manager
-    services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
-    User = services.auth.manager.User
-    self.User = User
-    process = services.auth.manager.process
-    self.process = process
-    validate = services.auth.manager.validate
-    self.validate = validate
-    Connection = lambda: "auth_package_connection"
-    self.Connection = Connection
-    Logger = 42
+    Logger = None
     self.Logger = Logger
+    Connection = []
+    _cribo_models_base_Connection = Connection
+    self.Connection = _cribo_models_base_Connection
+
+    def process(data):
+        """Process function in base module"""
+        return f"base_process: {data} (overrides lambda)"
+    self.process = process
+
+    def validate(data):
+        """Validate function that uses imported validate"""
+        base_check = f"base_validate: {data}"
+        util_check = util_validate(data)
+        return f"{base_check} + {util_check}"
+    self.validate = validate
+
+    class Logger:
+        """Base logger class"""
+
+        def __init__(self, prefix="BASE"):
+            self.prefix = prefix
+
+        def get_message(self):
+            return f"base_logger_{self.prefix}"
+    Logger.__module__ = 'models.base'
+    self.Logger = Logger
+
+    def initialize():
+        """Initialize base module"""
+        global _cribo_models_base_Connection
+        _cribo_models_base_Connection = type("Connection", (), {"type": "base_connection"})
+        self.Connection = _cribo_models_base_Connection
+        return "base_initialized"
+    self.initialize = initialize
     self.__initialized__ = True
     self.__initializing__ = False
     return self
-services_auth.__init__ = _cribo_init___cribo_84bf42_services_auth
+models_base.__init__ = _cribo_init___cribo_0a162a_models_base
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models.base = models_base
 models_user = _cribo.types.SimpleNamespace(__name__='models.user', __initializing__=False, __initialized__=False)
 models.user = models_user
 def _cribo_init___cribo_293a98_models(self):
@@ -547,6 +404,149 @@ def _cribo_init___cribo_1f9e6c_models_user(self):
     self.__initializing__ = False
     return self
 models_user.__init__ = _cribo_init___cribo_1f9e6c_models_user
+services_auth_manager = _cribo.types.SimpleNamespace(__name__='services.auth.manager', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_0ecebd_services_auth_manager(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global core_database_connection, models_base
+    """Authentication manager - imports from core and models only, no circular dependencies"""
+    __cribo_init_result = _cribo_init___cribo_0ac752_core(core)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(core, attr, getattr(__cribo_init_result, attr))
+    __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(core.database, attr, getattr(__cribo_init_result, attr))
+    core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
+    DBConnection = core.database.connection.Connection
+    self.DBConnection = DBConnection
+    sanitize = core_utils_helpers.sanitize
+    services_auth_manager.sanitize = sanitize
+    __cribo_init_result = _cribo_init___cribo_293a98_models(models)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(models, attr, getattr(__cribo_init_result, attr))
+    models_base = _cribo_init___cribo_0a162a_models_base(models_base)
+    base_init = models.base.initialize
+    self.base_init = base_init
+    process = [1, 2, 3]
+    self.process = process
+    validate = None
+    self.validate = validate
+    User = "auth_user_string"
+    self.User = User
+    Logger = set()
+    self.Logger = Logger
+    Connection = {"auth": True}
+    self.Connection = Connection
+
+    def process(data):
+        """Process function in auth module"""
+        sanitized = sanitize(data)
+        return f"auth_process: {sanitized}"
+    self.process = process
+
+    def validate(data):
+        """Validate function in auth module"""
+        if not isinstance(data, str):
+            return f"auth_validate_failed: {data}"
+        return f"auth_validate: {data}"
+    self.validate = validate
+
+    class User:
+        """Auth user class"""
+
+        def __init__(self, username):
+            self.username = username
+            self.connection = Connection
+
+        def authenticate(self):
+            return f"auth_user_{self.username}"
+    User.__module__ = 'services.auth.manager'
+    self.User = User
+
+    class Connection:
+        """Auth connection - overrides the global dict"""
+
+        def __init__(self):
+            self.db_conn = DBConnection("auth_db")
+            self.status = "auth_connection"
+
+        def connect(self):
+            db_result = self.db_conn.connect()
+            return f"auth_wrapped_{db_result}"
+    Connection.__module__ = 'services.auth.manager'
+    self.Connection = Connection
+
+    class AuthManager:
+        """Non-conflicting class name"""
+
+        def __init__(self):
+            self.users = {}
+            self.base_initialized = base_init()
+
+        def add_user(self, user):
+            self.users[user.username] = user
+
+        def process_auth(self, username, data):
+            return process(f"{username}:{data}")
+    AuthManager.__module__ = 'services.auth.manager'
+    self.AuthManager = AuthManager
+    self.sanitize = sanitize
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+services_auth_manager.__init__ = _cribo_init___cribo_0ecebd_services_auth_manager
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
+services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False, __path__=[])
+services.auth = services_auth
+services_auth.manager = services_auth_manager
+def _cribo_init___cribo_b2dda7_services(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_84bf42_services_auth(services_auth)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(services.auth, attr, getattr(__cribo_init_result, attr))
+    ServiceUser = services.auth.User
+    self.ServiceUser = ServiceUser
+    process = lambda x, y: f"services_process: {x}, {y}"
+    self.process = process
+    validate = "services_validate"
+    self.validate = validate
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+services.__init__ = _cribo_init___cribo_b2dda7_services
+def _cribo_init___cribo_84bf42_services_auth(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global services_auth_manager
+    services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
+    User = services.auth.manager.User
+    self.User = User
+    process = services.auth.manager.process
+    self.process = process
+    validate = services.auth.manager.validate
+    self.validate = validate
+    Connection = lambda: "auth_package_connection"
+    self.Connection = Connection
+    Logger = 42
+    self.Logger = Logger
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+services_auth.__init__ = _cribo_init___cribo_84bf42_services_auth
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 __cribo_init_result = _cribo_init___cribo_0ac752_core(core)
 for attr in dir(__cribo_init_result):
