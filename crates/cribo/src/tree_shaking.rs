@@ -328,8 +328,16 @@ impl TreeShaker {
         if let Some(items) = self.module_items.get(&module_id) {
             let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
             debug!("Seeding side effects for reachable module: {module_name}");
+
+            // Check if this module uses dynamic access pattern
+            let uses_dynamic_access = self.module_uses_dynamic_all_access(items);
+            if uses_dynamic_access {
+                debug!("Module {module_name} uses dynamic __all__ access pattern");
+                self.mark_all_symbols_from_module_all_as_used(module_id, worklist);
+            }
+
             for item in items {
-                match item.item_type {
+                match &item.item_type {
                     ItemType::Expression | ItemType::Assignment { .. } => {
                         self.add_vars_to_worklist(
                             &item.read_vars,
@@ -348,6 +356,65 @@ impl TreeShaker {
                             worklist.push_back((module_id, symbol.clone()));
                         }
                     }
+                    // Process module-level imports when a module's side effects are seeded
+                    ItemType::Import { module, .. } => {
+                        // Seed side effects for directly imported modules
+                        if let Some(&imported_module_id) = self.module_name_to_id.get(module)
+                            && self.module_has_side_effects(imported_module_id)
+                        {
+                            debug!("Module {module_name} imports {module} which has side effects");
+                            self.seed_side_effects_for_module(imported_module_id, worklist);
+                        }
+                    }
+                    ItemType::FromImport {
+                        module: from_module,
+                        level,
+                        is_star,
+                        names,
+                        ..
+                    } => {
+                        // Resolve relative imports
+                        let resolved_from_module = if *level > 0 {
+                            self.resolve_relative_module(module_name, from_module, *level)
+                        } else {
+                            from_module.clone()
+                        };
+
+                        if *is_star {
+                            // Handle star imports - mark symbols from __all__ as used
+                            debug!(
+                                "Module {module_name} has star import from {resolved_from_module}"
+                            );
+                            self.handle_star_import(&resolved_from_module, worklist);
+                        }
+
+                        // Check if the from_module itself has side effects
+                        if let Some(&from_module_id) =
+                            self.module_name_to_id.get(&resolved_from_module)
+                            && self.module_has_side_effects(from_module_id)
+                        {
+                            debug!(
+                                "Module {module_name} imports from {resolved_from_module} which has side effects"
+                            );
+                            self.seed_side_effects_for_module(from_module_id, worklist);
+                        }
+
+                        // Check if any imported names are submodules
+                        if !is_star {
+                            for (name, _alias) in names {
+                                let potential_module = format!("{resolved_from_module}.{name}");
+                                if let Some(&submodule_id) =
+                                    self.module_name_to_id.get(&potential_module)
+                                    && self.module_has_side_effects(submodule_id)
+                                {
+                                    debug!(
+                                        "Module {module_name} imports submodule {potential_module} which has side effects"
+                                    );
+                                    self.seed_side_effects_for_module(submodule_id, worklist);
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -358,9 +425,10 @@ impl TreeShaker {
     pub fn mark_used_symbols(&mut self) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
 
-        // First pass: find all direct module imports across all modules
-        // Also detect dynamic access patterns that require keeping all __all__ symbols
-        for (&module_id, items) in &self.module_items {
+        // First pass: Only process the entry module for initial seeding
+        // Other modules will have their side effects seeded when they're imported
+        if let Some(items) = self.module_items.get(&ModuleId::ENTRY) {
+            let module_id = ModuleId::ENTRY;
             let module_name = self
                 .module_names
                 .get(&module_id)
@@ -467,10 +535,7 @@ impl TreeShaker {
                     _ => {}
                 }
             }
-        }
-
-        // Start with all symbols referenced by the entry module
-        if let Some(items) = self.module_items.get(&ModuleId::ENTRY) {
+            // Now process the entry module's own symbols and dependencies
             for item in items {
                 // Mark classes and functions defined in the entry module as used
                 // This ensures that classes/functions defined in the entry module
