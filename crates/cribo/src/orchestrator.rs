@@ -868,8 +868,12 @@ impl BundleOrchestrator {
         // Add sorted non-cycle modules first
         result.extend(sorted_non_cycle_ids);
 
-        // For cycle modules, use petgraph traversal for a stable, dependency-first order
-        use petgraph::{graph::DiGraph, visit::DfsPostOrder};
+        // For cycle modules, collapse SCCs and order components using petgraph
+        use petgraph::{
+            algo::{tarjan_scc, toposort},
+            graph::DiGraph,
+            visit::{DfsPostOrder, EdgeRef},
+        };
         debug!("Processing {} cycle modules", cycle_ids.len());
 
         let mut subgraph: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
@@ -886,24 +890,115 @@ impl BundleOrchestrator {
             for dep_id in dependencies {
                 if let Some(&from) = node_map.get(&dep_id)
                     && let Some(&to) = node_map.get(&id)
-                        && !subgraph.contains_edge(from, to) {
-                            subgraph.add_edge(from, to, ());
-                        }
+                    && !subgraph.contains_edge(from, to)
+                {
+                    subgraph.add_edge(from, to, ());
+                }
             }
         }
 
+        // Compute SCCs on the cycle subgraph
+        let sccs = tarjan_scc(&subgraph);
+
+        // Map each node to its SCC index
+        let mut node_to_scc: FxIndexMap<petgraph::graph::NodeIndex, usize> = FxIndexMap::default();
+        for (i, comp) in sccs.iter().enumerate() {
+            for &n in comp {
+                node_to_scc.insert(n, i);
+            }
+        }
+
+        // Compute a stable rank for nodes based on their order in cycle_ids
+        let mut rank: FxIndexMap<crate::resolver::ModuleId, usize> = FxIndexMap::default();
+        for (i, &mid) in cycle_ids.iter().enumerate() {
+            rank.insert(mid, i);
+        }
+
+        // Build a component DAG (condensation) and topologically sort components
+        let mut comp_graph: DiGraph<usize, ()> = DiGraph::new();
+        let mut comp_node_map: FxIndexMap<usize, petgraph::graph::NodeIndex> =
+            FxIndexMap::default();
+
+        // Order component insertion by minimal rank among its nodes for determinism
+        let mut comp_indices: Vec<usize> = (0..sccs.len()).collect();
+        comp_indices.sort_by_key(|&cid| {
+            sccs[cid]
+                .iter()
+                .map(|&nx| rank.get(&subgraph[nx]).copied().unwrap_or(usize::MAX))
+                .min()
+                .unwrap_or(usize::MAX)
+        });
+        for cid in comp_indices.iter().copied() {
+            let idx = comp_graph.add_node(cid);
+            comp_node_map.insert(cid, idx);
+        }
+
+        // Add edges between components (dependency -> dependent)
+        for edge in subgraph.edge_references() {
+            let u = edge.source();
+            let v = edge.target();
+            let cu = node_to_scc[&u];
+            let cv = node_to_scc[&v];
+            if cu != cv {
+                let from = comp_node_map[&cu];
+                let to = comp_node_map[&cv];
+                if !comp_graph.contains_edge(from, to) {
+                    comp_graph.add_edge(from, to, ());
+                }
+            }
+        }
+
+        // Topologically order components
+        let comp_order = match toposort(&comp_graph, None) {
+            Ok(nodes) => nodes.into_iter().map(|n| comp_graph[n]).collect::<Vec<_>>(),
+            Err(_) => {
+                // Fallback: use insertion order, though condensation should be a DAG
+                comp_indices
+            }
+        };
+
+        // Within each component, produce a stable dependency-first order using DfsPostOrder
         let mut visited = IndexSet::new();
         let mut cycle_module_order = Vec::new();
-        for &id in &cycle_ids {
-            if visited.contains(&id) {
-                continue;
+        for cid in comp_order {
+            let comp_nodes = &sccs[cid];
+
+            // Build a mini-subgraph containing only nodes in this component
+            let mut mini: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
+            let mut mini_map: FxIndexMap<petgraph::graph::NodeIndex, petgraph::graph::NodeIndex> =
+                FxIndexMap::default();
+
+            // Add nodes with deterministic order (by rank)
+            let mut comp_sorted = comp_nodes.clone();
+            comp_sorted.sort_by_key(|&nx| rank.get(&subgraph[nx]).copied().unwrap_or(usize::MAX));
+            for &nx in &comp_sorted {
+                let mid = subgraph[nx];
+                let idx = mini.add_node(mid);
+                mini_map.insert(nx, idx);
             }
-            if let Some(&start) = node_map.get(&id) {
-                let mut dfs = DfsPostOrder::new(&subgraph, start);
-                while let Some(nx) = dfs.next(&subgraph) {
-                    let mid = subgraph[nx];
-                    if visited.insert(mid) {
-                        cycle_module_order.push(mid);
+
+            // Add edges among component nodes
+            for &nx in &comp_sorted {
+                let midx = mini_map[&nx];
+                for edge in subgraph.edges(nx) {
+                    let tgt = edge.target();
+                    if let Some(&tmini) = mini_map.get(&tgt)
+                        && !mini.contains_edge(midx, tmini)
+                    {
+                        mini.add_edge(midx, tmini, ());
+                    }
+                }
+            }
+
+            // Traverse the mini-subgraph
+            for &nx in &comp_sorted {
+                if let Some(&start) = mini_map.get(&nx) {
+                    let mut dfs = DfsPostOrder::new(&mini, start);
+                    while let Some(nid) = dfs.next(&mini) {
+                        let mid = mini[nid];
+                        if visited.insert(mid) {
+                            cycle_module_order.push(mid);
+                        }
                     }
                 }
             }
