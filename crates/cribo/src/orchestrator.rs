@@ -868,64 +868,45 @@ impl BundleOrchestrator {
         // Add sorted non-cycle modules first
         result.extend(sorted_non_cycle_ids);
 
-        // For cycle modules, use actual dependency information to order them
-        // We'll do a best-effort topological sort that ignores function-level circular imports
-        let mut cycle_module_order = Vec::new();
-        let mut visited = IndexSet::new();
-        let mut stack = IndexSet::new();
-
-        // Helper closure for DFS-based topological sort on cycle modules
-        fn visit_cycle_module(
-            module_id: crate::resolver::ModuleId,
-            graph: &CriboGraph,
-            cycle_ids: &IndexSet<crate::resolver::ModuleId>,
-            visited: &mut IndexSet<crate::resolver::ModuleId>,
-            stack: &mut IndexSet<crate::resolver::ModuleId>,
-            result: &mut Vec<crate::resolver::ModuleId>,
-        ) {
-            if visited.contains(&module_id) {
-                return;
-            }
-            if stack.contains(&module_id) {
-                // We hit a cycle - this is expected for circular deps
-                // Just skip this edge
-                return;
-            }
-
-            stack.insert(module_id);
-
-            // Visit dependencies that are also in the cycle
-            // Get all modules that this module depends on
-            let dependencies = graph.get_dependencies(module_id);
-            for dep_module_id in dependencies {
-                if cycle_ids.contains(&dep_module_id) {
-                    visit_cycle_module(dep_module_id, graph, cycle_ids, visited, stack, result);
-                }
-            }
-
-            stack.shift_remove(&module_id);
-            visited.insert(module_id);
-            result.push(module_id);
-        }
-
-        // Visit all cycle modules
-        // ALL modules in a circular dependency cycle are wrapper modules
-        // We need to process them using DFS to get the right order
+        // For cycle modules, use petgraph traversal for a stable, dependency-first order
+        use petgraph::{graph::DiGraph, visit::DfsPostOrder};
         debug!("Processing {} cycle modules", cycle_ids.len());
 
-        // Convert to IndexSet for O(1) membership checks
-        let cycle_ids_set: IndexSet<crate::resolver::ModuleId> =
-            cycle_ids.iter().copied().collect();
+        let mut subgraph: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
+        let mut node_map: FxIndexMap<crate::resolver::ModuleId, petgraph::graph::NodeIndex> =
+            FxIndexMap::default();
 
-        for &module_id in &cycle_ids {
-            visit_cycle_module(
-                module_id,
-                graph,
-                &cycle_ids_set,
-                &mut visited,
-                &mut stack,
-                &mut cycle_module_order,
-            );
+        for &id in &cycle_ids {
+            let idx = subgraph.add_node(id);
+            node_map.insert(id, idx);
+        }
+
+        for &id in &cycle_ids {
+            let dependencies = graph.get_dependencies(id);
+            for dep_id in dependencies {
+                if let Some(&from) = node_map.get(&dep_id)
+                    && let Some(&to) = node_map.get(&id)
+                        && !subgraph.contains_edge(from, to) {
+                            subgraph.add_edge(from, to, ());
+                        }
+            }
+        }
+
+        let mut visited = IndexSet::new();
+        let mut cycle_module_order = Vec::new();
+        for &id in &cycle_ids {
+            if visited.contains(&id) {
+                continue;
+            }
+            if let Some(&start) = node_map.get(&id) {
+                let mut dfs = DfsPostOrder::new(&subgraph, start);
+                while let Some(nx) = dfs.next(&subgraph) {
+                    let mid = subgraph[nx];
+                    if visited.insert(mid) {
+                        cycle_module_order.push(mid);
+                    }
+                }
+            }
         }
 
         // Debug log the cycle module order
