@@ -1,5 +1,3 @@
-#![allow(clippy::excessive_nesting)]
-
 use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Handles symbol-level circular dependency analysis and resolution
@@ -13,7 +11,7 @@ pub struct SymbolDependencyGraph {
 
 impl SymbolDependencyGraph {
     /// Find all symbols in the strongly connected component containing the given node
-    /// Uses Tarjan's SCC algorithm for robust cycle detection
+    /// Uses petgraph SCC detection for robust cycle detection
     fn find_cycle_symbols_with_scc(
         graph: &petgraph::Graph<String, ()>,
         cycle_node: petgraph::graph::NodeIndex,
@@ -21,7 +19,7 @@ impl SymbolDependencyGraph {
         Self::find_cycle_symbols_generic(graph, cycle_node)
     }
 
-    /// Generic implementation of Tarjan's strongly connected components algorithm
+    /// Locate the SCC for a node using petgraph's SCC utilities
     /// Works with any graph node type that implements Clone
     fn find_cycle_symbols_generic<T>(
         graph: &petgraph::Graph<T, ()>,
@@ -30,94 +28,22 @@ impl SymbolDependencyGraph {
     where
         T: Clone,
     {
-        use petgraph::visit::EdgeRef;
-        use rustc_hash::FxHashMap;
+        use petgraph::algo::kosaraju_scc;
 
-        /// State for Tarjan's SCC algorithm
-        struct TarjanState {
-            index_counter: usize,
-            stack: Vec<petgraph::graph::NodeIndex>,
-            indices: FxHashMap<petgraph::graph::NodeIndex, usize>,
-            lowlinks: FxHashMap<petgraph::graph::NodeIndex, usize>,
-            on_stack: FxHashMap<petgraph::graph::NodeIndex, bool>,
-            components: Vec<Vec<petgraph::graph::NodeIndex>>,
+        let components = kosaraju_scc(graph);
+
+        // Prefer SCCs with more than one node (true cycles)
+        if let Some(component) = components
+            .into_iter()
+            .find(|c| c.len() > 1 && c.contains(&cycle_node))
+        {
+            return component
+                .into_iter()
+                .map(|idx| graph[idx].clone())
+                .collect();
         }
 
-        impl TarjanState {
-            fn new() -> Self {
-                Self {
-                    index_counter: 0,
-                    stack: Vec::new(),
-                    indices: FxHashMap::default(),
-                    lowlinks: FxHashMap::default(),
-                    on_stack: FxHashMap::default(),
-                    components: Vec::new(),
-                }
-            }
-        }
-
-        fn tarjan_strongconnect<T>(
-            graph: &petgraph::Graph<T, ()>,
-            v: petgraph::graph::NodeIndex,
-            state: &mut TarjanState,
-        ) {
-            state.indices.insert(v, state.index_counter);
-            state.lowlinks.insert(v, state.index_counter);
-            state.index_counter += 1;
-            state.stack.push(v);
-            state.on_stack.insert(v, true);
-
-            for edge in graph.edges(v) {
-                let w = edge.target();
-                if !state.indices.contains_key(&w) {
-                    tarjan_strongconnect(graph, w, state);
-                    let w_lowlink = state.lowlinks[&w];
-                    let v_lowlink = state.lowlinks[&v];
-                    state.lowlinks.insert(v, v_lowlink.min(w_lowlink));
-                } else if state.on_stack.get(&w).copied().unwrap_or(false) {
-                    let w_index = state.indices[&w];
-                    let v_lowlink = state.lowlinks[&v];
-                    state.lowlinks.insert(v, v_lowlink.min(w_index));
-                }
-            }
-
-            if state.lowlinks[&v] == state.indices[&v] {
-                let mut component = Vec::new();
-                while let Some(w) = state.stack.pop() {
-                    state.on_stack.insert(w, false);
-                    component.push(w);
-                    if w == v {
-                        break;
-                    }
-                }
-                // Only store components with more than one node (actual cycles)
-                if component.len() > 1 {
-                    state.components.push(component);
-                }
-            }
-        }
-
-        let mut state = TarjanState::new();
-
-        // Run Tarjan's algorithm on all unvisited nodes
-        for node_index in graph.node_indices() {
-            if !state.indices.contains_key(&node_index) {
-                tarjan_strongconnect(graph, node_index, &mut state);
-            }
-        }
-
-        // Find the SCC containing our cycle node
-        for component in state.components {
-            if component.contains(&cycle_node) {
-                // Return all symbols in this SCC
-                return component
-                    .into_iter()
-                    .map(|idx| graph[idx].clone())
-                    .collect();
-            }
-        }
-
-        // If no SCC found (shouldn't happen for actual cycles), fall back to single symbol
+        // If no SCC found containing the node (unexpected), return just that symbol
         vec![graph[cycle_node].clone()]
     }
 
@@ -143,20 +69,23 @@ impl SymbolDependencyGraph {
             }
         }
 
-        // Add edges for dependencies within this module
+        // Add edges for dependencies within this module (flattened with early continues)
         for ((module, symbol), deps) in &self.module_level_dependencies {
-            if module == module_name
-                && let Some(&from_node) = node_map.get(symbol)
-            {
-                for (dep_module, dep_symbol) in deps {
-                    // Only add edges for dependencies within the same module
-                    if dep_module == module_name
-                        && let Some(&to_node) = node_map.get(dep_symbol)
-                    {
-                        // Edge from dependency to dependent
-                        graph.add_edge(to_node, from_node, ());
-                    }
+            if module != module_name {
+                continue;
+            }
+            let Some(&from_node) = node_map.get(symbol) else {
+                continue;
+            };
+            for (dep_module, dep_symbol) in deps {
+                if dep_module != module_name {
+                    continue;
                 }
+                let Some(&to_node) = node_map.get(dep_symbol) else {
+                    continue;
+                };
+                // Edge from dependency to dependent
+                graph.add_edge(to_node, from_node, ());
             }
         }
 
