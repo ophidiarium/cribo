@@ -251,3 +251,59 @@ This approach provides **comprehensive validation with minimal effort** and crea
 - **Binary-only interface**: This project does not maintain API compatibility for external consumers - all code must serve the current CLI functionality
 - **Dead code elimination**: Aggressively remove any unused functions, methods, structs, or modules during refactoring
 - **Immediate cleanup**: When refactoring or implementing features, remove unused code paths immediately rather than marking them for future removal
+
+### MANDATORY: Handling GitHub PR Review Comments
+
+Follow this exact workflow whenever you receive a GitHub PR review comment link like:
+
+```text
+https://github.com/ophidiarium/cribo/pull/<PR_NUMBER>#discussion_r<COMMENT_ID>
+```
+
+1. Parse identifiers
+
+- `<PR_NUMBER>`: digits after `/pull/`
+- `<COMMENT_ID>`: digits after `discussion_r`
+
+2. Fetch the comment body
+
+```bash
+GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
+  --jq '
+"id:         \(.id)
+pr_number:   \(.pull_request_url | split("/") | last)
+author:      \(.user.login)
+created_at:  \(.created_at)
+file:        \(.path)
+line:        \(.start_line)
+--- BEGIN_BODY ---
+\(.body)
+--- END_BODY ---"'
+```
+
+3. Apply every suggestion immediately
+
+- Treat even nitpicks as mandatory; do not defer
+- Implement requested changes directly and completely
+
+4. Commit and push
+
+```bash
+git add -A
+git commit -m "chore: address PR review comment <COMMENT_ID>"
+git push
+```
+
+5. Reply inline to the original comment
+
+```bash
+gh api repos/ophidiarium/cribo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+  -X POST -f body='✅ Addressed in <short-hash>. Thanks!'
+```
+
+Pre-checks and validations
+
+- Verify GitHub CLI auth: `gh auth status`
+- Ensure tests and lint are clean before replying:
+  - `cargo nextest run --workspace`
+  - `cargo clippy --workspace --all-targets`
