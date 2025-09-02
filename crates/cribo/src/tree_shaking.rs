@@ -1112,13 +1112,8 @@ impl TreeShaker {
             if Self::is_all_assignment(item) {
                 // Mark all symbols listed in __all__
                 for symbol in &item.eventual_read_vars {
-                    if !symbol.starts_with('_') {
-                        debug!(
-                            "Marking {symbol} from star import of {resolved_from_module} \
-                             as used"
-                        );
-                        worklist.push_back((resolved_from_module_id, symbol.clone()));
-                    }
+                    debug!("Marking {symbol} from star import of {resolved_from_module} as used");
+                    worklist.push_back((resolved_from_module_id, symbol.clone()));
                 }
             }
         }
