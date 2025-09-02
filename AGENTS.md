@@ -70,10 +70,10 @@ The `--stdout` flag is especially valuable for debugging workflows as it avoids 
 
 ```bash
 # Run all tests
-cargo nextest --workspace
+cargo nextest run --workspace
 
 # Run with code coverage
-cargo llvm-cov --json
+cargo llvm-cov nextest --workspace --json
 ```
 
 #### Snapshot Testing with Insta
@@ -140,13 +140,13 @@ mkdir crates/cribo/tests/fixtures/my_new_feature
 echo "print('Hello Feature')" > crates/cribo/tests/fixtures/my_new_feature/main.py
 
 # Run a specific fixture using environment variable
-INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
+INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --workspace --test test_bundling_snapshots --cargo-quiet
 
 # Run all fixtures matching a pattern
-INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
+INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo nextest run --workspace --test test_bundling_snapshots --cargo-quiet
 
 # Run fixture with debug output to see which fixture is running
-INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --no-capture --test test_bundling_snapshots --cargo-quiet --cargo-quiet
+INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --workspace --no-capture --test test_bundling_snapshots --cargo-quiet
 
 # List available fixtures (useful for finding fixture names)
 find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||' | sed 's|/main.py||' | sort
