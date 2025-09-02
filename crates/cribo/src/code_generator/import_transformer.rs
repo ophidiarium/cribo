@@ -89,6 +89,226 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
+    /// Get filtered exports for a full module path, if available
+    fn get_filtered_exports_for_path(
+        &self,
+        full_module_path: &str,
+    ) -> Option<(crate::resolver::ModuleId, Vec<String>)> {
+        let module_id = self.bundler.get_module_id(full_module_path)?;
+        let exports = self
+            .bundler
+            .module_exports
+            .get(&module_id)
+            .cloned()
+            .flatten()?;
+        let filtered: Vec<String> = SymbolAnalyzer::filter_exports_by_tree_shaking(
+            &exports,
+            &module_id,
+            self.bundler.tree_shaking_keep_symbols.as_ref(),
+            false,
+            self.bundler.resolver,
+        )
+        .into_iter()
+        .cloned()
+        .collect();
+        Some((module_id, filtered))
+    }
+
+    /// Should emit __all__ for a local namespace binding
+    fn should_emit_all_for_local(
+        &self,
+        module_id: crate::resolver::ModuleId,
+        local_name: &str,
+        filtered_exports: &[String],
+    ) -> bool {
+        !filtered_exports.is_empty()
+            && self.bundler.modules_with_explicit_all.contains(&module_id)
+            && self
+                .bundler
+                .modules_with_accessed_all
+                .iter()
+                .any(|(module, alias)| module == &self.module_id && alias == local_name)
+    }
+
+    /// Create `local = namespace_var` if names differ
+    fn alias_local_to_namespace_if_needed(
+        &mut self,
+        local_name: &str,
+        namespace_var: &str,
+        result_stmts: &mut Vec<Stmt>,
+    ) {
+        if local_name == namespace_var {
+            return;
+        }
+        log::debug!("  Creating immediate local alias: {local_name} = {namespace_var}");
+        result_stmts.push(statements::simple_assign(
+            local_name,
+            expressions::name(namespace_var, ExprContext::Load),
+        ));
+    }
+
+    /// Handle parent.child alias when importing from the same parent module, with early exits
+    fn maybe_log_parent_child_assignment(
+        &self,
+        import_base: Option<&str>,
+        imported_name: &str,
+        local_name: &str,
+    ) {
+        if import_base != Some(self.get_module_name().as_str()) {
+            return;
+        }
+
+        // Check if this submodule is in the parent's __all__ exports
+        let parent_exports = self
+            .bundler
+            .module_exports
+            .get(&self.module_id)
+            .and_then(|opt| opt.as_ref())
+            .is_some_and(|exports| exports.contains(&imported_name.to_string()));
+        if !parent_exports {
+            return;
+        }
+
+        let full_submodule_path = format!("{}.{}", self.get_module_name(), imported_name);
+        let is_inlined_submodule = self
+            .bundler
+            .get_module_id(&full_submodule_path)
+            .is_some_and(|id| self.bundler.inlined_modules.contains(&id));
+        let uses_init_function = self
+            .bundler
+            .get_module_id(&full_submodule_path)
+            .and_then(|id| self.bundler.module_init_functions.get(&id))
+            .is_some();
+
+        log::debug!(
+            "  Checking submodule status for {full_submodule_path}: is_inlined={is_inlined_submodule}, uses_init={uses_init_function}"
+        );
+
+        if is_inlined_submodule || uses_init_function {
+            log::debug!(
+                "  Skipping parent module assignment for {}.{} - already handled by init function",
+                self.get_module_name(),
+                local_name
+            );
+            return;
+        }
+
+        // Double-check if this is actually a module
+        let is_actually_a_module = self
+            .bundler
+            .get_module_id(&full_submodule_path)
+            .is_some_and(|id| {
+                self.bundler.bundled_modules.contains(&id)
+                    || self
+                        .bundler
+                        .module_info_registry
+                        .as_ref()
+                        .is_some_and(|reg| reg.contains_module(&id))
+                    || self.bundler.inlined_modules.contains(&id)
+            });
+        if is_actually_a_module {
+            log::debug!(
+                "Skipping assignment for {}.{} - it's a module, not a symbol",
+                self.get_module_name(),
+                local_name
+            );
+            return;
+        }
+
+        // At this point, we would create parent.local = local if needed.
+        // Original code only logged due to deferred imports removal.
+        log::debug!(
+            "Creating parent module assignment: {}.{} = {} (symbol exported from parent)",
+            self.get_module_name(),
+            local_name,
+            local_name
+        );
+    }
+
+    /// For importlib-imported module variables, rewrite `base.attr` to the inlined symbol
+    fn rewrite_attr_for_importlib_var(
+        &self,
+        base: &str,
+        attr_name: &str,
+        module_name: &str,
+        attr_ctx: ExprContext,
+        attr_range: TextRange,
+    ) -> Expr {
+        if let Some(module_id) = self.bundler.get_module_id(module_name)
+            && let Some(module_renames) = self.symbol_renames.get(&module_id)
+            && let Some(renamed) = module_renames.get(attr_name) {
+                let renamed_str = renamed.clone();
+                log::debug!(
+                    "Rewrote {base}.{attr_name} to {renamed_str} (renamed symbol from importlib inlined module)"
+                );
+                return Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: renamed_str.into(),
+                    ctx: attr_ctx,
+                    range: attr_range,
+                });
+            }
+            // no rename: fallthrough below
+        log::debug!(
+            "Rewrote {base}.{attr_name} to {attr_name} (symbol from importlib inlined module)"
+        );
+        Expr::Name(ExprName {
+            node_index: AtomicNodeIndex::dummy(),
+            id: attr_name.into(),
+            ctx: attr_ctx,
+            range: attr_range,
+        })
+    }
+
+    /// If accessing attribute on an inlined submodule, rewrite to direct access symbol name
+    fn maybe_rewrite_attr_for_inlined_submodule(
+        &self,
+        base: &str,
+        actual_module: &str,
+        attr_path: &[String],
+        attr_ctx: ExprContext,
+        attr_range: TextRange,
+    ) -> Option<Expr> {
+        // Check if base.attr_path[0] forms a complete module name
+        let potential_module = format!("{}.{}", actual_module, attr_path[0]);
+        if self
+            .bundler
+            .get_module_id(&potential_module)
+            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+            && attr_path.len() == 2 {
+                let final_attr = &attr_path[1];
+                if let Some(module_id) = self.bundler.get_module_id(&potential_module)
+                    && let Some(module_renames) = self.symbol_renames.get(&module_id)
+                    && let Some(renamed) = module_renames.get(final_attr)
+                {
+                    log::debug!("Rewrote {base}.{}.{final_attr} to {renamed}", attr_path[0]);
+                    return Some(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: renamed.clone().into(),
+                        ctx: attr_ctx,
+                        range: attr_range,
+                    }));
+                }
+
+                // No rename, use the original name with module prefix
+                let direct_name = format!(
+                    "{final_attr}_{}",
+                    potential_module.cow_replace('.', "_").as_ref()
+                );
+                log::debug!(
+                    "Rewrote {base}.{}.{final_attr} to {direct_name}",
+                    attr_path[0]
+                );
+                return Some(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: direct_name.into(),
+                    ctx: attr_ctx,
+                    range: attr_range,
+                }));
+            }
+        None
+    }
+
     /// Create a new transformer from parameters
     #[allow(clippy::needless_pass_by_value)] // params contains mutable references
     pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
@@ -1387,183 +1607,41 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // This ensures the alias is available in the current module's context
                                 // For example, when `from . import messages` in greetings.greeting,
                                 // we need `messages = greetings_messages` to be available immediately
-                                if local_name != namespace_var {
-                                    log::debug!(
-                                        "  Creating immediate local alias: {local_name} = {namespace_var}"
-                                    );
-                                    result_stmts.push(statements::simple_assign(
-                                        local_name,
-                                        expressions::name(&namespace_var, ExprContext::Load),
-                                    ));
-                                }
+                                self.alias_local_to_namespace_if_needed(
+                                    local_name,
+                                    &namespace_var,
+                                    &mut result_stmts,
+                                );
                                 self.created_namespace_objects = true;
 
                                 // If this is a submodule being imported (from . import compat),
                                 // and the parent module is also being used as a namespace
                                 // externally, we need to create the
                                 // parent.child assignment
-                                if resolved_module.as_deref() == Some(&self.get_module_name()) {
-                                    // Check if this submodule is in the parent's __all__ exports
-                                    let parent_exports = self
-                                        .bundler
-                                        .module_exports
-                                        .get(&self.module_id)
-                                        .and_then(|opt| opt.as_ref())
-                                        .is_some_and(|exports| {
-                                            exports.contains(&imported_name.to_string())
-                                        });
-
-                                    if parent_exports {
-                                        // Check if this is a submodule that was inlined or uses an
-                                        // init function
-                                        let full_submodule_path =
-                                            format!("{}.{}", self.get_module_name(), imported_name);
-                                        let is_inlined_submodule = self
-                                            .bundler
-                                            .get_module_id(&full_submodule_path)
-                                            .is_some_and(|id| {
-                                                self.bundler.inlined_modules.contains(&id)
-                                            });
-                                        let uses_init_function = self
-                                            .bundler
-                                            .get_module_id(&full_submodule_path)
-                                            .and_then(|id| {
-                                                self.bundler.module_init_functions.get(&id)
-                                            })
-                                            .is_some();
-
-                                        log::debug!(
-                                            "  Checking submodule status for \
-                                             {full_submodule_path}: \
-                                             is_inlined={is_inlined_submodule}, \
-                                             uses_init={uses_init_function}"
-                                        );
-
-                                        if is_inlined_submodule || uses_init_function {
-                                            // This submodule was already assigned to the parent
-                                            // namespace
-                                            // by the bundler when it created the init function
-                                            log::debug!(
-                                                "  Skipping parent module assignment for {}.{} - \
-                                                 already handled by init function",
-                                                self.get_module_name(),
-                                                local_name
-                                            );
-                                        } else {
-                                            // For the case where a module uses an init function but
-                                            // wasn't detected above,
-                                            // we need to double-check if this is really a symbol or
-                                            // a module
-                                            let is_actually_a_module = self
-                                                .bundler
-                                                .get_module_id(&full_submodule_path)
-                                                .is_some_and(|id| {
-                                                    self.bundler.bundled_modules.contains(&id)
-                                                        || self
-                                                            .bundler
-                                                            .module_info_registry
-                                                            .as_ref()
-                                                            .is_some_and(|reg| {
-                                                                reg.contains_module(&id)
-                                                            })
-                                                        || self
-                                                            .bundler
-                                                            .inlined_modules
-                                                            .contains(&id)
-                                                });
-
-                                            if is_actually_a_module {
-                                                // This is a module, not a symbol - skip the
-                                                // assignment
-                                                log::debug!(
-                                                    "Skipping assignment for {}.{} - it's a \
-                                                     module, not a symbol",
-                                                    self.get_module_name(),
-                                                    local_name
-                                                );
-                                            } else {
-                                                // This is a symbol, not a submodule, so we need the
-                                                // assignment
-                                                log::debug!(
-                                                    "Creating parent module assignment: {}.{} = \
-                                                     {} (symbol exported from parent)",
-                                                    self.get_module_name(),
-                                                    local_name,
-                                                    local_name
-                                                );
-                                                // Note: deferred imports functionality has been removed
-                                                // Module attribute assignment was previously deferred
-                                            }
-                                        }
-                                    }
-                                }
+                                self.maybe_log_parent_child_assignment(
+                                    resolved_module.as_deref(),
+                                    imported_name,
+                                    local_name,
+                                );
 
                                 // Now add the exported symbols from the inlined module to the
-                                // namespace
-                                if let Some(module_id) =
-                                    self.bundler.get_module_id(&full_module_path)
-                                    && let Some(exports) = self
-                                        .bundler
-                                        .module_exports
-                                        .get(&module_id)
-                                        .cloned()
-                                        .flatten()
+                                // namespace (deferred behavior removed)
+                                if let Some((module_id, filtered_exports)) =
+                                    self.get_filtered_exports_for_path(&full_module_path)
                                 {
-                                    // Filter exports to only include symbols that survived
-                                    // tree-shaking
-                                    let filtered_exports: Vec<String> =
-                                        SymbolAnalyzer::filter_exports_by_tree_shaking(
-                                            &exports,
-                                            &module_id,
-                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
-                                            false,
-                                            self.bundler.resolver,
-                                        )
-                                        .into_iter()
-                                        .cloned()
-                                        .collect();
+                                    // __all__ handling for this case was previously deferred; keep behavior
 
-                                    // Add __all__ attribute to the namespace with filtered exports
-                                    // BUT ONLY if the original module had an explicit __all__ AND
-                                    // the code actually accesses this module's __all__
-                                    if !filtered_exports.is_empty()
-                                        && self
-                                            .bundler
-                                            .modules_with_explicit_all
-                                            .contains(&module_id)
-                                        && self.bundler.modules_with_accessed_all.iter().any(
-                                            |(module, alias)| {
-                                                module == &self.module_id && alias == local_name
-                                            },
-                                        )
-                                    {
-                                        // Note: deferred imports functionality has been removed
-                                        // __all__ attribute setting was previously deferred
-                                    }
-
-                                    // Only populate the namespace if it wasn't already populated
+                                    // Only track population marker if not already populated and not bundled
                                     let full_module_id =
                                         self.bundler.get_module_id(&full_module_path);
                                     let namespace_already_populated = full_module_id
                                         .is_some_and(|id| self.populated_modules.contains(&id));
-
-                                    // Don't populate namespaces for bundled modules - they're already populated
-                                    // by the bundler when the module is processed
                                     let is_bundled_module =
                                         self.bundler.bundled_modules.contains(&module_id);
-
-                                    if !is_bundled_module && !namespace_already_populated {
-                                        // Only populate non-bundled modules (external modules)
-                                        for _symbol in filtered_exports {
-                                            // Note: deferred imports functionality has been removed
-                                            // Symbol assignment to namespace was previously deferred
-                                        }
-                                        // Mark this module as populated to prevent duplicate
-                                        // assignments
-                                        if let Some(id) = full_module_id {
+                                    if !is_bundled_module && !namespace_already_populated
+                                        && let Some(id) = full_module_id {
                                             self.populated_modules.insert(id);
                                         }
-                                    }
                                 }
                             } else {
                                 // For wrapper modules importing inlined modules, we need to create
@@ -1585,43 +1663,14 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                 // Now add the exported symbols from the inlined module to the
                                 // namespace
-                                if let Some(module_id) =
-                                    self.bundler.get_module_id(&full_module_path)
-                                    && let Some(exports) = self
-                                        .bundler
-                                        .module_exports
-                                        .get(&module_id)
-                                        .cloned()
-                                        .flatten()
+                                if let Some((module_id, filtered_exports)) =
+                                    self.get_filtered_exports_for_path(&full_module_path)
                                 {
-                                    // Filter exports to only include symbols that survived
-                                    // tree-shaking
-                                    let filtered_exports: Vec<String> =
-                                        SymbolAnalyzer::filter_exports_by_tree_shaking(
-                                            &exports,
-                                            &module_id,
-                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
-                                            false,
-                                            self.bundler.resolver,
-                                        )
-                                        .into_iter()
-                                        .cloned()
-                                        .collect();
-
-                                    // Add __all__ attribute to the namespace with filtered exports
-                                    // BUT ONLY if the original module had an explicit __all__ AND
-                                    // the code actually accesses this module's __all__
-                                    if !filtered_exports.is_empty()
-                                        && self
-                                            .bundler
-                                            .modules_with_explicit_all
-                                            .contains(&module_id)
-                                        && self.bundler.modules_with_accessed_all.iter().any(
-                                            |(module, alias)| {
-                                                module == &self.module_id && alias == local_name
-                                            },
-                                        )
-                                    {
+                                    if self.should_emit_all_for_local(
+                                        module_id,
+                                        local_name,
+                                        &filtered_exports,
+                                    ) {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(String::as_str).collect();
                                         result_stmts.push(statements::set_list_attribute(
@@ -1632,7 +1681,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     }
 
                                     for symbol in filtered_exports {
-                                        // local_name.symbol = symbol
                                         let target = expressions::attribute(
                                             expressions::name(local_name, ExprContext::Load),
                                             &symbol,
@@ -1954,12 +2002,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // Create assignment statements for each export
                                 // These should be simple references since we're in an inlined module
                                 for export in export_list {
-                                    if export != "*" {
-                                        // Note: deferred imports functionality has been removed
-                                        // Previously, wildcard imports in inlined modules would create
-                                        // assignments like: export_name = module.path.export_name
-                                        // This was done by creating a module reference and attribute access
+                                    if export == "*" {
+                                        continue;
                                     }
+                                    // Note: deferred imports functionality has been removed
+                                    // Previously, wildcard imports in inlined modules would create
+                                    // assignments like: export_name = module.path.export_name
+                                    // This was done by creating a module reference and attribute access
                                 }
                             } else {
                                 // No explicit __all__, import all public symbols
@@ -2160,56 +2209,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                             if attr_path.len() == 1 {
                                 let attr_name = &attr_path[0];
                                 log::debug!(
-                                    "Transforming {base}.{attr_name} - {base} was assigned from \
-                                     importlib.import_module('{module_name}') [inlined module]"
+                                    "Transforming {base}.{attr_name} - {base} was assigned from importlib.import_module('{module_name}') [inlined module]"
                                 );
-
-                                // Check if this symbol was renamed during inlining
-                                let new_expr = if let Some(module_id) =
-                                    self.bundler.get_module_id(module_name)
-                                    && let Some(module_renames) =
-                                        self.symbol_renames.get(&module_id)
-                                {
-                                    if let Some(renamed) = module_renames.get(attr_name) {
-                                        // Use the renamed symbol
-                                        let renamed_str = renamed.clone();
-                                        log::debug!(
-                                            "Rewrote {base}.{attr_name} to {renamed_str} (renamed \
-                                             symbol from importlib inlined module)"
-                                        );
-                                        Expr::Name(ExprName {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            id: renamed_str.into(),
-                                            ctx: attr_expr.ctx,
-                                            range: attr_expr.range,
-                                        })
-                                    } else {
-                                        // Use the original name
-                                        log::debug!(
-                                            "Rewrote {base}.{attr_name} to {attr_name} (symbol \
-                                             from importlib inlined module)"
-                                        );
-                                        Expr::Name(ExprName {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            id: attr_name.into(),
-                                            ctx: attr_expr.ctx,
-                                            range: attr_expr.range,
-                                        })
-                                    }
-                                } else {
-                                    // Module wasn't found in renames, use original
-                                    log::debug!(
-                                        "Rewrote {base}.{attr_name} to {attr_name} (no renames \
-                                         for importlib inlined module)"
-                                    );
-                                    Expr::Name(ExprName {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        id: attr_name.into(),
-                                        ctx: attr_expr.ctx,
-                                        range: attr_expr.range,
-                                    })
-                                };
-                                *expr = new_expr;
+                                *expr = self.rewrite_attr_for_importlib_var(
+                                    &base,
+                                    attr_name,
+                                    module_name,
+                                    attr_expr.ctx,
+                                    attr_expr.range,
+                                );
                                 return;
                             }
                         }
@@ -2396,62 +2404,19 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
                             // For nested attribute access (e.g., greetings.greeting.message)
                             // We need to handle the case where greetings.greeting is a submodule
-                            else if attr_path.len() > 1 {
-                                // Check if base.attr_path[0] forms a complete module name
-                                let potential_module =
-                                    format!("{}.{}", actual_module, attr_path[0]);
-
-                                if self
-                                    .bundler
-                                    .get_module_id(&potential_module)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                            else if attr_path.len() > 1
+                                && let Some(new_name) = self
+                                    .maybe_rewrite_attr_for_inlined_submodule(
+                                        &base,
+                                        &actual_module,
+                                        &attr_path,
+                                        attr_expr.ctx,
+                                        attr_expr.range,
+                                    )
                                 {
-                                    // This is accessing an attribute on a submodule
-                                    // Build the remaining attribute path
-                                    let remaining_attrs = &attr_path[1..];
-
-                                    if remaining_attrs.len() == 1 {
-                                        let final_attr = &remaining_attrs[0];
-
-                                        // Check if this symbol was renamed during inlining
-                                        if let Some(module_id) =
-                                            self.bundler.get_module_id(&potential_module)
-                                            && let Some(module_renames) =
-                                                self.symbol_renames.get(&module_id)
-                                            && let Some(renamed) = module_renames.get(final_attr)
-                                        {
-                                            log::debug!(
-                                                "Rewrote {base}.{}.{final_attr} to {renamed}",
-                                                attr_path[0]
-                                            );
-                                            *expr = Expr::Name(ExprName {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                id: renamed.clone().into(),
-                                                ctx: attr_expr.ctx,
-                                                range: attr_expr.range,
-                                            });
-                                            return;
-                                        }
-
-                                        // No rename, use the original name with module prefix
-                                        let direct_name = format!(
-                                            "{final_attr}_{}",
-                                            potential_module.cow_replace('.', "_").as_ref()
-                                        );
-                                        log::debug!(
-                                            "Rewrote {base}.{}.{final_attr} to {direct_name}",
-                                            attr_path[0]
-                                        );
-                                        *expr = Expr::Name(ExprName {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            id: direct_name.into(),
-                                            ctx: attr_expr.ctx,
-                                            range: attr_expr.range,
-                                        });
-                                        return;
-                                    }
+                                    *expr = new_name;
+                                    return;
                                 }
-                            }
                         }
                     }
 
@@ -2951,23 +2916,24 @@ fn rewrite_import_with_renames(
                                 // 1. There's no namespace variable (so RHS would be the dotted path)
                                 // 2. It's not a wrapper module (which needs the assignment for linkage)
                                 // 3. The LHS and RHS would be identical dotted paths
-                                if !has_namespace_var && !is_wrapper {
+                                let needs_assignment = has_namespace_var || is_wrapper;
+                                if !needs_assignment {
                                     // In this case, create_attribute_assignment would generate
                                     // parent.attr = parent.attr (a no-op), so we can skip it
                                     log::debug!(
                                         "Skipping redundant self-assignment: {parent}.{attr} = {full_path}"
                                     );
-                                } else {
-                                    // Use centralized namespace-aware assignment creation
-                                    result_stmts.push(
+                                    continue;
+                                }
+                                // Use centralized namespace-aware assignment creation
+                                result_stmts.push(
                                     crate::code_generator::namespace_manager::create_attribute_assignment(
                                         bundler,
                                         &parent,
                                         attr,
                                         &full_path,
-                                    )
+                                    ),
                                 );
-                                }
                             }
                         } else {
                             // For aliased imports or non-dotted imports, just assign to the target
