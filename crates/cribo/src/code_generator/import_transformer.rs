@@ -1692,52 +1692,53 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         handled_any = true;
                     }
-                } else if self
-                    .bundler
-                    .get_module_id(&full_module_path)
-                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                {
-                    log::debug!("  '{full_module_path}' is an inlined module");
+                } else if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
+                    if self.bundler.inlined_modules.contains(&module_id) {
+                        log::debug!("  '{full_module_path}' is an inlined module");
 
-                    // Check if this module was namespace imported
-                    if self
-                        .bundler
-                        .get_module_id(&full_module_path)
-                        .is_some_and(|id| self.bundler.namespace_imported_modules.contains_key(&id))
-                    {
-                        // Create assignment: local_name = full_module_path_with_underscores
-                        // But be careful about stdlib conflicts - only create in entry module if
-                        // there's a conflict
-                        let namespace_var = sanitize_module_name_for_identifier(&full_module_path);
+                        // Check if this module was namespace imported
+                        if self
+                            .bundler
+                            .namespace_imported_modules
+                            .contains_key(&module_id)
+                        {
+                            // Create assignment: local_name = full_module_path_with_underscores
+                            // But be careful about stdlib conflicts - only create in entry module if
+                            // there's a conflict
+                            // Use get_module_var_identifier to handle symlinks properly
+                            use crate::code_generator::module_registry::get_module_var_identifier;
+                            let namespace_var =
+                                get_module_var_identifier(module_id, self.bundler.resolver);
 
-                        // Check if this would shadow a stdlib module
-                        let shadows_stdlib =
-                            crate::resolver::is_stdlib_module(local_name, self.python_version);
+                            // Check if this would shadow a stdlib module
+                            let shadows_stdlib =
+                                crate::resolver::is_stdlib_module(local_name, self.python_version);
 
-                        // Only create the assignment if:
-                        // 1. We're in the entry module (where user expects the shadowing), OR
-                        // 2. The name doesn't conflict with stdlib
-                        if self.is_entry_module() || !shadows_stdlib {
-                            log::debug!(
-                                "  Creating namespace assignment: {local_name} = {namespace_var}"
-                            );
-                            result_stmts.push(statements::simple_assign(
-                                local_name,
-                                expressions::name(&namespace_var, ExprContext::Load),
-                            ));
+                            // Only create the assignment if:
+                            // 1. We're in the entry module (where user expects the shadowing), OR
+                            // 2. The name doesn't conflict with stdlib
+                            if self.is_entry_module() || !shadows_stdlib {
+                                log::debug!(
+                                    "  Creating namespace assignment: {local_name} = {namespace_var}"
+                                );
+                                result_stmts.push(statements::simple_assign(
+                                    local_name,
+                                    expressions::name(&namespace_var, ExprContext::Load),
+                                ));
 
-                            // Track this as a local variable to prevent it from being transformed as a stdlib module
-                            self.local_variables.insert(local_name.to_string());
-                            log::debug!(
-                                "  Tracked '{local_name}' as local variable to prevent stdlib transformation"
-                            );
-                        } else {
-                            log::debug!(
-                                "  Skipping namespace assignment: {local_name} = {namespace_var} \
-                                 - would shadow stdlib in non-entry module"
-                            );
+                                // Track this as a local variable to prevent it from being transformed as a stdlib module
+                                self.local_variables.insert(local_name.to_string());
+                                log::debug!(
+                                    "  Tracked '{local_name}' as local variable to prevent stdlib transformation"
+                                );
+                            } else {
+                                log::debug!(
+                                    "  Skipping namespace assignment: {local_name} = {namespace_var} \
+                                     - would shadow stdlib in non-entry module"
+                                );
+                            }
+                            handled_any = true;
                         }
-                        handled_any = true;
                     } else {
                         // This is importing an inlined submodule
                         // We need to handle this specially when the current module is being inlined
@@ -1767,8 +1768,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // For inlined modules, use the sanitized module name instead of
                                 // local_name e.g., pkg_compat
                                 // instead of compat
+                                // Use get_module_var_identifier to handle symlinks properly
+                                use crate::code_generator::module_registry::get_module_var_identifier;
                                 let namespace_var =
-                                    sanitize_module_name_for_identifier(&full_module_path);
+                                    get_module_var_identifier(module_id, self.bundler.resolver);
 
                                 // Deferred namespace creation removed; skip no-op branch
 
@@ -3544,16 +3547,32 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 
         // First check if we're importing a submodule (e.g., from package import submodule)
         let full_module_path = format!("{module_name}.{imported_name}");
-        if bundler
-            .get_module_id(&full_module_path)
-            .is_some_and(|id| bundler.bundled_modules.contains(&id))
+        if let Some(submodule_id) = bundler.get_module_id(&full_module_path)
+            && bundler.bundled_modules.contains(&submodule_id)
         {
             // This is importing a submodule, not a symbol
-            // This should be handled by transform_namespace_package_imports instead
-            log::debug!(
-                "Skipping submodule import '{imported_name}' from '{module_name}' - should be \
-                 handled elsewhere"
-            );
+            // When the current module is inlined, we need to create a local alias
+            // to the submodule's namespace variable
+            if bundler.inlined_modules.contains(&submodule_id) {
+                // The submodule is inlined, create alias: local_name = module_var
+                use crate::code_generator::module_registry::get_module_var_identifier;
+                let module_var = get_module_var_identifier(submodule_id, bundler.resolver);
+
+                log::debug!(
+                    "Creating submodule alias in inlined module: {local_name} = {module_var}"
+                );
+
+                // Create the assignment
+                result_stmts.push(statements::simple_assign(
+                    local_name,
+                    expressions::name(&module_var, ExprContext::Load),
+                ));
+            } else {
+                log::debug!(
+                    "Skipping submodule import '{imported_name}' from '{module_name}' - \
+                     wrapper module import should be handled elsewhere"
+                );
+            }
             continue;
         }
 

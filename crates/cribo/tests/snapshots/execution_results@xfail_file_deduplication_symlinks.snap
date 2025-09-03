@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 42, in <module>",
+    stdout: "helpers location: lib/helpers.py\ncommon location: lib/helpers.py\nhelpers counter: 1\ncommon counter: 2",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 47, in <module>",
 }

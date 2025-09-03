@@ -105,7 +105,7 @@ pub(super) fn transform_namespace_package_imports(
     bundler: &Bundler,
     import_from: StmtImportFrom,
     module_name: &str,
-    symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+    _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
 
@@ -150,60 +150,24 @@ pub(super) fn transform_namespace_package_imports(
 
                 result_stmts.push(statements::simple_assign(local_name, module_expr));
             } else {
-                // Inlined module - create a namespace object for it
+                // Inlined module - create an alias to the existing namespace variable
                 debug!(
                     "Submodule '{imported_name}' from namespace package '{module_name}' was \
-                     inlined, creating namespace"
+                     inlined, creating alias to existing namespace"
                 );
 
-                // For namespace hybrid modules, we need to create the namespace object
-                // The inlined module's symbols are already renamed with module prefix
-                // e.g., message -> message_greetings_greeting
-                let _inlined_key = sanitize_module_name_for_identifier(&full_module_path);
+                // Get the existing namespace variable name using get_module_var_identifier
+                // to handle symlinks properly
+                use crate::code_generator::module_registry::get_module_var_identifier;
+                let namespace_var = get_module_var_identifier(id, bundler.resolver);
 
-                // Create a SimpleNamespace object manually with all the inlined symbols
-                // Since the module was inlined, we need to map the original names to the
-                // renamed ones
+                // Create alias: local_name = namespace_var
                 result_stmts.push(statements::simple_assign(
                     local_name,
-                    expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
+                    expressions::name(&namespace_var, ExprContext::Load),
                 ));
 
-                // Add all the renamed symbols as attributes to the namespace
-                // Get the symbol renames for this module if available
-                let full_module_id = bundler
-                    .get_module_id(&full_module_path)
-                    .expect("Module should exist");
-                if let Some(module_renames) = symbol_renames.get(&full_module_id) {
-                    let module_suffix = sanitize_module_name_for_identifier(&full_module_path);
-                    for (original_name, renamed_name) in module_renames {
-                        // Check if this is an identity mapping (no semantic rename)
-                        let actual_renamed_name = if renamed_name == original_name {
-                            // No semantic rename, apply module suffix pattern
-
-                            get_unique_name_with_module_suffix(original_name, &module_suffix)
-                        } else {
-                            // Use the semantic rename
-                            renamed_name.clone()
-                        };
-
-                        // base.original_name = actual_renamed_name
-                        result_stmts.push(statements::assign(
-                            vec![expressions::attribute(
-                                expressions::name(local_name, ExprContext::Load),
-                                original_name,
-                                ExprContext::Store,
-                            )],
-                            expressions::name(&actual_renamed_name, ExprContext::Load),
-                        ));
-                    }
-                } else {
-                    // Fallback: try to guess the renamed symbols based on module suffix
-                    warn!(
-                        "No symbol renames found for inlined module '{full_module_path}', \
-                         namespace will be empty"
-                    );
-                }
+                // No need to populate the namespace - it already exists and is populated
             }
         } else {
             // Not a bundled submodule, keep as attribute access
@@ -222,14 +186,6 @@ pub(super) fn transform_namespace_package_imports(
     } else {
         result_stmts
     }
-}
-
-/// Get a unique name for a symbol, using the module suffix pattern.
-///
-/// Helper function used by `transform_namespace_package_imports`.
-fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> String {
-    let module_suffix = sanitize_module_name_for_identifier(module_name);
-    format!("{base_name}_{module_suffix}")
 }
 
 // NOTE: ensure_namespace_exists was removed as it became obsolete after implementing

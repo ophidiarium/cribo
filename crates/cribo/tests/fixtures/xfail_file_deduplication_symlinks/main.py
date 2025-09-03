@@ -1,4 +1,8 @@
 # Test file deduplication with symlinks
+#
+# This is an xfail test because the bundled behavior differs from regular Python.
+# In regular Python, symlinked modules are treated as separate modules.
+# After bundling with file deduplication, they share the same module object.
 
 from lib import helpers
 from shared import common
@@ -18,4 +22,5 @@ assert common.counter == 1
 print("SUCCESS: Symlinked modules are separate in Python!")
 
 # But after bundling with file deduplication, they SHOULD share state
+# The bundled version will fail this assertion because counter will be 2
 # That's why this is an xfail test - it works differently after bundling

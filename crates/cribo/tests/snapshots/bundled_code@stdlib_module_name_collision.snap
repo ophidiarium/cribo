@@ -54,10 +54,8 @@ def _cribo_init___cribo_9a2a8c_mypkg(self):
     self.__initializing__ = True
     global mypkg_console
     """Package with modules including one named 'abc' (same as stdlib)."""
-    abc = _cribo.types.SimpleNamespace()
+    abc = mypkg.abc
     self.abc = abc
-    abc.MyBaseClass = MyBaseClass
-    abc.create_object = create_object
     mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
     console = mypkg.console
     self.console = console
@@ -82,10 +80,12 @@ def _cribo_init___cribo_6558da_mypkg_console(self):
     self.threading = threading
     ctypes = _cribo.ctypes
     self.ctypes = ctypes
-    local_abc = _cribo.types.SimpleNamespace()
+    __cribo_init_result = _cribo_init___cribo_9a2a8c_mypkg(mypkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(mypkg, attr, getattr(__cribo_init_result, attr))
+    local_abc = mypkg.abc
     self.local_abc = local_abc
-    local_abc.MyBaseClass = MyBaseClass
-    local_abc.create_object = create_object
 
     def test_function():
         """Test function using imports."""
