@@ -475,23 +475,21 @@ impl ImportRewriter {
                     }
                 }
                 Stmt::ImportFrom(from_stmt) => {
-                    if let Some(module) = &from_stmt.module {
-                        let names: Vec<(String, Option<String>)> = from_stmt
-                            .names
-                            .iter()
-                            .map(|alias| {
-                                (
-                                    alias.name.to_string(),
-                                    alias.asname.as_ref().map(std::string::ToString::to_string),
-                                )
-                            })
-                            .collect();
-                        existing_imports.insert(ImportStatement::FromImport {
-                            module: Some(module.to_string()),
-                            names,
-                            level: from_stmt.level,
-                        });
-                    }
+                    let names: Vec<(String, Option<String>)> = from_stmt
+                        .names
+                        .iter()
+                        .map(|alias| {
+                            (
+                                alias.name.to_string(),
+                                alias.asname.as_ref().map(std::string::ToString::to_string),
+                            )
+                        })
+                        .collect();
+                    existing_imports.insert(ImportStatement::FromImport {
+                        module: from_stmt.module.as_ref().map(std::string::ToString::to_string),
+                        names,
+                        level: from_stmt.level,
+                    });
                 }
                 _ => {}
             }
