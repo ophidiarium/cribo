@@ -2951,9 +2951,8 @@ fn rewrite_import_with_renames(
                     "Module '{module_name}' is FirstParty but has no module ID - transforming to raise ImportError"
                 );
                 let parent = module_name.split('.').next().unwrap_or(module_name);
-                let error_msg = format!(
-                    "No module named '{module_name}'; '{parent}' is not a package"
-                );
+                let error_msg =
+                    format!("No module named '{module_name}'; '{parent}' is not a package");
                 let raise_stmt = statements::raise(
                     Some(expressions::call(
                         expressions::name("ImportError", ExprContext::Load),

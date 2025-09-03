@@ -303,17 +303,16 @@ impl ImportRewriter {
         for (idx, stmt) in body.iter().enumerate() {
             match stmt {
                 Stmt::Import(import_stmt) => {
-                    // For regular imports, check each alias individually
-                    for alias in &import_stmt.names {
+                    // Check if all aliases in the import are movable
+                    let all_aliases_movable = import_stmt.names.iter().all(|alias| {
                         let import = ImportStatement::Import {
                             module: alias.name.to_string(),
                             alias: alias.asname.as_ref().map(std::string::ToString::to_string),
                         };
-
-                        if movable_imports.iter().any(|mi| mi.import_stmt == import) {
-                            indices_to_remove.insert(idx);
-                            break; // Once we find a match, mark the whole statement for removal
-                        }
+                        movable_imports.iter().any(|mi| mi.import_stmt == import)
+                    });
+                    if all_aliases_movable {
+                        indices_to_remove.insert(idx);
                     }
                 }
                 Stmt::ImportFrom(import_from) => {
