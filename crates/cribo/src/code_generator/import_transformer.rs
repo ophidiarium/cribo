@@ -2171,9 +2171,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.bundler
                             .resolver
                             .get_module_name(module_id)
-                            .unwrap_or_else(|| resolved.to_string())
+                            .unwrap_or_else(|| resolved.clone())
                     } else {
-                        resolved.to_string()
+                        resolved.clone()
                     };
 
                     for alias in &import_from.names {

@@ -565,7 +565,7 @@ pub fn transform_module_to_init_function<'a>(
                 let mut exported_vars = FxIndexSet::default();
                 for var in all_vars {
                     if bundler.should_export_symbol(var, ctx.module_name) {
-                        exported_vars.insert(var.to_string());
+                        exported_vars.insert(var.clone());
                     }
                 }
                 exported_vars
@@ -1049,7 +1049,7 @@ pub fn transform_module_to_init_function<'a>(
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
             if !relative_name.contains('.') {
-                submodules_to_add.push((module_name.to_string(), relative_name.to_string()));
+                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
             }
         }
     }
@@ -1064,7 +1064,7 @@ pub fn transform_module_to_init_function<'a>(
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
             if !relative_name.contains('.') {
-                submodules_to_add.push((module_name.to_string(), relative_name.to_string()));
+                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
             }
         }
     }

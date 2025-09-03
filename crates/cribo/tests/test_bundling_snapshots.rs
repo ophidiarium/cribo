@@ -294,7 +294,7 @@ fn test_bundling_fixtures() {
         let original_stdout = String::from_utf8_lossy(&original_output.stdout)
             .trim()
             .replace("\r\n", "\n")
-            .to_string();
+            .clone();
         let original_exit_code = original_output.status.code().unwrap_or(-1);
 
         // Create temporary directory for output
@@ -439,7 +439,7 @@ fn test_bundling_fixtures() {
         let bundled_stdout = String::from_utf8_lossy(&python_output.stdout)
             .trim()
             .replace("\r\n", "\n")
-            .to_string();
+            .clone();
         let python_exit_code = python_output.status.code().unwrap_or(-1);
 
         // For normal tests (not pyfail_ or xfail_), stdout should match exactly
@@ -529,7 +529,7 @@ fn test_bundling_fixtures() {
             stdout: String::from_utf8_lossy(&python_output.stdout)
                 .trim()
                 .replace("\r\n", "\n")
-                .to_string(),
+                .clone(),
             stderr: {
                 let full_stderr = String::from_utf8_lossy(&python_output.stderr)
                     .trim()

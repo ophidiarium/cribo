@@ -364,7 +364,7 @@ impl<'a> Bundler<'a> {
         if let Some(ref resolved) = resolved_module
             && self.has_synthetic_name(resolved.as_str())
         {
-            needed.insert(resolved.to_string());
+            needed.insert(resolved.clone());
             let module_name_str = self
                 .resolver
                 .get_module_name(module_id)
@@ -1191,7 +1191,7 @@ impl<'a> Bundler<'a> {
                         "Symbol '{local_name}' in module '{module_name}' is re-exported from \
                          inlined submodule '{resolved_module}' (original name: '{imported_name}')"
                     );
-                    return Some((resolved_module, imported_name.to_string()));
+                    return Some((resolved_module, imported_name.clone()));
                 }
             }
         }
@@ -1253,13 +1253,13 @@ impl<'a> Bundler<'a> {
                 }
 
                 if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(module_id, symbol) {
-                    module_renames.insert(symbol.to_string(), new_name.to_string());
+                    module_renames.insert(symbol.clone(), new_name.to_string());
                     log::debug!(
                         "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
                     );
                 } else {
                     // Include non-renamed symbols too - they still need to be in the namespace
-                    module_renames.insert(symbol.to_string(), symbol.to_string());
+                    module_renames.insert(symbol.clone(), symbol.clone());
                     log::debug!(
                         "Module '{module_name}': symbol '{symbol}' has no rename, using original \
                          name"
@@ -2208,7 +2208,7 @@ impl<'a> Bundler<'a> {
                 // Import assignments were previously collected and processed here
 
                 // Mark this module as processed
-                processed_modules.insert(module_name.to_string());
+                processed_modules.insert(module_name.clone());
 
                 // For inlined modules, we need to populate the namespace with the module's symbols
                 // This assigns the inlined functions/variables to the namespace object
@@ -2414,7 +2414,7 @@ impl<'a> Bundler<'a> {
                 );
 
                 // Mark this module as processed
-                processed_modules.insert(module_name.to_string());
+                processed_modules.insert(module_name.clone());
             }
         }
 
@@ -2437,7 +2437,7 @@ impl<'a> Bundler<'a> {
                     if name.contains('.') {
                         name.split('.').next().map(std::string::ToString::to_string)
                     } else if name != "__init__" {
-                        Some(name.to_string())
+                        Some(name.clone())
                     } else {
                         None
                     }
@@ -2771,9 +2771,9 @@ impl<'a> Bundler<'a> {
                         .keys()
                         .filter_map(|id| self.resolver.get_module_name(*id))
                         .find(|m| !m.contains('.') && self.has_synthetic_name(m))
-                        .unwrap_or_else(|| module_name.to_string())
+                        .unwrap_or_else(|| module_name.clone())
                 } else {
-                    module_name.to_string()
+                    module_name.clone()
                 };
 
                 log::debug!("Package name for exposure: {package_name}");

@@ -52,7 +52,7 @@ impl IndexingVisitor {
         // Check for overflow within module range
         let relative_index = *current - self.base_index;
         assert!(
-            (relative_index < MODULE_INDEX_RANGE),
+            relative_index < MODULE_INDEX_RANGE,
             "Module index overflow: attempted to assign index {} (relative: {}) which exceeds \
              MODULE_INDEX_RANGE ({})",
             *current,

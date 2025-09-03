@@ -337,7 +337,6 @@ impl BundleOrchestrator {
                 .modules
                 .iter()
                 .filter_map(|id| resolver.get_module_name(*id))
-                .map(|s| s.to_string())
                 .collect();
 
             let _ = writeln!(error_msg, "Cycle {}: {}", i + 1, module_names.join(" → "));
