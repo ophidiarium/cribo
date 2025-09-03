@@ -39,48 +39,60 @@ def _cribo_init___cribo_5676b5_real_a(self):
     global real_b
 
     def start_chain():
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         unused_function_b = real_b.unused_function_b
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         from_b = real_b.from_b
         return f"A -> {from_b()}"
     self.start_chain = start_chain
 
     def from_a():
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         from_b = real_b.from_b
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         unused_function_b = real_b.unused_function_b
         return "A"
     self.from_a = from_a
 
     def from_c():
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         from_b = real_b.from_b
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         unused_function_b = real_b.unused_function_b
         return "C(->A)"
     self.from_c = from_c
 
     def from_e():
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         from_b = real_b.from_b
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         unused_function_b = real_b.unused_function_b
         return "E(->A)"
     self.from_e = from_e
 
     def unused_function_a():
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         from_b = real_b.from_b
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         unused_function_b = real_b.unused_function_b
         return f"Unused A -> {unused_function_b()}"
     self.unused_function_a = unused_function_a
 
     def unused_with_stdlib():
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         from_b = real_b.from_b
+        global real_b
         real_b = _cribo_init___cribo_85e139_real_b(real_b)
         unused_function_b = real_b.unused_function_b
         json = _cribo.json
@@ -100,17 +112,20 @@ def _cribo_init___cribo_85e139_real_b(self):
     global real_a
 
     def from_b():
+        global real_a
         real_a = _cribo_init___cribo_5676b5_real_a(real_a)
         from_c = real_a.from_c
         return f"B -> {from_c()} -> {continue_chain()}"
     self.from_b = from_b
 
     def continue_chain():
+        global real_b
         from_d = real_b.from_d
         return from_d()
     self.continue_chain = continue_chain
 
     def from_d():
+        global real_a
         real_a = _cribo_init___cribo_5676b5_real_a(real_a)
         from_e = real_a.from_e
         return f"D(->B) -> {from_e()}"
@@ -121,6 +136,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     self.unused_function_b = unused_function_b
 
     def unused_with_symlink():
+        global real_a
         real_a = _cribo_init___cribo_5676b5_real_a(real_a)
         unused_function_a = real_a.unused_function_a
         from_a = real_a.from_a
@@ -130,6 +146,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     class UnusedClass:
 
         def __init__(self):
+            global real_a
             real_a = _cribo_init___cribo_5676b5_real_a(real_a)
             from_c = real_a.from_c
             self.value = from_c()

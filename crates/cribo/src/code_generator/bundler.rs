@@ -721,6 +721,7 @@ impl<'a> Bundler<'a> {
         import_from: &StmtImportFrom,
         module_name: &str,
         inside_wrapper_init: bool,
+        at_module_level: bool,
         current_module: Option<&str>,
         _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
@@ -750,6 +751,7 @@ impl<'a> Bundler<'a> {
             import_from,
             module_name,
             inside_wrapper_init,
+            at_module_level,
             current_module,
             _symbol_renames,
         )
@@ -761,6 +763,7 @@ impl<'a> Bundler<'a> {
         import_from: &StmtImportFrom,
         module_name: &str,
         inside_wrapper_init: bool,
+        at_module_level: bool,
         current_module: Option<&str>,
         _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
@@ -1018,6 +1021,23 @@ impl<'a> Bundler<'a> {
                         if let Some(module_id) = self.get_module_id(module_name) {
                             let current_module_id =
                                 current_module.and_then(|m| self.get_module_id(m));
+
+                            // Get the canonical module name for the module we're initializing
+                            let canonical_module_name = self
+                                .resolver
+                                .get_module_name(module_id)
+                                .unwrap_or_else(|| module_name.to_string());
+
+                            // If we're inside a wrapper init AND not at module level (i.e., inside a function),
+                            // we need to add a global declaration for the module variable
+                            if inside_wrapper_init && !at_module_level {
+                                use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
+                                let module_var =
+                                    sanitize_module_name_for_identifier(&canonical_module_name);
+                                assignments.push(crate::ast_builder::statements::global(vec![
+                                    module_var.as_str(),
+                                ]));
+                            }
 
                             assignments.extend(
                                 self.create_module_initialization_for_import_with_current_module(

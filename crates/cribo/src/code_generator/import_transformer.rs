@@ -2160,6 +2160,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             module_path: self.get_module_path().as_deref(),
             symbol_renames: self.symbol_renames,
             inside_wrapper_init: self.is_wrapper_init,
+            at_module_level: self.at_module_level,
             python_version: self.python_version,
         })
     }
@@ -3156,6 +3157,7 @@ struct RewriteImportFromParams<'a> {
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     inside_wrapper_init: bool,
+    at_module_level: bool,
     python_version: u8,
 }
 
@@ -3168,6 +3170,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         module_path,
         symbol_renames,
         inside_wrapper_init,
+        at_module_level,
         python_version,
     } = params;
     // Resolve relative imports to absolute module names
@@ -3293,6 +3296,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &import_from,
                 &module_name,
                 inside_wrapper_init,
+                at_module_level,
                 Some(current_module),
                 symbol_renames,
             );
@@ -3334,6 +3338,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             &absolute_import,
             &module_name,
             inside_wrapper_init,
+            at_module_level,
             Some(current_module),
             symbol_renames,
         )

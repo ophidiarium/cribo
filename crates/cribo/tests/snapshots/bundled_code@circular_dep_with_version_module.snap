@@ -73,6 +73,7 @@ def _cribo_init___cribo_cc4906_package_module_a(self):
     """Module A that creates circular dependency"""
 
     def func_a():
+        global package
         __cribo_init_result = _cribo_init___cribo_a4c23d_package(package)
         for attr in dir(__cribo_init_result):
             if not attr.startswith('_'):
@@ -82,6 +83,7 @@ def _cribo_init___cribo_cc4906_package_module_a(self):
     self.func_a = func_a
 
     def another_func():
+        global package
         __cribo_init_result = _cribo_init___cribo_a4c23d_package(package)
         for attr in dir(__cribo_init_result):
             if not attr.startswith('_'):

@@ -146,6 +146,7 @@ def _cribo_init___cribo_02808e_pkg_color(self):
 
     def color_from_style(style) -> "Color":
         """Create a color from a style."""
+        global pkg_style
         __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
         for attr in dir(__cribo_init_result):
             if not attr.startswith('_'):
@@ -163,6 +164,7 @@ def _cribo_init___cribo_02808e_pkg_color(self):
 
     def apply_color_to_console(console, color: Color) -> None:
         """Apply color to console."""
+        global pkg_console
         __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
         for attr in dir(__cribo_init_result):
             if not attr.startswith('_'):
@@ -350,6 +352,7 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
 
     def apply_style_to_console(console, style: Style) -> None:
         """Apply a style to console output."""
+        global pkg_console
         __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
         for attr in dir(__cribo_init_result):
             if not attr.startswith('_'):

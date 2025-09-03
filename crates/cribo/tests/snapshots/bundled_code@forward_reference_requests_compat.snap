@@ -235,6 +235,7 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
         try:
             return _cribo.json.loads(content)
         except (ValueError, TypeError) as e:
+            global myrequests_exceptions
             __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
             for attr in dir(__cribo_init_result):
                 if not attr.startswith('_'):
