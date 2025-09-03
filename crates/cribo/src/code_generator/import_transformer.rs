@@ -789,6 +789,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Save current local variables and create a new scope for the function
                         let saved_locals = self.local_variables.clone();
 
+                        // Save the wrapper module imports - these should be scoped to each function
+                        // to prevent imports from one function affecting another
+                        let saved_wrapper_imports = self.wrapper_module_imports.clone();
+
                         // Track function parameters as local variables before transforming the body
                         // This prevents incorrect transformation of parameter names that shadow stdlib modules
                         for param in &func_def.parameters.args {
@@ -809,6 +813,9 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Restore the previous scope level
                         self.at_module_level = saved_at_module_level;
+
+                        // Restore the wrapper module imports to prevent function-level imports from affecting other functions
+                        self.wrapper_module_imports = saved_wrapper_imports;
 
                         // Restore the previous scope's local variables
                         self.local_variables = saved_locals;
