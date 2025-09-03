@@ -707,6 +707,23 @@ impl Bundler<'_> {
         if let Expr::Name(name_expr) = ann_assign_clone.target.as_mut() {
             name_expr.id = renamed_name.into();
         }
+
+        // Also rewrite annotation expressions to handle pre-transform aliases
+        expression_handlers::resolve_import_aliases_in_expr(
+            &mut ann_assign_clone.annotation,
+            &ctx.import_aliases,
+        );
+        expression_handlers::rewrite_aliases_in_expr(
+            &mut ann_assign_clone.annotation,
+            module_renames,
+        );
+        if let Some(semantic_renames) = ctx.module_renames.get(&module_id) {
+            expression_handlers::rewrite_aliases_in_expr(
+                &mut ann_assign_clone.annotation,
+                semantic_renames,
+            );
+        }
+
         ctx.inlined_stmts.push(Stmt::AnnAssign(ann_assign_clone));
     }
 }
