@@ -286,6 +286,9 @@ impl TreeShaker {
             level
         } as usize;
 
+        // Remove the dots from the relative module name early
+        let relative_part = relative_module.trim_start_matches('.');
+
         // If we need to go up more levels than we have, something is wrong
         if levels_to_remove > parts.len() {
             warn!(
@@ -294,14 +297,11 @@ impl TreeShaker {
                 parts.len(),
                 current_module
             );
-            return relative_module.to_string();
+            return relative_part.to_string();
         }
 
         // Get the parent module parts
         let parent_parts = &parts[..parts.len().saturating_sub(levels_to_remove)];
-
-        // Remove the dots from the relative module name
-        let relative_part = relative_module.trim_start_matches('.');
 
         // Combine parent parts with relative module
         let result = if relative_part.is_empty() {
