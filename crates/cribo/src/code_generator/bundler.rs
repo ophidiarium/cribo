@@ -513,6 +513,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
         inside_wrapper_init: bool,
         current_module: Option<&str>,
+        at_module_level: bool,
     ) -> Vec<Stmt> {
         let mut assignments = Vec::new();
 
@@ -525,6 +526,11 @@ impl<'a> Bundler<'a> {
                 self.create_module_initialization_for_import_with_current_module(
                     module_id,
                     current_module_id,
+                    if inside_wrapper_init {
+                        true
+                    } else {
+                        at_module_level
+                    },
                 ),
             );
         }
@@ -755,6 +761,7 @@ impl<'a> Bundler<'a> {
                 module_name,
                 inside_wrapper_init,
                 current_module,
+                at_module_level,
             );
         }
 
@@ -862,6 +869,11 @@ impl<'a> Bundler<'a> {
                             self.create_module_initialization_for_import_with_current_module(
                                 module_id,
                                 current_module_id,
+                                if inside_wrapper_init {
+                                    true
+                                } else {
+                                    at_module_level
+                                },
                             ),
                         );
                         locally_initialized.insert(module_id);
@@ -1062,6 +1074,11 @@ impl<'a> Bundler<'a> {
                                 self.create_module_initialization_for_import_with_current_module(
                                     module_id,
                                     current_module_id,
+                                    if inside_wrapper_init {
+                                        true
+                                    } else {
+                                        at_module_level
+                                    },
                                 ),
                             );
                             locally_initialized.insert(module_id);
@@ -1132,7 +1149,21 @@ impl<'a> Bundler<'a> {
                     expressions::dotted_name(&parts, ExprContext::Load)
                 } else {
                     // Top-level module
-                    expressions::name(&canonical_module_name, ExprContext::Load)
+                    if at_module_level || inside_wrapper_init {
+                        expressions::name(&canonical_module_name, ExprContext::Load)
+                    } else {
+                        // Inside a function: reference the global module via globals()[name]
+                        let globals_call = expressions::call(
+                            expressions::name("globals", ExprContext::Load),
+                            vec![],
+                            vec![],
+                        );
+                        expressions::subscript(
+                            globals_call,
+                            expressions::string_literal(&canonical_module_name),
+                            ExprContext::Load,
+                        )
+                    }
                 };
 
                 let assignment = statements::simple_assign(
@@ -4576,6 +4607,7 @@ impl Bundler<'_> {
             module_id,
             &mut locally_initialized,
             None, // No current module context
+            true, // At module level by default
         )
     }
 
@@ -4584,12 +4616,14 @@ impl Bundler<'_> {
         &self,
         module_id: ModuleId,
         current_module: Option<ModuleId>,
+        at_module_level: bool,
     ) -> Vec<Stmt> {
         let mut locally_initialized = FxIndexSet::default();
         self.create_module_initialization_for_import_with_tracking(
             module_id,
             &mut locally_initialized,
             current_module,
+            at_module_level,
         )
     }
 
@@ -4599,6 +4633,7 @@ impl Bundler<'_> {
         module_id: ModuleId,
         locally_initialized: &mut FxIndexSet<ModuleId>,
         current_module: Option<ModuleId>,
+        at_module_level: bool,
     ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
@@ -4650,6 +4685,7 @@ impl Bundler<'_> {
                         parent_id,
                         locally_initialized,
                         current_module,
+                        at_module_level,
                     ));
                 }
             }
@@ -4671,14 +4707,33 @@ impl Bundler<'_> {
 
             // Call the init function with the module as the self argument
             let module_var = sanitize_module_name_for_identifier(&module_name);
+            let self_arg = if at_module_level {
+                expressions::name(&module_var, ExprContext::Load)
+            } else {
+                // Use globals()[module_var] to avoid local-name shadowing inside functions
+                let globals_call = expressions::call(
+                    expressions::name("globals", ExprContext::Load),
+                    vec![],
+                    vec![],
+                );
+                expressions::subscript(
+                    globals_call,
+                    expressions::string_literal(&module_var),
+                    ExprContext::Load,
+                )
+            };
             let init_call = expressions::call(
                 expressions::name(&init_func_name, ExprContext::Load),
-                vec![expressions::name(&module_var, ExprContext::Load)],
+                vec![self_arg],
                 vec![],
             );
 
-            // Generate the appropriate assignment based on module type
-            stmts.extend(self.generate_module_assignment_from_init(module_id, init_call));
+            // Generate the appropriate assignment based on module type and scope
+            stmts.extend(self.generate_module_assignment_from_init(
+                module_id,
+                init_call,
+                at_module_level,
+            ));
 
             // Mark as initialized to avoid duplicates
             locally_initialized.insert(module_id);
@@ -4701,6 +4756,7 @@ impl Bundler<'_> {
         &self,
         module_id: ModuleId,
         init_call: Expr,
+        at_module_level: bool,
     ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
@@ -4729,21 +4785,43 @@ impl Bundler<'_> {
         } else {
             // Direct assignment for simple and dotted modules
             // For wrapper modules with dots, use the sanitized name
-            let target_expr = if module_name.contains('.') && self.has_synthetic_name(&module_name)
-            {
-                // Use sanitized name for wrapper modules
-                let sanitized = sanitize_module_name_for_identifier(&module_name);
-                expressions::name(&sanitized, ExprContext::Store)
-            } else if module_name.contains('.') {
-                // Create attribute expression for dotted modules (inlined)
-                let parts: Vec<&str> = module_name.split('.').collect();
-                expressions::dotted_name(&parts, ExprContext::Store)
+            if at_module_level {
+                let target_expr =
+                    if module_name.contains('.') && self.has_synthetic_name(&module_name) {
+                        // Use sanitized name for wrapper modules
+                        let sanitized = sanitize_module_name_for_identifier(&module_name);
+                        expressions::name(&sanitized, ExprContext::Store)
+                    } else if module_name.contains('.') {
+                        // Create attribute expression for dotted modules (inlined)
+                        let parts: Vec<&str> = module_name.split('.').collect();
+                        expressions::dotted_name(&parts, ExprContext::Store)
+                    } else {
+                        // Simple name expression
+                        expressions::name(&module_name, ExprContext::Store)
+                    };
+                stmts.push(statements::assign(vec![target_expr], init_call));
             } else {
-                // Simple name expression
-                expressions::name(&module_name, ExprContext::Store)
-            };
-
-            stmts.push(statements::assign(vec![target_expr], init_call));
+                // Assign into globals() to avoid creating a local that shadows the module name
+                // Determine the key for globals(): sanitized for wrapper dotted modules, or the
+                // plain module name otherwise.
+                let key_name = if module_name.contains('.') && self.has_synthetic_name(&module_name)
+                {
+                    sanitize_module_name_for_identifier(&module_name)
+                } else {
+                    module_name.clone()
+                };
+                let globals_call = expressions::call(
+                    expressions::name("globals", ExprContext::Load),
+                    vec![],
+                    vec![],
+                );
+                let key_expr = expressions::string_literal(&key_name);
+                stmts.push(statements::subscript_assign(
+                    globals_call,
+                    key_expr,
+                    init_call,
+                ));
+            }
         }
 
         stmts

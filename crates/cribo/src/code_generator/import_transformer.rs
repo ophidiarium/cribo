@@ -1669,6 +1669,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     .create_module_initialization_for_import_with_current_module(
                                         module_id,
                                         current_module_id,
+                                        /* at_module_level */ true,
                                     ),
                             );
                         }
