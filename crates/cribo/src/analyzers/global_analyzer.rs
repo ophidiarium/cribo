@@ -8,12 +8,16 @@
 //! This information is used to determine which variables need to be lifted
 //! to true globals in the bundled output to preserve Python's global semantics.
 
-use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
-use ruff_python_ast::{Expr, ModModule, Stmt, StmtFunctionDef};
+use ruff_python_ast::{
+    Expr, ModModule, Stmt, StmtFunctionDef,
+    visitor::source_order::{self, SourceOrderVisitor},
+};
 use ruff_text_size::TextRange;
 
-use crate::semantic_bundler::ModuleGlobalInfo;
-use crate::types::{FxIndexMap, FxIndexSet};
+use crate::{
+    semantic_bundler::ModuleGlobalInfo,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Visitor that analyzes a module for global variable usage patterns
 pub struct GlobalAnalyzer {
@@ -157,7 +161,8 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
             }
 
             // Process function definitions (includes async functions)
-            // Note: In ruff's AST, async functions are represented as FunctionDef with is_async flag
+            // Note: In ruff's AST, async functions are represented as FunctionDef with is_async
+            // flag
             Stmt::FunctionDef(func_def) => {
                 self.process_function(func_def);
                 // Don't use walk_stmt here as we already visited the body
@@ -189,8 +194,9 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ruff_python_parser::parse_module;
+
+    use super::*;
 
     #[test]
     fn test_module_level_vars() {

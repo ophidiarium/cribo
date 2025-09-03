@@ -40,7 +40,8 @@ impl DependencyAnalyzer {
                 continue; // Not a cycle
             }
 
-            // Work directly with module IDs (already resolver::ModuleId since CriboGraph re-exports it)
+            // Work directly with module IDs (already resolver::ModuleId since CriboGraph re-exports
+            // it)
             let module_ids: Vec<crate::resolver::ModuleId> = scc.clone();
             // Non-empty by construction (scc.len() > 1 above)
 

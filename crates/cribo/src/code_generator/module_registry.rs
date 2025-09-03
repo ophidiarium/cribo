@@ -255,7 +255,7 @@ pub fn create_assignments_for_inlined_imports(
                 // Create a namespace object for the inlined module
                 log::debug!(
                     "Creating namespace object for module '{imported_name}' imported from \
-                 '{module_name}' - module was inlined"
+                     '{module_name}' - module was inlined"
                 );
 
                 // Record that we need a namespace for this module
@@ -331,7 +331,8 @@ pub fn create_assignments_for_inlined_imports(
                 && !check_fn(id, imported_name)
             {
                 log::debug!(
-                    "Skipping assignment for tree-shaken symbol '{imported_name}' from module '{module_name}'"
+                    "Skipping assignment for tree-shaken symbol '{imported_name}' from module \
+                     '{module_name}'"
                 );
                 continue;
             }

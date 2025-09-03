@@ -1,15 +1,16 @@
+/// Import rewriter that moves module-level imports into function scope
+/// to resolve circular dependencies
+use log::{debug, trace};
+use ruff_python_ast::{
+    self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom, visitor::Visitor,
+};
+
 use crate::{
     cribo_graph::CriboGraph,
     resolver::ModuleId,
     semantic_bundler::SemanticBundler,
     types::{FxIndexMap, FxIndexSet},
     visitors::{DiscoveredImport, ImportDiscoveryVisitor, ImportLocation},
-};
-/// Import rewriter that moves module-level imports into function scope
-/// to resolve circular dependencies
-use log::{debug, trace};
-use ruff_python_ast::{
-    self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom, visitor::Visitor,
 };
 
 /// Strategy for deduplicating imports within functions
@@ -175,7 +176,8 @@ impl ImportRewriter {
                     ImportLocation::Function(func_name) => {
                         // Import is in a specific function, move it only to that function
                         trace!(
-                            "Import {imported_module} in {module_name}::{func_name} can be moved to function scope"
+                            "Import {imported_module} in {module_name}::{func_name} can be moved \
+                             to function scope"
                         );
                         vec![func_name.clone()]
                     }
@@ -183,23 +185,26 @@ impl ImportRewriter {
                         // Import is in a method, we need to handle this specially
                         // For now, skip methods as they're more complex
                         trace!(
-                            "Import {imported_module} in {module_name}::{class}::{method} is in a method, skipping"
+                            "Import {imported_module} in {module_name}::{class}::{method} is in a \
+                             method, skipping"
                         );
                         continue;
                     }
                     ImportLocation::Module => {
                         // Module-level import that needs to be moved to all functions that use it
-                        // This requires more complex analysis to determine which functions actually use it
-                        // For now, move to all functions
+                        // This requires more complex analysis to determine which functions actually
+                        // use it For now, move to all functions
                         trace!(
-                            "Import {imported_module} in {module_name} is at module level, moving to all functions"
+                            "Import {imported_module} in {module_name} is at module level, moving \
+                             to all functions"
                         );
                         vec!["*".to_string()]
                     }
                     _ => {
                         // Other locations (Class, Conditional, Nested) are not handled yet
                         trace!(
-                            "Import {imported_module} in {module_name} has complex location {:?}, skipping",
+                            "Import {imported_module} in {module_name} has complex location {:?}, \
+                             skipping",
                             import_info.location
                         );
                         continue;
@@ -486,7 +491,10 @@ impl ImportRewriter {
                         })
                         .collect();
                     existing_imports.insert(ImportStatement::FromImport {
-                        module: from_stmt.module.as_ref().map(std::string::ToString::to_string),
+                        module: from_stmt
+                            .module
+                            .as_ref()
+                            .map(std::string::ToString::to_string),
                         names,
                         level: from_stmt.level,
                     });

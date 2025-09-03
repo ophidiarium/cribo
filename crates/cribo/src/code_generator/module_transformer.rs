@@ -136,7 +136,8 @@ pub fn transform_module_to_init_function<'a>(
 
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
-    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
+    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if
+    //   present)
     let mut imports_from_inlined: Vec<(String, String)> = Vec::new();
     let mut inlined_import_bindings = Vec::new();
     // Track wrapper module symbols that need placeholders (symbol_name, value_name)
@@ -258,7 +259,8 @@ pub fn transform_module_to_init_function<'a>(
                             // We need to track them separately to create placeholder assignments
                             for (symbol_name, value_name) in wrapper_symbols {
                                 debug!(
-                                    "Collecting wrapper module symbol '{symbol_name}' for special handling"
+                                    "Collecting wrapper module symbol '{symbol_name}' for special \
+                                     handling"
                                 );
                                 wrapper_module_symbols_global_only.push((symbol_name, value_name));
                             }
@@ -281,7 +283,8 @@ pub fn transform_module_to_init_function<'a>(
         // Also handle plain import statements to avoid name collisions
         if let Stmt::Import(import_stmt) = stmt {
             for alias in &import_stmt.names {
-                // Local binding is either `asname` or the top-level package segment (`pkg` in `pkg.sub`)
+                // Local binding is either `asname` or the top-level package segment (`pkg` in
+                // `pkg.sub`)
                 let local_name = alias
                     .asname
                     .as_ref()
@@ -312,7 +315,8 @@ pub fn transform_module_to_init_function<'a>(
     // but we need to access them inside the init function
     // Also include wrapper module symbols that will be defined later
     if !imports_from_inlined.is_empty() || !wrapper_module_symbols_global_only.is_empty() {
-        // Deduplicate by value name (what's actually in global scope) and sort for deterministic output
+        // Deduplicate by value name (what's actually in global scope) and sort for deterministic
+        // output
         let mut unique_imports: Vec<String> = imports_from_inlined
             .iter()
             .map(|(_, value_name)| value_name.clone())
@@ -339,12 +343,16 @@ pub fn transform_module_to_init_function<'a>(
                                 .find(|(_, symbols)| symbols.contains(symbol))
                                 .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
                                 .unwrap_or_else(|| "unknown".to_string());
-                            debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
+                            debug!(
+                                "Symbol '{symbol}' kept by tree-shaking from module \
+                                 '{module_name}'"
+                            );
                         }
                         true
                     } else {
                         debug!(
-                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global declaration"
+                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global \
+                             declaration"
                         );
                         false
                     }
@@ -828,7 +836,8 @@ pub fn transform_module_to_init_function<'a>(
                             debug!("Initialized lifted global '{lifted_name}' from '{name}'");
                         } else {
                             debug!(
-                                "Refreshed lifted global '{lifted_name}' after reassignment of '{name}'"
+                                "Refreshed lifted global '{lifted_name}' after reassignment of \
+                                 '{name}'"
                             );
                         }
                         lifted_var_handled = true;
@@ -841,7 +850,8 @@ pub fn transform_module_to_init_function<'a>(
                         expression_handlers::extract_simple_assign_target(assign)
                     {
                         debug!(
-                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
+                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: \
+                             {:?})",
                             name, ctx.module_name, inlined_import_bindings
                         );
 
@@ -850,7 +860,8 @@ pub fn transform_module_to_init_function<'a>(
                             // Module attributes for imports are now handled by import_transformer
                             // to ensure correct value assignment (original_name vs local_name)
                             debug!(
-                                "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
+                                "Skipping module attribute for imported symbol '{name}' - handled \
+                                 by import_transformer"
                             );
                         } else if vars_used_by_exported_functions.contains(&name) {
                             // Check if this variable is used by exported functions
@@ -914,7 +925,8 @@ pub fn transform_module_to_init_function<'a>(
                         transform_expr_for_module_vars(
                             value,
                             &module_level_vars,
-                            SELF_PARAM, // Use "self" instead of module_var_name inside init function
+                            SELF_PARAM, /* Use "self" instead of module_var_name inside init
+                                         * function */
                             ctx.python_version,
                         );
                     }
@@ -956,12 +968,14 @@ pub fn transform_module_to_init_function<'a>(
 
                         if initialized_lifted_globals.insert(target.id.to_string()) {
                             debug!(
-                                "Initialized lifted global '{lifted_name}' from annotated assignment '{}'",
+                                "Initialized lifted global '{lifted_name}' from annotated \
+                                 assignment '{}'",
                                 target.id
                             );
                         } else {
                             debug!(
-                                "Refreshed lifted global '{lifted_name}' after annotated reassignment '{}'",
+                                "Refreshed lifted global '{lifted_name}' after annotated \
+                                 reassignment '{}'",
                                 target.id
                             );
                         }
@@ -1008,7 +1022,8 @@ pub fn transform_module_to_init_function<'a>(
                 let transform_ctx = ModuleVarTransformContext {
                     bundler,
                     module_level_vars: &module_level_vars,
-                    module_var_name: SELF_PARAM, // Use "self" instead of module_var_name inside init function
+                    module_var_name: SELF_PARAM, /* Use "self" instead of module_var_name inside
+                                                  * init function */
                     global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
                     lifted_names: lifted_names.as_ref(),
                     python_version: ctx.python_version,
@@ -1062,13 +1077,15 @@ pub fn transform_module_to_init_function<'a>(
     for (full_name, relative_name) in submodules_to_add {
         // CRITICAL: Check if this wrapper module already imports a symbol with the same name
         // as the submodule. If it does, skip setting the submodule namespace to avoid overwriting
-        // the imported symbol. For example, if package.__init__ imports `__version__` from `.__version__`,
-        // we should NOT overwrite that with the namespace object for package.__version__.
+        // the imported symbol. For example, if package.__init__ imports `__version__` from
+        // `.__version__`, we should NOT overwrite that with the namespace object for
+        // package.__version__.
         let symbol_already_imported = imported_symbols.contains(&relative_name);
 
         if symbol_already_imported {
             debug!(
-                "Skipping submodule namespace assignment for {full_name} because symbol '{relative_name}' is already imported"
+                "Skipping submodule namespace assignment for {full_name} because symbol \
+                 '{relative_name}' is already imported"
             );
             continue;
         }
@@ -1088,16 +1105,18 @@ pub fn transform_module_to_init_function<'a>(
             // inside the wrapper function at definition time
             if ctx.is_wrapper_body {
                 debug!(
-                    "Skipping namespace creation for inlined submodule '{}' inside wrapper module '{}'",
+                    "Skipping namespace creation for inlined submodule '{}' inside wrapper module \
+                     '{}'",
                     full_name, ctx.module_name
                 );
                 // Bind existing global namespace object to module.<relative_name>
                 // Example: module.submodule = pkg_submodule
-                // IMPORTANT: This references a namespace variable (e.g., package___version__) that MUST
-                // already exist at the global scope. These namespace objects are pre-created earlier
-                // in the bundling pipeline via namespace_manager::generate_submodule_attributes_with_exclusions()
-                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is not defined",
-                // the pre-creation step likely ran too late.
+                // IMPORTANT: This references a namespace variable (e.g., package___version__) that
+                // MUST already exist at the global scope. These namespace objects
+                // are pre-created earlier in the bundling pipeline via
+                // namespace_manager::generate_submodule_attributes_with_exclusions()
+                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is
+                // not defined", the pre-creation step likely ran too late.
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
@@ -2685,7 +2704,8 @@ fn should_include_symbol(
             )
         {
             log::debug!(
-                "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, so including it"
+                "Private symbol '{symbol_name}' from module '{module_name}' is not in \
+                 module_scope_symbols but is imported by other modules, so including it"
             );
             return true;
         }
@@ -2698,7 +2718,8 @@ fn should_include_symbol(
                 .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
         if is_constant_like {
             log::debug!(
-                "Constant '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it appears to be a constant"
+                "Constant '{symbol_name}' from module '{module_name}' is not in \
+                 module_scope_symbols but including as it appears to be a constant"
             );
             return true;
         }
@@ -2714,7 +2735,8 @@ fn should_include_symbol(
         ];
         if COMMON_DUNDERS.contains(&symbol_name) {
             log::debug!(
-                "Common dunder '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it's a standard module attribute"
+                "Common dunder '{symbol_name}' from module '{module_name}' is not in \
+                 module_scope_symbols but including as it's a standard module attribute"
             );
             return true;
         }
@@ -2767,7 +2789,8 @@ fn emit_module_attr_if_exportable(
     let should_export =
         should_include_symbol(bundler, symbol_name, module_name, module_scope_symbols);
     debug!(
-        "Symbol '{symbol_name}' in module '{module_name}' should_include_symbol returned: {should_export}"
+        "Symbol '{symbol_name}' in module '{module_name}' should_include_symbol returned: \
+         {should_export}"
     );
 
     if should_export {
@@ -2972,30 +2995,29 @@ fn process_wildcard_import(
             if symbol != "*" {
                 // A symbol is kept if it's kept in the re-exporting module itself,
                 // or if it's re-exported from a submodule and kept in that source module.
-                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
-                    || {
-                        let mut found_in_submodule = false;
-                        for (potential_module_id, module_exports) in &bundler.module_exports {
-                            // Check if this is a submodule by comparing names
-                            let potential_module_name = bundler
-                                .resolver
-                                .get_module_name(*potential_module_id)
-                                .expect("Module name must exist");
-                            if potential_module_name.starts_with(&format!("{module}."))
-                                && let Some(exports) = module_exports
-                                && exports.contains(symbol)
-                                && bundler
-                                    .is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
-                            {
-                                debug!(
-                                    "Symbol '{symbol}' is kept in source module '{potential_module_name}'"
-                                );
-                                found_in_submodule = true;
-                                break;
-                            }
+                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module_id, symbol) || {
+                    let mut found_in_submodule = false;
+                    for (potential_module_id, module_exports) in &bundler.module_exports {
+                        // Check if this is a submodule by comparing names
+                        let potential_module_name = bundler
+                            .resolver
+                            .get_module_name(*potential_module_id)
+                            .expect("Module name must exist");
+                        if potential_module_name.starts_with(&format!("{module}."))
+                            && let Some(exports) = module_exports
+                            && exports.contains(symbol)
+                            && bundler.is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
+                        {
+                            debug!(
+                                "Symbol '{symbol}' is kept in source module \
+                                 '{potential_module_name}'"
+                            );
+                            found_in_submodule = true;
+                            break;
                         }
-                        found_in_submodule
-                    };
+                    }
+                    found_in_submodule
+                };
 
                 if is_kept_final {
                     // Check if this symbol comes from a wrapper module
@@ -3003,7 +3025,8 @@ fn process_wildcard_import(
                     // because the wrapper module hasn't been initialized yet
                     if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                         debug!(
-                            "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
+                            "Symbol '{symbol}' from inlined module '{module}' comes from a \
+                             wrapper module - deferring assignment"
                         );
                         // Track for deferred assignment after wrapper module initialization
                         let value_name = bundler
@@ -3025,12 +3048,14 @@ fn process_wildcard_import(
                         .unwrap_or_else(|| symbol.clone());
 
                     debug!(
-                        "Tracking wildcard-imported symbol '{symbol}' (value: '{value_name}') from inlined module '{module}'"
+                        "Tracking wildcard-imported symbol '{symbol}' (value: '{value_name}') \
+                         from inlined module '{module}'"
                     );
                     imports_from_inlined.push((symbol.clone(), value_name));
                 } else {
                     debug!(
-                        "Skipping wildcard-imported symbol '{symbol}' from inlined module '{module}' - removed by tree-shaking"
+                        "Skipping wildcard-imported symbol '{symbol}' from inlined module \
+                         '{module}' - removed by tree-shaking"
                     );
                 }
             }
@@ -3052,7 +3077,8 @@ fn process_wildcard_import(
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, original_name) {
                             debug!(
-                                "Symbol '{original_name}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
+                                "Symbol '{original_name}' from inlined module '{module}' comes \
+                                 from a wrapper module - deferring assignment"
                             );
                             // Track for deferred assignment
                             wrapper_module_symbols
@@ -3061,13 +3087,16 @@ fn process_wildcard_import(
                         }
 
                         debug!(
-                            "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
+                            "Tracking wildcard-imported symbol '{renamed_name}' (renamed from \
+                             '{original_name}') from inlined module '{module}'"
                         );
                         // For renamed symbols, use original as exported name, renamed as value
                         imports_from_inlined.push((original_name.clone(), renamed_name.clone()));
                     } else {
                         debug!(
-                            "Skipping wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}' - removed by tree-shaking"
+                            "Skipping wildcard-imported symbol '{renamed_name}' (renamed from \
+                             '{original_name}') from inlined module '{module}' - removed by \
+                             tree-shaking"
                         );
                     }
                 }
@@ -3086,7 +3115,8 @@ fn process_wildcard_import(
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                             debug!(
-                                "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
+                                "Symbol '{symbol}' from inlined module '{module}' comes from a \
+                                 wrapper module - deferring assignment"
                             );
                             // Track for deferred assignment
                             wrapper_module_symbols.push((symbol.clone(), symbol.clone()));
@@ -3094,13 +3124,15 @@ fn process_wildcard_import(
                         }
 
                         debug!(
-                            "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
+                            "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) \
+                             from inlined module '{module}'"
                         );
                         // No rename, so exported name and value are the same
                         imports_from_inlined.push((symbol.clone(), symbol.clone()));
                     } else {
                         debug!(
-                            "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}' - removed by tree-shaking"
+                            "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) \
+                             from inlined module '{module}' - removed by tree-shaking"
                         );
                     }
                 }
@@ -3109,7 +3141,8 @@ fn process_wildcard_import(
         }
 
         log::warn!(
-            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard import may miss symbols"
+            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard \
+             import may miss symbols"
         );
     } else {
         log::warn!("Could not find exports for inlined module '{module}'");
@@ -3179,14 +3212,17 @@ fn symbol_comes_from_wrapper_module(
                                 && exports.iter().any(|s| s == symbol_name)
                             {
                                 debug!(
-                                    "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
+                                    "Symbol '{symbol_name}' in inlined module '{inlined_module}' \
+                                     comes from wrapper module '{source_module}' via wildcard \
+                                     import"
                                 );
                                 return true;
                             }
                         } else {
                             // Direct import - we know this symbol comes from the wrapper module
                             debug!(
-                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}'"
+                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' \
+                                 comes from wrapper module '{source_module}'"
                             );
                             return true;
                         }

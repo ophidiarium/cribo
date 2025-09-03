@@ -247,12 +247,12 @@ impl TreeShaker {
     /// Resolve a relative module import to an absolute module name
     ///
     /// Note: We cannot use `resolver::resolve_relative_import_from_name` directly because:
-    /// 1. The resolver expects module names ending with "__init__" for packages, but we have
-    ///    module names like "parent.subpkg" that are packages
-    /// 2. We need to determine if a module is a package based on whether it has submodules,
-    ///    which requires access to `self.module_names`
-    /// 3. The resolver's heuristics don't match our tree-shaking context where we're working
-    ///    with already-resolved module names rather than file paths
+    /// 1. The resolver expects module names ending with "__init__" for packages, but we have module
+    ///    names like "parent.subpkg" that are packages
+    /// 2. We need to determine if a module is a package based on whether it has submodules, which
+    ///    requires access to `self.module_names`
+    /// 3. The resolver's heuristics don't match our tree-shaking context where we're working with
+    ///    already-resolved module names rather than file paths
     fn resolve_relative_module(
         &self,
         current_module: &str,
@@ -273,8 +273,8 @@ impl TreeShaker {
         let is_package = has_submodules || (level > 1 && parts.len() > 1);
 
         debug!(
-            "resolve_relative_module: current_module='{current_module}', relative_module='{relative_module}', \
-             level={level}, is_package={is_package}"
+            "resolve_relative_module: current_module='{current_module}', \
+             relative_module='{relative_module}', level={level}, is_package={is_package}"
         );
 
         // Calculate how many levels to actually remove
@@ -370,7 +370,8 @@ impl TreeShaker {
 
             if uses_dynamic_access {
                 debug!(
-                    "Module {module_name} uses dynamic __all__ access pattern (locals/globals with setattr loop)"
+                    "Module {module_name} uses dynamic __all__ access pattern (locals/globals \
+                     with setattr loop)"
                 );
                 // Mark all symbols in __all__ as used for this module
                 self.mark_all_symbols_from_module_all_as_used(module_id, &mut worklist);
@@ -582,7 +583,7 @@ impl TreeShaker {
                             {
                                 debug!(
                                     "Symbol {symbol} is re-exported from \
-                                 {resolved_module_name}::{original_name}"
+                                     {resolved_module_name}::{original_name}"
                                 );
                                 worklist.push_back((resolved_module_id, original_name.clone()));
                                 // Also mark the import itself as used
@@ -1148,8 +1149,9 @@ impl TreeShaker {
             return false;
         }
 
-        // Check if the module uses setattr, (locals() or globals()), and reads __all__ in a single pass
-        // Note: We don't check for vars() because that's our transformation that happens after tree-shaking
+        // Check if the module uses setattr, (locals() or globals()), and reads __all__ in a single
+        // pass Note: We don't check for vars() because that's our transformation that
+        // happens after tree-shaking
         let mut uses_setattr = false;
         let mut uses_locals_or_globals = false;
         let mut reads_all = false;
@@ -1196,7 +1198,8 @@ impl TreeShaker {
                     // Mark all symbols listed in __all__ (stored in eventual_read_vars)
                     for symbol in &item.eventual_read_vars {
                         debug!(
-                            "Marking {symbol} from module {module_name} as used due to dynamic __all__ access"
+                            "Marking {symbol} from module {module_name} as used due to dynamic \
+                             __all__ access"
                         );
                         // Resolve the symbol's source module or use the current module
                         if let Some((source_module_id, original_name)) =

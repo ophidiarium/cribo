@@ -19,8 +19,10 @@ use petgraph::{
     graph::{DiGraph, NodeIndex},
 };
 
-use crate::resolver::ModuleId;
-use crate::types::{FxIndexMap, FxIndexSet};
+use crate::{
+    resolver::ModuleId,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Unique identifier for an item within a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -277,7 +279,8 @@ pub struct CriboGraph {
     /// (The first import name discovered for this file)
     file_primary_module: FxIndexMap<PathBuf, (String, ModuleId)>,
     /// Track modules whose __all__ attribute is accessed
-    /// Maps (`accessing_module_id`, `accessed_module_id`) for __all__ access tracking to prevent alias collisions
+    /// Maps (`accessing_module_id`, `accessed_module_id`) for __all__ access tracking to prevent
+    /// alias collisions
     modules_accessing_all: FxIndexSet<(ModuleId, ModuleId)>,
 }
 
@@ -317,8 +320,8 @@ impl CriboGraph {
                 // Same import name but different files: reuse existing mapping deterministically.
                 // Prevents alias flapping and preserves previously built edges.
                 log::warn!(
-                    "Import name '{name}' refers to different files: {} and {}. \
-                     Reusing existing ModuleId {} to keep mapping stable.",
+                    "Import name '{name}' refers to different files: {} and {}. Reusing existing \
+                     ModuleId {} to keep mapping stable.",
                     existing_canonical.display(),
                     canonical_path.display(),
                     existing_id.as_u32()

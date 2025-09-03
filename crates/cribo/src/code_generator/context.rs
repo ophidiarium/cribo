@@ -67,9 +67,11 @@ pub struct SemanticContext<'a> {
 #[derive(Debug)]
 pub struct BundleParams<'a> {
     pub modules: &'a [(crate::resolver::ModuleId, ModModule, String)], // (id, ast, content_hash)
-    pub sorted_module_ids: &'a [crate::resolver::ModuleId], // Just IDs in dependency order
-    pub resolver: &'a crate::resolver::ModuleResolver,      // To query module info
-    pub graph: &'a DependencyGraph, // Dependency graph for unused import detection
+    pub sorted_module_ids: &'a [crate::resolver::ModuleId],            /* Just IDs in dependency
+                                                                        * order */
+    pub resolver: &'a crate::resolver::ModuleResolver, // To query module info
+    pub graph: &'a DependencyGraph,                    /* Dependency graph for unused import
+                                                        * detection */
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::analyzers::types::CircularDependencyAnalysis>, /* Circular dependency analysis */
     pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis

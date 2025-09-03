@@ -499,15 +499,16 @@ fn test_bundling_fixtures() {
                     {
                         // Has duplicates - don't suggest renaming, the test is still xfail
                         eprintln!(
-                            "Note: Fixture '{fixture_name}' produces matching output but has duplicate lines. \
-                             It remains an xfail test.\n{duplicate_msg}"
+                            "Note: Fixture '{fixture_name}' produces matching output but has \
+                             duplicate lines. It remains an xfail test.\n{duplicate_msg}"
                         );
                     } else {
                         // No duplicates and matching output - suggest renaming
                         panic!(
-                            "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded and \
-                             produced same output as original.\nThis test is now fully passing. Please \
-                             remove the 'xfail_' prefix from the fixture directory name."
+                            "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded \
+                             and produced same output as original.\nThis test is now fully \
+                             passing. Please remove the 'xfail_' prefix from the fixture \
+                             directory name."
                         );
                     }
                 }

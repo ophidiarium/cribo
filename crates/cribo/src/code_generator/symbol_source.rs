@@ -23,7 +23,8 @@ use crate::{
 ///
 /// # Returns
 /// * `Some((source_module, original_name))` if the symbol is imported from a wrapper module
-/// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper module
+/// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper
+///   module
 pub fn find_symbol_source_from_wrapper_module(
     module_asts: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
     resolver: &ModuleResolver,
@@ -32,7 +33,8 @@ pub fn find_symbol_source_from_wrapper_module(
     symbol_name: &str,
 ) -> Option<(String, String)> {
     log::trace!(
-        "find_symbol_source_from_wrapper_module: looking for symbol '{symbol_name}' in module '{module_name}'"
+        "find_symbol_source_from_wrapper_module: looking for symbol '{symbol_name}' in module \
+         '{module_name}'"
     );
 
     // Find the module's AST to check its imports
@@ -74,7 +76,8 @@ pub fn find_symbol_source_from_wrapper_module(
                     && wrapper_modules.contains(&resolved_id)
                 {
                     log::debug!(
-                        "Source module '{resolved_module}' is a wrapper module - returning ({resolved_module}, {})",
+                        "Source module '{resolved_module}' is a wrapper module - returning \
+                         ({resolved_module}, {})",
                         alias.name.as_str()
                     );
                     // Return the immediate source from the wrapper module

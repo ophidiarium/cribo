@@ -323,8 +323,8 @@ pub fn populate_namespace_with_module_symbols(
                     // The submodule exports a symbol with the same name as itself
                     // Check if the parent module re-exports this symbol
                     debug!(
-                        "Submodule '{full_submodule_path}' exports symbol '{symbol_name}' \
-                         with same name"
+                        "Submodule '{full_submodule_path}' exports symbol '{symbol_name}' with \
+                         same name"
                     );
 
                     // Get the renamed symbol from the submodule

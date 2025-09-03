@@ -443,8 +443,9 @@ impl<'a> GraphBuilder<'a> {
                     );
                 }
                 Stmt::Assign(assign) => {
-                    // Class-level assignments like `yaml_loader = [Loader, FullLoader, UnsafeLoader]`
-                    // These execute at class definition time, so they're immediate dependencies
+                    // Class-level assignments like `yaml_loader = [Loader, FullLoader,
+                    // UnsafeLoader]` These execute at class definition time, so
+                    // they're immediate dependencies
                     self.collect_vars_in_expr(&assign.value, &mut read_vars);
                 }
                 Stmt::AnnAssign(ann_assign) => {

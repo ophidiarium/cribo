@@ -162,15 +162,17 @@ pub(super) fn trim_unused_imports_from_modules(
             // even the parts that would be tree-shaken, so we need to keep all imports
             let is_circular_module = circular_modules.contains(module_id);
             log::debug!(
-                "Module {module_id:?} - checking if circular: {is_circular_module}, circular_modules: {circular_modules:?}"
+                "Module {module_id:?} - checking if circular: {is_circular_module}, \
+                 circular_modules: {circular_modules:?}"
             );
             if is_circular_module {
                 log::debug!(
                     "Module {module_id:?} is circular - skipping tree-shaking based import removal"
                 );
                 // For circular modules, also preserve imports that are module-level symbols
-                // These can be accessed from other modules as module attributes even if not directly used within this module
-                // A module-level symbol is one that is either:
+                // These can be accessed from other modules as module attributes even if not
+                // directly used within this module A module-level symbol is one
+                // that is either:
                 // 1. Imported at module level (not inside a function/class)
                 // 2. In __all__ export list
                 // 3. Explicitly re-exported
@@ -180,26 +182,33 @@ pub(super) fn trim_unused_imports_from_modules(
                     let is_in_all = module_dep_graph.is_in_all_export(&import_info.name);
 
                     // Check if any import item has this as a reexported name
-                    let is_reexported = module_dep_graph.items.values().any(|item| {
-                        item.reexported_names.contains(&import_info.name)
-                    });
+                    let is_reexported = module_dep_graph
+                        .items
+                        .values()
+                        .any(|item| item.reexported_names.contains(&import_info.name));
 
-                    // Check if this import is at module level (any import item that imports this name)
-                    // In circular modules, all imports at module level become module attributes in the init function
-                    let is_module_level_import = module_dep_graph.items.values().any(|item| {
-                        item.imported_names.contains(&import_info.name)
-                    });
+                    // Check if this import is at module level (any import item that imports this
+                    // name) In circular modules, all imports at module level
+                    // become module attributes in the init function
+                    let is_module_level_import = module_dep_graph
+                        .items
+                        .values()
+                        .any(|item| item.imported_names.contains(&import_info.name));
 
                     let should_preserve = is_in_all || is_reexported || is_module_level_import;
 
                     if should_preserve {
                         log::debug!(
-                            "Preserving import '{}' in circular module - module-level import (in_all: {}, reexported: {}, module_level: {})",
-                            import_info.name, is_in_all, is_reexported, is_module_level_import
+                            "Preserving import '{}' in circular module - module-level import \
+                             (in_all: {}, reexported: {}, module_level: {})",
+                            import_info.name,
+                            is_in_all,
+                            is_reexported,
+                            is_module_level_import
                         );
                     }
 
-                    !should_preserve  // Keep in unused list only if NOT to be preserved
+                    !should_preserve // Keep in unused list only if NOT to be preserved
                 });
 
                 if original_count != unused_imports.len() {
@@ -259,10 +268,12 @@ pub(super) fn trim_unused_imports_from_modules(
                                     continue;
                                 }
 
-                                // Check if this imported symbol itself is marked as used by tree shaker
-                                // This handles the case where the symbol is accessed via module attributes
-                                // (e.g., yaml_module.OtherYAMLObject where OtherYAMLObject is from an import)
-                                // Check both the local name (alias) and the original imported name
+                                // Check if this imported symbol itself is marked as used by tree
+                                // shaker This handles the case
+                                // where the symbol is accessed via module attributes
+                                // (e.g., yaml_module.OtherYAMLObject where OtherYAMLObject is from
+                                // an import) Check both the local
+                                // name (alias) and the original imported name
                                 if shaker.is_symbol_used(module_name, local_name)
                                     || shaker.is_symbol_used(module_name, imported_name)
                                 {
@@ -367,16 +378,19 @@ pub(super) fn trim_unused_imports_from_modules(
                                 continue;
                             }
 
-                            // Check if the imported module itself has side effects and needs initialization
-                            // This handles the case where a wrapper module with side effects is imported
-                            // but not directly used (e.g., import mypackage where mypackage has print statements)
+                            // Check if the imported module itself has side effects and needs
+                            // initialization This handles the case
+                            // where a wrapper module with side effects is imported
+                            // but not directly used (e.g., import mypackage where mypackage has
+                            // print statements)
                             let module_has_side_effects = graph
                                 .get_module_by_name(module)
                                 .map(|m| m.module_id)
                                 .is_some_and(|id| shaker.module_has_side_effects(id));
                             if module_has_side_effects {
                                 log::debug!(
-                                    "Module '{module}' has side effects - preserving import for initialization"
+                                    "Module '{module}' has side effects - preserving import for \
+                                     initialization"
                                 );
                                 continue;
                             }
@@ -621,8 +635,9 @@ fn should_remove_import_stmt(
                 // since UnusedImportInfo has resolved names but import_from_stmt has raw syntax.
                 // For absolute imports, we can compare the module names directly.
                 if import_from_stmt.level > 0 {
-                    // Relative import - just match by name since we can't easily resolve the module here
-                    // This is safe because the UnusedImportInfo was created from the same module context
+                    // Relative import - just match by name since we can't easily resolve the module
+                    // here This is safe because the UnusedImportInfo was
+                    // created from the same module context
                     unused_imports
                         .iter()
                         .any(|unused| unused.name == local_name)

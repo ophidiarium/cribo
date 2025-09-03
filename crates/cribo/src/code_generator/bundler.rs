@@ -181,7 +181,8 @@ impl<'a> Bundler<'a> {
             .is_some_and(|id| self.inlined_modules.contains(&id))
     }
 
-    /// Helper: does the given AST directly import `module_name` at top-level via `import module_name`
+    /// Helper: does the given AST directly import `module_name` at top-level via `import
+    /// module_name`
     fn entry_directly_imports_module(ast: &ModModule, module_name: &str) -> bool {
         ast.body.iter().any(|stmt| {
             let Stmt::Import(import_stmt) = stmt else {
@@ -339,7 +340,8 @@ impl<'a> Bundler<'a> {
                         .get_module_name(module_id)
                         .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
                     log::debug!(
-                        "Inlined module '{module_name_str}' imports wrapper module '{potential_module}' via 'from . import'"
+                        "Inlined module '{module_name_str}' imports wrapper module \
+                         '{potential_module}' via 'from . import'"
                     );
                 }
             }
@@ -630,6 +632,7 @@ impl<'a> Bundler<'a> {
 
         assignments
     }
+
     /// Helper to get module ID from name during transition
     pub(crate) fn get_module_id(&self, module_name: &str) -> Option<ModuleId> {
         self.resolver.get_module_id_by_name(module_name)
@@ -734,7 +737,8 @@ impl<'a> Bundler<'a> {
         let at_module_level = context.at_module_level;
         let current_module = context.current_module;
         log::debug!(
-            "transform_bundled_import_from_multiple: module_name={}, imports={:?}, inside_wrapper_init={}",
+            "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
+             inside_wrapper_init={}",
             module_name,
             import_from
                 .names
@@ -970,11 +974,13 @@ impl<'a> Bundler<'a> {
                     let full_submodule_path = format!("{module_name}.{imported_name}");
                     if self.has_synthetic_name(&full_submodule_path) {
                         // This is importing a wrapper submodule from an inlined parent module
-                        // This case should have been handled by the import transformer during inlining
-                        // and deferred. If we get here, something went wrong.
+                        // This case should have been handled by the import transformer during
+                        // inlining and deferred. If we get here, something
+                        // went wrong.
                         log::warn!(
-                            "Unexpected: importing wrapper submodule '{imported_name}' from inlined module \
-                             '{module_name}' in transform_bundled_import_from_multiple - should have been deferred"
+                            "Unexpected: importing wrapper submodule '{imported_name}' from \
+                             inlined module '{module_name}' in \
+                             transform_bundled_import_from_multiple - should have been deferred"
                         );
 
                         // Create direct assignment to where the module will be (fallback)
@@ -1040,8 +1046,9 @@ impl<'a> Bundler<'a> {
                                 .get_module_name(module_id)
                                 .unwrap_or_else(|| module_name.to_string());
 
-                            // If we're inside a wrapper init AND not at module level (i.e., inside a function),
-                            // we need to add a global declaration for the module variable
+                            // If we're inside a wrapper init AND not at module level (i.e., inside
+                            // a function), we need to add a global
+                            // declaration for the module variable
                             if inside_wrapper_init && !at_module_level {
                                 use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
                                 let module_var =
@@ -1066,14 +1073,16 @@ impl<'a> Bundler<'a> {
                 // If it is, use the globally inlined symbol (respecting semantic renames)
                 // instead of wrapper attribute access.
                 if self.has_synthetic_name(module_name) {
-                    // Keep current semantics: we don't attempt to detect "directly defined in wrapper" here.
+                    // Keep current semantics: we don't attempt to detect "directly defined in
+                    // wrapper" here.
                     let is_defined_in_wrapper = false;
 
                     if !is_defined_in_wrapper
                         && let Some((source_module, source_symbol)) =
                             self.is_symbol_from_inlined_submodule(module_name, target_name.as_str())
                     {
-                        // Map to the effective global name considering semantic renames of the source module.
+                        // Map to the effective global name considering semantic renames of the
+                        // source module.
                         let source_module_id = self
                             .get_module_id(&source_module)
                             .expect("Source module should exist");
@@ -1084,7 +1093,8 @@ impl<'a> Bundler<'a> {
                             .unwrap_or_else(|| source_symbol.clone());
 
                         log::debug!(
-                            "Using global symbol '{}' from inlined submodule '{}' for re-exported symbol '{}' in wrapper '{}'",
+                            "Using global symbol '{}' from inlined submodule '{}' for re-exported \
+                             symbol '{}' in wrapper '{}'",
                             global_name,
                             source_module,
                             target_name.as_str(),
@@ -1131,7 +1141,8 @@ impl<'a> Bundler<'a> {
                 );
 
                 log::debug!(
-                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {}, resolved from: {})",
+                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {}, \
+                     resolved from: {})",
                     target_name.as_str(),
                     canonical_module_name,
                     imported_name,
@@ -1177,7 +1188,8 @@ impl<'a> Bundler<'a> {
                 let local = alias.as_ref().unwrap_or(imported_name);
                 if local == local_name {
                     log::debug!(
-                        "Symbol '{local_name}' in module '{module_name}' is re-exported from inlined submodule '{resolved_module}' (original name: '{imported_name}')"
+                        "Symbol '{local_name}' in module '{module_name}' is re-exported from \
+                         inlined submodule '{resolved_module}' (original name: '{imported_name}')"
                     );
                     return Some((resolved_module, imported_name.to_string()));
                 }
@@ -1671,12 +1683,12 @@ impl<'a> Bundler<'a> {
         // The modules vector already contains all modules including the entry module
         self.find_namespace_imported_modules(&modules);
 
-        // Note: Circular dependencies have already been identified at the beginning of prepare_modules
-        // to ensure imports are properly handled before tree-shaking
+        // Note: Circular dependencies have already been identified at the beginning of
+        // prepare_modules to ensure imports are properly handled before tree-shaking
         if params.circular_dep_analysis.is_some() {
             // If entry module is __init__.py, also remove the entry package from circular modules
-            // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove "yaml"
-            // as they're the same file (yaml/__init__.py)
+            // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove
+            // "yaml" as they're the same file (yaml/__init__.py)
             if self.entry_is_package_init_or_main
                 && let Some(entry_pkg) = self.entry_package_name()
             {
@@ -1687,7 +1699,8 @@ impl<'a> Bundler<'a> {
                     .is_some_and(|id| self.circular_modules.contains(&id))
                 {
                     log::debug!(
-                        "Removing package '{entry_pkg}' from circular modules as it's the same as entry module '__init__.py'"
+                        "Removing package '{entry_pkg}' from circular modules as it's the same as \
+                         entry module '__init__.py'"
                     );
                     if let Some(id) = self.get_module_id(&entry_pkg) {
                         self.circular_modules.swap_remove(&id);
@@ -2147,7 +2160,8 @@ impl<'a> Bundler<'a> {
                         // Only add it here if the module will NOT get namespace population later
                         // (namespace population handles __all__ for directly imported modules)
                         if let Some(module_id) = self.get_module_id(&module_name) {
-                            // Check if this module is directly imported (will get namespace population)
+                            // Check if this module is directly imported (will get namespace
+                            // population)
                             let is_directly_imported = modules
                                 .get(&crate::resolver::ModuleId::ENTRY)
                                 .is_some_and(|(ast, _, _)| {
@@ -2155,7 +2169,8 @@ impl<'a> Bundler<'a> {
                                 });
 
                             // Only add __all__ here if NOT directly imported
-                            // (directly imported modules get __all__ via populate_namespace_with_module_symbols)
+                            // (directly imported modules get __all__ via
+                            // populate_namespace_with_module_symbols)
                             if !is_directly_imported {
                                 self.add_all_if_accessed(
                                     module_id,
@@ -2209,7 +2224,8 @@ impl<'a> Bundler<'a> {
                         .contains(&current_module_id)
                     {
                         log::debug!(
-                            "Skipping namespace population for inlined module: {module_name} - already populated"
+                            "Skipping namespace population for inlined module: {module_name} - \
+                             already populated"
                         );
                     } else {
                         // For inlined modules, always populate their namespace with their symbols
@@ -2276,7 +2292,8 @@ impl<'a> Bundler<'a> {
                                 &content_hash,
                             );
                         log::debug!(
-                            "Registered wrapper module '{module_name}' with synthetic name '{name}'"
+                            "Registered wrapper module '{module_name}' with synthetic name \
+                             '{name}'"
                         );
                         name
                     })
@@ -2330,8 +2347,9 @@ impl<'a> Bundler<'a> {
                 };
 
                 // Insert lifted global declarations after namespace but before init function
-                // The wrapper_stmts now has: [0] = init function (if namespace was skipped), [1] = __init__ assignment
-                // Or: [0] = namespace creation, [1] = init function, [2] = __init__ assignment
+                // The wrapper_stmts now has: [0] = init function (if namespace was skipped), [1] =
+                // __init__ assignment Or: [0] = namespace creation, [1] = init
+                // function, [2] = __init__ assignment
                 if let Some(ref info) = global_info {
                     if info.global_declarations.is_empty() {
                         // No global declarations, just add wrapper statements
@@ -2349,14 +2367,17 @@ impl<'a> Bundler<'a> {
                         }
                         // Insert lifted declarations before the init function
                         if !lifted_declarations.is_empty() && !wrapper_stmts.is_empty() {
-                            // If namespace was already created, wrapper_stmts starts with init function
-                            // Otherwise, it starts with namespace creation
+                            // If namespace was already created, wrapper_stmts starts with init
+                            // function Otherwise, it starts with
+                            // namespace creation
                             if namespace_already_exists {
-                                // No namespace stmt, just add lifted declarations before init function
+                                // No namespace stmt, just add lifted declarations before init
+                                // function
                                 all_inlined_stmts.extend(lifted_declarations);
                                 all_inlined_stmts.extend(wrapper_stmts);
                             } else if wrapper_stmts.len() >= 2 {
-                                // Split wrapper_stmts and insert lifted declarations after namespace
+                                // Split wrapper_stmts and insert lifted declarations after
+                                // namespace
                                 let namespace_stmt = wrapper_stmts.remove(0);
                                 all_inlined_stmts.push(namespace_stmt);
                                 all_inlined_stmts.extend(lifted_declarations);
@@ -2468,7 +2489,8 @@ impl<'a> Bundler<'a> {
 
                         // Only add if we haven't already exported this
                         // AND if this name doesn't already exist as a symbol in the entry module
-                        // This prevents overwriting values like __version__ = "2.32.4" with namespace objects
+                        // This prevents overwriting values like __version__ = "2.32.4" with
+                        // namespace objects
                         if !submodule_exports.contains(&export_name) {
                             // Check if this symbol already exists in the entry module's symbols
                             // The entry module is always the first to be processed and its symbols
@@ -2478,7 +2500,8 @@ impl<'a> Bundler<'a> {
 
                             if symbol_already_exists {
                                 log::debug!(
-                                    "  Skipping module-level export for '{export_name}' - already exists as a symbol in entry module"
+                                    "  Skipping module-level export for '{export_name}' - already \
+                                     exists as a symbol in entry module"
                                 );
                             } else {
                                 log::debug!(
@@ -2538,7 +2561,8 @@ impl<'a> Bundler<'a> {
                 };
 
                 log::debug!(
-                    "Entry module '{module_name}' is part of circular dependencies, reordering statements (lookup: '{lookup_name}')"
+                    "Entry module '{module_name}' is part of circular dependencies, reordering \
+                     statements (lookup: '{lookup_name}')"
                 );
                 ast.body = self.reorder_statements_for_circular_module(
                     &lookup_name,
@@ -2731,8 +2755,9 @@ impl<'a> Bundler<'a> {
             // When the entry module is a package that has child modules (like requests.exceptions),
             // those child modules need to be exposed at the module level so they can be accessed
             // when the module is imported via importlib.
-            // For example, after `import requests`, you should be able to access `requests.exceptions`.
-            // This adds statements like: exceptions = requests.exceptions
+            // For example, after `import requests`, you should be able to access
+            // `requests.exceptions`. This adds statements like: exceptions =
+            // requests.exceptions
             if module_name == self.entry_module_name {
                 log::debug!(
                     "Adding module-level exposure for child modules of entry module {module_name}"
@@ -2779,16 +2804,19 @@ impl<'a> Bundler<'a> {
                     .collect();
 
                 for child_module in entry_child_modules {
-                    // Get the child module's local name (e.g., "exceptions" from "requests.exceptions")
+                    // Get the child module's local name (e.g., "exceptions" from
+                    // "requests.exceptions")
                     if let Some(local_name) = child_module.strip_prefix(&format!("{package_name}."))
                     {
                         // Only add top-level children, not nested ones
                         if !local_name.contains('.') {
-                            // CRITICAL: Don't expose child modules that would overwrite existing variables
-                            // For example, don't overwrite __version__ = "2.32.4" with __version__ = requests.__version__
+                            // CRITICAL: Don't expose child modules that would overwrite existing
+                            // variables For example, don't overwrite
+                            // __version__ = "2.32.4" with __version__ = requests.__version__
                             if existing_variables.contains(local_name) {
                                 log::debug!(
-                                    "Skipping exposure of child module {child_module} as {local_name} - would overwrite existing variable"
+                                    "Skipping exposure of child module {child_module} as \
+                                     {local_name} - would overwrite existing variable"
                                 );
                                 continue;
                             }
@@ -2942,7 +2970,8 @@ impl<'a> Bundler<'a> {
         if let Some(Some(exports)) = module_id.and_then(|id| self.module_exports.get(&id)) {
             // Module defines __all__, check if symbol is listed there
             if exports.iter().any(|s| s == symbol_name) {
-                // Symbol is in __all__. For re-exported symbols, check if the symbol exists anywhere in the bundle.
+                // Symbol is in __all__. For re-exported symbols, check if the symbol exists
+                // anywhere in the bundle.
                 let should_export = match &self.kept_symbols_global {
                     Some(kept) => kept.contains(symbol_name),
                     None => true, // No tree-shaking, export everything in __all__
@@ -2950,11 +2979,13 @@ impl<'a> Bundler<'a> {
 
                 if should_export {
                     log::debug!(
-                        "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting"
+                        "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, \
+                         exporting"
                     );
                 } else {
                     log::debug!(
-                        "Symbol '{symbol_name}' is in __all__ but was completely removed by tree-shaking, not exporting"
+                        "Symbol '{symbol_name}' is in __all__ but was completely removed by \
+                         tree-shaking, not exporting"
                     );
                 }
                 return should_export;
@@ -2970,7 +3001,8 @@ impl<'a> Bundler<'a> {
         };
         if !is_kept_by_tree_shaking {
             log::debug!(
-                "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; not exporting"
+                "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; \
+                 not exporting"
             );
             return false;
         }
@@ -2981,17 +3013,19 @@ impl<'a> Bundler<'a> {
         if self.tree_shaking_keep_symbols.is_some() {
             // Tree-shaking is enabled and the symbol was kept, so export it
             log::debug!(
-                "Symbol '{symbol_name}' from module '{module_name}' kept by tree-shaking, exporting despite visibility"
+                "Symbol '{symbol_name}' from module '{module_name}' kept by tree-shaking, \
+                 exporting despite visibility"
             );
             return true;
         }
 
         // Special case: if a symbol is imported by another module in the bundle, export it
-        // even if it starts with underscore. This is necessary for symbols like _is_single_cell_widths
-        // in rich.cells that are imported by rich.segment
+        // even if it starts with underscore. This is necessary for symbols like
+        // _is_single_cell_widths in rich.cells that are imported by rich.segment
         if symbol_name.starts_with('_') {
             log::debug!(
-                "Checking if private symbol '{symbol_name}' from module '{module_name}' is imported by other modules"
+                "Checking if private symbol '{symbol_name}' from module '{module_name}' is \
+                 imported by other modules"
             );
             if let Some(module_asts) = &self.module_asts {
                 // Get the module ID for the current module
@@ -3005,7 +3039,8 @@ impl<'a> Bundler<'a> {
                     )
                 {
                     log::debug!(
-                        "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
+                        "Private symbol '{symbol_name}' from module '{module_name}' is imported \
+                         by other modules, exporting"
                     );
                     return true;
                 }
@@ -3050,7 +3085,8 @@ impl<'a> Bundler<'a> {
                         // Check if this is an inlined module (will be a namespace)
                         if self.inlined_modules.contains(bundled_module_id) {
                             log::debug!(
-                                "Assignment references namespace module: {module_name} (via name {base_name})"
+                                "Assignment references namespace module: {module_name} (via name \
+                                 {base_name})"
                             );
                             return true;
                         }
@@ -4200,7 +4236,8 @@ impl<'a> Bundler<'a> {
                     .get_module_name(module_id)
                     .unwrap_or_else(|| "<unknown>".to_string());
                 log::debug!(
-                    "Including private symbol '{symbol_name}' from circular module '{module_name}' because it's kept by tree-shaking"
+                    "Including private symbol '{symbol_name}' from circular module \
+                     '{module_name}' because it's kept by tree-shaking"
                 );
                 return true;
             }
@@ -4331,7 +4368,8 @@ impl<'a> Bundler<'a> {
                             .alias
                             .as_ref()
                             .expect(
-                                "alias should exist when alias_is_mandatory is true and alias.is_some() is true",
+                                "alias should exist when alias_is_mandatory is true and \
+                                 alias.is_some() is true",
                             )
                             .clone()
                     } else {
@@ -4362,8 +4400,8 @@ impl<'a> Bundler<'a> {
         python_version: u8,
     ) -> Vec<Stmt> {
         log::debug!(
-            "reorder_statements_for_circular_module called for module: '{}' \
-             (entry_module_name: '{}', entry_is_package_init_or_main: {})",
+            "reorder_statements_for_circular_module called for module: '{}' (entry_module_name: \
+             '{}', entry_is_package_init_or_main: {})",
             module_name,
             self.entry_module_name,
             self.entry_is_package_init_or_main
@@ -4579,7 +4617,8 @@ impl Bundler<'_> {
                 .get_module(module_id)
                 .map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
             log::debug!(
-                "Skipping initialization of module '{module_name}' - already inside its init function"
+                "Skipping initialization of module '{module_name}' - already inside its init \
+                 function"
             );
             return stmts;
         }
@@ -4601,7 +4640,8 @@ impl Bundler<'_> {
                 // Check if parent has an init function
                 if self.module_init_functions.contains_key(&parent_id) {
                     log::debug!(
-                        "Ensuring parent '{parent_name}' is initialized before child '{module_name}'"
+                        "Ensuring parent '{parent_name}' is initialized before child \
+                         '{module_name}'"
                     );
 
                     // Recursively ensure parent is initialized
@@ -4818,7 +4858,8 @@ impl Bundler<'_> {
                 );
                 if self.created_namespaces.contains(&flattened_name) {
                     log::debug!(
-                        "Skipping assignment for '{partial_module}' - already exists as flattened namespace '{flattened_name}'"
+                        "Skipping assignment for '{partial_module}' - already exists as flattened \
+                         namespace '{flattened_name}'"
                     );
                     continue;
                 }
@@ -4996,7 +5037,7 @@ impl Bundler<'_> {
     /// Create the entire namespace chain for a module with proper parent-child assignments
     /// For example, for "services.auth.manager", this creates:
     /// - services namespace (if needed)
-    /// - `services_auth` namespace (if needed)  
+    /// - `services_auth` namespace (if needed)
     /// - services.auth = `services_auth` assignment
     /// - `services_auth.manager` = `services_auth_manager` assignment
     fn create_namespace_chain_for_module(
@@ -5068,7 +5109,8 @@ impl Bundler<'_> {
             let assignment_key = (parent_var.clone(), child_name.to_string());
             if self.parent_child_assignments_made.contains(&assignment_key) {
                 log::debug!(
-                    "Skipping duplicate namespace chain assignment: {parent_var}.{child_name} (already created)"
+                    "Skipping duplicate namespace chain assignment: {parent_var}.{child_name} \
+                     (already created)"
                 );
                 continue;
             }

@@ -761,7 +761,8 @@ impl BundleOrchestrator {
         Ok(())
     }
 
-    // Removed: unused helper `topologically_sort_modules` — we now sort via full-graph SCC condensation.
+    // Removed: unused helper `topologically_sort_modules` — we now sort via full-graph SCC
+    // condensation.
 
     /// Get modules in a valid order for bundling when there are resolvable circular dependencies
     fn get_modules_with_cycle_resolution(
@@ -1171,7 +1172,8 @@ impl BundleOrchestrator {
                             // This module accesses resolved_module.__all__
                             all_accesses.push((*accessing_module_id, accessed_module.module_id));
                             log::debug!(
-                                "Module '{}' (ID {:?}) accesses {}.__all__ (ID {:?}, resolved from alias '{base_name}')",
+                                "Module '{}' (ID {:?}) accesses {}.__all__ (ID {:?}, resolved \
+                                 from alias '{base_name}')",
                                 module_graph.module_name,
                                 accessing_module_id,
                                 resolved_module_name,
@@ -1179,7 +1181,8 @@ impl BundleOrchestrator {
                             );
                         } else {
                             log::debug!(
-                                "Could not resolve module '{}' to ID when tracking __all__ access from '{}'",
+                                "Could not resolve module '{}' to ID when tracking __all__ access \
+                                 from '{}'",
                                 resolved_module_name,
                                 module_graph.module_name
                             );

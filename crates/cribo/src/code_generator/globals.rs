@@ -1,5 +1,4 @@
 use log::debug;
-
 use ruff_python_ast::{
     AtomicNodeIndex, Comprehension, ExceptHandler, Expr, ExprContext, ExprFString, FString,
     FStringValue, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements, Stmt,

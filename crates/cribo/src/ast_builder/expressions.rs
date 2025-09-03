@@ -387,10 +387,7 @@ pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
 /// # Example
 /// ```rust
 /// // Creates: `a or b`
-/// let values = vec![
-///     name("a", ExprContext::Load),
-///     name("b", ExprContext::Load),
-/// ];
+/// let values = vec![name("a", ExprContext::Load), name("b", ExprContext::Load)];
 /// let expr = bool_op(BoolOp::Or, values);
 /// ```
 pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {

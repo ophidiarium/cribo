@@ -1,8 +1,10 @@
 use ruff_python_ast::{ExprContext, Stmt};
 
-use crate::ast_builder::{expressions, statements};
-use crate::code_generator::module_registry::{
-    get_init_function_name, sanitize_module_name_for_identifier,
+use crate::{
+    ast_builder::{expressions, statements},
+    code_generator::module_registry::{
+        get_init_function_name, sanitize_module_name_for_identifier,
+    },
 };
 
 /// The __init__ attribute name for module initialization
@@ -51,7 +53,8 @@ pub fn create_wrapper_module(
     let module_var = sanitize_module_name_for_identifier(module_name);
 
     // 1. Create namespace with __initializing__ and __initialized__ flags
-    // module_var = types.SimpleNamespace(__name__='...', __initializing__=False, __initialized__=False)
+    // module_var = types.SimpleNamespace(__name__='...', __initializing__=False,
+    // __initialized__=False)
     let mut kwargs = vec![
         expressions::keyword(Some("__name__"), expressions::string_literal(module_name)),
         expressions::keyword(Some("__initializing__"), expressions::bool_literal(false)),

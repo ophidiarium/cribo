@@ -14,8 +14,7 @@ use log::{debug, info, warn};
 use pep508_rs::PackageName;
 use ruff_python_stdlib::sys;
 
-use crate::config::Config;
-use crate::types::FxIndexMap;
+use crate::{config::Config, types::FxIndexMap};
 
 /// Unique identifier for a module in the dependency graph
 /// The entry module ALWAYS has ID 0 - this is a fundamental invariant
@@ -791,8 +790,8 @@ impl ModuleResolver {
                             // Parent is a module file, not a package - submodules can't exist
                             // This mimics Python's behavior where a .py file shadows a package
                             debug!(
-                                "Module '{module_name}' cannot exist - parent '{parent_module}' is a \
-                                 module file, not a package (shadowing behavior)"
+                                "Module '{module_name}' cannot exist - parent '{parent_module}' \
+                                 is a module file, not a package (shadowing behavior)"
                             );
                             // Return FirstParty to trigger an error during bundling
                             // (the module won't be found and will cause an appropriate error)
@@ -1181,7 +1180,8 @@ impl ModuleResolver {
         let result = resolve_relative_import_from_name(level, name, current_module_name);
 
         debug!(
-            "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' → '{result}'"
+            "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' \
+             → '{result}'"
         );
 
         result

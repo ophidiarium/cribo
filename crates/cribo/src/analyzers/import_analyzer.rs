@@ -626,6 +626,7 @@ impl ImportAnalyzer {
             _ => {}
         }
     }
+
     /// Check if a symbol from a module is imported by any other module in the bundle
     ///
     /// This function is used to determine if private symbols (e.g., starting with underscore)
@@ -668,14 +669,16 @@ impl ImportAnalyzer {
                 resolver,
             ) {
                 debug!(
-                    "Symbol '{symbol_name}' from module '{module_name}' is imported by module '{other_module_name}'"
+                    "Symbol '{symbol_name}' from module '{module_name}' is imported by module \
+                     '{other_module_name}'"
                 );
                 return true;
             }
         }
 
         debug!(
-            "Symbol '{symbol_name}' from module '{module_name}' is not imported by any other modules"
+            "Symbol '{symbol_name}' from module '{module_name}' is not imported by any other \
+             modules"
         );
         false
     }
