@@ -952,16 +952,6 @@ impl TreeShaker {
         }
     }
 
-    /// Check if a module has side effects that prevent tree-shaking (by name)
-    /// This is a convenience method for external callers that have module names
-    pub fn module_has_side_effects_by_name(&self, module_name: &str) -> bool {
-        if let Some(&module_id) = self.module_name_to_id.get(module_name) {
-            self.module_has_side_effects(module_id)
-        } else {
-            false
-        }
-    }
-
     /// Helper method to add variables to the worklist, resolving imports and finding definitions
     fn add_vars_to_worklist(
         &self,
