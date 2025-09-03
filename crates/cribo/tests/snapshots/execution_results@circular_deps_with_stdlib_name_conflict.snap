@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/circular_deps_with_stdlib_name_conflict/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Hello from main!\n{'test': 'data'}\nRichRenderable class: pkg.abc.RichRenderable",
+    stderr: "",
+}
