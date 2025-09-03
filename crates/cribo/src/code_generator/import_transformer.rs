@@ -2916,6 +2916,57 @@ fn rewrite_import_with_renames(
     for alias in &import_stmt.names {
         let module_name = alias.name.as_str();
 
+        // Check if this module is classified as FirstParty but not bundled
+        // This indicates a module that can't exist due to shadowing
+        let import_type = bundler.resolver.classify_import(module_name);
+        if import_type == crate::resolver::ImportType::FirstParty {
+            // Check if it's actually bundled
+            if let Some(module_id) = bundler.get_module_id(module_name) {
+                if !bundler.bundled_modules.contains(&module_id) {
+                    // This is a FirstParty module that failed to resolve (e.g., due to shadowing)
+                    // Transform it to raise ImportError
+                    log::debug!(
+                        "Module '{module_name}' is FirstParty but not bundled - transforming to raise ImportError"
+                    );
+                    // Create a statement that raises ImportError
+                    let error_msg = format!(
+                        "No module named '{}'; '{}' is not a package",
+                        module_name,
+                        module_name.split('.').next().unwrap_or(module_name)
+                    );
+                    let raise_stmt = statements::raise(
+                        Some(expressions::call(
+                            expressions::name("ImportError", ExprContext::Load),
+                            vec![expressions::string_literal(&error_msg)],
+                            vec![],
+                        )),
+                        None,
+                    );
+                    result_stmts.push(raise_stmt);
+                    continue;
+                }
+            } else {
+                // No module ID means it wasn't resolved at all
+                log::debug!(
+                    "Module '{module_name}' is FirstParty but has no module ID - transforming to raise ImportError"
+                );
+                let parent = module_name.split('.').next().unwrap_or(module_name);
+                let error_msg = format!(
+                    "No module named '{module_name}'; '{parent}' is not a package"
+                );
+                let raise_stmt = statements::raise(
+                    Some(expressions::call(
+                        expressions::name("ImportError", ExprContext::Load),
+                        vec![expressions::string_literal(&error_msg)],
+                        vec![],
+                    )),
+                    None,
+                );
+                result_stmts.push(raise_stmt);
+                continue;
+            }
+        }
+
         // Check if this is a dotted import (e.g., greetings.greeting)
         if module_name.contains('.') {
             // Handle dotted imports specially

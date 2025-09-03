@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/xfail_module_shadowing/main.py
 ---
 ExecutionResults {
     status: Success,
-    stdout: "=== Module Shadowing Test ===\nThis test demonstrates Python's behavior when a first-party module\nshadows a third-party package name.\n\nStarting test_import.py\nSuccessfully imported pandera.polars\npandera.polars module: pandera.polars\nLoading first-party pandera module\n\nImported pandera successfully\npandera.__version__: 0.0.1-local\nThis is the local pandera module: This is from the local pandera module\n\n=== Test Complete ===",
+    stdout: "=== Module Shadowing Test ===\nThis test demonstrates Python's behavior when a first-party module\nshadows a third-party package name.\n\nStarting test_import.py\nImportError: No module named 'pandera.polars'; 'pandera' is not a package\nLoading first-party pandera module\n\nImported pandera successfully\npandera.__version__: 0.0.1-local\nThis is the local pandera module: This is from the local pandera module\n\n=== Test Complete ===",
     stderr: "",
 }

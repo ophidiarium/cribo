@@ -58,8 +58,7 @@ def _cribo_init___cribo_2a6a8f_test_import(self):
     """Test module that tries to import pandera.polars.\n\nThis demonstrates what happens when we have a local 'pandera' module\nthat shadows the third-party pandera package, and we try to import\na submodule that only exists in the third-party package.\n"""
     print("Starting test_import.py")
     try:
-        import pandera.polars as pa
-        test_import.pa = pa
+        raise ImportError("No module named 'pandera.polars'; 'pandera' is not a package")
         print("Successfully imported pandera.polars")
         print(f"pandera.polars module: {pa.__name__}")
     except ImportError as e:
