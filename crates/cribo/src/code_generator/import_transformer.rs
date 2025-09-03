@@ -2064,22 +2064,26 @@ impl<'a> RecursiveImportTransformer<'a> {
                         false
                     };
 
-                    if !is_wildcard
-                        && !is_parent_import  // Skip init for parent imports from inlined submodules
-                        && self
-                            .bundler
+                    // Get module ID if it exists and has an init function
+                    let wrapper_module_id = if !is_wildcard && !is_parent_import {
+                        self.bundler
                             .get_module_id(resolved)
-                            .is_some_and(|id| self.bundler.module_init_functions.contains_key(&id))
-                    {
+                            .filter(|id| self.bundler.module_init_functions.contains_key(id))
+                    } else {
+                        None
+                    };
+
+                    if let Some(module_id) = wrapper_module_id {
                         log::debug!(
                             "  Generating initialization call for wrapper module '{resolved}' at import location"
                         );
 
                         // Use ast_builder helper to generate wrapper init call
                         use crate::ast_builder::module_wrapper;
-                        use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
+                        use crate::code_generator::module_registry::get_module_var_identifier;
 
-                        let module_var = sanitize_module_name_for_identifier(resolved);
+                        let module_var =
+                            get_module_var_identifier(module_id, self.bundler.resolver);
 
                         // If we're not at module level (i.e., inside any local scope), we need to declare
                         // the module variable as global to avoid UnboundLocalError when the init assignment
@@ -2114,6 +2118,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
 
                     // Track each imported symbol for rewriting
+                    // Use the canonical module name if we have a wrapper module ID
+                    let module_name_for_tracking = if let Some(module_id) = wrapper_module_id {
+                        self.bundler
+                            .resolver
+                            .get_module_name(module_id)
+                            .unwrap_or_else(|| resolved.to_string())
+                    } else {
+                        resolved.to_string()
+                    };
+
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
@@ -2121,11 +2135,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Store mapping: local_name -> (wrapper_module, imported_name)
                         self.wrapper_module_imports.insert(
                             local_name.to_string(),
-                            (resolved.to_string(), imported_name.to_string()),
+                            (module_name_for_tracking.clone(), imported_name.to_string()),
                         );
 
                         log::debug!(
-                            "    Tracking import: {local_name} -> {resolved}.{imported_name}"
+                            "    Tracking import: {local_name} -> {module_name_for_tracking}.{imported_name}"
                         );
                     }
 

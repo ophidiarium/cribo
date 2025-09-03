@@ -1018,6 +1018,7 @@ impl<'a> Bundler<'a> {
                         if let Some(module_id) = self.get_module_id(module_name) {
                             let current_module_id =
                                 current_module.and_then(|m| self.get_module_id(m));
+
                             assignments.extend(
                                 self.create_module_initialization_for_import_with_current_module(
                                     module_id,
@@ -1077,13 +1078,19 @@ impl<'a> Bundler<'a> {
                 }
 
                 // Create: target = module.imported_name
-                let module_expr = if module_name.contains('.') {
+                // Resolve symlinks: get canonical module name if it exists
+                let canonical_module_name = self
+                    .get_module_id(module_name)
+                    .and_then(|id| self.resolver.get_module_name(id))
+                    .unwrap_or_else(|| module_name.to_string());
+
+                let module_expr = if canonical_module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
-                    let parts: Vec<&str> = module_name.split('.').collect();
+                    let parts: Vec<&str> = canonical_module_name.split('.').collect();
                     expressions::dotted_name(&parts, ExprContext::Load)
                 } else {
                     // Top-level module
-                    expressions::name(module_name, ExprContext::Load)
+                    expressions::name(&canonical_module_name, ExprContext::Load)
                 };
 
                 let assignment = statements::simple_assign(
@@ -1092,11 +1099,12 @@ impl<'a> Bundler<'a> {
                 );
 
                 log::debug!(
-                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {})",
+                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {}, resolved from: {})",
                     target_name.as_str(),
-                    module_name,
+                    canonical_module_name,
                     imported_name,
-                    inside_wrapper_init
+                    inside_wrapper_init,
+                    module_name
                 );
 
                 assignments.push(assignment);

@@ -62,6 +62,20 @@ pub fn get_synthetic_module_name(module_name: &str, content_hash: &str) -> Strin
     format!("__cribo_{short_hash}_{module_name_escaped}")
 }
 
+/// Get the variable identifier for a module using its `ModuleId`
+/// This ensures symlinks resolve to the same variable name
+pub fn get_module_var_identifier(
+    module_id: crate::resolver::ModuleId,
+    resolver: &crate::resolver::ModuleResolver,
+) -> String {
+    // Get the canonical module name for this ID
+    let module_name = resolver
+        .get_module_name(module_id)
+        .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+
+    sanitize_module_name_for_identifier(&module_name)
+}
+
 /// Sanitize a module name for use in a Python identifier
 /// This is a simple character replacement - collision handling should be done by the caller
 pub fn sanitize_module_name_for_identifier(name: &str) -> String {
