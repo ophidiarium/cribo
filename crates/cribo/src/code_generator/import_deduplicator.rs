@@ -168,6 +168,46 @@ pub(super) fn trim_unused_imports_from_modules(
                 log::debug!(
                     "Module {module_id:?} is circular - skipping tree-shaking based import removal"
                 );
+                // For circular modules, also preserve imports that are module-level symbols
+                // These can be accessed from other modules as module attributes even if not directly used within this module
+                // A module-level symbol is one that is either:
+                // 1. Imported at module level (not inside a function/class)
+                // 2. In __all__ export list
+                // 3. Explicitly re-exported
+                let original_count = unused_imports.len();
+                unused_imports.retain(|import_info| {
+                    // Check if this symbol is in __all__ or explicitly re-exported
+                    let is_in_all = module_dep_graph.is_in_all_export(&import_info.name);
+
+                    // Check if any import item has this as a reexported name
+                    let is_reexported = module_dep_graph.items.values().any(|item| {
+                        item.reexported_names.contains(&import_info.name)
+                    });
+
+                    // Check if this import is at module level (any import item that imports this name)
+                    // In circular modules, all imports at module level become module attributes in the init function
+                    let is_module_level_import = module_dep_graph.items.values().any(|item| {
+                        item.imported_names.contains(&import_info.name)
+                    });
+
+                    let should_preserve = is_in_all || is_reexported || is_module_level_import;
+
+                    if should_preserve {
+                        log::debug!(
+                            "Preserving import '{}' in circular module - module-level import (in_all: {}, reexported: {}, module_level: {})",
+                            import_info.name, is_in_all, is_reexported, is_module_level_import
+                        );
+                    }
+
+                    !should_preserve  // Keep in unused list only if NOT to be preserved
+                });
+
+                if original_count != unused_imports.len() {
+                    log::debug!(
+                        "Filtered {} module-level imports from unused list in circular module",
+                        original_count - unused_imports.len()
+                    );
+                }
             }
 
             // If tree shaking is enabled, also check if imported symbols were removed
