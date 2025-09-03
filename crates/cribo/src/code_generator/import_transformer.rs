@@ -3299,12 +3299,15 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         }) {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
             // This is a wrapper module, we need to transform it
+            let context = crate::code_generator::bundler::BundledImportContext {
+                inside_wrapper_init,
+                at_module_level,
+                current_module: Some(current_module),
+            };
             return bundler.transform_bundled_import_from_multiple_with_current_module(
                 &import_from,
                 &module_name,
-                inside_wrapper_init,
-                at_module_level,
-                Some(current_module),
+                context,
                 symbol_renames,
             );
         }
@@ -3341,12 +3344,15 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             absolute_import.level = 0;
             absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
         }
+        let context = crate::code_generator::bundler::BundledImportContext {
+            inside_wrapper_init,
+            at_module_level,
+            current_module: Some(current_module),
+        };
         bundler.transform_bundled_import_from_multiple_with_current_module(
             &absolute_import,
             &module_name,
-            inside_wrapper_init,
-            at_module_level,
-            Some(current_module),
+            context,
             symbol_renames,
         )
     } else {

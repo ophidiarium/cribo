@@ -3,7 +3,7 @@ use crate::{
     resolver::ModuleId,
     semantic_bundler::SemanticBundler,
     types::{FxIndexMap, FxIndexSet},
-    visitors::{DiscoveredImport, ImportDiscoveryVisitor},
+    visitors::{DiscoveredImport, ImportDiscoveryVisitor, ImportLocation},
 };
 /// Import rewriter that moves module-level imports into function scope
 /// to resolve circular dependencies
@@ -170,11 +170,41 @@ impl ImportRewriter {
                     continue;
                 }
 
-                // Import is movable, now determine target functions
-                // For now, we'll move to all functions (could be enhanced later)
-                let target_functions = vec!["*".to_string()]; // Move to all functions
-
-                trace!("Import {imported_module} in {module_name} can be moved to functions");
+                // Import is movable, now determine target functions based on import location
+                let target_functions = match &import_info.location {
+                    ImportLocation::Function(func_name) => {
+                        // Import is in a specific function, move it only to that function
+                        trace!(
+                            "Import {imported_module} in {module_name}::{func_name} can be moved to function scope"
+                        );
+                        vec![func_name.clone()]
+                    }
+                    ImportLocation::Method { class, method } => {
+                        // Import is in a method, we need to handle this specially
+                        // For now, skip methods as they're more complex
+                        trace!(
+                            "Import {imported_module} in {module_name}::{class}::{method} is in a method, skipping"
+                        );
+                        continue;
+                    }
+                    ImportLocation::Module => {
+                        // Module-level import that needs to be moved to all functions that use it
+                        // This requires more complex analysis to determine which functions actually use it
+                        // For now, move to all functions
+                        trace!(
+                            "Import {imported_module} in {module_name} is at module level, moving to all functions"
+                        );
+                        vec!["*".to_string()]
+                    }
+                    _ => {
+                        // Other locations (Class, Conditional, Nested) are not handled yet
+                        trace!(
+                            "Import {imported_module} in {module_name} has complex location {:?}, skipping",
+                            import_info.location
+                        );
+                        continue;
+                    }
+                };
 
                 // Convert to ImportStatement
                 let import_stmt =

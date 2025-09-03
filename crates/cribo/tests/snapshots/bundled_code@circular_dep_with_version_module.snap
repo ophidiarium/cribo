@@ -83,12 +83,6 @@ def _cribo_init___cribo_cc4906_package_module_a(self):
     self.func_a = func_a
 
     def another_func():
-        global package
-        __cribo_init_result = _cribo_init___cribo_a4c23d_package(package)
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(package, attr, getattr(__cribo_init_result, attr))
-        package_func = package.package_func
         return "another"
     self.another_func = another_func
     self.__initialized__ = True

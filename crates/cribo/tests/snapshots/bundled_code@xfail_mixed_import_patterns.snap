@@ -137,9 +137,6 @@ def _cribo_init___cribo_0639af_logger(self):
     self._logger = _cribo_logger__logger
 
     def get_logger():
-        global config
-        config = _cribo_init___cribo_f96d2c_config(config)
-        get_log_level = config.get_log_level
         global _cribo_logger__logger
         if _cribo_logger__logger is None:
             _cribo_logger__logger = self.Logger()

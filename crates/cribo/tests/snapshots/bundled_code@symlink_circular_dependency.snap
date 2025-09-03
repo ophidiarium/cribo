@@ -46,16 +46,10 @@ def _cribo_init___cribo_895222_moduleA(self):
     self.funcA = funcA
 
     def get_chain():
-        global moduleB
-        moduleB = _cribo_init___cribo_19d6d4_moduleB(moduleB)
-        funcB = moduleB.funcB
         return "A -> B -> C(symlink to A)"
     self.get_chain = get_chain
 
     def funcC():
-        global moduleB
-        moduleB = _cribo_init___cribo_19d6d4_moduleB(moduleB)
-        funcB = moduleB.funcB
         return "Actually funcA pretending to be funcC"
     self.funcC = funcC
     self.__initialized__ = True

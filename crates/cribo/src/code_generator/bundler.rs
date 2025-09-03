@@ -36,6 +36,13 @@ struct TransformFunctionParams<'a> {
     function_globals: &'a FxIndexSet<String>,
 }
 
+/// Context for transforming bundled imports
+pub(super) struct BundledImportContext<'a> {
+    pub inside_wrapper_init: bool,
+    pub at_module_level: bool,
+    pub current_module: Option<&'a str>,
+}
+
 /// Bundler orchestrates the code generation phase of bundling
 pub struct Bundler<'a> {
     /// Map from module ID to synthetic name for wrapper modules
@@ -720,11 +727,12 @@ impl<'a> Bundler<'a> {
         &self,
         import_from: &StmtImportFrom,
         module_name: &str,
-        inside_wrapper_init: bool,
-        at_module_level: bool,
-        current_module: Option<&str>,
-        _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+        context: BundledImportContext<'_>,
+        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
+        let inside_wrapper_init = context.inside_wrapper_init;
+        let at_module_level = context.at_module_level;
+        let current_module = context.current_module;
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, inside_wrapper_init={}",
             module_name,
@@ -747,13 +755,16 @@ impl<'a> Bundler<'a> {
         }
 
         // Defer to alias/symbol handling path
-        self.handle_symbol_imports_from_multiple(
-            import_from,
-            module_name,
+        let new_context = BundledImportContext {
             inside_wrapper_init,
             at_module_level,
             current_module,
-            _symbol_renames,
+        };
+        self.handle_symbol_imports_from_multiple(
+            import_from,
+            module_name,
+            new_context,
+            symbol_renames,
         )
     }
 
@@ -762,11 +773,12 @@ impl<'a> Bundler<'a> {
         &self,
         import_from: &StmtImportFrom,
         module_name: &str,
-        inside_wrapper_init: bool,
-        at_module_level: bool,
-        current_module: Option<&str>,
-        _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+        context: BundledImportContext<'_>,
+        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
+        let inside_wrapper_init = context.inside_wrapper_init;
+        let at_module_level = context.at_module_level;
+        let current_module = context.current_module;
         let mut assignments = Vec::new();
         let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
         let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
@@ -1065,7 +1077,7 @@ impl<'a> Bundler<'a> {
                         let source_module_id = self
                             .get_module_id(&source_module)
                             .expect("Source module should exist");
-                        let global_name = _symbol_renames
+                        let global_name = symbol_renames
                             .get(&source_module_id)
                             .and_then(|m| m.get(&source_symbol))
                             .cloned()
