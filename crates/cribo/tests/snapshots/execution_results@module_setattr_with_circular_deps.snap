@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/module_setattr_with_circular_deps/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "AsyncStream: async data\nSyncStream: sync data\nSuccess!",
+    stderr: "",
+}

@@ -2056,7 +2056,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // right where the import statement was. This ensures the wrapper module is
                     // initialized before its symbols are used (e.g., in class inheritance).
                     // CRITICAL: Only generate init calls for actual wrapper modules that have init functions
+                    // BUT skip if this is an inlined submodule importing from its parent package
+                    let is_parent_import = if current_module_is_inlined {
+                        // Check if resolved is a parent of the current module
+                        self.get_module_name().starts_with(&format!("{resolved}."))
+                    } else {
+                        false
+                    };
+
                     if !is_wildcard
+                        && !is_parent_import  // Skip init for parent imports from inlined submodules
                         && self
                             .bundler
                             .get_module_id(resolved)
@@ -2087,6 +2096,11 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         init_stmts
                             .push(module_wrapper::create_wrapper_module_init_call(&module_var));
+                    } else if is_parent_import && !is_wildcard {
+                        log::debug!(
+                            "  Skipping init call for parent package '{resolved}' from inlined submodule '{}'",
+                            self.get_module_name()
+                        );
                     }
 
                     // Handle wildcard import export assignments
