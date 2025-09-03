@@ -616,15 +616,26 @@ fn should_remove_import_stmt(
                     .asname
                     .as_ref()
                     .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
-                let from_module = import_from_stmt
-                    .module
-                    .as_ref()
-                    .map_or("", ruff_python_ast::Identifier::as_str);
 
-                unused_imports.iter().any(|unused| {
-                    // Match by both name and module for from imports
-                    unused.name == local_name && unused.module == from_module
-                })
+                // For relative imports (level > 0), we can't directly compare module names
+                // since UnusedImportInfo has resolved names but import_from_stmt has raw syntax.
+                // For absolute imports, we can compare the module names directly.
+                if import_from_stmt.level > 0 {
+                    // Relative import - just match by name since we can't easily resolve the module here
+                    // This is safe because the UnusedImportInfo was created from the same module context
+                    unused_imports
+                        .iter()
+                        .any(|unused| unused.name == local_name)
+                } else {
+                    // Absolute import - match by both name and module
+                    let from_module = import_from_stmt
+                        .module
+                        .as_ref()
+                        .map_or("", ruff_python_ast::Identifier::as_str);
+                    unused_imports
+                        .iter()
+                        .any(|unused| unused.name == local_name && unused.module == from_module)
+                }
             });
 
             if should_remove {

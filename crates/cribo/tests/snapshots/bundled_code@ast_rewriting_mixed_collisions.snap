@@ -509,9 +509,6 @@ core_database_connection.connection = connection_5
 core_database_connection.process = process_7
 core_database_connection.result = result_8
 core_database_connection.validate = validate_7
-Connection_core_database = core_database_connection.Connection
-process_core_database = core_database_connection.process
-Logger = core_utils_helpers.Logger
 services_auth_manager = _cribo.types.SimpleNamespace(__name__='services.auth.manager', __initializing__=False, __initialized__=False)
 _cribo_services_auth_manager_result = None
 def _cribo_init___cribo_ee1d45_services_auth_manager(self):
