@@ -472,14 +472,14 @@ jobs:
           cat "cli-archives/${ARCHIVE_NAME}.sha256"
 
       - name: Store CLI archive and checksum
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: cli-archive-${{ matrix.platform.target }}-${{ github.run_id }}
           path: cli-archives/
           retention-days: 7
 
       - name: Store npm binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           # Consistent naming with platform target
           name: npm-binary-${{ matrix.platform.target }}-${{ github.run_id }}
@@ -488,7 +488,7 @@ jobs:
 
       - name: Upload version info
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: version-info-${{ github.run_id }}
           path: |
@@ -515,7 +515,7 @@ jobs:
 
       # Generate SLSA Build Provenance - only on one platform for built artifacts
       - name: Generate artifact attestation 🛂
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: |
             dist/*
@@ -532,7 +532,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Fetch all history for tags
 
@@ -589,7 +589,7 @@ jobs:
           find target/npm-binaries -type f | sort
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4.4.0 # v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -627,7 +627,7 @@ jobs:
           subject-path: npm-dist/**/*
 
       - name: Store npm packages
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: npm-packages-${{ github.run_id }}
           path: npm-dist/
@@ -645,14 +645,14 @@ jobs:
 
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@v5
         with:
           pattern: wheels-*-${{ github.run_id }}
           path: dist/
           merge-multiple: true
 
       - name: Download version info
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./
@@ -711,14 +711,14 @@ jobs:
 
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@v5
         with:
           pattern: wheels-*-${{ github.run_id }}
           path: dist/
           merge-multiple: true
 
       - name: Download version info
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./
@@ -765,10 +765,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -777,13 +777,13 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Download npm packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@v5
         with:
           name: npm-packages-${{ github.run_id }}
           path: npm-dist/
 
       - name: Download version info
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./

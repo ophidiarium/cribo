@@ -99,7 +99,7 @@ jobs:
         run: mkdir -p $HOME/rca-json-base
       - name: Checkout main branch for baseline
         if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           path: main
