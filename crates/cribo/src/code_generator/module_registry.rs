@@ -28,7 +28,7 @@ pub fn create_module_initialization_for_import(
             .unwrap_or_else(|| "<unknown>".to_string());
 
         // Call the init function with the module as the self argument
-        let module_var = sanitize_module_name_for_identifier(&module_name);
+        let module_var = get_module_var_identifier(module_id, resolver);
         let init_call = ast_builder::expressions::call(
             ast_builder::expressions::name(init_func_name, ExprContext::Load),
             vec![ast_builder::expressions::name(
