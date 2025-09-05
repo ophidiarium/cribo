@@ -3,19 +3,17 @@
 use std::path::PathBuf;
 
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, Identifier, Keyword, ModModule,
-    Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImportFrom,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt,
+    StmtAssign, StmtClassDef, StmtFunctionDef, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
 use crate::{
     analyzers::{ImportAnalyzer, SymbolAnalyzer},
-    ast_builder::{expressions, expressions::expr_to_dotted_name, other, statements},
+    ast_builder::{expressions, other, statements},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
-        context::{
-            BundleParams, HardDependency, InlineContext, ModuleTransformContext, SemanticContext,
-        },
+        context::{BundleParams, InlineContext, ModuleTransformContext, SemanticContext},
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
@@ -78,8 +76,6 @@ pub struct Bundler<'a> {
     /// Modules that are part of circular dependencies
     pub(crate) circular_modules: FxIndexSet<ModuleId>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
-    /// Hard dependencies that need to be hoisted
-    pub(crate) hard_dependencies: Vec<HardDependency>,
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
@@ -703,7 +699,6 @@ impl<'a> Bundler<'a> {
             module_info_registry,
             resolver,
             circular_modules: FxIndexSet::default(),
-            hard_dependencies: Vec::new(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
@@ -4401,139 +4396,6 @@ impl<'a> Bundler<'a> {
     ) -> String {
         let module_suffix = sanitize_module_name_for_identifier(module_name);
         format!("{base_name}_{module_suffix}")
-    }
-
-    /// Create a rewritten base class expression for hard dependencies
-    fn create_rewritten_base_expr(&self, hard_dep: &HardDependency, class_name: &str) -> Expr {
-        // Check if the source module is a wrapper module
-        let source_is_wrapper = self.module_has_synthetic_name(hard_dep.source_module_id);
-
-        if source_is_wrapper && !hard_dep.base_class.contains('.') {
-            // Get the source module name only when needed for the expression
-            let source_module_name = self
-                .resolver
-                .get_module_name(hard_dep.source_module_id)
-                .unwrap_or_else(|| format!("module_{}", hard_dep.source_module_id.as_u32()));
-
-            // For imports from wrapper modules, we need to use module.attr pattern
-            log::info!(
-                "Rewrote base class {} to {}.{} for class {} in inlined module (source is wrapper)",
-                hard_dep.base_class,
-                source_module_name,
-                hard_dep.imported_attr,
-                class_name
-            );
-
-            expressions::name_attribute(
-                &source_module_name,
-                &hard_dep.imported_attr,
-                ExprContext::Load,
-            )
-        } else {
-            // Use the alias if it's mandatory, otherwise use the imported attr
-            let name_to_use = if hard_dep.alias_is_mandatory && hard_dep.alias.is_some() {
-                hard_dep
-                    .alias
-                    .as_ref()
-                    .expect(
-                        "alias should exist when alias_is_mandatory is true and alias.is_some() \
-                         is true",
-                    )
-                    .clone()
-            } else {
-                hard_dep.imported_attr.clone()
-            };
-
-            log::info!(
-                "Rewrote base class {} to {} for class {} in inlined module",
-                hard_dep.base_class,
-                name_to_use,
-                class_name
-            );
-
-            Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: name_to_use.into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })
-        }
-    }
-
-    /// Rewrite hard dependencies in a module's AST
-    pub(crate) fn rewrite_hard_dependencies_in_module(
-        &self,
-        ast: &mut ModModule,
-        module_id: ModuleId,
-    ) {
-        let module_name = self
-            .resolver
-            .get_module_name(module_id)
-            .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
-        log::debug!("Rewriting hard dependencies in module {module_name}");
-
-        for stmt in &mut ast.body {
-            if let Stmt::ClassDef(class_def) = stmt {
-                let class_name = class_def.name.as_str();
-                log::debug!("  Checking class {class_name} in module {module_name}");
-
-                if let Some(arguments) = &mut class_def.arguments {
-                    for arg in &mut arguments.args {
-                        self.rewrite_base_arg_if_hard_dep(arg, module_id, class_name);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Rewrite a class base argument if it matches a configured hard dependency
-    fn rewrite_base_arg_if_hard_dep(&self, arg: &mut Expr, module_id: ModuleId, class_name: &str) {
-        let base_str = expr_to_dotted_name(arg);
-        log::debug!("    Base class: {base_str}");
-
-        for hard_dep in &self.hard_dependencies {
-            if hard_dep.module_id != module_id || hard_dep.class_name != class_name {
-                continue;
-            }
-            log::debug!(
-                "      Checking against hard dep: {} -> {}",
-                hard_dep.base_class,
-                hard_dep.imported_attr
-            );
-            if base_str != hard_dep.base_class {
-                continue;
-            }
-
-            if hard_dep.base_class.contains('.') && !hard_dep.imported_attr.contains('.') {
-                let parts: Vec<&str> = hard_dep.base_class.split('.').collect();
-                if parts.len() == 2 && parts[0] == hard_dep.imported_attr {
-                    let name_to_use = if hard_dep.alias_is_mandatory && hard_dep.alias.is_some() {
-                        hard_dep
-                            .alias
-                            .as_ref()
-                            .expect(
-                                "alias should exist when alias_is_mandatory is true and \
-                                 alias.is_some() is true",
-                            )
-                            .clone()
-                    } else {
-                        hard_dep.imported_attr.clone()
-                    };
-                    *arg = expressions::name_attribute(&name_to_use, parts[1], ExprContext::Load);
-                    log::info!(
-                        "Rewrote base class {} to {}.{} for class {} in inlined module",
-                        hard_dep.base_class,
-                        name_to_use,
-                        parts[1],
-                        class_name
-                    );
-                    return;
-                }
-            }
-
-            *arg = self.create_rewritten_base_expr(hard_dep, class_name);
-            return;
-        }
     }
 
     /// Reorder statements in a module based on symbol dependencies for circular modules
