@@ -59,7 +59,7 @@ impl TreeShaker {
     }
 
     /// Analyze which symbols should be kept based on entry point
-    pub fn analyze(&mut self, entry_module: &str) {
+    pub fn analyze(&mut self, entry_module: &str, resolver: &crate::resolver::ModuleResolver) {
         info!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // Verify that the entry module is registered with the expected ID
@@ -73,7 +73,7 @@ impl TreeShaker {
         }
 
         // Then, mark symbols used from the entry module
-        self.mark_used_symbols();
+        self.mark_used_symbols(resolver);
 
         info!(
             "Tree-shaking complete. Keeping {} symbols",
@@ -123,6 +123,7 @@ impl TreeShaker {
         &self,
         current_module_id: ModuleId,
         alias: &str,
+        resolver: &crate::resolver::ModuleResolver,
     ) -> Option<(ModuleId, String)> {
         if let Some(items) = self.module_items.get(&current_module_id) {
             let current_module = self
@@ -148,8 +149,11 @@ impl TreeShaker {
                                     "Resolving relative import: module='{module}', level={level}, \
                                      current_module='{current_module}'"
                                 );
-                                let result =
-                                    self.resolve_relative_module(current_module, module, *level);
+                                let result = resolver.resolve_relative_import_from_package_name(
+                                    *level,
+                                    Some(module),
+                                    current_module,
+                                );
                                 debug!("Resolved to: '{result}'");
                                 result
                             } else {
@@ -202,6 +206,7 @@ impl TreeShaker {
         &self,
         current_module_id: ModuleId,
         alias: &str,
+        resolver: &crate::resolver::ModuleResolver,
     ) -> Option<ModuleId> {
         if let Some(items) = self.module_items.get(&current_module_id) {
             let current_module = self
@@ -222,7 +227,11 @@ impl TreeShaker {
                         if local_name == alias {
                             // Resolve relative imports to absolute module names
                             let resolved_module = if *level > 0 {
-                                self.resolve_relative_module(current_module, module, *level)
+                                resolver.resolve_relative_import_from_package_name(
+                                    *level,
+                                    Some(module),
+                                    current_module,
+                                )
                             } else {
                                 module.clone()
                             };
@@ -244,86 +253,12 @@ impl TreeShaker {
         None
     }
 
-    /// Resolve a relative module import to an absolute module name
-    ///
-    /// Note: We cannot use `resolver::resolve_relative_import_from_name` directly because:
-    /// 1. The resolver expects module names ending with "__init__" for packages, but we have module
-    ///    names like "parent.subpkg" that are packages
-    /// 2. We need to determine if a module is a package based on whether it has submodules, which
-    ///    requires access to `self.module_names`
-    /// 3. The resolver's heuristics don't match our tree-shaking context where we're working with
-    ///    already-resolved module names rather than file paths
-    fn resolve_relative_module(
-        &self,
-        current_module: &str,
-        relative_module: &str,
-        level: u32,
-    ) -> String {
-        // Split current module into parts
-        let parts: Vec<&str> = current_module.split('.').collect();
-
-        // Check if current module is a package (has sub-modules)
-        // A module is a package if it has sub-modules in our module registry
-        let has_submodules = self
-            .module_names
-            .values()
-            .any(|name| name != current_module && name.starts_with(&format!("{current_module}.")));
-
-        // For relative imports with level > 1, the importing module must be in a package
-        let is_package = has_submodules || (level > 1 && parts.len() > 1);
-
-        debug!(
-            "resolve_relative_module: current_module='{current_module}', \
-             relative_module='{relative_module}', level={level}, is_package={is_package}"
-        );
-
-        // Calculate how many levels to actually remove
-        // For packages, level 1 means current package, not parent
-        // For regular modules, we remove 'level' parts
-        let levels_to_remove = if is_package {
-            if level > 0 { level - 1 } else { 0 }
-        } else {
-            level
-        } as usize;
-
-        // Remove the dots from the relative module name early
-        let relative_part = relative_module.trim_start_matches('.');
-
-        // If we need to go up more levels than we have, something is wrong
-        if levels_to_remove > parts.len() {
-            warn!(
-                "Relative import level {} exceeds module depth {} for module {}",
-                level,
-                parts.len(),
-                current_module
-            );
-            return relative_part.to_string();
-        }
-
-        // Get the parent module parts
-        let parent_parts = &parts[..parts.len().saturating_sub(levels_to_remove)];
-
-        // Combine parent parts with relative module
-        let result = if relative_part.is_empty() {
-            // Import from parent package itself
-            parent_parts.join(".")
-        } else if parent_parts.is_empty() {
-            // At top level
-            relative_part.to_string()
-        } else {
-            // Normal case: parent.relative
-            format!("{}.{}", parent_parts.join("."), relative_part)
-        };
-
-        debug!("Resolved relative import to: '{result}'");
-        result
-    }
-
     /// Seed side effects for a module that has been reached via imports
     fn seed_side_effects_for_module(
         &self,
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         if let Some(items) = self.module_items.get(&module_id) {
             let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
@@ -336,11 +271,13 @@ impl TreeShaker {
                             module_id,
                             worklist,
                             "reachable side-effect module",
+                            resolver,
                         );
                         self.add_attribute_accesses_to_worklist(
                             &item.attribute_accesses,
                             module_id,
                             worklist,
+                            resolver,
                         );
                     }
                     ItemType::FunctionDef { .. } | ItemType::ClassDef { .. } => {
@@ -355,7 +292,7 @@ impl TreeShaker {
     }
 
     /// Mark all symbols transitively used from entry module
-    pub fn mark_used_symbols(&mut self) {
+    pub fn mark_used_symbols(&mut self, resolver: &crate::resolver::ModuleResolver) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
 
         // First pass: find all direct module imports across all modules
@@ -374,7 +311,7 @@ impl TreeShaker {
                      with setattr loop)"
                 );
                 // Mark all symbols in __all__ as used for this module
-                self.mark_all_symbols_from_module_all_as_used(module_id, &mut worklist);
+                self.mark_all_symbols_from_module_all_as_used(module_id, &mut worklist, resolver);
             }
 
             for item in items {
@@ -389,6 +326,7 @@ impl TreeShaker {
                                 self.seed_side_effects_for_module(
                                     imported_module_id,
                                     &mut worklist,
+                                    resolver,
                                 );
                             } else {
                                 // For modules without side effects that are directly imported,
@@ -413,7 +351,11 @@ impl TreeShaker {
                     } => {
                         // First resolve relative imports
                         let resolved_from_module = if *level > 0 {
-                            self.resolve_relative_module(module_name, from_module, *level)
+                            resolver.resolve_relative_import_from_package_name(
+                                *level,
+                                Some(from_module),
+                                module_name,
+                            )
                         } else {
                             from_module.clone()
                         };
@@ -425,7 +367,11 @@ impl TreeShaker {
                             self.module_name_to_id.get(&resolved_from_module)
                             && self.module_has_side_effects(from_module_id)
                         {
-                            self.seed_side_effects_for_module(from_module_id, &mut worklist);
+                            self.seed_side_effects_for_module(
+                                from_module_id,
+                                &mut worklist,
+                                resolver,
+                            );
                         }
 
                         // Handle star imports - from module import *
@@ -473,7 +419,11 @@ impl TreeShaker {
                                          {module_display}"
                                     );
                                     // If this submodule has side effects, seed them
-                                    self.seed_side_effects_for_module(submodule_id, &mut worklist);
+                                    self.seed_side_effects_for_module(
+                                        submodule_id,
+                                        &mut worklist,
+                                        resolver,
+                                    );
                                 }
                             }
                         }
@@ -503,6 +453,7 @@ impl TreeShaker {
                     ModuleId::ENTRY,
                     &mut worklist,
                     "entry module",
+                    resolver,
                 );
 
                 // Add symbols from eventual_read_vars
@@ -511,6 +462,7 @@ impl TreeShaker {
                     ModuleId::ENTRY,
                     &mut worklist,
                     "entry module (eventual)",
+                    resolver,
                 );
 
                 // Mark all side-effect items as used
@@ -526,6 +478,7 @@ impl TreeShaker {
                     &item.attribute_accesses,
                     ModuleId::ENTRY,
                     &mut worklist,
+                    resolver,
                 );
             }
         }
@@ -542,7 +495,7 @@ impl TreeShaker {
             self.used_symbols.insert(key);
 
             // Process the item that defines this symbol
-            self.process_symbol_definition(module_id, &symbol, &mut worklist);
+            self.process_symbol_definition(module_id, &symbol, &mut worklist, resolver);
         }
     }
 
@@ -552,6 +505,7 @@ impl TreeShaker {
         module_id: ModuleId,
         symbol: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let Some(items) = self.module_items.get(&module_id) else {
             return;
@@ -586,7 +540,11 @@ impl TreeShaker {
                                 .get(&module_id)
                                 .map_or("", std::string::String::as_str);
                             let resolved_module_name = if *level > 0 {
-                                self.resolve_relative_module(module_name, from_module, *level)
+                                resolver.resolve_relative_import_from_package_name(
+                                    *level,
+                                    Some(from_module),
+                                    module_name,
+                                )
                             } else {
                                 from_module.clone()
                             };
@@ -600,7 +558,7 @@ impl TreeShaker {
                                 );
                                 worklist.push_back((resolved_module_id, original_name.clone()));
                                 // Also mark the import itself as used
-                                self.add_item_dependencies(item, module_id, worklist);
+                                self.add_item_dependencies(item, module_id, worklist, resolver);
                                 return;
                             }
                         }
@@ -615,7 +573,7 @@ impl TreeShaker {
             }
 
             // Add all symbols this item depends on
-            self.add_item_dependencies(item, module_id, worklist);
+            self.add_item_dependencies(item, module_id, worklist, resolver);
 
             // If this is a function or class, also mark all imports within its scope as used
             if matches!(
@@ -623,7 +581,7 @@ impl TreeShaker {
                 ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
             ) {
                 debug!("Symbol {symbol} is a function/class, checking for scoped imports");
-                self.mark_scoped_imports_as_used(module_id, symbol, worklist);
+                self.mark_scoped_imports_as_used(module_id, symbol, worklist, resolver);
             }
 
             // Add symbol-specific dependencies if tracked
@@ -647,6 +605,7 @@ impl TreeShaker {
         module_id: ModuleId,
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let Some(items) = self.module_items.get(&module_id) else {
             return;
@@ -672,6 +631,7 @@ impl TreeShaker {
                     module_id,
                     scope_name,
                     worklist,
+                    resolver,
                 ),
                 ItemType::FromImport {
                     module: from_module,
@@ -686,18 +646,23 @@ impl TreeShaker {
                         .get(&module_id)
                         .map_or("", std::string::String::as_str);
                     let resolved_module_name = if *level > 0 {
-                        self.resolve_relative_module(module_name, from_module, *level)
+                        resolver.resolve_relative_import_from_package_name(
+                            *level,
+                            Some(from_module),
+                            module_name,
+                        )
                     } else {
                         from_module.clone()
                     };
                     if *is_star {
-                        self.handle_star_import(&resolved_module_name, worklist);
+                        self.handle_star_import(&resolved_module_name, worklist, resolver);
                     } else {
                         self.handle_named_imports(
                             &resolved_module_name,
                             names,
                             scope_name,
                             worklist,
+                            resolver,
                         );
                     }
                     // Preserve local bindings declared by this import
@@ -748,6 +713,7 @@ impl TreeShaker {
         module_id: ModuleId,
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         debug!("Marking import {imported_module} as used (inside scope {scope_name})");
 
@@ -763,7 +729,7 @@ impl TreeShaker {
         };
 
         if self.module_has_side_effects(imported_module_id) {
-            self.seed_side_effects_for_module(imported_module_id, worklist);
+            self.seed_side_effects_for_module(imported_module_id, worklist, resolver);
         }
     }
 
@@ -772,6 +738,7 @@ impl TreeShaker {
         &self,
         resolved_module_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let Some(&resolved_module_id) = self.module_name_to_id.get(resolved_module_name) else {
             return;
@@ -796,6 +763,7 @@ impl TreeShaker {
         names: &[(String, Option<String>)],
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let Some(&resolved_module_id) = self.module_name_to_id.get(resolved_module_name) else {
             return;
@@ -809,7 +777,7 @@ impl TreeShaker {
 
             // Check if this is importing a submodule
             let potential_module = format!("{resolved_module_name}.{name}");
-            self.check_and_seed_submodule(&potential_module, worklist);
+            self.check_and_seed_submodule(&potential_module, worklist, resolver);
         }
     }
 
@@ -818,13 +786,14 @@ impl TreeShaker {
         &self,
         potential_module: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let Some(&submodule_id) = self.module_name_to_id.get(potential_module) else {
             return;
         };
 
         if self.module_has_side_effects(submodule_id) {
-            self.seed_side_effects_for_module(submodule_id, worklist);
+            self.seed_side_effects_for_module(submodule_id, worklist, resolver);
         }
     }
 
@@ -834,12 +803,13 @@ impl TreeShaker {
         item: &ItemData,
         current_module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         // Add all variables read by this item
         for var in &item.read_vars {
             // Check if this var is an imported alias first
             if let Some((source_module_id, original_name)) =
-                self.resolve_import_alias(current_module_id, var)
+                self.resolve_import_alias(current_module_id, var, resolver)
             {
                 worklist.push_back((source_module_id, original_name));
             } else if let Some(module_id) = self.find_defining_module(var) {
@@ -851,7 +821,7 @@ impl TreeShaker {
         for var in &item.eventual_read_vars {
             // Check if this var is an imported alias first
             if let Some((source_module_id, original_name)) =
-                self.resolve_import_alias(current_module_id, var)
+                self.resolve_import_alias(current_module_id, var, resolver)
             {
                 worklist.push_back((source_module_id, original_name));
             } else {
@@ -929,6 +899,7 @@ impl TreeShaker {
             &item.attribute_accesses,
             current_module_id,
             worklist,
+            resolver,
         );
     }
 
@@ -1002,10 +973,11 @@ impl TreeShaker {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
         context: &str,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         for var in vars {
             if let Some((source_module_id, original_name)) =
-                self.resolve_import_alias(module_id, var)
+                self.resolve_import_alias(module_id, var, resolver)
             {
                 let source_display = self.get_module_display_name(source_module_id);
                 debug!(
@@ -1027,6 +999,7 @@ impl TreeShaker {
         attribute_accesses: &FxIndexMap<String, FxIndexSet<String>>,
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let module_name = self
             .module_names
@@ -1045,7 +1018,7 @@ impl TreeShaker {
                 }
             // 2) From-imported module via `from utils import calculator`
             } else if let Some(source_module_id) =
-                self.resolve_from_module_import(module_id, base_var)
+                self.resolve_from_module_import(module_id, base_var, resolver)
             {
                 for attr in accessed_attrs {
                     let source_display = self.get_module_display_name(source_module_id);
@@ -1057,7 +1030,7 @@ impl TreeShaker {
                 }
             // 3) Imported symbol with attribute access
             } else if let Some((source_module_id, _)) =
-                self.resolve_import_alias(module_id, base_var)
+                self.resolve_import_alias(module_id, base_var, resolver)
             {
                 for attr in accessed_attrs {
                     let source_display = self.get_module_display_name(source_module_id);
@@ -1229,6 +1202,7 @@ impl TreeShaker {
         &self,
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
+        resolver: &crate::resolver::ModuleResolver,
     ) {
         let module_name = self
             .module_names
@@ -1245,7 +1219,7 @@ impl TreeShaker {
                         );
                         // Resolve the symbol's source module or use the current module
                         if let Some((source_module_id, original_name)) =
-                            self.resolve_import_alias(module_id, symbol)
+                            self.resolve_import_alias(module_id, symbol, resolver)
                         {
                             worklist.push_back((source_module_id, original_name));
                         } else {
@@ -1346,8 +1320,11 @@ mod tests {
         });
 
         // Run tree shaking
+        // Create a test resolver
+        let config = crate::config::Config::default();
+        let resolver = crate::resolver::ModuleResolver::new(config);
         let mut shaker = TreeShaker::from_graph(&graph);
-        shaker.analyze("__main__");
+        shaker.analyze("__main__", &resolver);
 
         // Check results
         assert!(shaker.is_symbol_used("test_module", "used_func"));

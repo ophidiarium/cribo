@@ -571,7 +571,7 @@ impl BundleOrchestrator {
             }
 
             // Analyze from entry module
-            shaker.analyze(&entry_module_name);
+            shaker.analyze(&entry_module_name, &resolver);
 
             // Log tree-shaking results
             for module_name in modules_for_tree_shaking {
