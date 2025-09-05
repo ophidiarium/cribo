@@ -4,9 +4,12 @@
 //! names, excluding names declared as `global`, and treating names
 //! declared `nonlocal` as locals for collection (to prevent module-attr rewrites).
 
+use ruff_python_ast::{
+    ExceptHandler, Expr, Stmt,
+    visitor::source_order::{self, SourceOrderVisitor},
+};
+
 use crate::types::FxIndexSet;
-use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
-use ruff_python_ast::{ExceptHandler, Expr, Stmt};
 
 /// Visitor that collects local variable names in source order,
 /// excluding names declared as `global`, and treating `nonlocal` names as locals
@@ -105,15 +108,18 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 source_order::walk_stmt(self, stmt);
             }
             Stmt::FunctionDef(func_def) => {
-                // Function definitions (including async) create local names (unless declared global)
-                // Note: is_async is a flag on FunctionDef, not a separate statement type
+                // Function definitions (including async) create local names (unless declared
+                // global) Note: is_async is a flag on FunctionDef, not a separate
+                // statement type
                 self.insert_if_not_global(&func_def.name);
-                // Don't walk into the function body - we're only collecting local vars at the current scope
+                // Don't walk into the function body - we're only collecting local vars at the
+                // current scope
             }
             Stmt::ClassDef(class_def) => {
                 // Class definitions create local names (unless declared global)
                 self.insert_if_not_global(&class_def.name);
-                // Don't walk into the class body - we're only collecting local vars at the current scope
+                // Don't walk into the class body - we're only collecting local vars at the current
+                // scope
             }
             Stmt::Nonlocal(nonlocal_stmt) => {
                 // Nonlocal declarations create local names in the enclosing scope
@@ -130,7 +136,8 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                     let name = if let Some(asname) = &alias.asname {
                         asname.to_string()
                     } else {
-                        // For dotted imports like 'import a.b.c', bind only the top-level package 'a'
+                        // For dotted imports like 'import a.b.c', bind only the top-level package
+                        // 'a'
                         let full_name = alias.name.to_string();
                         full_name
                             .split('.')
@@ -176,8 +183,9 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ruff_python_parser::parse_module;
+
+    use super::*;
 
     fn parse_test_module(source: &str) -> ruff_python_ast::ModModule {
         let parsed = parse_module(source).expect("Failed to parse");

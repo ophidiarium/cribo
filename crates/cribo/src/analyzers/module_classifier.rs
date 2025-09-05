@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{Expr, ModModule, Stmt};
+use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
-    resolver::ModuleResolver,
+    resolver::{ModuleId, ModuleResolver},
     side_effects::module_has_side_effects,
     types::{FxIndexMap, FxIndexSet},
     visitors::ExportCollector,
@@ -12,34 +12,31 @@ use crate::{
 
 /// Result of module classification
 pub struct ClassificationResult {
-    pub inlinable_modules: Vec<(String, ModModule, PathBuf, String)>,
-    pub wrapper_modules: Vec<(String, ModModule, PathBuf, String)>,
-    pub module_exports_map: FxIndexMap<String, Option<Vec<String>>>,
-    pub modules_with_explicit_all: FxIndexSet<String>,
+    pub inlinable_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
+    pub wrapper_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
+    pub module_exports_map: FxIndexMap<ModuleId, Option<Vec<String>>>,
+    pub modules_with_explicit_all: FxIndexSet<ModuleId>,
 }
 
 /// Analyzes and classifies modules for bundling
 pub struct ModuleClassifier<'a> {
     resolver: &'a ModuleResolver,
-    entry_module_name: String,
     entry_is_package_init_or_main: bool,
-    modules_with_explicit_all: FxIndexSet<String>,
-    namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
-    circular_modules: FxIndexSet<String>,
+    modules_with_explicit_all: FxIndexSet<ModuleId>,
+    namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
+    circular_modules: FxIndexSet<ModuleId>,
 }
 
 impl<'a> ModuleClassifier<'a> {
     /// Create a new module classifier
     pub fn new(
         resolver: &'a ModuleResolver,
-        entry_module_name: String,
         entry_is_package_init_or_main: bool,
-        namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
-        circular_modules: FxIndexSet<String>,
+        namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
+        circular_modules: FxIndexSet<ModuleId>,
     ) -> Self {
         Self {
             resolver,
-            entry_module_name,
             entry_is_package_init_or_main,
             modules_with_explicit_all: FxIndexSet::default(),
             namespace_imported_modules,
@@ -49,155 +46,44 @@ impl<'a> ModuleClassifier<'a> {
 
     /// Get the entry package name when entry is a package __init__.py
     /// Returns None if entry is not a package __init__.py
-    fn entry_package_name(&self) -> Option<&str> {
-        if crate::util::is_init_module(&self.entry_module_name) {
+    fn entry_package_name(&self) -> Option<String> {
+        let entry_module_name = self.resolver.get_module_name(ModuleId::ENTRY)?;
+        if crate::util::is_init_module(&entry_module_name) {
             // Strip the .__init__ suffix if present, otherwise return None
             // Note: if entry is bare "__init__", we don't have the package name
-            self.entry_module_name.strip_suffix(".__init__")
+            entry_module_name
+                .strip_suffix(".__init__")
+                .map(std::string::ToString::to_string)
         } else {
             None
         }
-    }
-
-    /// Check if a module accesses attributes on imported modules at module level
-    /// where those imported modules are part of the same circular dependency
-    fn module_accesses_imported_attributes(&self, ast: &ModModule, module_name: &str) -> bool {
-        use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
-
-        // First, collect all module-level imports and their names
-        let mut imported_module_names = FxIndexSet::default();
-
-        for stmt in &ast.body {
-            match stmt {
-                Stmt::Import(import_stmt) => {
-                    for alias in &import_stmt.names {
-                        let imported_module = alias.name.as_str();
-                        // In Python, `import a.b` binds `a`; `import a.b as x` binds `x`
-                        let imported_as: String = if let Some(asname) = &alias.asname {
-                            asname.as_str().to_string()
-                        } else {
-                            // For "import a.b.c", only "a" is bound in the namespace
-                            imported_module
-                                .split('.')
-                                .next()
-                                .unwrap_or(imported_module)
-                                .to_string()
-                        };
-                        // Check if this imported module is in the circular dependency
-                        // Also check if any circular module is a child of this imported module
-                        // e.g., if we import `pkg` and `pkg.sub` is circular
-                        let is_circular_or_parent = self.circular_modules.contains(imported_module)
-                            || self
-                                .circular_modules
-                                .iter()
-                                .any(|m| m.starts_with(&format!("{imported_module}.")));
-                        if is_circular_or_parent {
-                            imported_module_names.insert(imported_as);
-                        }
-                    }
-                }
-                Stmt::ImportFrom(import_from) => {
-                    // Handle relative and absolute imports via the resolver for correctness
-                    let resolved_module = if import_from.level > 0 {
-                        self.resolver.resolve_relative_import_from_package_name(
-                            import_from.level,
-                            import_from.module.as_deref(),
-                            module_name,
-                        )
-                    } else if let Some(module) = &import_from.module {
-                        module.as_str().to_string()
-                    } else {
-                        continue; // Invalid import
-                    };
-
-                    // Check if we're importing the module itself (from x import y where y is a
-                    // module)
-                    for alias in &import_from.names {
-                        let name = alias.name.as_str();
-                        let imported_as = alias.asname.as_ref().unwrap_or(&alias.name);
-                        // Check if this could be a module import
-                        let potential_module = format!("{resolved_module}.{name}");
-                        if self.circular_modules.contains(&potential_module) {
-                            imported_module_names.insert(imported_as.to_string());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // If no circular modules are imported, no need to check further
-        if imported_module_names.is_empty() {
-            return false;
-        }
-
-        // Now check if we access attributes on any of these imported circular modules
-        struct AttributeAccessChecker<'a> {
-            has_circular_attribute_access: bool,
-            imported_circular_modules: &'a FxIndexSet<String>,
-        }
-
-        impl<'a> Visitor<'a> for AttributeAccessChecker<'a> {
-            fn visit_stmt(&mut self, stmt: &'a Stmt) {
-                match stmt {
-                    // Skip function and class bodies - we only care about module-level code
-                    Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                        // Don't recurse into function or class bodies
-                    }
-                    _ => {
-                        // Continue visiting for other statements
-                        walk_stmt(self, stmt);
-                    }
-                }
-            }
-
-            fn visit_expr(&mut self, expr: &'a Expr) {
-                if self.has_circular_attribute_access {
-                    return; // Already found one
-                }
-
-                // Check for attribute access on names (e.g., mod_c.C_CONSTANT)
-                if let Expr::Attribute(attr) = expr
-                    && let Expr::Name(name_expr) = &*attr.value
-                {
-                    // Check if this name is one of our imported circular modules
-                    if self
-                        .imported_circular_modules
-                        .contains(name_expr.id.as_str())
-                    {
-                        self.has_circular_attribute_access = true;
-                        return;
-                    }
-                }
-
-                // Continue walking
-                walk_expr(self, expr);
-            }
-        }
-
-        let mut checker = AttributeAccessChecker {
-            has_circular_attribute_access: false,
-            imported_circular_modules: &imported_module_names,
-        };
-
-        checker.visit_body(&ast.body);
-        checker.has_circular_attribute_access
     }
 
     /// Classify modules into inlinable and wrapper modules
     /// Also collects module exports and tracks modules with explicit __all__
     pub fn classify_modules(
         mut self,
-        modules: &[(String, ModModule, PathBuf, String)],
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         python_version: u8,
     ) -> ClassificationResult {
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
         let mut module_exports_map = FxIndexMap::default();
 
-        for (module_name, ast, module_path, content_hash) in modules {
+        let entry_module_name = self
+            .resolver
+            .get_module_name(ModuleId::ENTRY)
+            .unwrap_or_else(|| "entry".to_string());
+
+        for (module_id, (ast, module_path, content_hash)) in modules {
+            let module_name = self
+                .resolver
+                .get_module_name(*module_id)
+                .expect("Module name must exist for ModuleId");
             debug!("Processing module: '{module_name}'");
-            if module_name == &self.entry_module_name {
+
+            // Skip the entry module itself
+            if *module_id == ModuleId::ENTRY {
                 continue;
             }
 
@@ -207,31 +93,36 @@ impl<'a> ModuleClassifier<'a> {
                 if let Some(entry_pkg) = self.entry_package_name() {
                     if module_name == entry_pkg {
                         debug!(
-                            "Skipping module '{module_name}' as it's the package name for entry module '__init__.py'"
+                            "Skipping module '{module_name}' as it's the package name for entry \
+                             module '__init__.py'"
                         );
                         continue;
                     }
-                } else if crate::util::is_init_module(&self.entry_module_name)
-                    && self.entry_module_name == "__init__"
+                } else if crate::util::is_init_module(&entry_module_name)
+                    && entry_module_name == "__init__"
                 {
                     // Special case: entry is bare "__init__" without package prefix
-                    // In this case, we need to check if the module matches the inferred package name
-                    // This happens when the entry module is discovered as "__init__" without full path context
+                    // In this case, we need to check if the module matches the inferred package
+                    // name This happens when the entry module is discovered as
+                    // "__init__" without full path context
                     if !module_name.contains('.') {
                         // This could be the package, but we need more context to be sure
                         // For safety, we should NOT skip it unless we're certain
                         debug!(
-                            "Not skipping top-level module '{module_name}' as we cannot confirm it matches entry '__init__'"
+                            "Not skipping top-level module '{module_name}' as we cannot confirm \
+                             it matches entry '__init__'"
                         );
                     }
                 }
             }
 
+            // We already have the ModuleId
+
             // Extract __all__ exports from the module using ExportCollector
             let export_info = ExportCollector::analyze(ast);
             let has_explicit_all = export_info.exported_names.is_some();
             if has_explicit_all {
-                self.modules_with_explicit_all.insert(module_name.clone());
+                self.modules_with_explicit_all.insert(*module_id);
             }
 
             // Convert export info to the format expected by the bundler
@@ -278,7 +169,8 @@ impl<'a> ModuleClassifier<'a> {
                             let from_module_str = import_from.module.as_deref().unwrap_or_default();
                             let dots = ".".repeat(import_from.level as usize);
                             debug!(
-                                "Module '{module_name}' has wildcard import from '{dots}{from_module_str}'"
+                                "Module '{module_name}' has wildcard import from \
+                                 '{dots}{from_module_str}'"
                             );
 
                             // Mark that this module has a wildcard import
@@ -292,16 +184,16 @@ impl<'a> ModuleClassifier<'a> {
                 }
             }
 
-            module_exports_map.insert(module_name.clone(), expanded_exports);
+            module_exports_map.insert(*module_id, expanded_exports);
 
             // Check if module is imported as a namespace
-            let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
+            let is_namespace_imported = self.namespace_imported_modules.contains_key(module_id);
 
             if is_namespace_imported {
                 debug!(
                     "Module '{}' is imported as namespace by: {:?}",
                     module_name,
-                    self.namespace_imported_modules.get(module_name)
+                    self.namespace_imported_modules.get(module_id)
                 );
             }
 
@@ -310,16 +202,15 @@ impl<'a> ModuleClassifier<'a> {
             // and circular dependencies can all be handled through static transformation
             let has_side_effects = module_has_side_effects(ast, python_version);
 
-            // Check if this module is in a circular dependency and accesses imported module
-            // attributes
-            let needs_wrapping_for_circular = self.circular_modules.contains(module_name)
-                && self.module_accesses_imported_attributes(ast, module_name);
+            // Check if this module is in a circular dependency
+            // ALL modules in a circular dependency MUST be wrapper modules to handle init ordering
+            let needs_wrapping_for_circular = self.circular_modules.contains(module_id);
 
             // Check if this module has an invalid identifier (can't be imported normally)
             // These modules are likely imported via importlib and need to be wrapped
             // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
             // check if the module name itself (without dots) is invalid
-            let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
+            let module_base_name = module_name.split('.').next_back().unwrap_or(&module_name);
             let has_invalid_identifier =
                 !ruff_python_stdlib::identifiers::is_identifier(module_base_name);
 
@@ -331,15 +222,14 @@ impl<'a> ModuleClassifier<'a> {
                     );
                 } else if needs_wrapping_for_circular {
                     debug!(
-                        "Module '{module_name}' is in circular dependency and accesses imported \
-                         attributes - using wrapper approach"
+                        "Module '{module_name}' is in circular dependency - using wrapper approach"
                     );
                 } else {
                     debug!("Module '{module_name}' has side effects - using wrapper approach");
                 }
 
                 wrapper_modules.push((
-                    module_name.clone(),
+                    *module_id,
                     ast.clone(),
                     module_path.clone(),
                     content_hash.clone(),
@@ -347,7 +237,7 @@ impl<'a> ModuleClassifier<'a> {
             } else {
                 debug!("Module '{module_name}' has no side effects - can be inlined");
                 inlinable_modules.push((
-                    module_name.clone(),
+                    *module_id,
                     ast.clone(),
                     module_path.clone(),
                     content_hash.clone(),
@@ -356,9 +246,14 @@ impl<'a> ModuleClassifier<'a> {
         }
 
         // Second pass: resolve wildcard imports now that all modules have been processed
-        let mut wildcard_imports: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
+        let mut wildcard_imports: FxIndexMap<ModuleId, FxIndexSet<String>> = FxIndexMap::default();
 
-        for (module_name, ast, _, _) in modules {
+        for (module_id, (ast, _, _)) in modules {
+            let module_name = self
+                .resolver
+                .get_module_name(*module_id)
+                .expect("Module name must exist for ModuleId");
+
             // Look for wildcard imports in this module
             for stmt in &ast.body {
                 if let Stmt::ImportFrom(import_from) = stmt {
@@ -370,7 +265,7 @@ impl<'a> ModuleClassifier<'a> {
                             self.resolver.resolve_relative_import_from_package_name(
                                 import_from.level,
                                 import_from.module.as_deref(),
-                                module_name,
+                                &module_name,
                             )
                         } else if let Some(module) = &import_from.module {
                             module.to_string()
@@ -379,7 +274,7 @@ impl<'a> ModuleClassifier<'a> {
                         };
 
                         wildcard_imports
-                            .entry(module_name.clone())
+                            .entry(*module_id)
                             .or_default()
                             .insert(imported);
                     }
@@ -388,21 +283,36 @@ impl<'a> ModuleClassifier<'a> {
         }
 
         // Now expand wildcard imports in module_exports_map
-        for (module_name, wildcard_sources) in wildcard_imports {
+        for (module_id, wildcard_sources) in wildcard_imports {
+            // module_id is already a ModuleId from the wildcard_imports map
+
             // Respect explicit __all__: don't auto-expand wildcard imports
-            if self.modules_with_explicit_all.contains(&module_name) {
+            if self.modules_with_explicit_all.contains(&module_id) {
+                let module_name = self
+                    .resolver
+                    .get_module_name(module_id)
+                    .expect("Module name must exist for ModuleId");
                 debug!(
-                    "Skipping wildcard expansion for module '{module_name}' due to explicit __all__"
+                    "Skipping wildcard expansion for module '{module_name}' due to explicit \
+                     __all__"
                 );
                 continue;
             }
 
+            let module_name = self
+                .resolver
+                .get_module_name(module_id)
+                .expect("Module name must exist for ModuleId");
             debug!("Module '{module_name}' has wildcard imports from: {wildcard_sources:?}");
 
             // Collect exports from all source modules first to avoid double borrow
             let mut exports_to_add = Vec::new();
             for source_module in &wildcard_sources {
-                if let Some(source_exports) = module_exports_map.get(source_module)
+                let source_id = match self.resolver.get_module_id_by_name(source_module) {
+                    Some(id) => id,
+                    None => continue,
+                };
+                if let Some(source_exports) = module_exports_map.get(&source_id)
                     && let Some(source_exports) = source_exports
                 {
                     debug!(
@@ -420,7 +330,7 @@ impl<'a> ModuleClassifier<'a> {
 
             // Now add the collected exports to the module
             if !exports_to_add.is_empty()
-                && let Some(exports) = module_exports_map.get_mut(&module_name)
+                && let Some(exports) = module_exports_map.get_mut(&module_id)
             {
                 if let Some(export_list) = exports {
                     // Merge, then sort + dedup for deterministic output

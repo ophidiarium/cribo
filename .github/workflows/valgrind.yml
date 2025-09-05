@@ -27,7 +27,7 @@ jobs:
     env:
       CARGO_VALGRIND_VERSION: '2.3.1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 

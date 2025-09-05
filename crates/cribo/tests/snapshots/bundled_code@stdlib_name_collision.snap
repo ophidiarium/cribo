@@ -28,6 +28,10 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+mypackage_abc = _cribo.types.SimpleNamespace(__name__='mypackage.abc')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage.abc = mypackage_abc
+"""Local module named 'abc' - should not be confused with stdlib abc."""
 class MyClass:
     """A class defined in the local abc module."""
 
@@ -36,19 +40,15 @@ class MyClass:
 
     def __str__(self):
         return f"MyClass({self.value})"
+MyClass.__module__ = 'mypackage.abc'
+mypackage_abc.MyClass = MyClass
+mypackage_pretty = _cribo.types.SimpleNamespace(__name__='mypackage.pretty')
+mypackage.pretty = mypackage_pretty
+"""Module that imports from local abc module."""
 def format_object(obj: MyClass) -> str:
     """Format an object from the local abc module."""
     return f"Formatted: {obj}"
-"""Module that imports from local abc module."""
-"""Local module named 'abc' - should not be confused with stdlib abc."""
-MyClass.__module__ = 'mypackage.abc'
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
-mypackage_pretty = _cribo.types.SimpleNamespace(__name__='mypackage.pretty')
-mypackage.pretty = mypackage_pretty
-mypackage_abc = _cribo.types.SimpleNamespace(__name__='mypackage.abc')
-mypackage.abc = mypackage_abc
 mypackage_pretty.format_object = format_object
-mypackage_abc.MyClass = MyClass
 """Test case for modules with same name as stdlib modules."""
 result = format_object(MyClass())
 print(f"Result: {result}")

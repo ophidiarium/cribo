@@ -28,8 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
 mypackage_abc = _cribo.types.SimpleNamespace(__name__='mypackage.abc')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.abc = mypackage_abc
 ABC = _cribo.abc.ABC
 class MyClass(_cribo.abc.ABC):

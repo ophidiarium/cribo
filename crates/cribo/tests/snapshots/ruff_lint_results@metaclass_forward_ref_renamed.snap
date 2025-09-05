@@ -1,6 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-input_file: crates/cribo/tests/fixtures/xfail_metaclass_forward_ref_renamed/main.py
+input_file: crates/cribo/tests/fixtures/metaclass_forward_ref_renamed/main.py
 ---
 RuffLintResults {
     f401_violations: [],

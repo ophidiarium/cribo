@@ -28,16 +28,22 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def shared_value_1():
-    return "from_second"
-def unique_second():
-    return "unique_to_second"
+first = _cribo.types.SimpleNamespace(__name__='first')
+"""First module with shared and unique symbols."""
 def shared_value_2():
     return "from_first"
 def unique_first():
     return "unique_to_first"
+first.shared_value = shared_value_2
+first.unique_first = unique_first
+second = _cribo.types.SimpleNamespace(__name__='second')
 """Second module with shared and unique symbols."""
-"""First module with shared and unique symbols."""
+def shared_value_1():
+    return "from_second"
+def unique_second():
+    return "unique_to_second"
+second.shared_value = shared_value_1
+second.unique_second = unique_second
 """Test that 'last import wins' semantics work with wildcard imports."""
 shared_value = shared_value_2
 shared_value = shared_value_1

@@ -7,9 +7,12 @@ use ruff_python_ast::{
     visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
-use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::{cribo_graph::ModuleId, semantic_bundler::SemanticBundler};
+use crate::{
+    resolver::ModuleId,
+    semantic_bundler::SemanticBundler,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,7 +69,7 @@ pub struct DiscoveredImport {
     /// Type of import
     pub import_type: ImportType,
     /// Execution contexts where this import is used
-    pub execution_contexts: HashSet<ExecutionContext>,
+    pub execution_contexts: FxIndexSet<ExecutionContext>,
     /// Whether this import is used in a class __init__ method
     pub is_used_in_init: bool,
     /// Whether this import can be moved to function scope
@@ -113,9 +116,9 @@ pub struct ImportDiscoveryVisitor<'a> {
     /// Current scope stack
     scope_stack: Vec<ScopeElement>,
     /// Map from imported names to their module sources
-    imported_names: HashMap<String, String>,
+    imported_names: FxIndexMap<String, String>,
     /// Track usage of each imported name
-    name_usage: HashMap<String, Vec<ImportUsage>>,
+    name_usage: FxIndexMap<String, Vec<ImportUsage>>,
     /// Optional reference to semantic bundler for enhanced analysis
     _semantic_bundler: Option<&'a SemanticBundler>,
     /// Current module ID if available
@@ -141,8 +144,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
-            imported_names: HashMap::default(),
-            name_usage: HashMap::default(),
+            imported_names: FxIndexMap::default(),
+            name_usage: FxIndexMap::default(),
             _semantic_bundler: None,
             _module_id: None,
             current_context: ExecutionContext::ModuleLevel,
@@ -159,8 +162,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
-            imported_names: HashMap::default(),
-            name_usage: HashMap::default(),
+            imported_names: FxIndexMap::default(),
+            name_usage: FxIndexMap::default(),
             _semantic_bundler: Some(semantic_bundler),
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
@@ -231,28 +234,35 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             return ExecutionContext::TypeAnnotation;
         }
 
-        // Analyze scope stack to determine context
-        for (i, scope) in self.scope_stack.iter().enumerate() {
-            match scope {
-                ScopeElement::Class(_) => {
-                    // Check if we're in a method within this class
-                    if i + 1 < self.scope_stack.len()
-                        && let ScopeElement::Function(method_name) = &self.scope_stack[i + 1]
-                    {
-                        return ExecutionContext::ClassMethod {
-                            is_init: method_name == "__init__",
-                        };
-                    }
-                    return ExecutionContext::ClassBody;
-                }
-                ScopeElement::Function(_) => {
-                    // If we're in a function at module level, it's a function body
-                    if i == 0 {
-                        return ExecutionContext::FunctionBody;
-                    }
-                }
-                _ => {}
+        // Prefer innermost function scope when present.
+        if let Some(last_fn_idx) = self
+            .scope_stack
+            .iter()
+            .rposition(|s| matches!(s, ScopeElement::Function(_)))
+        {
+            // If the innermost function is the method itself (directly under a class)
+            // and not a nested function, classify as ClassMethod. Otherwise FunctionBody.
+            if last_fn_idx > 0
+                && let (ScopeElement::Class(_), ScopeElement::Function(method_name)) = (
+                    &self.scope_stack[last_fn_idx - 1],
+                    &self.scope_stack[last_fn_idx],
+                )
+                && last_fn_idx == self.scope_stack.len() - 1
+            {
+                return ExecutionContext::ClassMethod {
+                    is_init: method_name == "__init__",
+                };
             }
+            return ExecutionContext::FunctionBody;
+        }
+
+        // No functions in scope; check for class body.
+        if self
+            .scope_stack
+            .iter()
+            .any(|s| matches!(s, ScopeElement::Class(_)))
+        {
+            return ExecutionContext::ClassBody;
         }
 
         self.current_context
@@ -414,7 +424,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 range: stmt.range,
                 level: 0,
                 import_type: ImportType::Direct,
-                execution_contexts: HashSet::default(),
+                execution_contexts: FxIndexSet::default(),
                 is_used_in_init: false,
                 is_movable: false,
                 is_type_checking_only: self.in_type_checking,
@@ -435,12 +445,18 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 let name = alias.name.to_string();
                 let asname = alias.asname.as_ref().map(std::string::ToString::to_string);
 
-                // Track import mappings
-                let imported_as = asname.as_ref().unwrap_or(&name).clone();
-                if let Some(mod_name) = &module_name {
-                    self.imported_names
-                        .insert(imported_as.clone(), format!("{mod_name}.{name}"));
-                }
+                // Track import mappings (also for relative imports with no module_name)
+                let imported_as = asname.clone().unwrap_or_else(|| name.clone());
+                // Encode level into the key to avoid conflating different relatives
+                let module_key = match (module_name.as_ref(), stmt.level) {
+                    (Some(m), 0) => format!("{m}.{name}"),
+                    (Some(m), level) => format!(".{}{}.{}", ".".repeat(level as usize), m, name),
+                    (None, level) if level > 0 => {
+                        format!(".{}{}", ".".repeat(level as usize), name)
+                    }
+                    (None, _) => name.clone(),
+                };
+                self.imported_names.insert(imported_as.clone(), module_key);
 
                 // Check if we're importing import_module from importlib
                 if module_name.as_deref() == Some("importlib") && name == "import_module" {
@@ -464,7 +480,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             range: stmt.range,
             level: stmt.level,
             import_type,
-            execution_contexts: HashSet::default(),
+            execution_contexts: FxIndexSet::default(),
             is_used_in_init: false,
             is_movable: false,
             is_type_checking_only: self.in_type_checking,
@@ -581,7 +597,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                         range: call.range,
                         level,
                         import_type: ImportType::ImportlibStatic,
-                        execution_contexts: HashSet::default(),
+                        execution_contexts: FxIndexSet::default(),
                         is_used_in_init: false,
                         is_movable: false,
                         is_type_checking_only: self.in_type_checking,
@@ -589,8 +605,8 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                     };
                     self.imports.push(import);
 
-                    // Track import mapping - the module itself is what's imported
-                    self.imported_names.insert(module_name.clone(), module_name);
+                    // Do not add to imported_names: importlib.import_module returns a value
+                    // assigned to a variable, but it does not bind `module_name` in scope.
                 }
             }
             Expr::Name(ExprName { id, range, .. }) => {

@@ -28,12 +28,15 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def handler_2() -> str:
-    return "Hello from boo.py"
+foo = _cribo.types.SimpleNamespace(__name__='foo')
 def handler_3() -> str:
     return "Hello from foo.py"
-foo = _cribo.types.SimpleNamespace(__name__='foo', handler=handler_3)
-boo_handler = handler_2
+foo.handler = handler_3
+boo = _cribo.types.SimpleNamespace(__name__='boo')
+def handler_2() -> str:
+    return "Hello from boo.py"
+boo.handler = handler_2
+boo_handler = boo.handler
 def handler_1():
     print(foo.handler())
     print(boo_handler())

@@ -286,7 +286,8 @@ fn create_cribo_module_getattr() -> Stmt {
 
 /// Create __getattribute__ method for _`CriboModule`
 fn create_cribo_module_getattribute() -> Stmt {
-    // n in ('_m','_p','__getattr__', '__class__', '__dict__', '__dir__', '__module__', '__qualname__')
+    // n in ('_m','_p','__getattr__', '__class__', '__dict__', '__dir__', '__module__',
+    // '__qualname__')
     let special_attrs = expressions::in_op(
         expressions::name("n", ExprContext::Load),
         expressions::tuple(vec![
@@ -435,9 +436,10 @@ fn create_cribo_getattr() -> Stmt {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ruff_python_ast::Expr;
     use ruff_python_parser::parse_module;
+
+    use super::*;
 
     #[test]
     fn test_generate_cribo_proxy() {

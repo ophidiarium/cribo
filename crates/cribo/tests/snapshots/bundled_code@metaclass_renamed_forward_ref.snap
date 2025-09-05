@@ -28,33 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_c0fc3d_other():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'other'
-    """Another module with similar class names to trigger renaming."""
-
-    class MyMetaclass(type):
-        """Another metaclass with the same name."""
-
-        def __init__(cls, name, bases, kwds):
-            super(MyMetaclass, cls).__init__(name, bases, kwds)
-            cls.other_attr = "from other"
-    MyMetaclass.__module__ = 'other'
-    _cribo_module.MyMetaclass = MyMetaclass
-
-    class MyObject(metaclass=MyMetaclass):
-        """Another class with the same name."""
-
-        def __repr__(self):
-            return f"OtherMyObject(other_attr={self.other_attr})"
-    MyObject.__module__ = 'other'
-    _cribo_module.MyObject = MyObject
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_a6386c_base():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'base'
+base = _cribo.types.SimpleNamespace(__name__='base', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_a6386c_base(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     """Base module with metaclass definitions."""
 
     class MyMetaclass(type):
@@ -64,7 +44,7 @@ def _cribo_init___cribo_a6386c_base():
             super(MyMetaclass, cls).__init__(name, bases, kwds)
             cls.base_attr = "from base"
     MyMetaclass.__module__ = 'base'
-    _cribo_module.MyMetaclass = MyMetaclass
+    self.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
         """A class using the metaclass."""
@@ -72,13 +52,45 @@ def _cribo_init___cribo_a6386c_base():
         def __repr__(self):
             return f"MyObject(base_attr={self.base_attr})"
     MyObject.__module__ = 'base'
-    _cribo_module.MyObject = MyObject
-    return _cribo_module
+    self.MyObject = MyObject
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+base.__init__ = _cribo_init___cribo_a6386c_base
+other = _cribo.types.SimpleNamespace(__name__='other', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_c0fc3d_other(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Another module with similar class names to trigger renaming."""
+
+    class MyMetaclass(type):
+        """Another metaclass with the same name."""
+
+        def __init__(cls, name, bases, kwds):
+            super(MyMetaclass, cls).__init__(name, bases, kwds)
+            cls.other_attr = "from other"
+    MyMetaclass.__module__ = 'other'
+    self.MyMetaclass = MyMetaclass
+
+    class MyObject(metaclass=MyMetaclass):
+        """Another class with the same name."""
+
+        def __repr__(self):
+            return f"OtherMyObject(other_attr={self.other_attr})"
+    MyObject.__module__ = 'other'
+    self.MyObject = MyObject
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+other.__init__ = _cribo_init___cribo_c0fc3d_other
 """\nTest fixture for metaclass forward reference with renaming issue.\n\nThis reproduces the bug where class renaming causes forward references\nto metaclasses, similar to what happens with PyYAML.\n"""
-base = _cribo_init___cribo_a6386c_base()
+base = _cribo_init___cribo_a6386c_base(base)
 MyMetaclass = base.MyMetaclass
 MyObject = base.MyObject
-other = _cribo_init___cribo_c0fc3d_other()
+other = _cribo_init___cribo_c0fc3d_other(other)
 OtherMeta = other.MyMetaclass
 OtherObject = other.MyObject
 obj1 = MyObject()

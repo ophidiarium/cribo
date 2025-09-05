@@ -28,23 +28,24 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def process_b(data):
-    return transform(data)
+package_a = _cribo.types.SimpleNamespace(__name__='package_a')
+utils = _cribo.types.SimpleNamespace(__name__='utils')
 def transform(text):
     return "TOP_LEVEL_UTILS"
-def process_a(data):
-    return transform(data)
-"""Package B processor that imports utils expecting package_b.utils"""
-"""Package A processor that imports utils expecting package_a.utils"""
-package_b = _cribo.types.SimpleNamespace(__name__='package_b')
-package_b_processor = _cribo.types.SimpleNamespace(__name__='package_b.processor')
-package_b.processor = package_b_processor
-utils = _cribo.types.SimpleNamespace(__name__='utils', transform=transform)
-package_a = _cribo.types.SimpleNamespace(__name__='package_a')
+utils.transform = transform
 package_a_processor = _cribo.types.SimpleNamespace(__name__='package_a.processor')
 package_a.processor = package_a_processor
-package_b_processor.process_b = process_b
+"""Package A processor that imports utils expecting package_a.utils"""
+def process_a(data):
+    return transform(data)
 package_a_processor.process_a = process_a
+package_b_processor = _cribo.types.SimpleNamespace(__name__='package_b.processor')
+package_b = _cribo.types.SimpleNamespace(__name__='package_b', __initializing__=False, __initialized__=False)
+package_b.processor = package_b_processor
+"""Package B processor that imports utils expecting package_b.utils"""
+def process_b(data):
+    return transform(data)
+package_b_processor.process_b = process_b
 """Test case demonstrating import shadowing issue.\n\nThis shows how the same import 'utils' resolves to the same top-level\nfile for all modules, even though package_a and package_b each have\ntheir own utils.py that they might expect to use.\n\nIn Python, this behavior is \"correct\" - when running from the fixture\ndirectory, 'import utils' finds the top-level utils.py for everyone.\n\nBut for a bundler, this demonstrates the challenge: without proper\ncontext, it can't know whether 'import utils' in package_a/processor.py\nwas intended to import package_a/utils.py or the top-level utils.py.\n"""
 result_a = process_a("test")
 result_b = process_b("test")

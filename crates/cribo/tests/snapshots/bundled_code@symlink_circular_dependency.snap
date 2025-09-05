@@ -28,24 +28,56 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def funcC():
-    return "Actually funcA pretending to be funcC"
-def get_chain():
-    return "A -> B -> C(symlink to A)"
-def funcA():
-    return f"A calls {funcB()}"
-def funcB():
-    return f"B calls {funcC()}"
-def funcA_moduleC():
-    return f"A calls {funcB()}"
-def get_chain_moduleC():
-    return "A -> B -> C(symlink to A)"
-def funcC_moduleC():
-    return "Actually funcA pretending to be funcC"
-moduleC = _cribo.types.SimpleNamespace(__name__='moduleC')
-moduleC.funcA = funcA_moduleC
-moduleC.get_chain = get_chain_moduleC
-moduleC.funcC = funcC_moduleC
+moduleA = _cribo.types.SimpleNamespace(__name__='moduleA', __initializing__=False, __initialized__=False)
+moduleB = _cribo.types.SimpleNamespace(__name__='moduleB', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_895222_moduleA(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global moduleB
+
+    def funcA():
+        global moduleB
+        moduleB = _cribo_init___cribo_19d6d4_moduleB(moduleB)
+        funcB = moduleB.funcB
+        return f"A calls {funcB()}"
+    self.funcA = funcA
+
+    def get_chain():
+        return "A -> B -> C(symlink to A)"
+    self.get_chain = get_chain
+
+    def funcC():
+        return "Actually funcA pretending to be funcC"
+    self.funcC = funcC
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+moduleA.__init__ = _cribo_init___cribo_895222_moduleA
+def _cribo_init___cribo_19d6d4_moduleB(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global moduleA
+    moduleA = _cribo_init___cribo_895222_moduleA(moduleA)
+    funcC = moduleA.funcC
+    self.funcC = funcC
+    self.funcC = funcC
+
+    def funcB():
+        return f"B calls {funcC()}"
+    self.funcB = funcB
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+moduleB.__init__ = _cribo_init___cribo_19d6d4_moduleB
+moduleA = _cribo_init___cribo_895222_moduleA(moduleA)
+funcA = moduleA.funcA
+get_chain = moduleA.get_chain
 print("Testing symlink circular dependency handling")
 print(f"funcA result: {funcA()}")
 print(f"Chain: {get_chain()}")
