@@ -151,6 +151,7 @@ def _cribo_init___cribo_563ea2_models(self):
     """Models package with conditional imports and circular dependency handling."""
     sys = _cribo.sys
     self.sys = sys
+    self.sys = sys
     _VERSION = "1.0.0"
     self._VERSION = _VERSION
 
@@ -215,7 +216,7 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
     """Database connection module demonstrating mixed import patterns.\n\nThis module combines:\n1. Absolute import from a different package (models.user)\n2. Relative import from within the same package (..utils.helpers)\n3. Import from parent package's version module (not __init__.py)\n4. No imports from parent package's __init__.py to avoid circular dependencies\n"""
     process_user = models_user.process_user
     core_database_connection.process_user = process_user
-    helper_validate = core_utils_helpers.validate
+    helper_validate = validate
     core_database_connection.helper_validate = helper_validate
     CORE_MODEL_VERSION = core_version.CORE_MODEL_VERSION
     core_database_connection.CORE_MODEL_VERSION = CORE_MODEL_VERSION
@@ -225,7 +226,9 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
             setattr(models, attr, getattr(__cribo_init_result, attr))
     DEFAULT_MODEL_CONFIG = models.DEFAULT_MODEL_CONFIG
     self.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
+    self.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
     get_base_model = models.get_base_model
+    self.get_base_model = get_base_model
     self.get_base_model = get_base_model
     _connection_types = ["standard", "pooled", "async"]
     self._connection_types = _connection_types
@@ -261,7 +264,7 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
         core_database_connection.is_debug = is_debug
         info = {"metadata": CONNECTION_METADATA, "debug_mode": is_debug(), "available_validators": ["validate_db_name", helper_validate.__name__]}
         if is_debug():
-            get_full_config = core_utils_config.get_config
+            get_full_config = get_config
             core_database_connection.get_full_config = get_full_config
             info["config"] = get_full_config()
         return info
@@ -305,7 +308,9 @@ def _cribo_init___cribo_782908_core_database(self):
     core_database_connection = _cribo_init___cribo_1f0c3d_core_database_connection(core_database_connection)
     connect = core.database.connection.connect
     self.connect = connect
+    self.connect = connect
     get_connection_info = core.database.connection.get_connection_info
+    self.get_connection_info = get_connection_info
     self.get_connection_info = get_connection_info
 
     def safe_connect(database_name: str) -> str:

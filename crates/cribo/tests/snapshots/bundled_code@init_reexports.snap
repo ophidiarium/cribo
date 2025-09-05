@@ -55,6 +55,7 @@ def _cribo_init___cribo_de6c46_mypackage_config(self):
     """Configuration module."""
     os = _cribo.os
     self.os = os
+    self.os = os
 
     class Config:
         """Configuration class."""
@@ -83,6 +84,10 @@ mypackage_utils_helper.helper_function = helper_function
 mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants')
 mypackage_utils.constants = mypackage_utils_constants
 """Constants module."""
+MAX_ITEMS = 100
+DEFAULT_VALUE = "default"
+mypackage_utils_constants.MAX_ITEMS = MAX_ITEMS
+mypackage_utils_constants.DEFAULT_VALUE = DEFAULT_VALUE
 def _cribo_init___cribo_a81151_mypackage(self):
     if getattr(self, '__initialized__', False):
         return self
@@ -98,10 +103,12 @@ def _cribo_init___cribo_a81151_mypackage(self):
     mypackage_config = _cribo_init___cribo_de6c46_mypackage_config(mypackage_config)
     config = mypackage.config.config
     self.config = config
+    self.config = config
     __cribo_init_result = _cribo_init___cribo_99e487_mypackage_utils(mypackage_utils)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(mypackage.utils, attr, getattr(__cribo_init_result, attr))
+    self.helper_function = helper_function
     __version__ = "1.0.0"
     self.__version__ = __version__
     DEBUG_MODE = config.DEBUG
@@ -125,6 +132,10 @@ def _cribo_init___cribo_99e487_mypackage_utils(self):
     """Utils subpackage with re-exports."""
     helper_function = mypackage_utils_helper.helper_function
     mypackage_utils.helper_function = helper_function
+    MAX_ITEMS = mypackage_utils_constants.MAX_ITEMS
+    mypackage_utils.MAX_ITEMS = MAX_ITEMS
+    DEFAULT_VALUE = mypackage_utils_constants.DEFAULT_VALUE
+    mypackage_utils.DEFAULT_VALUE = DEFAULT_VALUE
     self.constants = mypackage_utils_constants
     self.helper = mypackage_utils_helper
     self.constants = mypackage_utils_constants

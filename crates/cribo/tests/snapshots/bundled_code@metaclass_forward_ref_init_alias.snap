@@ -52,6 +52,7 @@ def _cribo_init___cribo_d9a389_yaml_pkg(self):
     yaml_pkg_base = _cribo_init___cribo_6d74f2_yaml_pkg_base(yaml_pkg_base)
     YO = yaml_pkg.base.YAMLObject
     self.YO = YO
+    self.YO = YO
     YAMLObjectMetaclass = yaml_pkg_meta.YAMLObjectMetaclass
     yaml_pkg.YAMLObjectMetaclass = YAMLObjectMetaclass
     self.meta = yaml_pkg_meta

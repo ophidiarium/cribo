@@ -86,6 +86,7 @@ def _cribo_init___cribo_d2a83c_mypkg_api(self):
             setattr(mypkg, attr, getattr(__cribo_init_result, attr))
     sessions = mypkg.sessions
     self.sessions = sessions
+    self.sessions = sessions
     session_ref = sessions
     self.session_ref = session_ref
 

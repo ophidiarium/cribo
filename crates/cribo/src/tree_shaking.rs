@@ -383,11 +383,24 @@ impl TreeShaker {
                     ItemType::Import { module, .. } => {
                         let module_display = self.get_module_display_name(module_id);
                         debug!("Found direct import of module {module} in {module_display}");
-                        // If this imported module has side effects, seed them
-                        if let Some(&imported_module_id) = self.module_name_to_id.get(module)
-                            && self.module_has_side_effects(imported_module_id)
-                        {
-                            self.seed_side_effects_for_module(imported_module_id, &mut worklist);
+                        if let Some(&imported_module_id) = self.module_name_to_id.get(module) {
+                            // If this imported module has side effects, seed them
+                            if self.module_has_side_effects(imported_module_id) {
+                                self.seed_side_effects_for_module(
+                                    imported_module_id,
+                                    &mut worklist,
+                                );
+                            } else {
+                                // For modules without side effects that are directly imported,
+                                // preserve their exported symbols (classes and functions)
+                                // This is important for modules that export classes with
+                                // dependencies
+                                self.preserve_exported_symbols(
+                                    &imported_module_id,
+                                    module,
+                                    &mut worklist,
+                                );
+                            }
                         }
                     }
                     // Check for from imports that import the module itself (from x import module)
@@ -694,6 +707,35 @@ impl TreeShaker {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Preserve exported symbols from a directly imported module
+    fn preserve_exported_symbols(
+        &self,
+        imported_module_id: &ModuleId,
+        module_name: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        let Some(module_items) = self.module_items.get(imported_module_id) else {
+            return;
+        };
+
+        for item in module_items {
+            if !matches!(
+                &item.item_type,
+                ItemType::ClassDef { .. } | ItemType::FunctionDef { .. }
+            ) {
+                continue;
+            }
+
+            for symbol in &item.defined_symbols {
+                debug!(
+                    "Preserving exported symbol '{symbol}' from directly imported module \
+                     {module_name}"
+                );
+                worklist.push_back((*imported_module_id, symbol.clone()));
             }
         }
     }

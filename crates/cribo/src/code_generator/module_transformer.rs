@@ -136,9 +136,10 @@ pub fn transform_module_to_init_function<'a>(
 
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
+    //   Format: (exported_name, value_name, source_module)
     // - inlined_import_bindings: local binding names created by explicit from-imports (asname if
     //   present)
-    let mut imports_from_inlined: Vec<(String, String)> = Vec::new();
+    let mut imports_from_inlined: Vec<(String, String, Option<String>)> = Vec::new();
     let mut inlined_import_bindings = Vec::new();
     // Track wrapper module symbols that need placeholders (symbol_name, value_name)
     let mut wrapper_module_symbols_global_only: Vec<(String, String)> = Vec::new();
@@ -317,9 +318,12 @@ pub fn transform_module_to_init_function<'a>(
     if !imports_from_inlined.is_empty() || !wrapper_module_symbols_global_only.is_empty() {
         // Deduplicate by value name (what's actually in global scope) and sort for deterministic
         // output
+        // Only add symbols from NON-inlined modules to globals (they exist as bare symbols)
+        // Symbols from inlined modules will be accessed through their namespace
         let mut unique_imports: Vec<String> = imports_from_inlined
             .iter()
-            .map(|(_, value_name)| value_name.clone())
+            .filter(|(_, _, source_module)| source_module.is_none())
+            .map(|(_, value_name, _)| value_name.clone())
             .chain(
                 wrapper_module_symbols_global_only
                     .iter()
@@ -410,7 +414,7 @@ pub fn transform_module_to_init_function<'a>(
     // (e.g., the setattr pattern used by httpx and similar libraries)
 
     // Dedup and sort wildcard imports for deterministic output
-    let mut wildcard_attrs: Vec<(String, String)> = imports_from_inlined
+    let mut wildcard_attrs: Vec<(String, String, Option<String>)> = imports_from_inlined
         .iter()
         .cloned()
         .collect::<FxIndexSet<_>>()
@@ -418,13 +422,25 @@ pub fn transform_module_to_init_function<'a>(
         .collect();
     wildcard_attrs.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by exported name
 
-    for (exported_name, value_name) in wildcard_attrs {
+    for (exported_name, value_name, source_module) in wildcard_attrs {
         if bundler.should_export_symbol(&exported_name, ctx.module_name) {
+            // If the symbol comes from an inlined module, access it through the module's namespace
+            let value_expr = if let Some(ref module) = source_module {
+                // Access through the inlined module's namespace
+                let sanitized =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        module,
+                    );
+                format!("{sanitized}.{value_name}")
+            } else {
+                value_name.clone()
+            };
+
             body.push(
                 crate::code_generator::module_registry::create_module_attr_assignment_with_value(
                     SELF_PARAM,
                     &exported_name,
-                    &value_name,
+                    &value_expr,
                 ),
             );
         }
@@ -2975,7 +2991,7 @@ fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-    imports_from_inlined: &mut Vec<(String, String)>,
+    imports_from_inlined: &mut Vec<(String, String, Option<String>)>,
     _current_module: &str,
 ) -> Vec<(String, String)> {
     debug!("Processing wildcard import from inlined module '{module}'");
@@ -3051,7 +3067,12 @@ fn process_wildcard_import(
                         "Tracking wildcard-imported symbol '{symbol}' (value: '{value_name}') \
                          from inlined module '{module}'"
                     );
-                    imports_from_inlined.push((symbol.clone(), value_name));
+                    // Track the source module for proper namespace access
+                    imports_from_inlined.push((
+                        symbol.clone(),
+                        value_name,
+                        Some(module.to_string()),
+                    ));
                 } else {
                     debug!(
                         "Skipping wildcard-imported symbol '{symbol}' from inlined module \
@@ -3091,7 +3112,12 @@ fn process_wildcard_import(
                              '{original_name}') from inlined module '{module}'"
                         );
                         // For renamed symbols, use original as exported name, renamed as value
-                        imports_from_inlined.push((original_name.clone(), renamed_name.clone()));
+                        // Track the source module for proper namespace access
+                        imports_from_inlined.push((
+                            original_name.clone(),
+                            renamed_name.clone(),
+                            Some(module.to_string()),
+                        ));
                     } else {
                         debug!(
                             "Skipping wildcard-imported symbol '{renamed_name}' (renamed from \
@@ -3128,7 +3154,12 @@ fn process_wildcard_import(
                              from inlined module '{module}'"
                         );
                         // No rename, so exported name and value are the same
-                        imports_from_inlined.push((symbol.clone(), symbol.clone()));
+                        // Track the source module for proper namespace access
+                        imports_from_inlined.push((
+                            symbol.clone(),
+                            symbol.clone(),
+                            Some(module.to_string()),
+                        ));
                     } else {
                         debug!(
                             "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) \

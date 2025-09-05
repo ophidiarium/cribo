@@ -230,10 +230,19 @@ impl ModuleDepGraph {
         // Find the item that defines the symbol
         for item in self.items.values() {
             if item.defined_symbols.contains(symbol) {
+                log::trace!(
+                    "Checking if symbol '{}' uses import '{}' - read_vars: {:?}, \
+                     eventual_read_vars: {:?}",
+                    symbol,
+                    import_name,
+                    item.read_vars,
+                    item.eventual_read_vars
+                );
                 // Check if this item uses the import
                 if item.read_vars.contains(import_name)
                     || item.eventual_read_vars.contains(import_name)
                 {
+                    log::trace!("  Found: symbol '{symbol}' uses import '{import_name}'");
                     return true;
                 }
 
@@ -241,6 +250,10 @@ impl ModuleDepGraph {
                 if let Some(deps) = item.symbol_dependencies.get(symbol)
                     && deps.contains(import_name)
                 {
+                    log::trace!(
+                        "  Found in symbol_dependencies: symbol '{symbol}' uses import \
+                         '{import_name}'"
+                    );
                     return true;
                 }
             }

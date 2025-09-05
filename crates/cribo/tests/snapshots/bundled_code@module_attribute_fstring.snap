@@ -45,6 +45,7 @@ def _cribo_init___cribo_a9fdaa_mypackage(self):
     mypackage_utils = _cribo_init___cribo_dbce9e_mypackage_utils(mypackage_utils)
     get_version = mypackage.utils.get_version
     self.get_version = get_version
+    self.get_version = get_version
     self.constants = mypackage_constants
     self.constants = mypackage_constants
     self.__initialized__ = True

@@ -240,6 +240,13 @@ pub fn create_assignments_for_inlined_imports(
         let imported_name = alias.name.as_str();
         let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
+        // Skip wildcard imports - they are handled separately by the caller
+        // Wildcard imports don't create individual assignments in wrapper modules
+        if imported_name == "*" {
+            log::debug!("Skipping wildcard import from '{module_name}' - handled separately");
+            continue;
+        }
+
         // Check if we're importing a module itself (not a symbol from it)
         // This happens when the imported name refers to a submodule
         let full_module_path = format!("{module_name}.{imported_name}");
@@ -325,14 +332,20 @@ pub fn create_assignments_for_inlined_imports(
             // Check if this symbol was renamed during inlining
             let module_id = resolver.get_module_id_by_name(module_name);
 
-            // Check if the symbol was tree-shaken
-            if let Some(id) = module_id
+            // IMPORTANT: When we're inside a wrapper init function, we must not skip
+            // assignments based on tree-shaking. The wrapper's body may still reference
+            // these names (e.g., as base classes) even if they aren't exported or used
+            // by the entry module. Skipping here can lead to NameError at runtime.
+            // Therefore, only apply the tree-shaking check when we're NOT in a
+            // wrapper init context.
+            if !is_wrapper_init
+                && let Some(id) = module_id
                 && let Some(check_fn) = tree_shaking_check
                 && !check_fn(id, imported_name)
             {
                 log::debug!(
                     "Skipping assignment for tree-shaken symbol '{imported_name}' from module \
-                     '{module_name}'"
+                     '{module_name}' (outside wrapper init)"
                 );
                 continue;
             }

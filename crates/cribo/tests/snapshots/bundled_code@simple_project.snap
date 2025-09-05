@@ -38,6 +38,9 @@ def greet(name: str) -> str:
 def calculate(a: _cribo.typing.Union[int, float], b: _cribo.typing.Union[int, float]) -> _cribo.typing.Union[int, float]:
     """Calculate the sum of two numbers."""
     return a + b
+def get_system_info() -> dict:
+    """Get basic system information."""
+    return {"platform": _cribo.sys.platform, "python_version": _cribo.sys.version, "cwd": _cribo.os.getcwd()}
 utils_helpers.calculate = calculate
 utils_helpers.greet = greet
 """Utils package initialization."""

@@ -70,6 +70,7 @@ def _cribo_init___cribo_97cb47_foo(self):
     foo_boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
     helper_function = foo.boo.helper_function
     self.helper_function = helper_function
+    self.helper_function = helper_function
 
     def package_level_function(x):
         """A function at the package level that uses the imported helper."""
@@ -94,6 +95,7 @@ def _cribo_init___cribo_f2ecbb_foo_boo(self):
             setattr(foo, attr, getattr(__cribo_init_result, attr))
     foo_zoo = _cribo_init___cribo_83878b_foo_zoo(foo_zoo)
     Zoo = foo.zoo.Zoo
+    self.Zoo = Zoo
     self.Zoo = Zoo
 
     def helper_function(x):

@@ -38,9 +38,23 @@ def modify_foo():
     """Modify the module's global foo using global keyword."""
     global foo_3
     foo_3 = "module1_foo_modified"
+def set_foo_with_global(value):
+    """Set foo using global keyword."""
+    global foo_3
+    foo_3 = value
+def local_vs_global():
+    """Demonstrate local vs global scope."""
+    foo_3 = "local_foo"
+
+    def inner():
+        global foo_3
+        return foo_3
+    return foo_3, inner()
 module_global_keyword.foo = foo_3
 module_global_keyword.get_foo = get_foo
+module_global_keyword.local_vs_global = local_vs_global
 module_global_keyword.modify_foo = modify_foo
+module_global_keyword.set_foo_with_global = set_foo_with_global
 module_globals_dict = _cribo.types.SimpleNamespace(__name__='module_globals_dict', __initializing__=False, __initialized__=False)
 def _cribo_init___cribo_5101f4_module_globals_dict(self):
     if getattr(self, '__initialized__', False):

@@ -53,7 +53,9 @@ def _cribo_init___cribo_60bb0a_logger(self):
     """Logger module - has side effects (print), uses different aliased stdlib imports."""
     python_sys = _cribo.sys
     self.python_sys = python_sys
+    self.python_sys = python_sys
     log_lib = _cribo.logging
+    self.log_lib = log_lib
     self.log_lib = log_lib
     ODict = _cribo.collections.OrderedDict
     self.ODict = ODict

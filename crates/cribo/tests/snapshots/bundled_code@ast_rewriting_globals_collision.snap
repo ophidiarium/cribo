@@ -106,11 +106,13 @@ def _cribo_init___cribo_0ac752_core(self):
             setattr(core.utils, attr, getattr(__cribo_init_result, attr))
     core_process = core.utils.process
     self.core_process = core_process
+    self.core_process = core_process
     __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core.database, attr, getattr(__cribo_init_result, attr))
     CoreConnection = core.database.Connection
+    self.CoreConnection = CoreConnection
     self.CoreConnection = CoreConnection
     Logger = "core_logger_string"
     self.Logger = Logger
@@ -128,7 +130,9 @@ def _cribo_init___cribo_b7b3e3_core_database(self):
     core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
     Connection = core.database.connection.Connection
     self.Connection = Connection
+    self.Connection = Connection
     process = core.database.connection.process
+    self.process = process
     self.process = process
     validate = "db_package_validate"
     self.validate = validate
@@ -142,11 +146,11 @@ def _cribo_init___cribo_e52b1d_core_utils(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    process = core_utils_helpers.process
+    process = process_7
     core_utils.process = process
-    validate = core_utils_helpers.validate
+    validate = validate_6
     core_utils.validate = validate
-    Logger = core_utils_helpers.Logger
+    Logger = Logger_6
     core_utils.Logger = Logger
     User = "utils_user_string"
     self.User = User
@@ -245,7 +249,7 @@ def _cribo_init___cribo_0a162a_models_base(self):
     self.__initializing__ = True
     global _cribo_models_base_Connection
     """Base models module - imports only from core to avoid circular dependencies"""
-    util_validate = core_utils_helpers.validate
+    util_validate = validate_6
     models_base.util_validate = util_validate
     process = lambda x: f"base_process: {x}"
     self.process = process
@@ -305,10 +309,13 @@ def _cribo_init___cribo_293a98_models(self):
     models_user = _cribo_init___cribo_1f9e6c_models_user(models_user)
     User = models.user.User
     self.User = User
+    self.User = User
     process_user = models.user.process_user
+    self.process_user = process_user
     self.process_user = process_user
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     initialize = models.base.initialize
+    self.initialize = initialize
     self.initialize = initialize
     Logger = lambda x: f"models_logger_{x}"
     self.Logger = Logger
@@ -326,9 +333,9 @@ def _cribo_init___cribo_1f9e6c_models_user(self):
     self.__initializing__ = True
     global models_base
     """User models module - imports from core and base, no circular dependencies"""
-    util_process = core_utils_helpers.process
+    util_process = process_7
     models_user.util_process = util_process
-    UtilLogger = core_utils_helpers.Logger
+    UtilLogger = Logger_6
     models_user.UtilLogger = UtilLogger
     __cribo_init_result = _cribo_init___cribo_293a98_models(models)
     for attr in dir(__cribo_init_result):
@@ -336,6 +343,7 @@ def _cribo_init___cribo_1f9e6c_models_user(self):
             setattr(models, attr, getattr(__cribo_init_result, attr))
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     BaseLogger = models.base.Logger
+    self.BaseLogger = BaseLogger
     self.BaseLogger = BaseLogger
     process = "process_string"
     self.process = process
@@ -424,6 +432,7 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
     core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
     DBConnection = core.database.connection.Connection
     self.DBConnection = DBConnection
+    self.DBConnection = DBConnection
     sanitize = core_utils_helpers.sanitize
     services_auth_manager.sanitize = sanitize
     __cribo_init_result = _cribo_init___cribo_293a98_models(models)
@@ -432,6 +441,7 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
             setattr(models, attr, getattr(__cribo_init_result, attr))
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     base_init = models.base.initialize
+    self.base_init = base_init
     self.base_init = base_init
     process = [1, 2, 3]
     self.process = process
@@ -517,6 +527,7 @@ def _cribo_init___cribo_b2dda7_services(self):
             setattr(services.auth, attr, getattr(__cribo_init_result, attr))
     ServiceUser = services.auth.User
     self.ServiceUser = ServiceUser
+    self.ServiceUser = ServiceUser
     process = lambda x, y: f"services_process: {x}, {y}"
     self.process = process
     validate = "services_validate"
@@ -535,9 +546,12 @@ def _cribo_init___cribo_84bf42_services_auth(self):
     services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
     User = services.auth.manager.User
     self.User = User
+    self.User = User
     process = services.auth.manager.process
     self.process = process
+    self.process = process
     validate = services.auth.manager.validate
+    self.validate = validate
     self.validate = validate
     Connection = lambda: "auth_package_connection"
     self.Connection = Connection

@@ -325,7 +325,7 @@ pub(super) fn trim_unused_imports_from_modules(
 
                                 // Check if this import is only used by symbols that were
                                 // tree-shaken
-                                let used_by_surviving_code = submodule_needed
+                                let mut used_by_surviving_code = submodule_needed
                                     || is_import_used_by_surviving_symbols(
                                         &used_symbols,
                                         module_dep_graph,
@@ -336,6 +336,16 @@ pub(super) fn trim_unused_imports_from_modules(
                                         module_dep_graph,
                                         local_name,
                                     );
+
+                                // Also check if this import is used by symbols in __all__
+                                // These symbols might be exported even if not directly used
+                                if !used_by_surviving_code {
+                                    log::debug!(
+                                        "Checking if '{local_name}' is used by __all__ symbols"
+                                    );
+                                    used_by_surviving_code =
+                                        is_import_used_by_all_exports(module_dep_graph, local_name);
+                                }
 
                                 if !used_by_surviving_code {
                                     // This import is not used by any surviving symbol or
@@ -430,6 +440,16 @@ pub(super) fn trim_unused_imports_from_modules(
                                 );
                             }
 
+                            // Also check if this import is used by symbols in __all__
+                            // These symbols might be exported even if not directly used
+                            if !used_by_surviving_code {
+                                log::debug!(
+                                    "Checking if '{import_name}' is used by __all__ symbols"
+                                );
+                                used_by_surviving_code =
+                                    is_import_used_by_all_exports(module_dep_graph, import_name);
+                            }
+
                             if !used_by_surviving_code {
                                 log::debug!(
                                     "Import '{import_name}' from module '{module}' is not used by \
@@ -516,9 +536,62 @@ fn is_import_used_by_surviving_symbols(
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
-    used_symbols
-        .iter()
-        .any(|symbol| module_dep_graph.does_symbol_use_import(symbol, local_name))
+    log::debug!(
+        "Checking if any of {} surviving symbols use import '{}'",
+        used_symbols.len(),
+        local_name
+    );
+    let result = used_symbols.iter().any(|symbol| {
+        let uses = module_dep_graph.does_symbol_use_import(symbol, local_name);
+        if uses {
+            log::debug!("  Symbol '{symbol}' uses import '{local_name}'");
+        }
+        uses
+    });
+    if !result {
+        log::debug!("  No surviving symbols use import '{local_name}'");
+    }
+    result
+}
+
+/// Check if an import is used by any symbols in __all__ exports
+fn is_import_used_by_all_exports(
+    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    local_name: &str,
+) -> bool {
+    // Find __all__ assignment and get the exported symbols
+    let mut all_exports = Vec::new();
+    for (_item_id, item_data) in module_dep_graph.get_all_import_items() {
+        if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
+            && targets.contains(&"__all__".to_string())
+        {
+            // The eventual_read_vars contains the names in __all__
+            all_exports.extend(item_data.eventual_read_vars.iter().cloned());
+            break;
+        }
+    }
+
+    if all_exports.is_empty() {
+        return false;
+    }
+
+    log::debug!(
+        "Checking if import '{}' is used by any of {} __all__ symbols",
+        local_name,
+        all_exports.len()
+    );
+
+    // Check if any __all__ symbol uses this import
+    for export_name in all_exports {
+        let uses = module_dep_graph.does_symbol_use_import(&export_name, local_name);
+        if uses {
+            log::debug!("  __all__ symbol '{export_name}' uses import '{local_name}'");
+            return true;
+        }
+    }
+
+    log::debug!("  Import '{local_name}' is not used by any __all__ symbols");
+    false
 }
 
 /// Check if an import is used by module-level code with side effects

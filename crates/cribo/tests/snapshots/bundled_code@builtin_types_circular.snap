@@ -35,6 +35,8 @@ pkg.certs = pkg_certs
 pkg___version__ = _cribo.types.SimpleNamespace(__name__='pkg.__version__')
 pkg.__version__ = pkg___version__
 """Version info."""
+__version__ = "1.0.0"
+pkg___version__.__version__ = __version__
 pkg__internal_utils = _cribo.types.SimpleNamespace(__name__='pkg._internal_utils', __initializing__=False, __initialized__=False)
 pkg._internal_utils = pkg__internal_utils
 pkg_compat = _cribo.types.SimpleNamespace(__name__='pkg.compat', __initializing__=False, __initialized__=False)
@@ -65,11 +67,13 @@ def _cribo_init___cribo_b86557_pkg(self):
     pkg_utils = _cribo_init___cribo_70cac5_pkg_utils(pkg_utils)
     process_data = pkg.utils.process_data
     self.process_data = process_data
+    self.process_data = process_data
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
     pkg_sessions = _cribo_init___cribo_f4100a_pkg_sessions(pkg_sessions)
     Session = pkg.sessions.Session
+    self.Session = Session
     self.Session = Session
     self.__version__ = pkg___version__
     self.certs = pkg_certs
@@ -93,6 +97,7 @@ def _cribo_init___cribo_5a392a_pkg__internal_utils(self):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     builtin_str = pkg.compat.builtin_str
+    self.builtin_str = builtin_str
     self.builtin_str = builtin_str
     HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
     self.HEADER_VALIDATORS = HEADER_VALIDATORS
@@ -157,6 +162,7 @@ def _cribo_init___cribo_55aa63_pkg_models(self):
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
+    self.basestring = basestring
 
     class Request:
         """Request model."""
@@ -190,6 +196,7 @@ def _cribo_init___cribo_f4100a_pkg_sessions(self):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     OrderedDict = pkg.compat.OrderedDict
+    self.OrderedDict = OrderedDict
     self.OrderedDict = OrderedDict
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
@@ -231,6 +238,8 @@ def _cribo_init___cribo_70cac5_pkg_utils(self):
     """Utils module that matches requests.utils import pattern."""
     certs = pkg.certs
     self.certs = certs
+    __version__ = pkg___version__.__version__
+    pkg_utils.__version__ = __version__
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -238,7 +247,9 @@ def _cribo_init___cribo_70cac5_pkg_utils(self):
     pkg__internal_utils = _cribo_init___cribo_5a392a_pkg__internal_utils(pkg__internal_utils)
     HEADER_VALIDATORS = pkg._internal_utils.HEADER_VALIDATORS
     self.HEADER_VALIDATORS = HEADER_VALIDATORS
+    self.HEADER_VALIDATORS = HEADER_VALIDATORS
     to_native_string = pkg._internal_utils.to_native_string
+    self.to_native_string = to_native_string
     self.to_native_string = to_native_string
     __cribo_init_result = _cribo_init___cribo_b86557_pkg(pkg)
     for attr in dir(__cribo_init_result):
@@ -254,12 +265,16 @@ def _cribo_init___cribo_70cac5_pkg_utils(self):
     pkg_compat = _cribo_init___cribo_d78f34_pkg_compat(pkg_compat)
     basestring = pkg.compat.basestring
     self.basestring = basestring
+    self.basestring = basestring
     bytes = pkg.compat.bytes
     self.bytes = bytes
+    self.bytes = __import__('builtins').bytes
     integer_types = pkg.compat.integer_types
+    self.integer_types = integer_types
     self.integer_types = integer_types
     str = pkg.compat.str
     self.str = str
+    self.str = __import__('builtins').str
 
     def process_data(data):
         """Process data using compat.bytes attribute.\n\n    This will fail when bundled because the bundler skips 'bytes = bytes'\n    in compat's init function.\n    """

@@ -33,7 +33,9 @@ mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=
 mypackage.__version__ = mypackage___version__
 """Version information for the package."""
 __version__ = "3.0.0"
+__build__ = 196608
 mypackage___version__.__version__ = __version__
+mypackage___version__.__build__ = __build__
 """Main package module."""
 mypackage.__version__ = __version__
 mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils')

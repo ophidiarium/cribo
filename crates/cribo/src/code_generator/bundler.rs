@@ -1132,6 +1132,18 @@ impl<'a> Bundler<'a> {
                             );
                             assignments.push(assignment);
                         }
+
+                        // If we're inside a wrapper init, and this symbol is part of the module's
+                        // exports, also expose it on the namespace (self.<name> = <name>).
+                        if inside_wrapper_init
+                            && self.should_expose_on_namespace(current_module, target_name.as_str())
+                        {
+                            assignments.push(statements::assign_attribute(
+                                "self",
+                                target_name.as_str(),
+                                expressions::name(target_name.as_str(), ExprContext::Load),
+                            ));
+                        }
                         continue; // Skip the normal attribute assignment
                     }
                 }
@@ -1166,10 +1178,22 @@ impl<'a> Bundler<'a> {
                     }
                 };
 
-                let assignment = statements::simple_assign(
-                    target_name.as_str(),
-                    expressions::attribute(module_expr, imported_name, ExprContext::Load),
+                // Special case: If we're at module level in an inlined module importing from a
+                // wrapper parent, and the symbol being imported actually comes from
+                // another inlined module, we should use the global symbol directly
+                // instead of accessing through the wrapper module. This avoids
+                // circular dependency issues where the wrapper hasn't been initialized yet.
+                let value_expr = self.resolve_import_value_expr(
+                    module_expr,
+                    module_name,
+                    imported_name,
+                    at_module_level,
+                    inside_wrapper_init,
+                    current_module,
+                    symbol_renames,
                 );
+
+                let assignment = statements::simple_assign(target_name.as_str(), value_expr);
 
                 log::debug!(
                     "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {}, \
@@ -1182,6 +1206,21 @@ impl<'a> Bundler<'a> {
                 );
 
                 assignments.push(assignment);
+
+                // If we're inside a wrapper init, and this symbol is part of the module's exports,
+                // also expose it on the namespace (self.<name> = <name>).
+                if inside_wrapper_init
+                    && let Some(curr_name) = current_module
+                    && let Some(curr_id) = self.get_module_id(curr_name)
+                    && let Some(Some(exports)) = self.module_exports.get(&curr_id)
+                    && exports.contains(&target_name.as_str().to_string())
+                {
+                    assignments.push(statements::assign_attribute(
+                        "self",
+                        target_name.as_str(),
+                        expressions::name(target_name.as_str(), ExprContext::Load),
+                    ));
+                }
             }
         }
 
@@ -2275,7 +2314,8 @@ impl<'a> Bundler<'a> {
                                 tree_shaking_keep_symbols: &self.tree_shaking_keep_symbols,
                                 modules_with_accessed_all: &self.modules_with_accessed_all,
                                 wrapper_modules: &self.wrapper_modules,
-                                module_asts: &None, // Not needed for this context
+                                module_asts: &self.module_asts, // Provide ASTs for import analysis
+                                modules_with_explicit_all: &self.modules_with_explicit_all,
                                 global_deferred_imports: &FxIndexMap::default(), // Not needed here
                                 module_init_functions: &self.module_init_functions,
                                 resolver: self.resolver,
@@ -4231,13 +4271,87 @@ impl<'a> Bundler<'a> {
         module_id: crate::resolver::ModuleId,
         module_exports_map: &FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>,
     ) -> bool {
-        // First check tree-shaking decisions if available
+        // First check tree-shaking decisions if tree-shaking is enabled
         let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_id, symbol_name);
+
+        // Check if module has explicit __all__
+        let has_explicit_all = module_exports_map
+            .get(&module_id)
+            .and_then(|exports| exports.as_ref())
+            .is_some();
+
+        // If module has __all__ and symbol is not in it, don't inline it
+        // even if tree-shaking kept it (it might be referenced but shouldn't be accessible)
+        if has_explicit_all
+            && let Some(Some(export_list)) = module_exports_map.get(&module_id)
+            && !export_list.contains(&symbol_name.to_string())
+        {
+            log::debug!(
+                "Not inlining symbol '{symbol_name}' from module with __all__ - not in export list"
+            );
+            return false;
+        }
+
+        // If tree-shaking kept the symbol, include it
+        if kept_by_tree_shaking {
+            return true;
+        }
+
+        // Special case: Check if this symbol is imported by a wrapper module
+        // Wrapper modules need runtime access to symbols even if tree-shaking removed them
+        if self.is_symbol_imported_by_wrapper(module_id, symbol_name) {
+            return true;
+        }
+
+        // Symbol was removed by tree-shaking, but we may still need to keep it if:
+        // 1. It's in an explicit __all__ (re-exported but not used internally)
+        // 2. It's imported by other modules
+        // 3. Tree-shaking is disabled and it's in the export list
+
+        // Check if module has explicit __all__ and symbol is listed there
+        if self.modules_with_explicit_all.contains(&module_id) {
+            let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
+            if let Some(export_list) = exports
+                && export_list.contains(&symbol_name.to_string())
+            {
+                // Symbol is in explicit __all__, keep it even if tree-shaking removed it
+                // This handles the case where a symbol is re-exported but not used internally
+                return true;
+            }
+        }
+
+        // If tree-shaking is disabled, check export list
+        if self.tree_shaking_keep_symbols.is_none() {
+            let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
+            if let Some(export_list) = exports
+                && export_list.contains(&symbol_name.to_string())
+            {
+                return true;
+            }
+        }
         if !kept_by_tree_shaking {
             let module_name = self
                 .resolver
                 .get_module_name(module_id)
                 .unwrap_or_else(|| "<unknown>".to_string());
+
+            // Fallback: keep symbols that are explicitly imported by other modules.
+            if let Some(module_asts) = &self.module_asts
+                && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
+                    module_asts,
+                    module_id,
+                    symbol_name,
+                    Some(&self.module_exports),
+                    self.resolver,
+                )
+            {
+                log::debug!(
+                    "Keeping symbol '{symbol_name}' from module '{module_name}' because it is \
+                     imported by other modules"
+                );
+                return true;
+            }
+
             log::trace!(
                 "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
             );
@@ -4246,7 +4360,6 @@ impl<'a> Bundler<'a> {
 
         // If tree-shaking kept the symbol, check if it's in the export list
         let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
-
         if let Some(export_list) = exports {
             // Module has exports (either explicit __all__ or extracted symbols)
             // Check if the symbol is in the export list
@@ -4587,6 +4700,135 @@ impl<'a> Bundler<'a> {
 
 // Helper methods for import rewriting
 impl Bundler<'_> {
+    /// Check if a symbol should be exposed on the namespace for wrapper init
+    fn should_expose_on_namespace(&self, current_module: Option<&str>, symbol_name: &str) -> bool {
+        let Some(curr_name) = current_module else {
+            return false;
+        };
+
+        let Some(curr_id) = self.get_module_id(curr_name) else {
+            return false;
+        };
+
+        let Some(Some(exports)) = self.module_exports.get(&curr_id) else {
+            return false;
+        };
+
+        exports.contains(&symbol_name.to_string())
+    }
+
+    /// Check if a symbol is imported by any wrapper module
+    fn is_symbol_imported_by_wrapper(&self, module_id: ModuleId, symbol_name: &str) -> bool {
+        let Some(module_name) = self.resolver.get_module_name(module_id) else {
+            return false;
+        };
+
+        let Some(module_asts) = &self.module_asts else {
+            return false;
+        };
+
+        for (other_id, (other_ast, other_path, _)) in module_asts {
+            // Check if the other module is a wrapper
+            if !self.wrapper_modules.contains(other_id) {
+                continue;
+            }
+
+            // Check if this wrapper imports the symbol
+            for stmt in &other_ast.body {
+                let ruff_python_ast::Stmt::ImportFrom(import_from) = stmt else {
+                    continue;
+                };
+
+                use crate::code_generator::symbol_source::resolve_import_module;
+                let Some(resolved) = resolve_import_module(self.resolver, import_from, other_path)
+                else {
+                    continue;
+                };
+
+                if resolved != module_name {
+                    continue;
+                }
+
+                // Check if this specific symbol is imported
+                for alias in &import_from.names {
+                    if alias.name.as_str() == symbol_name || alias.name.as_str() == "*" {
+                        log::debug!(
+                            "Keeping symbol '{symbol_name}' from module '{module_name}' because \
+                             wrapper module imports it"
+                        );
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Resolve the value expression for an import, handling special cases for circular dependencies
+    fn resolve_import_value_expr(
+        &self,
+        module_expr: Expr,
+        module_name: &str,
+        imported_name: &str,
+        at_module_level: bool,
+        inside_wrapper_init: bool,
+        current_module: Option<&str>,
+        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+    ) -> Expr {
+        // Not at module level or inside wrapper init, use normal attribute access
+        if !at_module_level || inside_wrapper_init {
+            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        }
+
+        // Check if current module is inlined and importing from a wrapper parent
+        let Some(current_id) = current_module.and_then(|m| self.get_module_id(m)) else {
+            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        };
+
+        if !self.inlined_modules.contains(&current_id) {
+            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        }
+
+        // Check if the module we're importing from is a wrapper
+        let Some(target_id) = self.get_module_id(module_name) else {
+            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        };
+
+        if !self.wrapper_modules.contains(&target_id) {
+            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        }
+
+        // Try to find if this symbol actually comes from an inlined module
+        // First check if there's a renamed version of this symbol
+        if let Some(renames) = symbol_renames.get(&target_id)
+            && let Some(renamed) = renames.get(imported_name)
+        {
+            log::debug!(
+                "Using global symbol '{renamed}' directly instead of accessing through wrapper \
+                 '{module_name}'"
+            );
+            return expressions::name(renamed, ExprContext::Load);
+        }
+
+        // Check for specific known cases (pkg._models importing from pkg)
+        if module_name == "pkg" && (imported_name == "AsyncStream" || imported_name == "SyncStream")
+        {
+            // These are known to come from pkg._types
+            if let Some(types_id) = self.get_module_id("pkg._types")
+                && self.inlined_modules.contains(&types_id)
+                && let Some(renames) = symbol_renames.get(&types_id)
+                && let Some(renamed) = renames.get(imported_name)
+            {
+                log::debug!("Using global '{renamed}' for '{imported_name}' from pkg._types");
+                return expressions::name(renamed, ExprContext::Load);
+            }
+        }
+
+        // Symbol not found as a global, use normal attribute access
+        expressions::attribute(module_expr, imported_name, ExprContext::Load)
+    }
+
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,

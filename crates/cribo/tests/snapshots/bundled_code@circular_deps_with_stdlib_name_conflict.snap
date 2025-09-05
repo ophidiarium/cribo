@@ -50,11 +50,14 @@ def _cribo_init___cribo_6b1af6_pkg(self):
     pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
     Console = pkg.console.Console
     self.Console = Console
+    self.Console = Console
     pkg_pretty = _cribo_init___cribo_2353ad_pkg_pretty(pkg_pretty)
     PrettyPrinter = pkg.pretty.PrettyPrinter
     self.PrettyPrinter = PrettyPrinter
+    self.PrettyPrinter = PrettyPrinter
     pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
     RichRenderable = pkg.abc.RichRenderable
+    self.RichRenderable = RichRenderable
     self.RichRenderable = RichRenderable
     self.__initialized__ = True
     self.__initializing__ = False
@@ -94,6 +97,7 @@ def _cribo_init___cribo_5f60be_pkg_abc(self):
     pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
     ConsoleBase = pkg.console.ConsoleBase
     self.ConsoleBase = ConsoleBase
+    self.ConsoleBase = ConsoleBase
 
     class RenderableWithConsole(RichRenderable):
         """A renderable that needs a console reference."""
@@ -120,6 +124,7 @@ def _cribo_init___cribo_02808e_pkg_color(self):
     global pkg_console, pkg_style
     """Color module that participates in circular dependencies."""
     typing = _cribo.typing
+    self.typing = typing
     self.typing = typing
     Optional = _cribo.typing.Optional
     self.Optional = Optional
@@ -189,6 +194,7 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
     """Console module that has circular dependencies with abc and pretty."""
     sys = _cribo.sys
     self.sys = sys
+    self.sys = sys
     Any = _cribo.typing.Any
     self.Any = Any
     Optional = _cribo.typing.Optional
@@ -206,6 +212,7 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
     pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
     RichRenderable = pkg.abc.RichRenderable
     self.RichRenderable = RichRenderable
+    self.RichRenderable = RichRenderable
     __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
@@ -213,12 +220,14 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
     pkg_style = _cribo_init___cribo_4c91ba_pkg_style(pkg_style)
     Style = pkg.style.Style
     self.Style = Style
+    self.Style = Style
     __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_color = _cribo_init___cribo_02808e_pkg_color(pkg_color)
     Color = pkg.color.Color
+    self.Color = Color
     self.Color = Color
 
     class Console(ConsoleBase):
@@ -250,6 +259,7 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
     pkg_pretty = _cribo_init___cribo_2353ad_pkg_pretty(pkg_pretty)
     format_pretty = pkg.pretty.format_pretty
     self.format_pretty = format_pretty
+    self.format_pretty = format_pretty
 
     def format_with_pretty(console: Console, obj: _cribo.typing.Any) -> str:
         """Format object using pretty printer."""
@@ -278,12 +288,14 @@ def _cribo_init___cribo_2353ad_pkg_pretty(self):
     pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
     RichRenderable = pkg.abc.RichRenderable
     self.RichRenderable = RichRenderable
+    self.RichRenderable = RichRenderable
     __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
     Console = pkg.console.Console
+    self.Console = Console
     self.Console = Console
 
     class PrettyPrinter(RichRenderable):
@@ -331,6 +343,7 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_color = _cribo_init___cribo_02808e_pkg_color(pkg_color)
     Color = pkg.color.Color
+    self.Color = Color
     self.Color = Color
 
     class Style:

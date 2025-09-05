@@ -49,8 +49,10 @@ def _cribo_init___cribo_370515_mypackage(self):
     mypackage_utils = _cribo_init___cribo_35f1d1_mypackage_utils(mypackage_utils)
     get_version_info = mypackage.utils.get_version_info
     self.get_version_info = get_version_info
+    self.get_version_info = get_version_info
     mypackage_core = _cribo_init___cribo_e49d78_mypackage_core(mypackage_core)
     process_data = mypackage.core.process_data
+    self.process_data = process_data
     self.process_data = process_data
 
     def get_full_info():

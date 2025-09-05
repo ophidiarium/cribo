@@ -38,6 +38,7 @@ def _cribo_init___cribo_244765_compat_module(self):
     """\nModule that mimics requests.compat structure.\nNo __all__ defined, so all non-underscore symbols should be exported.\n"""
     sys = _cribo.sys
     self.sys = sys
+    self.sys = sys
     _ver = _cribo.sys.version_info
     self._ver = _ver
     is_py2 = _ver[0] == 2
@@ -54,6 +55,7 @@ def _cribo_init___cribo_244765_compat_module(self):
     except ImportError:
         json = _cribo.json
         compat_module.json = json
+        self.json = json
     if has_simplejson:
         from simplejson import JSONDecodeError
         compat_module.JSONDecodeError = JSONDecodeError
@@ -91,11 +93,22 @@ def _cribo_init___cribo_244765_compat_module(self):
 compat_module.__init__ = _cribo_init___cribo_244765_compat_module
 exceptions_module = _cribo.types.SimpleNamespace(__name__='exceptions_module')
 """Module that uses imports from compat_module (like requests.exceptions)."""
+compat_module = compat_module.__init__(compat_module)
+CompatJSONDecodeError = compat_module.JSONDecodeError
 class BaseError(Exception):
     """Base error class."""
     pass
 BaseError.__module__ = 'exceptions_module'
+class JSONDecodeError(BaseError, compat_module.JSONDecodeError):
+    """JSON decode error that inherits from both base and compat JSONDecodeError."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with compat JSONDecodeError first."""
+        compat_module.JSONDecodeError.__init__(self, *args)
+        BaseError.__init__(self, *self.args, **kwargs)
+JSONDecodeError.__module__ = 'exceptions_module'
 exceptions_module.BaseError = BaseError
+exceptions_module.JSONDecodeError = JSONDecodeError
 """Test conditional imports and exports without explicit __all__."""
 compat_module = _cribo_init___cribo_244765_compat_module(compat_module)
 print("compat_module has JSONDecodeError:", hasattr(compat_module, "JSONDecodeError"))

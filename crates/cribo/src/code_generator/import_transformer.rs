@@ -17,6 +17,27 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
+/// Collect assigned variable names from an assignment target expression.
+/// Supports simple names and destructuring via tuples/lists.
+fn collect_assigned_names(target: &Expr, out: &mut FxIndexSet<String>) {
+    match target {
+        Expr::Name(name) => {
+            out.insert(name.id.as_str().to_string());
+        }
+        Expr::Tuple(t) => {
+            for elt in &t.elts {
+                collect_assigned_names(elt, out);
+            }
+        }
+        Expr::List(l) => {
+            for elt in &l.elts {
+                collect_assigned_names(elt, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Parameters for creating a `RecursiveImportTransformer`
 #[derive(Debug)]
 pub struct RecursiveImportTransformerParams<'a> {
@@ -66,6 +87,8 @@ pub struct RecursiveImportTransformer<'a> {
     /// Track whether we're at module level (false when inside any local scope like function,
     /// class, etc.)
     at_module_level: bool,
+    /// Track names on the LHS of the current assignment while transforming its RHS.
+    current_assignment_targets: Option<FxIndexSet<String>>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -269,6 +292,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                     range,
                 }));
             }
+            // Avoid collapsing to bare name if it would create self-referential assignment
+            if let Some(lhs) = &self.current_assignment_targets
+                && lhs.contains(attr_name)
+            {
+                log::debug!(
+                    "Skipping collapse of {base}.{attr_name} to avoid self-referential assignment"
+                );
+                return None;
+            }
             log::debug!("Rewrote {base}.{attr_name} to {attr_name} (not renamed)");
             return Some(Expr::Name(ExprName {
                 node_index: AtomicNodeIndex::dummy(),
@@ -286,6 +318,14 @@ impl<'a> RecursiveImportTransformer<'a> {
             .and_then(|opt| opt.as_ref())
             .is_some_and(|exports| exports.contains(&attr_name.to_string()))
         {
+            if let Some(lhs) = &self.current_assignment_targets
+                && lhs.contains(attr_name)
+            {
+                log::debug!(
+                    "Skipping collapse of {base}.{attr_name} (exported) to avoid self-reference"
+                );
+                return None;
+            }
             log::debug!("Rewrote {base}.{attr_name} to {attr_name} (exported by module)");
             return Some(Expr::Name(ExprName {
                 node_index: AtomicNodeIndex::dummy(),
@@ -500,6 +540,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             imported_stdlib_modules: FxIndexSet::default(),
             python_version: params.python_version,
             at_module_level: true,
+            current_assignment_targets: None,
         }
     }
 
@@ -740,6 +781,74 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // For non-import statements, recurse into nested structures and transform
                 // expressions
                 match &mut stmts[i] {
+                    Stmt::Assign(assign_stmt) => {
+                        // Track assignment LHS names to prevent collapsing RHS to self
+                        let mut lhs_names: FxIndexSet<String> = FxIndexSet::default();
+                        for target in &assign_stmt.targets {
+                            collect_assigned_names(target, &mut lhs_names);
+                        }
+
+                        let saved_targets = self.current_assignment_targets.clone();
+                        self.current_assignment_targets = if lhs_names.is_empty() {
+                            None
+                        } else {
+                            Some(lhs_names)
+                        };
+
+                        // First check if this is an assignment from importlib.import_module()
+                        let mut importlib_module = None;
+                        if let Expr::Call(call) = &assign_stmt.value.as_ref()
+                            && self.is_importlib_import_module_call(call)
+                        {
+                            // Get the module name from the call
+                            if let Some(arg) = call.arguments.args.first()
+                                && let Expr::StringLiteral(lit) = arg
+                            {
+                                let module_name = lit.value.to_str();
+                                // Only track if it's an inlined module (not a wrapper module)
+                                if self
+                                    .bundler
+                                    .get_module_id(module_name)
+                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                                {
+                                    importlib_module = Some(module_name.to_string());
+                                }
+                            }
+                        }
+
+                        // Track local variable assignments and importlib modules
+                        for target in &assign_stmt.targets {
+                            if let Expr::Name(name) = target {
+                                let var_name = name.id.to_string();
+                                self.local_variables.insert(var_name.clone());
+
+                                // If this was an importlib.import_module assignment, add to
+                                // tracking
+                                if let Some(module_name) = &importlib_module {
+                                    self.importlib_inlined_modules
+                                        .insert(var_name.clone(), module_name.clone());
+                                    log::debug!(
+                                        "Tracking importlib module assignment: {var_name} = \
+                                         importlib.import_module('{module_name}')"
+                                    );
+                                }
+                            }
+                        }
+
+                        // Transform the targets
+                        for target in &mut assign_stmt.targets {
+                            self.transform_expr(target);
+                        }
+
+                        // Transform the RHS
+                        self.transform_expr(&mut assign_stmt.value);
+
+                        // Restore previous context
+                        self.current_assignment_targets = saved_targets;
+
+                        i += 1;
+                        continue;
+                    }
                     Stmt::FunctionDef(func_def) => {
                         log::debug!(
                             "RecursiveImportTransformer: Entering function '{}'",
@@ -939,51 +1048,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                         if let Some(value) = &mut ann_assign.value {
                             self.transform_expr(value);
                         }
-                    }
-                    Stmt::Assign(assign) => {
-                        // First check if this is an assignment from importlib.import_module()
-                        let mut importlib_module = None;
-                        if let Expr::Call(call) = &assign.value.as_ref()
-                            && self.is_importlib_import_module_call(call)
-                        {
-                            // Get the module name from the call
-                            if let Some(arg) = call.arguments.args.first()
-                                && let Expr::StringLiteral(lit) = arg
-                            {
-                                let module_name = lit.value.to_str();
-                                // Only track if it's an inlined module (not a wrapper module)
-                                if self
-                                    .bundler
-                                    .get_module_id(module_name)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                                {
-                                    importlib_module = Some(module_name.to_string());
-                                }
-                            }
-                        }
-
-                        // Track local variable assignments
-                        for target in &assign.targets {
-                            if let Expr::Name(name) = target {
-                                let var_name = name.id.to_string();
-                                self.local_variables.insert(var_name.clone());
-
-                                // If this was assigned from importlib.import_module() of an inlined
-                                // module, track it specially
-                                if let Some(module) = &importlib_module {
-                                    log::debug!(
-                                        "Tracking importlib assignment: {var_name} = \
-                                         importlib.import_module('{module}') [inlined module]"
-                                    );
-                                    self.importlib_inlined_modules
-                                        .insert(var_name, module.clone());
-                                }
-                            }
-                        }
-                        for target in &mut assign.targets {
-                            self.transform_expr(target);
-                        }
-                        self.transform_expr(&mut assign.value);
                     }
                     Stmt::AugAssign(aug_assign) => {
                         self.transform_expr(&mut aug_assign.target);
@@ -1253,14 +1317,46 @@ impl<'a> RecursiveImportTransformer<'a> {
                 module_name.clone()
             };
 
+            // 1) Create local alias: local = _cribo.<stdlib_module>
             let proxy_path = format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
             let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
             let value_expr =
                 crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
             let target =
                 crate::ast_builder::expressions::name(local_name.as_str(), ExprContext::Store);
-            let assign_stmt = crate::ast_builder::statements::assign(vec![target], value_expr);
-            assignments.push(assign_stmt);
+            assignments.push(crate::ast_builder::statements::assign(
+                vec![target],
+                value_expr,
+            ));
+
+            // 2) Set module attribute: <current_module>.<local> = <local>
+            // In wrapper init functions, use "self" instead of the module name
+            let module_var = if self.is_wrapper_init {
+                "self".to_string()
+            } else {
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    &self.get_module_name(),
+                )
+            };
+            assignments.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    &module_var,
+                    local_name.as_str(),
+                ),
+            );
+
+            // 3) Optionally expose on self if part of exports (__all__) for this module
+            // Skip this for wrapper init since we already added it above
+            if !self.is_wrapper_init
+                && let Some(Some(exports)) = self.bundler.module_exports.get(&self.module_id)
+                && exports.contains(&local_name)
+            {
+                assignments.push(crate::ast_builder::statements::assign_attribute(
+                    "self",
+                    local_name.as_str(),
+                    crate::ast_builder::expressions::name(local_name.as_str(), ExprContext::Load),
+                ));
+            }
         }
 
         assignments
@@ -2193,8 +2289,24 @@ impl<'a> RecursiveImportTransformer<'a> {
                         );
                     }
 
-                    // Return the initialization statements
-                    // All usages will be rewritten to use the fully qualified name
+                    // Defer to the standard bundled-wrapper transformation to generate proper
+                    // alias assignments and ensure initialization ordering. This keeps behavior
+                    // consistent and avoids missing local aliases needed for class bases.
+                    // The rewrite_import_from will handle creating the proper assignments
+                    // after the wrapper module is initialized.
+                    let mut result = rewrite_import_from(RewriteImportFromParams {
+                        bundler: self.bundler,
+                        import_from: import_from.clone(),
+                        current_module: &self.get_module_name(),
+                        module_path: self.get_module_path().as_deref(),
+                        symbol_renames: self.symbol_renames,
+                        inside_wrapper_init: self.is_wrapper_init,
+                        at_module_level: self.at_module_level,
+                        python_version: self.python_version,
+                    });
+
+                    // Prepend the init statements to ensure wrapper is initialized before use
+                    init_stmts.append(&mut result);
                     return init_stmts;
                 }
                 // For wrapper modules importing from other wrapper modules,
@@ -3231,6 +3343,7 @@ fn create_namespace_population_context<'a>(
         bundled_modules: &bundler.bundled_modules,
         modules_with_accessed_all: &bundler.modules_with_accessed_all,
         wrapper_modules: &bundler.wrapper_modules,
+        modules_with_explicit_all: &bundler.modules_with_explicit_all,
         module_asts: &bundler.module_asts,
         global_deferred_imports: &bundler.global_deferred_imports,
         module_init_functions: &bundler.module_init_functions,
@@ -3617,17 +3730,14 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                 symbol_name.clone()
             };
 
-            // For wildcard imports, create assignments only when necessary
+            // For wildcard imports, we always need to create assignments for renamed symbols
+            // For non-renamed symbols, we only skip assignment if they're actually available
+            // in the current scope (i.e., they are in the module_exports list which respects
+            // __all__)
             if renamed_symbol == *symbol_name {
-                // Symbol wasn't renamed - skip creating self-referential assignments
-                // When importing from an inlined module, the symbols are already
-                // defined in the current scope from the inlining process.
-                // Creating assignments like `BaseLoader = BaseLoader` is unnecessary
-                // and can cause forward reference errors.
-                log::debug!(
-                    "Skipping self-referential assignment for non-renamed symbol '{symbol_name}' \
-                     from inlined module"
-                );
+                // Symbol wasn't renamed - it's already accessible in scope for symbols
+                // that are in module_exports (which respects __all__)
+                log::debug!("Symbol '{symbol_name}' is accessible directly from inlined module");
             } else {
                 // Symbol was renamed, create an alias assignment
                 result_stmts.push(statements::simple_assign(
@@ -3736,11 +3846,15 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             symbol_renames.get(&source_module_id)
         );
 
-        // Check if the source symbol was tree-shaken
-        if !bundler.is_symbol_kept_by_tree_shaking(source_module_id, imported_name) {
+        // Check if the source symbol was tree-shaken.
+        // IMPORTANT: Do not skip symbols in wrapper init functions (__init__.py).
+        // Re-exports from package __init__ must be preserved even if not used by entry.
+        if !is_wrapper_init
+            && !bundler.is_symbol_kept_by_tree_shaking(source_module_id, imported_name)
+        {
             log::debug!(
                 "Skipping import assignment for tree-shaken symbol '{imported_name}' from module \
-                 '{module_name}'"
+                 '{module_name}' (non-wrapper context)"
             );
             continue;
         }
@@ -3757,24 +3871,30 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             // 2. We're importing from an inlined module (need to access through namespace)
             if local_name != renamed_symbol || is_from_inlined {
                 // When importing from an inlined module inside a wrapper init,
-                // the symbol needs to be qualified with the module's namespace
+                // prefer qualifying with the module's namespace when the names are identical
+                // to avoid creating a self-referential assignment like `x = x`.
                 let source_expr = if is_from_inlined {
-                    // The module is inlined, so its symbols are attached to a namespace object
-                    let sanitized_module =
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            &module_name,
+                    if local_name == renamed_symbol {
+                        let module_namespace =
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                &module_name,
+                            );
+                        log::debug!(
+                            "Creating local alias from namespace: {local_name} = \
+                             {module_namespace}.{imported_name}"
                         );
-                    // Use the ORIGINAL imported name, not the renamed one, because that's how it's
-                    // stored on the namespace
-                    log::debug!(
-                        "Creating local alias with qualified name: {local_name} = \
-                         {sanitized_module}.{imported_name} (renamed from {renamed_symbol})"
-                    );
-                    expressions::attribute(
-                        expressions::name(&sanitized_module, ExprContext::Load),
-                        imported_name,
-                        ExprContext::Load,
-                    )
+                        expressions::attribute(
+                            expressions::name(&module_namespace, ExprContext::Load),
+                            imported_name,
+                            ExprContext::Load,
+                        )
+                    } else {
+                        log::debug!(
+                            "Creating local alias from global symbol: {local_name} = \
+                             {renamed_symbol} (imported from inlined module {module_name})"
+                        );
+                        expressions::name(&renamed_symbol, ExprContext::Load)
+                    }
                 } else {
                     log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
                     expressions::name(&renamed_symbol, ExprContext::Load)
@@ -3810,6 +3930,17 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                         attr_value,
                     ),
                 );
+
+                // Also expose on the namespace (self.<name> = <name>) so that
+                // dir(__cribo_init_result) copies include it. Skip for imports coming from
+                // inlined modules to avoid redundant assignments inside inlined init functions.
+                if !is_from_inlined {
+                    result_stmts.push(statements::assign_attribute(
+                        "self",
+                        local_name,
+                        expressions::name(local_name, ExprContext::Load),
+                    ));
+                }
             } else {
                 log::warn!(
                     "is_wrapper_init is true but current_module is None, skipping module \

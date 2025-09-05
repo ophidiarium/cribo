@@ -58,6 +58,7 @@ def exported_from_init():
 nested_package.exported_from_init = exported_from_init
 conflict_module = _cribo.types.SimpleNamespace(__name__='conflict_module')
 message_1 = "from conflict_module"
+SHARED_NAME = "conflict_module_version"
 conflict_module.message = message_1
 message = conflict_module.message
 print("Testing simple module exports:")

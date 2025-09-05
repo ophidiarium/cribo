@@ -56,6 +56,7 @@ def _cribo_init___cribo_9a2a8c_mypkg(self):
     """Package with modules including one named 'abc' (same as stdlib)."""
     abc = mypkg.abc
     self.abc = abc
+    self.abc = abc
     mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
     console = mypkg.console
     self.console = console
@@ -72,19 +73,25 @@ def _cribo_init___cribo_6558da_mypkg_console(self):
     """Console module that imports various stdlib modules."""
     abc = _cribo.abc
     self.abc = abc
+    self.abc = abc
     typing = _cribo.typing
+    self.typing = typing
     self.typing = typing
     enum = _cribo.enum
     self.enum = enum
+    self.enum = enum
     threading = _cribo.threading
     self.threading = threading
+    self.threading = threading
     ctypes = _cribo.ctypes
+    self.ctypes = ctypes
     self.ctypes = ctypes
     __cribo_init_result = _cribo_init___cribo_9a2a8c_mypkg(mypkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(mypkg, attr, getattr(__cribo_init_result, attr))
     local_abc = mypkg.abc
+    self.local_abc = local_abc
     self.local_abc = local_abc
 
     def test_function():

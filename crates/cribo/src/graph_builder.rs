@@ -391,9 +391,15 @@ impl<'a> GraphBuilder<'a> {
 
         let mut attribute_accesses = FxIndexMap::default();
         if let Some(arguments) = &class_def.arguments {
+            log::debug!(
+                "Class {} has {} base classes",
+                class_name,
+                arguments.args.len()
+            );
             for arg in &arguments.args {
                 self.collect_vars_in_expr_with_attrs(arg, &mut read_vars, &mut attribute_accesses);
             }
+            log::debug!("Class {class_name} base class read_vars: {read_vars:?}");
             // Collect variables from keyword arguments (e.g., metaclass=ABCMeta)
             for kw in &arguments.keywords {
                 self.collect_vars_in_expr_with_attrs(

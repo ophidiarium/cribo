@@ -73,13 +73,13 @@ def _cribo_init___cribo_1fb248_pkg(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global AsyncStream, SyncStream
-    self.AsyncStream = AsyncStream
-    self.SyncStream = SyncStream
+    self.AsyncStream = pkg__types.AsyncStream
+    self.SyncStream = pkg__types.SyncStream
     global pkg__client, pkg__main
     """Package that sets __module__ on all exported items, like httpx does."""
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
     Client = pkg._client.Client
+    self.Client = Client
     self.Client = Client
     Request = pkg__models.Request
     pkg.Request = Request
@@ -87,6 +87,7 @@ def _cribo_init___cribo_1fb248_pkg(self):
     pkg.Response = Response
     pkg__main = _cribo_init___cribo_fc6bcd_pkg__main(pkg__main)
     main = pkg._main.main
+    self.main = main
     self.main = main
     __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
     __locals = vars(pkg)
@@ -117,7 +118,9 @@ def _cribo_init___cribo_7e63ae_pkg__client(self):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     AsyncStream = pkg.AsyncStream
     self.AsyncStream = AsyncStream
+    self.AsyncStream = AsyncStream
     SyncStream = pkg.SyncStream
+    self.SyncStream = SyncStream
     self.SyncStream = SyncStream
     Request = pkg__models.Request
     pkg__client.Request = Request
@@ -156,6 +159,7 @@ def _cribo_init___cribo_fc6bcd_pkg__main(self):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
     Client = pkg._client.Client
+    self.Client = Client
     self.Client = Client
 
     def main():

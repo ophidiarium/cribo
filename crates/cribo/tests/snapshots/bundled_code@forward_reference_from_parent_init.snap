@@ -61,7 +61,11 @@ class MyClass:
     def __repr__(self):
         return f"MyClass(value={self.value})"
 MyClass.__module__ = 'parent.child'
+def helper_function():
+    """A helper function."""
+    return "helper"
 parent_child.MyClass = MyClass
+parent_child.helper_function = helper_function
 parent_subpkg_submodule = _cribo.types.SimpleNamespace(__name__='parent.subpkg.submodule')
 parent_subpkg = _cribo.types.SimpleNamespace(__name__='parent.subpkg', __initializing__=False, __initialized__=False, __path__=[])
 parent.subpkg = parent_subpkg
@@ -87,6 +91,8 @@ def _cribo_init___cribo_710264_parent(self):
     parent.AnotherClass = AnotherClass
     MyClass = parent_child.MyClass
     parent.MyClass = MyClass
+    helper_function = parent_child.helper_function
+    parent.helper_function = helper_function
     __cribo_init_result = _cribo_init___cribo_0ac738_parent_subpkg(parent_subpkg)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):

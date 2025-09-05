@@ -46,6 +46,7 @@ def _cribo_init___cribo_e43fad_conditional_module(self):
     except ImportError:
         json = _cribo.json
         conditional_module.json = json
+        self.json = json
     if has_simplejson:
         from simplejson import JSONDecodeError
         conditional_module.JSONDecodeError = JSONDecodeError
@@ -53,6 +54,7 @@ def _cribo_init___cribo_e43fad_conditional_module(self):
         JSONDecodeError = _cribo.json.JSONDecodeError
         conditional_module.JSONDecodeError = JSONDecodeError
     sys = _cribo.sys
+    self.sys = sys
     self.sys = sys
     if _cribo.sys.version_info[0] >= 3:
         builtin_str = str
@@ -106,6 +108,7 @@ def _cribo_init___cribo_17f1ec_try_except_module(self):
         try:
             etree = _cribo.xml.etree.ElementTree
             try_except_module.etree = etree
+            self.etree = etree
             ETREE_VERSION = "stdlib"
             try_except_module.ETREE_VERSION = ETREE_VERSION
         except ImportError:
@@ -123,6 +126,7 @@ def _cribo_init___cribo_17f1ec_try_except_module(self):
         try:
             ET = _cribo.xml.etree.ElementTree
             try_except_module.ET = ET
+            self.ET = ET
             parser_backend = "ElementTree"
             try_except_module.parser_backend = parser_backend
         except ImportError:

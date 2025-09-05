@@ -66,7 +66,9 @@ def _cribo_init___cribo_5676b5_real_a(self):
 
     def unused_with_stdlib():
         json = _cribo.json
+        self.json = json
         os = _cribo.os
+        self.os = os
         return _cribo.json.dumps({"path": _cribo.os.getcwd()})
     self.unused_with_stdlib = unused_with_stdlib
     self.__initialized__ = True
@@ -91,6 +93,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     def continue_chain():
         global real_b
         from_d = real_b.from_d
+        self.from_d = from_d
         return from_d()
     self.continue_chain = continue_chain
 

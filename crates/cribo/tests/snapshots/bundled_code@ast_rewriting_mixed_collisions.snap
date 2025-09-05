@@ -116,9 +116,9 @@ def _cribo_init___cribo_62c387_core(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    CoreLogger = core_utils_helpers.Logger
+    CoreLogger = Logger_4
     core.CoreLogger = CoreLogger
-    core_process = core_utils_helpers.process
+    core_process = process_6
     core.core_process = core_process
     result = "core_package_result"
     self.result = result
@@ -136,11 +136,11 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    Logger = core_utils_helpers.Logger
+    Logger = Logger_4
     core_utils.Logger = Logger
-    process = core_utils_helpers.process
+    process = process_6
     core_utils.process = process
-    validate = core_utils_helpers.validate
+    validate = validate_6
     core_utils.validate = validate
     Connection = "utils_connection_type"
     self.Connection = Connection
@@ -306,14 +306,15 @@ def _cribo_init___cribo_98ecc1_models(self):
         return self
     self.__initializing__ = True
     global models_base
-    User = models_user.User
+    User = User_2
     models.User = User
-    Logger = models_user.Logger
+    Logger = Logger_2
     models.Logger = Logger
     process_user = models_user.process_user
     models.process_user = process_user
     models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
     initialize = models.base.initialize
+    self.initialize = initialize
     self.initialize = initialize
     process = "models_process_string"
     self.process = process
@@ -343,9 +344,9 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     self.Any = Any
     Dict = _cribo.typing.Dict
     self.Dict = Dict
-    core_validate = core_utils_helpers.validate
+    core_validate = validate_6
     models_base.core_validate = core_validate
-    UserLogger = models_user.Logger
+    UserLogger = Logger_2
     models_base.UserLogger = UserLogger
     result = "base_result"
     _cribo_models_base_result = result
@@ -526,7 +527,7 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
     self.Dict = Dict
     Any = _cribo.typing.Any
     self.Any = Any
-    DBConnection = core_database_connection.Connection
+    DBConnection = Connection_6
     services_auth_manager.DBConnection = DBConnection
     __cribo_init_result = _cribo_init___cribo_98ecc1_models(models)
     for attr in dir(__cribo_init_result):
@@ -682,7 +683,9 @@ def _cribo_init___cribo_93a195_services(self):
     services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
     User = services.auth.manager.User
     self.User = User
+    self.User = User
     process = services.auth.manager.process
+    self.process = process
     self.process = process
     Logger = "services_logger_string"
     self.Logger = Logger
@@ -702,11 +705,14 @@ def _cribo_init___cribo_b16105_services_auth(self):
     services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
     User = services.auth.manager.User
     self.User = User
+    self.User = User
     process = services.auth.manager.process
+    self.process = process
     self.process = process
     validate = services.auth.manager.validate
     self.validate = validate
-    Logger = core_utils_helpers.Logger
+    self.validate = validate
+    Logger = Logger_4
     services_auth.Logger = Logger
     connection = "auth_connection_string"
     self.connection = connection

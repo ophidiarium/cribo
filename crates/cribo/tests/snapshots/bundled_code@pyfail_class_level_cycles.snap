@@ -41,6 +41,7 @@ def _cribo_init___cribo_7f7c68_admin_class(self):
     user_class = _cribo_init___cribo_f4b9e6_user_class(user_class)
     User = user_class.User
     self.User = User
+    self.User = User
 
     class Admin(User):
         """Admin class that inherits from User."""
@@ -68,6 +69,7 @@ def _cribo_init___cribo_f4b9e6_user_class(self):
     """User class module with circular dependency."""
     admin_class = _cribo_init___cribo_7f7c68_admin_class(admin_class)
     Admin = admin_class.Admin
+    self.Admin = Admin
     self.Admin = Admin
 
     class User:

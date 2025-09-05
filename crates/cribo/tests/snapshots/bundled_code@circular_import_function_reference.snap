@@ -76,6 +76,7 @@ def _cribo_init___cribo_12d613_pkg_adapters(self):
     pkg_models = _cribo_init___cribo_01ad7c_pkg_models(pkg_models)
     BaseModel = pkg.models.BaseModel
     self.BaseModel = BaseModel
+    self.BaseModel = BaseModel
 
     class Adapter(BaseModel):
         """Adapter class that uses auth functionality."""
@@ -177,6 +178,7 @@ def _cribo_init___cribo_bdb497_pkg_utils(self):
             setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_models = _cribo_init___cribo_01ad7c_pkg_models(pkg_models)
     BaseModel = pkg.models.BaseModel
+    self.BaseModel = BaseModel
     self.BaseModel = BaseModel
 
     def format_credentials(username, password):

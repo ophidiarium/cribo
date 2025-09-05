@@ -33,7 +33,11 @@ utils = _cribo.types.SimpleNamespace(__name__='utils')
 def format_message(message):
     """Format a message with decorative borders"""
     return f">>> {message} <<<"
+def get_timestamp():
+    """Get current timestamp for logging"""
+    return "00:00:00"
 utils.format_message = format_message
+utils.get_timestamp = get_timestamp
 config = _cribo.types.SimpleNamespace(__name__='config', __initializing__=False, __initialized__=False)
 logger = _cribo.types.SimpleNamespace(__name__='logger', __initializing__=False, __initialized__=False)
 _cribo_config__config = None
@@ -48,6 +52,7 @@ def _cribo_init___cribo_f96d2c_config(self):
     """\nConfiguration module that logs its initialization process.\nThis creates a circular dependency: config -> logger -> config\n"""
     logger = _cribo_init___cribo_0639af_logger(logger)
     get_logger = logger.get_logger
+    self.get_logger = get_logger
     self.get_logger = get_logger
     format_message = utils.format_message
     config.format_message = format_message
@@ -108,6 +113,8 @@ def _cribo_init___cribo_0639af_logger(self):
     """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""
     format_message = utils.format_message
     logger.format_message = format_message
+    get_timestamp = utils.get_timestamp
+    logger.get_timestamp = get_timestamp
 
     class Logger:
 
@@ -171,6 +178,8 @@ class Application:
         print(format_message("Mixed import patterns working correctly!"))
         global logger
         logger = logger.__init__(logger)
+        globals()['logger'] = _cribo_init___cribo_0639af_logger(globals()['logger'])
+        get_logger = globals()['logger'].get_logger
         local_logger = logger.get_logger()
         local_logger.log("Function-level import gives same logger instance", "DEBUG")
 Application.__module__ = 'app'

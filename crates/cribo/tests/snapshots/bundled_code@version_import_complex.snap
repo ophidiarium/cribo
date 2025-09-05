@@ -33,7 +33,9 @@ mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=
 mypackage.__version__ = mypackage___version__
 """Version information."""
 __version__ = "2.0.0"
+__author__ = "Test Author"
 mypackage___version__.__version__ = __version__
+mypackage___version__.__author__ = __author__
 mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
 mypackage.utils = mypackage_utils
 def _cribo_init___cribo_623f97_mypackage(self):
@@ -46,6 +48,8 @@ def _cribo_init___cribo_623f97_mypackage(self):
     """Main package that exposes version and imports submodules."""
     __version__ = mypackage___version__.__version__
     mypackage.__version__ = __version__
+    __author__ = mypackage___version__.__author__
+    mypackage.__author__ = __author__
     mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)
     utils = mypackage.utils
     self.utils = utils

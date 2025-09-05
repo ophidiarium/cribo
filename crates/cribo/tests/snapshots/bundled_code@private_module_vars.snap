@@ -38,6 +38,7 @@ def _cribo_init___cribo_73cafd_pkg__internal(self):
     """Internal module with private variables."""
     re = _cribo.re
     self.re = re
+    self.re = re
     _VALID_HEADER_NAME_RE_BYTE = _cribo.re.compile(rb"^[^:\s][^:\r\n]*$")
     self._VALID_HEADER_NAME_RE_BYTE = _VALID_HEADER_NAME_RE_BYTE
     _VALID_HEADER_NAME_RE_STR = _cribo.re.compile(r"^[^:\s][^:\r\n]*$")

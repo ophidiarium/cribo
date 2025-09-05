@@ -38,9 +38,12 @@ def _cribo_init___cribo_7c69fc_mypackage_utils(self):
     """Utils module with contextlib decorator.\n\nThis module must have side effects to become a wrapper module,\nand uses contextlib as a decorator which should be preserved in\nthe init function but currently isn't.\n"""
     contextlib = _cribo.contextlib
     self.contextlib = contextlib
+    self.contextlib = contextlib
     os = _cribo.os
     self.os = os
+    self.os = os
     tempfile = _cribo.tempfile
+    self.tempfile = tempfile
     self.tempfile = tempfile
     print("Loading utils module")
 

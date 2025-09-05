@@ -416,7 +416,7 @@ def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
     self.Dict = Dict
     Any = _cribo.typing.Any
     self.Any = Any
-    DBConnection = core_database_connection.Connection
+    DBConnection = Connection_5
     services_auth_manager.DBConnection = DBConnection
     base = models_base
     result = "auth_result"

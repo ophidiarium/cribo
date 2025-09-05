@@ -31,6 +31,8 @@ _cribo = _Cribo()
 my_package_mod_l = _cribo.types.SimpleNamespace(__name__='my_package.mod_l')
 my_package = _cribo.types.SimpleNamespace(__name__='my_package', __initializing__=False, __initialized__=False)
 my_package.mod_l = my_package_mod_l
+LEAF_VALUE = "leaf"
+my_package_mod_l.LEAF_VALUE = LEAF_VALUE
 my_package_mod_a = _cribo.types.SimpleNamespace(__name__='my_package.mod_a', __initializing__=False, __initialized__=False)
 my_package.mod_a = my_package_mod_a
 my_package_mod_b = _cribo.types.SimpleNamespace(__name__='my_package.mod_b', __initializing__=False, __initialized__=False)
@@ -90,6 +92,8 @@ def _cribo_init___cribo_d862bd_my_package_mod_b(self):
     my_package_mod_c = _cribo_init___cribo_748052_my_package_mod_c(my_package_mod_c)
     mod_c = my_package.mod_c
     self.mod_c = mod_c
+    LEAF_VALUE = my_package_mod_l.LEAF_VALUE
+    my_package_mod_b.LEAF_VALUE = LEAF_VALUE
     B_DERIVED_VALUE = mod_c.C_CONSTANT * 2
     self.B_DERIVED_VALUE = B_DERIVED_VALUE
 

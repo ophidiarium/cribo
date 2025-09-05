@@ -57,6 +57,7 @@ def _cribo_init___cribo_937418_complex_pkg(self):
     complex_pkg_console = _cribo_init___cribo_beaba5_complex_pkg_console(complex_pkg_console)
     Console = complex_pkg.console.Console
     self.Console = Console
+    self.Console = Console
 
     def main():
         console = Console()

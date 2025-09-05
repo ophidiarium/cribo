@@ -61,6 +61,7 @@ def _cribo_init___cribo_30661c_mypkg(self):
     mypkg_exceptions = _cribo_init___cribo_72b028_mypkg_exceptions(mypkg_exceptions)
     CustomJSONError = mypkg.exceptions.CustomJSONError
     self.CustomJSONError = CustomJSONError
+    self.CustomJSONError = CustomJSONError
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -78,6 +79,7 @@ def _cribo_init___cribo_72b028_mypkg_exceptions(self):
             setattr(mypkg, attr, getattr(__cribo_init_result, attr))
     mypkg_compat = _cribo_init___cribo_4089db_mypkg_compat(mypkg_compat)
     CompatJSONDecodeError = mypkg.compat.JSONDecodeError
+    self.CompatJSONDecodeError = CompatJSONDecodeError
     self.CompatJSONDecodeError = CompatJSONDecodeError
 
     class BaseException(Exception):

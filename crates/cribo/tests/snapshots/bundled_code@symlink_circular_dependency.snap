@@ -66,6 +66,7 @@ def _cribo_init___cribo_19d6d4_moduleB(self):
     moduleA = _cribo_init___cribo_895222_moduleA(moduleA)
     funcC = moduleA.funcC
     self.funcC = funcC
+    self.funcC = funcC
 
     def funcB():
         return f"B calls {funcC()}"

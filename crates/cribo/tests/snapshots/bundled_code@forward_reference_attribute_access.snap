@@ -45,6 +45,7 @@ def _cribo_init___cribo_d7bb86_mymodule(self):
     mymodule_exceptions = _cribo_init___cribo_e5cbf4_mymodule_exceptions(mymodule_exceptions)
     MyError = mymodule.exceptions.MyError
     self.MyError = MyError
+    self.MyError = MyError
     self.compat = mymodule_compat
     self.compat = mymodule_compat
     self.__initialized__ = True
@@ -57,7 +58,7 @@ def _cribo_init___cribo_e5cbf4_mymodule_exceptions(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    CompatJSONDecodeError = mymodule_compat.JSONDecodeError
+    CompatJSONDecodeError = JSONDecodeError
     mymodule_exceptions.CompatJSONDecodeError = CompatJSONDecodeError
 
     class MyError(Exception):

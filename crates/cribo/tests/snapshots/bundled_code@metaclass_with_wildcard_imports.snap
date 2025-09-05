@@ -77,11 +77,10 @@ def _cribo_init___cribo_5b2acd_yaml_pkg(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global BaseLoader, Dumper, FullLoader, Loader
-    self.BaseLoader = BaseLoader
-    self.Dumper = Dumper
-    self.FullLoader = FullLoader
-    self.Loader = Loader
+    self.BaseLoader = yaml_pkg_loader.BaseLoader
+    self.Dumper = yaml_pkg_dumper.Dumper
+    self.FullLoader = yaml_pkg_loader.FullLoader
+    self.Loader = yaml_pkg_loader.Loader
 
     class YAMLObjectMetaclass(type):
         """\n    The metaclass for YAMLObject.\n    """

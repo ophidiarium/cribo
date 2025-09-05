@@ -65,6 +65,7 @@ def _cribo_init___cribo_09b9b3_mypackage_utils(self):
     mypackage_utils.CustomError = CustomError
     os = _cribo.os
     self.os = os
+    self.os = os
     DEFAULT_PATH = _cribo.os.environ.get("DEFAULT_PATH", "/tmp")
     self.DEFAULT_PATH = DEFAULT_PATH
 

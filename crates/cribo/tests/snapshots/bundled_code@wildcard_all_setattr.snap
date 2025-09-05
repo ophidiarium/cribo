@@ -79,9 +79,8 @@ def _cribo_init___cribo_66c36f_package__subpackage(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global MyClass, my_function
-    self.MyClass = MyClass
-    self.my_function = my_function
+    self.MyClass = package__subpackage_module_a.MyClass
+    self.my_function = package__subpackage_module_b.my_function
     """Subpackage that re-exports from modules using wildcards."""
     self.module_b = package__subpackage_module_b
     self.module_a = package__subpackage_module_a
