@@ -567,23 +567,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         self.module_id.is_entry()
     }
 
-    /// Extract base class name from an expression
-    /// Returns None if the expression type is not supported
-    fn extract_base_class_name(base: &Expr) -> Option<String> {
-        match base {
-            Expr::Name(name) => Some(name.id.as_str().to_string()),
-            Expr::Attribute(attr) => {
-                if let Expr::Name(name) = &*attr.value {
-                    Some(format!("{}.{}", name.id.as_str(), attr.attr.as_str()))
-                } else {
-                    // Complex attribute chains not supported
-                    None
-                }
-            }
-            _ => None, // Other expression types not supported
-        }
-    }
-
     /// Check if this is an `importlib.import_module()` call
     fn is_importlib_import_module_call(&self, call: &ExprCall) -> bool {
         match &call.func.as_ref() {

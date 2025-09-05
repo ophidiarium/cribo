@@ -447,34 +447,6 @@ pub fn in_op(left: Expr, right: Expr) -> Expr {
     })
 }
 
-/// Convert an expression to a dotted name string
-///
-/// This function extracts a dotted name string from Name and Attribute expressions.
-/// It's the inverse of the `dotted_name` function.
-///
-/// # Examples
-/// ```rust
-/// // Name("foo") -> "foo"
-/// // Attribute(Name("foo"), "bar") -> "foo.bar"
-/// // Attribute(Attribute(Name("foo"), "bar"), "baz") -> "foo.bar.baz"
-/// // Other expression types -> ""
-/// ```
-pub fn expr_to_dotted_name(expr: &Expr) -> String {
-    match expr {
-        Expr::Name(name) => name.id.as_str().to_string(),
-        Expr::Attribute(attr) => {
-            let base = expr_to_dotted_name(&attr.value);
-            if base.is_empty() {
-                // If base is not a name or attribute chain, return empty
-                String::new()
-            } else {
-                format!("{}.{}", base, attr.attr.as_str())
-            }
-        }
-        _ => String::new(),
-    }
-}
-
 /// Creates a keyword argument node.
 ///
 /// # Arguments

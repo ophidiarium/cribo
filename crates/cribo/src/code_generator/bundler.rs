@@ -127,6 +127,17 @@ impl std::fmt::Debug for Bundler<'_> {
     }
 }
 
+/// Parameters for resolving import value expressions
+struct ImportResolveParams<'a> {
+    module_expr: Expr,
+    module_name: &'a str,
+    imported_name: &'a str,
+    at_module_level: bool,
+    inside_wrapper_init: bool,
+    current_module: Option<&'a str>,
+    symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+}
+
 // Main implementation
 impl<'a> Bundler<'a> {
     /// Helper: resolve a relative import target to an absolute module name
@@ -644,11 +655,6 @@ impl<'a> Bundler<'a> {
     pub(crate) fn has_synthetic_name(&self, module_name: &str) -> bool {
         self.get_module_id(module_name)
             .is_some_and(|id| self.module_synthetic_names.contains_key(&id))
-    }
-
-    /// Check if a module has a synthetic name by its ID (i.e., is a wrapper module)
-    pub(crate) fn module_has_synthetic_name(&self, module_id: ModuleId) -> bool {
-        self.module_synthetic_names.contains_key(&module_id)
     }
 
     /// Check if a symbol is kept by tree shaking
@@ -1178,7 +1184,7 @@ impl<'a> Bundler<'a> {
                 // another inlined module, we should use the global symbol directly
                 // instead of accessing through the wrapper module. This avoids
                 // circular dependency issues where the wrapper hasn't been initialized yet.
-                let value_expr = self.resolve_import_value_expr(
+                let value_expr = self.resolve_import_value_expr(ImportResolveParams {
                     module_expr,
                     module_name,
                     imported_name,
@@ -1186,7 +1192,7 @@ impl<'a> Bundler<'a> {
                     inside_wrapper_init,
                     current_module,
                     symbol_renames,
-                );
+                });
 
                 let assignment = statements::simple_assign(target_name.as_str(), value_expr);
 
@@ -4628,67 +4634,83 @@ impl Bundler<'_> {
     }
 
     /// Resolve the value expression for an import, handling special cases for circular dependencies
-    fn resolve_import_value_expr(
-        &self,
-        module_expr: Expr,
-        module_name: &str,
-        imported_name: &str,
-        at_module_level: bool,
-        inside_wrapper_init: bool,
-        current_module: Option<&str>,
-        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
-    ) -> Expr {
+    fn resolve_import_value_expr(&self, params: ImportResolveParams) -> Expr {
         // Not at module level or inside wrapper init, use normal attribute access
-        if !at_module_level || inside_wrapper_init {
-            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        if !params.at_module_level || params.inside_wrapper_init {
+            return expressions::attribute(
+                params.module_expr,
+                params.imported_name,
+                ExprContext::Load,
+            );
         }
 
         // Check if current module is inlined and importing from a wrapper parent
-        let Some(current_id) = current_module.and_then(|m| self.get_module_id(m)) else {
-            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        let Some(current_id) = params.current_module.and_then(|m| self.get_module_id(m)) else {
+            return expressions::attribute(
+                params.module_expr,
+                params.imported_name,
+                ExprContext::Load,
+            );
         };
 
         if !self.inlined_modules.contains(&current_id) {
-            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+            return expressions::attribute(
+                params.module_expr,
+                params.imported_name,
+                ExprContext::Load,
+            );
         }
 
         // Check if the module we're importing from is a wrapper
-        let Some(target_id) = self.get_module_id(module_name) else {
-            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+        let Some(target_id) = self.get_module_id(params.module_name) else {
+            return expressions::attribute(
+                params.module_expr,
+                params.imported_name,
+                ExprContext::Load,
+            );
         };
 
         if !self.wrapper_modules.contains(&target_id) {
-            return expressions::attribute(module_expr, imported_name, ExprContext::Load);
+            return expressions::attribute(
+                params.module_expr,
+                params.imported_name,
+                ExprContext::Load,
+            );
         }
 
         // Try to find if this symbol actually comes from an inlined module
         // First check if there's a renamed version of this symbol
-        if let Some(renames) = symbol_renames.get(&target_id)
-            && let Some(renamed) = renames.get(imported_name)
+        if let Some(renames) = params.symbol_renames.get(&target_id)
+            && let Some(renamed) = renames.get(params.imported_name)
         {
             log::debug!(
                 "Using global symbol '{renamed}' directly instead of accessing through wrapper \
-                 '{module_name}'"
+                 '{}'",
+                params.module_name
             );
             return expressions::name(renamed, ExprContext::Load);
         }
 
         // Check for specific known cases (pkg._models importing from pkg)
-        if module_name == "pkg" && (imported_name == "AsyncStream" || imported_name == "SyncStream")
+        if params.module_name == "pkg"
+            && (params.imported_name == "AsyncStream" || params.imported_name == "SyncStream")
         {
             // These are known to come from pkg._types
             if let Some(types_id) = self.get_module_id("pkg._types")
                 && self.inlined_modules.contains(&types_id)
-                && let Some(renames) = symbol_renames.get(&types_id)
-                && let Some(renamed) = renames.get(imported_name)
+                && let Some(renames) = params.symbol_renames.get(&types_id)
+                && let Some(renamed) = renames.get(params.imported_name)
             {
-                log::debug!("Using global '{renamed}' for '{imported_name}' from pkg._types");
+                log::debug!(
+                    "Using global '{renamed}' for '{}' from pkg._types",
+                    params.imported_name
+                );
                 return expressions::name(renamed, ExprContext::Load);
             }
         }
 
         // Symbol not found as a global, use normal attribute access
-        expressions::attribute(module_expr, imported_name, ExprContext::Load)
+        expressions::attribute(params.module_expr, params.imported_name, ExprContext::Load)
     }
 
     /// Create a module reference assignment
