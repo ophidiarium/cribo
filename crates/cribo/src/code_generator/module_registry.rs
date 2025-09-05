@@ -23,9 +23,13 @@ pub fn create_module_initialization_for_import(
 
     // Check if this is a wrapper module that needs initialization
     if let Some(init_func_name) = module_init_functions.get(&module_id) {
-        let module_name = resolver
-            .get_module_name(module_id)
-            .unwrap_or_else(|| "<unknown>".to_string());
+        let Some(module_name) = resolver.get_module_name(module_id) else {
+            log::warn!(
+                "Missing module name for id {}, skipping init emission",
+                module_id.as_u32()
+            );
+            return stmts;
+        };
 
         // Call the init function with the module as the self argument
         let module_var = get_module_var_identifier(module_id, resolver);
