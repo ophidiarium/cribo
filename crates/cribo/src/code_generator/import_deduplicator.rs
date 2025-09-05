@@ -561,7 +561,7 @@ fn is_import_used_by_all_exports(
 ) -> bool {
     // Find __all__ assignment and get the exported symbols
     let mut all_exports = Vec::new();
-    for (_item_id, item_data) in module_dep_graph.get_all_import_items() {
+    for item_data in module_dep_graph.items.values() {
         if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
             && targets.contains(&"__all__".to_string())
         {
