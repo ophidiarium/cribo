@@ -42,17 +42,11 @@ pub fn create_module_initialization_for_import(
             vec![],
         );
 
-        // Create assignment: <module or parent.attr> = init_func(self=<sanitized var>)
-        if let Some((parent, child)) = module_name.rsplit_once('.') {
-            stmts.push(ast_builder::statements::assign_attribute(
-                parent, child, init_call,
-            ));
-        } else {
-            stmts.push(ast_builder::statements::simple_assign(
-                &module_name,
-                init_call,
-            ));
-        }
+        // Create assignment to possibly dotted path: <pkg.subpkg.module> = init_call(...)
+        stmts.push(ast_builder::statements::assign_attribute_path(
+            &module_name,
+            init_call,
+        ));
     }
 
     stmts

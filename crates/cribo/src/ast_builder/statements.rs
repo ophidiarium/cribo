@@ -83,6 +83,25 @@ pub fn assign_attribute(obj_name: &str, attr_name: &str, value: Expr) -> Stmt {
     )
 }
 
+/// Creates an assignment to a possibly dotted attribute path.
+///
+/// Builds a nested attribute target for arbitrary dotted parents, e.g.
+/// `pkg.subpkg.module = value` or `obj.attr = value`.
+pub fn assign_attribute_path(path: &str, value: Expr) -> Stmt {
+    if let Some((parent, child)) = path.rsplit_once('.') {
+        let mut parts = parent.split('.');
+        let first = parts.next().expect("non-empty parent path");
+        let mut obj = expressions::name(first, ExprContext::Load);
+        for part in parts {
+            obj = expressions::attribute(obj, part, ExprContext::Load);
+        }
+        let target = expressions::attribute(obj, child, ExprContext::Store);
+        assign(vec![target], value)
+    } else {
+        simple_assign(path, value)
+    }
+}
+
 /// Creates an expression statement node.
 ///
 /// # Arguments
