@@ -1,4 +1,4 @@
-use ruff_python_ast::{AtomicNodeIndex, ExprContext, Stmt, StmtFor, StmtIf};
+use ruff_python_ast::{AtomicNodeIndex, ExprContext, Stmt, StmtFor};
 use ruff_text_size::TextRange;
 
 use crate::ast_builder::{expressions, statements};
@@ -62,13 +62,7 @@ pub fn generate_merge_module_attributes(namespace_name: &str, source_module_name
     ));
 
     // if not attr.startswith('_'): setattr(...)
-    let if_stmt = Stmt::If(StmtIf {
-        node_index: AtomicNodeIndex::dummy(),
-        test: Box::new(condition),
-        body: vec![setattr_call_stmt],
-        elif_else_clauses: vec![],
-        range: TextRange::default(),
-    });
+    let if_stmt = statements::if_stmt(condition, vec![setattr_call_stmt], vec![]);
 
     // for attr in dir(...): if ...
     Stmt::For(StmtFor {
