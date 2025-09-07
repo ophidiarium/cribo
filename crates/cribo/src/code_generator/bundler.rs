@@ -1928,16 +1928,7 @@ impl<'a> Bundler<'a> {
             .map(|(id, _, _, _)| *id)
             .collect();
 
-        // Create module map for quick lookup
-        let mut module_map: FxIndexMap<String, (ModModule, PathBuf, String)> =
-            FxIndexMap::default();
-        for (module_id, (ast, path, hash)) in &modules {
-            let module_name = params
-                .resolver
-                .get_module_name(*module_id)
-                .expect("Module name must exist for ModuleId");
-            module_map.insert(module_name, (ast.clone(), path.clone(), hash.clone()));
-        }
+        // `modules` already maps ModuleId -> (AST, Path, Hash); use it directly
 
         let mut all_inlined_stmts = Vec::new();
         let mut processed_modules = FxIndexSet::default();
@@ -2120,7 +2111,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Skip if not in our module set (e.g., stdlib modules)
-            if !module_map.contains_key(&module_name) {
+            if !modules.contains_key(module_id) {
                 log::debug!("  Skipping {module_name} - not in module map (likely stdlib)");
                 continue;
             }
@@ -2136,8 +2127,8 @@ impl<'a> Bundler<'a> {
                     .any(|(id, _, _, _)| *id == *module_id)
             );
 
-            let (ast, path, _hash) = module_map
-                .get(&module_name)
+            let (ast, path, _hash) = modules
+                .get(module_id)
                 .expect("Module should exist in module_map after topological sorting")
                 .clone();
 
@@ -2279,8 +2270,8 @@ impl<'a> Bundler<'a> {
                 log::debug!("Processing wrapper module: {module_name}");
 
                 // Get the content hash for this module
-                let content_hash = module_map
-                    .get(&module_name)
+                let content_hash = modules
+                    .get(module_id)
                     .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
 
                 // Generate the init function for this wrapper module
