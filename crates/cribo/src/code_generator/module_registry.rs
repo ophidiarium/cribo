@@ -323,7 +323,10 @@ pub fn create_assignments_for_inlined_imports(
                     && module_id_opt.is_some_and(|id| inlined_modules.contains(&id))
                 {
                     // The module is inlined, so its symbols are attached to a namespace object
-                    let ns = module_id_opt.map_or_else(|| sanitize_module_name_for_identifier(module_name), |id| get_module_var_identifier(id, resolver));
+                    let ns = module_id_opt.map_or_else(
+                        || sanitize_module_name_for_identifier(module_name),
+                        |id| get_module_var_identifier(id, resolver),
+                    );
                     format!("{ns}.{actual_name}")
                 } else {
                     actual_name.to_string()
@@ -353,7 +356,7 @@ pub fn create_assignments_for_inlined_imports(
         } else {
             // Module doesn't exist, treat as regular symbol import
             // Check if this symbol was renamed during inlining
-            let module_id = resolver.get_module_id_by_name(module_name);
+            let parent_module_id = resolver.get_module_id_by_name(module_name);
 
             // IMPORTANT: When we're inside a wrapper init function, we must not skip
             // assignments based on tree-shaking. The wrapper's body may still reference
@@ -362,7 +365,7 @@ pub fn create_assignments_for_inlined_imports(
             // Therefore, only apply the tree-shaking check when we're NOT in a
             // wrapper init context.
             if !is_wrapper_init
-                && let Some(id) = module_id
+                && let Some(id) = parent_module_id
                 && let Some(check_fn) = tree_shaking_check
                 && !check_fn(id, imported_name)
             {
@@ -373,7 +376,7 @@ pub fn create_assignments_for_inlined_imports(
                 continue;
             }
 
-            let actual_name = if let Some(id) = module_id
+            let actual_name = if let Some(id) = parent_module_id
                 && let Some(module_renames) = symbol_renames.get(&id)
             {
                 module_renames
@@ -385,14 +388,15 @@ pub fn create_assignments_for_inlined_imports(
 
             // When we're inside a wrapper init function and importing from an inlined module,
             // we need to qualify the symbol with the module's namespace variable
-            let source_ref =
-                if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
-                    // The module is inlined, so its symbols are attached to a namespace object
-                    let ns = module_id.map_or_else(|| sanitize_module_name_for_identifier(module_name), |id| get_module_var_identifier(id, resolver));
-                    format!("{ns}.{actual_name}")
-                } else {
-                    actual_name.to_string()
-                };
+            let source_ref = if is_wrapper_init
+                && parent_module_id.is_some_and(|id| inlined_modules.contains(&id))
+            {
+                // The module is inlined, so its symbols are attached to a namespace object
+                let ns = parent_module_id.map_or_else(|| sanitize_module_name_for_identifier(module_name), |id| get_module_var_identifier(id, resolver));
+                format!("{ns}.{actual_name}")
+            } else {
+                actual_name.to_string()
+            };
 
             // Only create assignment if the names are different or we need qualification
             // But skip if it would conflict with a stdlib name in scope
@@ -403,7 +407,9 @@ pub fn create_assignments_for_inlined_imports(
                     &mut assignments,
                     python_version,
                 );
-            } else if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
+            } else if is_wrapper_init
+                && parent_module_id.is_some_and(|id| inlined_modules.contains(&id))
+            {
                 // Even if names match, we need the assignment to access through namespace
                 create_assignment_if_no_stdlib_conflict(
                     local_name.as_str(),
