@@ -1920,22 +1920,12 @@ impl<'a> Bundler<'a> {
             to_process = next_to_process;
         }
 
-        // Create classification lookups
-        let inlinable_set: FxIndexSet<String> = inlinable_modules
+        // Create classification lookups (ModuleId-based)
+        let inlinable_set: FxIndexSet<ModuleId> =
+            inlinable_modules.iter().map(|(id, _, _, _)| *id).collect();
+        let wrapper_set: FxIndexSet<ModuleId> = wrapper_modules_saved
             .iter()
-            .map(|(id, _, _, _)| {
-                self.resolver
-                    .get_module_name(*id)
-                    .expect("Module name must exist for ModuleId")
-            })
-            .collect();
-        let wrapper_set: FxIndexSet<String> = wrapper_modules_saved
-            .iter()
-            .map(|(id, _, _, _)| {
-                self.resolver
-                    .get_module_name(*id)
-                    .expect("Module name must exist for ModuleId")
-            })
+            .map(|(id, _, _, _)| *id)
             .collect();
 
         // Create module map for quick lookup
@@ -2151,7 +2141,7 @@ impl<'a> Bundler<'a> {
                 .expect("Module should exist in module_map after topological sorting")
                 .clone();
 
-            if inlinable_set.contains(&module_name) {
+            if inlinable_set.contains(module_id) {
                 // Process as inlinable module
                 log::debug!("Inlining module: {module_name}");
 
@@ -2284,7 +2274,7 @@ impl<'a> Bundler<'a> {
 
                 // Note: deferred imports functionality has been removed
                 // Pending assignment resolution was previously handled here
-            } else if wrapper_set.contains(&module_name) {
+            } else if wrapper_set.contains(module_id) {
                 // Process wrapper module immediately in dependency order
                 log::debug!("Processing wrapper module: {module_name}");
 
