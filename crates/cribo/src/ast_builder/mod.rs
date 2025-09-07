@@ -51,6 +51,7 @@
 //! ```
 
 pub mod expressions;
+pub mod module_attr_merge;
 pub mod module_wrapper;
 pub mod other;
 pub mod proxy_generator;

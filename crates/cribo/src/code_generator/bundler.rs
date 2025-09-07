@@ -4845,7 +4845,12 @@ impl Bundler<'_> {
             stmts.push(statements::simple_assign(INIT_RESULT_VAR, init_call));
 
             // Merge attributes from init result into existing namespace
-            self.generate_merge_module_attributes(&mut stmts, &module_name, INIT_RESULT_VAR);
+            stmts.push(
+                crate::ast_builder::module_attr_merge::generate_merge_module_attributes(
+                    &module_name,
+                    INIT_RESULT_VAR,
+                ),
+            );
         } else {
             // Direct assignment for simple and dotted modules
             // For wrapper modules with dots, use the sanitized name
@@ -5094,86 +5099,6 @@ impl Bundler<'_> {
         // For now, return just the namespace creation
         // The actual symbol population needs to happen after all symbols are available
         statements::simple_assign(target_name, namespace_expr)
-    }
-
-    /// Generate code to merge module attributes from the initialization result into a namespace
-    fn generate_merge_module_attributes(
-        &self,
-        statements: &mut Vec<Stmt>,
-        namespace_name: &str,
-        source_module_name: &str,
-    ) {
-        // Generate code like:
-        // for attr in dir(source_module):
-        //     if not attr.startswith('_'):
-        //         setattr(namespace, attr, getattr(source_module, attr))
-
-        let attr_var = "attr";
-        let loop_target = expressions::name(attr_var, ExprContext::Store);
-
-        // dir(source_module)
-        let dir_call = expressions::call(
-            expressions::name("dir", ExprContext::Load),
-            vec![expressions::name(source_module_name, ExprContext::Load)],
-            vec![],
-        );
-
-        // not attr.startswith('_')
-        let condition = expressions::unary_op(
-            ruff_python_ast::UnaryOp::Not,
-            expressions::call(
-                expressions::attribute(
-                    expressions::name(attr_var, ExprContext::Load),
-                    "startswith",
-                    ExprContext::Load,
-                ),
-                vec![expressions::string_literal("_")],
-                vec![],
-            ),
-        );
-
-        // getattr(source_module, attr)
-        let getattr_call = expressions::call(
-            expressions::name("getattr", ExprContext::Load),
-            vec![
-                expressions::name(source_module_name, ExprContext::Load),
-                expressions::name(attr_var, ExprContext::Load),
-            ],
-            vec![],
-        );
-
-        // setattr(namespace, attr, getattr(...))
-        let setattr_call = statements::expr(expressions::call(
-            expressions::name("setattr", ExprContext::Load),
-            vec![
-                expressions::name(namespace_name, ExprContext::Load),
-                expressions::name(attr_var, ExprContext::Load),
-                getattr_call,
-            ],
-            vec![],
-        ));
-
-        // if not attr.startswith('_'): setattr(...)
-        let if_stmt = Stmt::If(ruff_python_ast::StmtIf {
-            node_index: AtomicNodeIndex::dummy(),
-            test: Box::new(condition),
-            body: vec![setattr_call],
-            elif_else_clauses: vec![],
-            range: TextRange::default(),
-        });
-
-        // for attr in dir(...): if ...
-        let for_loop = Stmt::For(ruff_python_ast::StmtFor {
-            node_index: AtomicNodeIndex::dummy(),
-            target: Box::new(loop_target),
-            iter: Box::new(dir_call),
-            body: vec![if_stmt],
-            orelse: vec![],
-            is_async: false,
-            range: TextRange::default(),
-        });
-
-        statements.push(for_loop);
     }
 
     /// Create the entire namespace chain for a module with proper parent-child assignments
