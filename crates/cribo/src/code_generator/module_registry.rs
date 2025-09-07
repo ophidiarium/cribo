@@ -323,8 +323,8 @@ pub fn create_assignments_for_inlined_imports(
                     && module_id_opt.is_some_and(|id| inlined_modules.contains(&id))
                 {
                     // The module is inlined, so its symbols are attached to a namespace object
-                    let sanitized_module = sanitize_module_name_for_identifier(module_name);
-                    format!("{sanitized_module}.{actual_name}")
+                    let ns = module_id_opt.map_or_else(|| sanitize_module_name_for_identifier(module_name), |id| get_module_var_identifier(id, resolver));
+                    format!("{ns}.{actual_name}")
                 } else {
                     actual_name.to_string()
                 };
@@ -388,8 +388,8 @@ pub fn create_assignments_for_inlined_imports(
             let source_ref =
                 if is_wrapper_init && module_id.is_some_and(|id| inlined_modules.contains(&id)) {
                     // The module is inlined, so its symbols are attached to a namespace object
-                    let sanitized_module = sanitize_module_name_for_identifier(module_name);
-                    format!("{sanitized_module}.{actual_name}")
+                    let ns = module_id.map_or_else(|| sanitize_module_name_for_identifier(module_name), |id| get_module_var_identifier(id, resolver));
+                    format!("{ns}.{actual_name}")
                 } else {
                     actual_name.to_string()
                 };
