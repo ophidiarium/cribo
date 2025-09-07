@@ -392,7 +392,10 @@ pub fn create_assignments_for_inlined_imports(
                 && parent_module_id.is_some_and(|id| inlined_modules.contains(&id))
             {
                 // The module is inlined, so its symbols are attached to a namespace object
-                let ns = parent_module_id.map_or_else(|| sanitize_module_name_for_identifier(module_name), |id| get_module_var_identifier(id, resolver));
+                let ns = parent_module_id.map_or_else(
+                    || sanitize_module_name_for_identifier(module_name),
+                    |id| get_module_var_identifier(id, resolver),
+                );
                 format!("{ns}.{actual_name}")
             } else {
                 actual_name.to_string()
