@@ -73,7 +73,7 @@ impl Transformer for IndexingVisitor {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        let _node_index = match stmt {
+        match stmt {
             Stmt::FunctionDef(func) => self.assign_index(&func.node_index),
             Stmt::ClassDef(class) => self.assign_index(&class.node_index),
             Stmt::Import(import) => self.assign_index(&import.node_index),

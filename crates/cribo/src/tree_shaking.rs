@@ -4,13 +4,15 @@ use log::{debug, info, trace, warn};
 
 use crate::{
     cribo_graph::{CriboGraph, ItemData, ItemType},
-    resolver::ModuleId,
+    resolver::{ModuleId, ModuleResolver},
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Tree shaker that removes unused symbols from modules
 #[derive(Debug)]
-pub struct TreeShaker {
+pub struct TreeShaker<'a> {
+    /// Centralized module resolver for import resolution
+    resolver: &'a ModuleResolver,
     /// Module items from semantic analysis (reused from `CriboGraph`)
     module_items: FxIndexMap<ModuleId, Vec<ItemData>>,
     /// Final set of symbols to keep (`module_id`, `symbol_name`)
@@ -21,9 +23,37 @@ pub struct TreeShaker {
     module_name_to_id: FxIndexMap<String, ModuleId>,
 }
 
-impl TreeShaker {
+impl<'a> TreeShaker<'a> {
+    // Removed resolver_context_module_name: no longer needed
+
+    /// Resolve a relative import using the resolver with filesystem context when available.
+    fn resolve_relative_with_context(
+        &self,
+        current_module_id: ModuleId,
+        level: u32,
+        name: &str,
+    ) -> String {
+        let name_opt = if name.is_empty() { None } else { Some(name) };
+        if let Some(current_path) = self.resolver.get_module_path(current_module_id)
+            && let Some(resolved) = self.resolver.resolve_relative_to_absolute_module_name(
+                level,
+                name_opt,
+                &current_path,
+            )
+        {
+            return resolved;
+        }
+        // Fallback to name-based resolution
+        let current_name = self
+            .module_names
+            .get(&current_module_id)
+            .map_or("", std::string::String::as_str);
+        self.resolver
+            .resolve_relative_import_from_package_name(level, name_opt, current_name)
+    }
+
     /// Create a tree shaker from an existing `CriboGraph`
-    pub fn from_graph(graph: &CriboGraph) -> Self {
+    pub fn from_graph(graph: &CriboGraph, resolver: &'a ModuleResolver) -> Self {
         let mut module_items = FxIndexMap::default();
         let mut module_names = FxIndexMap::default();
 
@@ -43,6 +73,7 @@ impl TreeShaker {
         let module_name_to_id = graph.module_names.clone();
 
         Self {
+            resolver,
             module_items,
             used_symbols: FxIndexSet::default(),
             module_names,
@@ -125,42 +156,64 @@ impl TreeShaker {
         alias: &str,
     ) -> Option<(ModuleId, String)> {
         if let Some(items) = self.module_items.get(&current_module_id) {
-            let current_module = self
-                .module_names
-                .get(&current_module_id)
-                .map_or("", std::string::String::as_str);
             for item in items {
                 if let ItemType::FromImport {
                     module,
                     names,
                     level,
+                    is_star,
                     ..
                 } = &item.item_type
                 {
-                    // Check if this import defines the alias
+                    // 1) Check explicit alias mapping
                     for (original_name, alias_opt) in names {
                         let local_name = alias_opt.as_ref().unwrap_or(original_name);
                         if local_name == alias {
-                            // Found the import that defines this alias
-                            // Resolve relative imports to absolute module names
                             let resolved_module_name = if *level > 0 {
+                                let current_name = self
+                                    .module_names
+                                    .get(&current_module_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("{current_module_id:?}"));
                                 debug!(
                                     "Resolving relative import: module='{module}', level={level}, \
-                                     current_module='{current_module}'"
+                                     current_module='{current_name}'"
                                 );
-                                let result =
-                                    self.resolve_relative_module(current_module, module, *level);
+                                let result = self.resolve_relative_with_context(
+                                    current_module_id,
+                                    *level,
+                                    module,
+                                );
                                 debug!("Resolved to: '{result}'");
                                 result
                             } else {
                                 module.clone()
                             };
 
-                            // Convert module name to ModuleId
                             if let Some(&resolved_id) =
                                 self.module_name_to_id.get(&resolved_module_name)
                             {
                                 return Some((resolved_id, original_name.clone()));
+                            }
+                        }
+                    }
+
+                    // 2) Support wildcard re-exports (from module import *)
+                    if *is_star {
+                        let resolved_module_name = if *level > 0 {
+                            self.resolve_relative_with_context(current_module_id, *level, module)
+                        } else {
+                            module.clone()
+                        };
+                        if let Some(&resolved_id) =
+                            self.module_name_to_id.get(&resolved_module_name)
+                            && let Some(target_items) = self.module_items.get(&resolved_id)
+                        {
+                            let in_all = target_items.iter().any(|it| {
+                                Self::is_all_assignment(it) && it.eventual_read_vars.contains(alias)
+                            });
+                            if in_all {
+                                return Some((resolved_id, alias.to_string()));
                             }
                         }
                     }
@@ -204,10 +257,6 @@ impl TreeShaker {
         alias: &str,
     ) -> Option<ModuleId> {
         if let Some(items) = self.module_items.get(&current_module_id) {
-            let current_module = self
-                .module_names
-                .get(&current_module_id)
-                .map_or("", std::string::String::as_str);
             for item in items {
                 if let ItemType::FromImport {
                     module,
@@ -222,7 +271,11 @@ impl TreeShaker {
                         if local_name == alias {
                             // Resolve relative imports to absolute module names
                             let resolved_module = if *level > 0 {
-                                self.resolve_relative_module(current_module, module, *level)
+                                self.resolve_relative_with_context(
+                                    current_module_id,
+                                    *level,
+                                    module,
+                                )
                             } else {
                                 module.clone()
                             };
@@ -244,80 +297,7 @@ impl TreeShaker {
         None
     }
 
-    /// Resolve a relative module import to an absolute module name
-    ///
-    /// Note: We cannot use `resolver::resolve_relative_import_from_name` directly because:
-    /// 1. The resolver expects module names ending with "__init__" for packages, but we have module
-    ///    names like "parent.subpkg" that are packages
-    /// 2. We need to determine if a module is a package based on whether it has submodules, which
-    ///    requires access to `self.module_names`
-    /// 3. The resolver's heuristics don't match our tree-shaking context where we're working with
-    ///    already-resolved module names rather than file paths
-    fn resolve_relative_module(
-        &self,
-        current_module: &str,
-        relative_module: &str,
-        level: u32,
-    ) -> String {
-        // Split current module into parts
-        let parts: Vec<&str> = current_module.split('.').collect();
-
-        // Check if current module is a package (has sub-modules)
-        // A module is a package if it has sub-modules in our module registry
-        let has_submodules = self
-            .module_names
-            .values()
-            .any(|name| name != current_module && name.starts_with(&format!("{current_module}.")));
-
-        // For relative imports with level > 1, the importing module must be in a package
-        let is_package = has_submodules || (level > 1 && parts.len() > 1);
-
-        debug!(
-            "resolve_relative_module: current_module='{current_module}', \
-             relative_module='{relative_module}', level={level}, is_package={is_package}"
-        );
-
-        // Calculate how many levels to actually remove
-        // For packages, level 1 means current package, not parent
-        // For regular modules, we remove 'level' parts
-        let levels_to_remove = if is_package {
-            if level > 0 { level - 1 } else { 0 }
-        } else {
-            level
-        } as usize;
-
-        // Remove the dots from the relative module name early
-        let relative_part = relative_module.trim_start_matches('.');
-
-        // If we need to go up more levels than we have, something is wrong
-        if levels_to_remove > parts.len() {
-            warn!(
-                "Relative import level {} exceeds module depth {} for module {}",
-                level,
-                parts.len(),
-                current_module
-            );
-            return relative_part.to_string();
-        }
-
-        // Get the parent module parts
-        let parent_parts = &parts[..parts.len().saturating_sub(levels_to_remove)];
-
-        // Combine parent parts with relative module
-        let result = if relative_part.is_empty() {
-            // Import from parent package itself
-            parent_parts.join(".")
-        } else if parent_parts.is_empty() {
-            // At top level
-            relative_part.to_string()
-        } else {
-            // Normal case: parent.relative
-            format!("{}.{}", parent_parts.join("."), relative_part)
-        };
-
-        debug!("Resolved relative import to: '{result}'");
-        result
-    }
+    // Note: previous custom resolve_relative_module helper removed in favor of centralized resolver
 
     /// Seed side effects for a module that has been reached via imports
     fn seed_side_effects_for_module(
@@ -413,7 +393,7 @@ impl TreeShaker {
                     } => {
                         // First resolve relative imports
                         let resolved_from_module = if *level > 0 {
-                            self.resolve_relative_module(module_name, from_module, *level)
+                            self.resolve_relative_with_context(module_id, *level, from_module)
                         } else {
                             from_module.clone()
                         };
@@ -574,6 +554,7 @@ impl TreeShaker {
                     module: from_module,
                     names,
                     level,
+                    is_star,
                     ..
                 } = &item.item_type
                 {
@@ -581,12 +562,8 @@ impl TreeShaker {
                         let local_name = alias_opt.as_ref().unwrap_or(original_name);
                         if local_name == symbol {
                             // This symbol is re-exported from another module
-                            let module_name = self
-                                .module_names
-                                .get(&module_id)
-                                .map_or("", std::string::String::as_str);
                             let resolved_module_name = if *level > 0 {
-                                self.resolve_relative_module(module_name, from_module, *level)
+                                self.resolve_relative_with_context(module_id, *level, from_module)
                             } else {
                                 from_module.clone()
                             };
@@ -600,6 +577,36 @@ impl TreeShaker {
                                 );
                                 worklist.push_back((resolved_module_id, original_name.clone()));
                                 // Also mark the import itself as used
+                                self.add_item_dependencies(item, module_id, worklist);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Special case: wildcard re-export (from module import *)
+                    if *is_star {
+                        let resolved_module_name = if *level > 0 {
+                            self.resolve_relative_with_context(module_id, *level, from_module)
+                        } else {
+                            from_module.clone()
+                        };
+
+                        if let Some(&resolved_module_id) =
+                            self.module_name_to_id.get(&resolved_module_name)
+                            && let Some(target_items) = self.module_items.get(&resolved_module_id)
+                        {
+                            // If the target module explicitly exports this symbol in __all__, use
+                            // it
+                            let is_in_all = target_items.iter().any(|it| {
+                                Self::is_all_assignment(it)
+                                    && it.eventual_read_vars.contains(symbol)
+                            });
+                            if is_in_all {
+                                debug!(
+                                    "Symbol {symbol} resolved via wildcard re-export from \
+                                     {resolved_module_name}"
+                                );
+                                worklist.push_back((resolved_module_id, symbol.to_string()));
                                 self.add_item_dependencies(item, module_id, worklist);
                                 return;
                             }
@@ -681,12 +688,8 @@ impl TreeShaker {
                     ..
                 } => {
                     // Resolve relative imports
-                    let module_name = self
-                        .module_names
-                        .get(&module_id)
-                        .map_or("", std::string::String::as_str);
                     let resolved_module_name = if *level > 0 {
-                        self.resolve_relative_module(module_name, from_module, *level)
+                        self.resolve_relative_with_context(module_id, *level, from_module)
                     } else {
                         from_module.clone()
                     };
@@ -960,24 +963,7 @@ impl TreeShaker {
         }
     }
 
-    /// Get all unused symbols for a module
-    pub fn get_unused_symbols_for_module(&self, module_name: &str) -> Vec<String> {
-        let mut unused = Vec::new();
-
-        if let Some(&module_id) = self.module_name_to_id.get(module_name)
-            && let Some(items) = self.module_items.get(&module_id)
-        {
-            for item in items {
-                for symbol in &item.defined_symbols {
-                    if !self.is_symbol_used(module_name, symbol) {
-                        unused.push(symbol.clone());
-                    }
-                }
-            }
-        }
-
-        unused
-    }
+    // Removed get_unused_symbols_for_module: dead code
 
     /// Check if a module has side effects that prevent tree-shaking
     pub fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
@@ -1268,6 +1254,7 @@ mod tests {
     #[test]
     fn test_basic_tree_shaking() {
         let mut graph = CriboGraph::new();
+        let resolver = crate::resolver::ModuleResolver::new(crate::config::Config::default());
 
         // Create a simple module with used and unused functions
         let module_id = graph.add_module(
@@ -1346,14 +1333,14 @@ mod tests {
         });
 
         // Run tree shaking
-        let mut shaker = TreeShaker::from_graph(&graph);
+        let mut shaker = TreeShaker::from_graph(&graph, &resolver);
         shaker.analyze("__main__");
 
         // Check results
         assert!(shaker.is_symbol_used("test_module", "used_func"));
         assert!(!shaker.is_symbol_used("test_module", "unused_func"));
 
-        let unused = shaker.get_unused_symbols_for_module("test_module");
-        assert_eq!(unused, vec!["unused_func"]);
+        // Verify unused symbol by negative is_symbol_used check
+        assert!(!shaker.is_symbol_used("test_module", "unused_func"));
     }
 }

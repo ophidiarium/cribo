@@ -1911,7 +1911,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // Check if this is a circular module with pre-declarations
                 if self.bundler.circular_modules.contains(&resolved_id) {
                     log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
-                    let _current_module_id = Some(self.module_id);
                     log::debug!(
                         "  Current module '{}' is circular: {}, is inlined: {}",
                         self.get_module_name(),

@@ -549,7 +549,8 @@ impl SemanticBundler {
         for conflict in &conflicts {
             for (i, module_id) in conflict.modules.iter().enumerate() {
                 // Generate renames for all modules in conflict (including first)
-                let _new_name = self.global_symbols.generate_rename(
+                // Generate and register a rename (return value not needed)
+                self.global_symbols.generate_rename(
                     *module_id,
                     &conflict.symbol,
                     i + 1, // Start numbering from 1 instead of 0

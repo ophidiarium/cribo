@@ -10,7 +10,6 @@ use ruff_python_ast::{Alias, ModModule, Stmt, StmtImport, StmtImportFrom};
 use super::bundler::Bundler;
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
-    tree_shaking::TreeShaker,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -126,7 +125,7 @@ pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str)
 pub(super) fn trim_unused_imports_from_modules(
     modules: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
     graph: &DependencyGraph,
-    tree_shaker: Option<&TreeShaker>,
+    tree_shaker: Option<&crate::tree_shaking::TreeShaker<'_>>,
     python_version: u8,
     circular_modules: &FxIndexSet<crate::resolver::ModuleId>,
 ) -> FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)> {
@@ -596,7 +595,7 @@ fn is_import_used_by_all_exports(
 
 /// Check if an import is used by module-level code with side effects
 fn is_import_used_by_side_effect_code(
-    shaker: &TreeShaker,
+    shaker: &crate::tree_shaking::TreeShaker<'_>,
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {

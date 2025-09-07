@@ -54,7 +54,8 @@ pub struct BundleParams<'a> {
                                                         * detection */
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::analyzers::types::CircularDependencyAnalysis>, /* Circular dependency analysis */
-    pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis
-    pub python_version: u8,                                       /* Target Python version for
-                                                                   * builtin checks */
+    pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker<'a>>, // Tree shaking analysis
+    pub python_version: u8,                                           /* Target Python version
+                                                                       * for
+                                                                       * builtin checks */
 }

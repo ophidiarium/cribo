@@ -1147,12 +1147,14 @@ impl ModuleResolver {
             current_parts.pop();
         }
 
-        // If name is provided, split it and append
-        if let Some(name) = name
-            && !name.is_empty()
-        {
-            let name_parts: Vec<&str> = name.split('.').collect();
-            current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
+        // If name is provided, split it and append. Trim any leading dots to avoid
+        // accidental empty components (e.g., "._types").
+        if let Some(raw_name) = name {
+            let cleaned = raw_name.trim_start_matches('.');
+            if !cleaned.is_empty() {
+                let name_parts: Vec<&str> = cleaned.split('.').filter(|s| !s.is_empty()).collect();
+                current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
+            }
         }
 
         if current_parts.is_empty() {

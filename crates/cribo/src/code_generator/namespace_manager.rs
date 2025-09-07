@@ -232,9 +232,13 @@ pub fn populate_namespace_with_module_symbols(
         return result_stmts;
     };
     let module_name = &module_info.name;
+    log::debug!(
+        "[namespace] Populating namespace for module '{module_name}' as target '{target_name}'"
+    );
 
     // Get the module's exports
     if let Some(exports) = ctx.module_exports.get(&module_id).and_then(|e| e.as_ref()) {
+        log::debug!("[namespace] Module '{module_name}' exports (raw): {exports:?}");
         // Build the namespace access expression for the target
         let parts: Vec<&str> = target_name.split('.').collect();
 
@@ -249,7 +253,23 @@ pub fn populate_namespace_with_module_symbols(
 
         // Filter exports to only include symbols that were actually inlined
         // This is critical because we can't reference symbols that weren't included in the bundle
-        let mut filtered_exports: Vec<String> = if ctx.tree_shaking_keep_symbols.is_some() {
+        // If some module accesses this module's __all__ at runtime, include all declared exports
+        // regardless of tree-shaking (runtime reflection requires them to exist).
+        let accessed_via_all = ctx
+            .modules_with_accessed_all
+            .iter()
+            .any(|(_, accessed_module)| accessed_module == module_name)
+            || any_module_wildcard_imports_and_uses_setattr(
+                ctx.module_asts,
+                ctx.resolver,
+                module_name,
+                module_id,
+                module_name,
+            );
+
+        let mut filtered_exports: Vec<String> = if accessed_via_all {
+            exports.clone()
+        } else if ctx.tree_shaking_keep_symbols.is_some() {
             // When tree-shaking is enabled, start with symbols kept by tree-shaking
             let kept: FxIndexSet<String> = SymbolAnalyzer::filter_exports_by_tree_shaking(
                 exports,
@@ -267,6 +287,16 @@ pub fn populate_namespace_with_module_symbols(
             // No tree-shaking, include all exports
             exports.clone()
         };
+
+        log::debug!(
+            "[namespace] Module '{}' accessed_via_all={}, has_explicit_all={}, kept_map_present={}",
+            module_name,
+            accessed_via_all,
+            has_explicit_all,
+            ctx.tree_shaking_keep_symbols
+                .as_ref()
+                .is_some_and(|m| !m.is_empty())
+        );
 
         // Import-aware augmentation: if other modules import specific names from this module,
         // include those names in the namespace population even if they'd be filtered out
@@ -312,6 +342,8 @@ pub fn populate_namespace_with_module_symbols(
 
             filtered_exports = augmented.into_iter().collect();
         }
+
+        log::debug!("[namespace] Module '{module_name}' filtered exports: {filtered_exports:?}");
 
         // Check if __all__ assignment already exists for this namespace
         let all_assignment_exists = result_stmts.iter().any(|stmt| {
@@ -703,31 +735,46 @@ pub fn populate_namespace_with_module_symbols(
             }
 
             // Re-exported from wrapper module?
-            let symbol_expr = if let Some((source_module, original_name)) =
+            if let Some((source_module, original_name)) =
                 find_symbol_source_module(ctx, module_name, &symbol_name)
             {
                 let source_parts: Vec<&str> = source_module.split('.').collect();
                 let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
-                expressions::attribute(source_expr, &original_name, ExprContext::Load)
+                let symbol_expr =
+                    expressions::attribute(source_expr, &original_name, ExprContext::Load);
+                log::debug!(
+                    "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
+                     {source_module}.{original_name} (wrapper re-export)"
+                );
+                result_stmts.push(statements::assign(
+                    vec![expressions::attribute(
+                        target.clone(),
+                        &symbol_name,
+                        ExprContext::Store,
+                    )],
+                    symbol_expr,
+                ));
             } else {
-                // Check if symbol was renamed during inlining
+                // Local symbol (defined in this module)
                 let actual_symbol_name = symbol_renames
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
                     .cloned()
                     .unwrap_or_else(|| symbol_name.clone());
-                expressions::name(&actual_symbol_name, ExprContext::Load)
-            };
-
-            // target.symbol = symbol_expr
-            result_stmts.push(statements::assign(
-                vec![expressions::attribute(
-                    target.clone(),
-                    &symbol_name,
-                    ExprContext::Store,
-                )],
-                symbol_expr,
-            ));
+                let symbol_expr = expressions::name(&actual_symbol_name, ExprContext::Load);
+                log::debug!(
+                    "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
+                     {actual_symbol_name}"
+                );
+                result_stmts.push(statements::assign(
+                    vec![expressions::attribute(
+                        target.clone(),
+                        &symbol_name,
+                        ExprContext::Store,
+                    )],
+                    symbol_expr,
+                ));
+            }
         }
     }
 
@@ -809,7 +856,6 @@ fn find_symbol_source_module(
     symbol_name: &str,
 ) -> Option<(String, String)> {
     let module_asts = ctx.module_asts.as_ref()?;
-
     crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
         module_asts,
         ctx.resolver,
@@ -817,4 +863,79 @@ fn find_symbol_source_module(
         module_name,
         symbol_name,
     )
+}
+
+/// Heuristic: detect dynamic __all__ usage pattern in any module that wildcard-imports from
+/// `target_module` and uses `setattr` (e.g., httpx-like pattern).
+fn any_module_wildcard_imports_and_uses_setattr(
+    module_asts: &Option<FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>>,
+    resolver: &crate::resolver::ModuleResolver,
+    target_module: &str,
+    current_module_id: ModuleId,
+    current_module_name: &str,
+) -> bool {
+    let Some(asts) = module_asts.as_ref() else {
+        return false;
+    };
+
+    for (other_id, (ast, path, _)) in asts {
+        // Skip self
+        if other_id == &current_module_id {
+            continue;
+        }
+
+        let mut wildcard_imports_targeting_module = false;
+        let mut uses_setattr = false;
+
+        for stmt in &ast.body {
+            if let Stmt::ImportFrom(import_from) = stmt {
+                // Resolve the import to an absolute module name
+                let resolved = crate::code_generator::symbol_source::resolve_import_module(
+                    resolver,
+                    import_from,
+                    path,
+                );
+                if let Some(resolved_name) = resolved {
+                    if resolved_name == target_module
+                        && import_from.names.len() == 1
+                        && import_from.names[0].name.as_str() == "*"
+                    {
+                        wildcard_imports_targeting_module = true;
+                    }
+                } else if import_from.level > 0 {
+                    // Fallback: resolve relative by package name if helper couldn't
+                    let resolved_name = resolver.resolve_relative_import_from_package_name(
+                        import_from.level,
+                        import_from.module.as_deref(),
+                        current_module_name,
+                    );
+                    if resolved_name == target_module
+                        && import_from.names.len() == 1
+                        && import_from.names[0].name.as_str() == "*"
+                    {
+                        wildcard_imports_targeting_module = true;
+                    }
+                }
+            }
+
+            // Heuristic: scan for calls to `setattr` in this module
+            // We don't deeply analyze; presence indicates dynamic attribute setting pattern
+            if let Stmt::Expr(expr_stmt) = stmt
+                && let Expr::Call(call) = &*expr_stmt.value
+            {
+                match &*call.func {
+                    Expr::Name(name) if name.id.as_str() == "setattr" => {
+                        uses_setattr = true;
+                    }
+                    _ => {}
+                }
+            }
+
+            if wildcard_imports_targeting_module && uses_setattr {
+                return true;
+            }
+        }
+    }
+
+    false
 }

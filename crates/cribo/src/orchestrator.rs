@@ -146,7 +146,7 @@ struct StaticBundleParams<'a> {
     resolver: &'a ModuleResolver,
     graph: &'a CriboGraph,
     circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
-    tree_shaker: Option<&'a TreeShaker>,
+    tree_shaker: Option<&'a TreeShaker<'a>>,
 }
 
 /// Context for dependency building operations
@@ -328,7 +328,6 @@ impl BundleOrchestrator {
         cycles: &[CircularDependencyGroup],
         resolver: &ModuleResolver,
     ) -> String {
-        use std::fmt::Write;
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
 
         for (i, cycle) in cycles.iter().enumerate() {
@@ -339,11 +338,11 @@ impl BundleOrchestrator {
                 .filter_map(|id| resolver.get_module_name(*id))
                 .collect();
 
-            let _ = writeln!(error_msg, "Cycle {}: {}", i + 1, module_names.join(" → "));
-            let _ = writeln!(error_msg, "  Type: {:?}", cycle.cycle_type);
+            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, module_names.join(" → ")));
+            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                let _ = writeln!(error_msg, "  Reason: {reason}");
+                error_msg.push_str(&format!("  Reason: {reason}\n"));
             }
             error_msg.push('\n');
         }
@@ -363,7 +362,6 @@ impl BundleOrchestrator {
         String,
         Vec<ParsedModuleData>,
         Option<CircularDependencyAnalysis>,
-        Option<TreeShaker>,
     )> {
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
@@ -542,64 +540,10 @@ impl BundleOrchestrator {
             }
         }
 
-        // Run tree-shaking if enabled
-        let tree_shaker = if self.config.tree_shake {
-            info!("Running tree-shaking analysis...");
-            let mut shaker = TreeShaker::from_graph(graph);
-
-            // Check which modules can be tree-shaken (no side effects)
-            let mut modules_with_side_effects = Vec::new();
-            let mut modules_for_tree_shaking = Vec::new();
-
-            for (&module_id, module) in &graph.modules {
-                if shaker.module_has_side_effects(module_id) {
-                    modules_with_side_effects.push(&module.module_name);
-                } else {
-                    modules_for_tree_shaking.push(&module.module_name);
-                }
-            }
-
-            if !modules_with_side_effects.is_empty() {
-                debug!(
-                    "Modules with side effects (excluded from tree-shaking): \
-                     {modules_with_side_effects:?}"
-                );
-            }
-
-            if !modules_for_tree_shaking.is_empty() {
-                debug!("Modules eligible for tree-shaking: {modules_for_tree_shaking:?}");
-            }
-
-            // Analyze from entry module
-            shaker.analyze(&entry_module_name);
-
-            // Log tree-shaking results
-            for module_name in modules_for_tree_shaking {
-                let unused = shaker.get_unused_symbols_for_module(module_name);
-                if !unused.is_empty() {
-                    info!(
-                        "Tree-shaking will remove {} unused symbols from module '{}': {:?}",
-                        unused.len(),
-                        module_name,
-                        unused
-                    );
-                }
-            }
-
-            Some(shaker)
-        } else {
-            None
-        };
-
         // Set the resolver for the caller to use
         *resolver_opt = Some(resolver);
 
-        Ok((
-            entry_module_name,
-            parsed_modules,
-            circular_dep_analysis,
-            tree_shaker,
-        ))
+        Ok((entry_module_name, parsed_modules, circular_dep_analysis))
     }
 
     /// Helper to get sorted modules from graph
@@ -683,7 +627,7 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (_entry_module_name, parsed_modules, circular_dep_analysis, tree_shaker) =
+        let (_entry_module_name, parsed_modules, circular_dep_analysis) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
@@ -691,6 +635,23 @@ impl BundleOrchestrator {
 
         let sorted_module_ids =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
+
+        // Optional: run tree-shaking after resolver is available
+        let tree_shaker = if self.config.tree_shake {
+            info!("Running tree-shaking analysis...");
+            let mut shaker = crate::tree_shaking::TreeShaker::from_graph(&graph, &resolver);
+
+            // Analyze from entry module (resolver guarantees ENTRY name is registered)
+            // We use resolver to fetch it for logging and correctness where needed
+            let entry_name = resolver
+                .get_module_name(crate::resolver::ModuleId::ENTRY)
+                .unwrap_or_else(|| "__main__".to_string());
+            shaker.analyze(&entry_name);
+
+            Some(shaker)
+        } else {
+            None
+        };
 
         // Generate bundled code
         info!("Using hybrid static bundler");
@@ -726,7 +687,7 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (_entry_module_name, parsed_modules, circular_dep_analysis, tree_shaker) =
+        let (_entry_module_name, parsed_modules, circular_dep_analysis) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
@@ -734,6 +695,21 @@ impl BundleOrchestrator {
 
         let sorted_module_ids =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
+
+        // Optional: run tree-shaking after resolver is available
+        let tree_shaker = if self.config.tree_shake {
+            info!("Running tree-shaking analysis...");
+            let mut shaker = crate::tree_shaking::TreeShaker::from_graph(&graph, &resolver);
+
+            let entry_name = resolver
+                .get_module_name(crate::resolver::ModuleId::ENTRY)
+                .unwrap_or_else(|| "__main__".to_string());
+            shaker.analyze(&entry_name);
+
+            Some(shaker)
+        } else {
+            None
+        };
 
         // Generate bundled code
         info!("Using hybrid static bundler");
@@ -1188,6 +1164,11 @@ impl BundleOrchestrator {
                         }
                     }
                 }
+
+                // Note: Do not treat wildcard imports as implicit __all__ access globally.
+                // Runtime reflection patterns are handled locally in namespace population
+                // via heuristics (wildcard import + setattr), avoiding unnecessary __all__
+                // assignments that cause snapshot churn.
             }
         }
 

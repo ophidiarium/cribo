@@ -2992,7 +2992,7 @@ fn process_wildcard_import(
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     imports_from_inlined: &mut Vec<(String, String, Option<String>)>,
-    _current_module: &str,
+    current_module: &str,
 ) -> Vec<(String, String)> {
     debug!("Processing wildcard import from inlined module '{module}'");
 
@@ -3007,33 +3007,51 @@ fn process_wildcard_import(
         let module_id = module_id.expect("Module ID should exist if exports found");
 
         // Module has explicit __all__, use it
+        // Determine if the importing module accesses __all__ dynamically
+        let importer_accesses_all = bundler.get_module_id(current_module).is_some_and(|id| {
+            bundler
+                .modules_with_accessed_all
+                .iter()
+                .any(|(mid, _)| *mid == id)
+        });
+
+        // Detect if importing module is a package (__init__.py)
+        let importer_is_package = bundler
+            .get_module_id(current_module)
+            .and_then(|id| bundler.resolver.get_module(id))
+            .is_some_and(|m| m.is_package);
+
         for symbol in export_list {
             if symbol != "*" {
                 // A symbol is kept if it's kept in the re-exporting module itself,
                 // or if it's re-exported from a submodule and kept in that source module.
-                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module_id, symbol) || {
-                    let mut found_in_submodule = false;
-                    for (potential_module_id, module_exports) in &bundler.module_exports {
-                        // Check if this is a submodule by comparing names
-                        let potential_module_name = bundler
-                            .resolver
-                            .get_module_name(*potential_module_id)
-                            .expect("Module name must exist");
-                        if potential_module_name.starts_with(&format!("{module}."))
-                            && let Some(exports) = module_exports
-                            && exports.contains(symbol)
-                            && bundler.is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
-                        {
-                            debug!(
-                                "Symbol '{symbol}' is kept in source module \
-                                 '{potential_module_name}'"
-                            );
-                            found_in_submodule = true;
-                            break;
+                let is_kept_final = importer_accesses_all
+                    || importer_is_package
+                    || bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+                    || {
+                        let mut found_in_submodule = false;
+                        for (potential_module_id, module_exports) in &bundler.module_exports {
+                            // Check if this is a submodule by comparing names
+                            let potential_module_name = bundler
+                                .resolver
+                                .get_module_name(*potential_module_id)
+                                .expect("Module name must exist");
+                            if potential_module_name.starts_with(&format!("{module}."))
+                                && let Some(exports) = module_exports
+                                && exports.contains(symbol)
+                                && bundler
+                                    .is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
+                            {
+                                debug!(
+                                    "Symbol '{symbol}' is kept in source module \
+                                     '{potential_module_name}'"
+                                );
+                                found_in_submodule = true;
+                                break;
+                            }
                         }
-                    }
-                    found_in_submodule
-                };
+                        found_in_submodule
+                    };
 
                 if is_kept_final {
                     // Check if this symbol comes from a wrapper module

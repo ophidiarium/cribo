@@ -188,38 +188,7 @@ impl<'a> Bundler<'a> {
             .is_some_and(|id| self.inlined_modules.contains(&id))
     }
 
-    /// Helper: does the given AST directly import `module_name` at top-level via `import
-    /// module_name`
-    fn entry_directly_imports_module(ast: &ModModule, module_name: &str) -> bool {
-        ast.body.iter().any(|stmt| {
-            let Stmt::Import(import_stmt) = stmt else {
-                return false;
-            };
-            import_stmt
-                .names
-                .iter()
-                .any(|alias| alias.name.as_str() == module_name)
-        })
-    }
-
-    /// Helper: build `namespace.__all__ = [..]` assignment
-    fn build_namespace_all_assignment(namespace_var: &str, export_list: &[String]) -> Stmt {
-        let all_list = expressions::list(
-            export_list
-                .iter()
-                .map(|s| expressions::string_literal(s))
-                .collect(),
-            ExprContext::Load,
-        );
-        statements::assign(
-            vec![expressions::attribute(
-                expressions::name(namespace_var, ExprContext::Load),
-                "__all__",
-                ExprContext::Store,
-            )],
-            all_list,
-        )
-    }
+    // (removed) entry_directly_imports_module, build_namespace_all_assignment: dead code
 
     /// Helper: collect entry stdlib alias names from a `from` import
     fn collect_aliases_from_stdlib_from_import(
@@ -484,34 +453,7 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Helper: if __all__ is accessed for `module_name`, attach it to `namespace_var`
-    fn add_all_if_accessed(
-        &self,
-        module_id: ModuleId,
-        module_name: &str,
-        namespace_var: &str,
-        all_inlined_stmts: &mut Vec<Stmt>,
-    ) {
-        let all_accessed = self
-            .modules_with_accessed_all
-            .iter()
-            .any(|(_, accessed_module)| accessed_module == module_name);
-
-        log::debug!(
-            "Checking __all__ for module '{}': all_accessed={}, has_exports={}",
-            module_name,
-            all_accessed,
-            self.module_exports.get(&module_id).is_some()
-        );
-
-        if all_accessed && let Some(Some(export_list)) = self.module_exports.get(&module_id) {
-            let all_assign = Self::build_namespace_all_assignment(namespace_var, export_list);
-            all_inlined_stmts.push(all_assign);
-            log::debug!(
-                "Added __all__ attribute to namespace '{module_name}' (not directly imported)"
-            );
-        }
-    }
+    // (removed) add_all_if_accessed: dead code
 
     /// Handle wildcard-from imports (`from X import *`) for wrapper modules
     fn handle_wildcard_import_from_multiple(
@@ -1534,6 +1476,7 @@ impl<'a> Bundler<'a> {
                     // Strings are already owned; clone to populate the global set
                     all_kept.extend(symbols.iter().cloned());
                 }
+                // Do not include extra symbols here; __all__ handling occurs elsewhere
                 log::debug!(
                     "Populated global kept symbols cache with {} unique symbols",
                     all_kept.len()
@@ -2227,30 +2170,8 @@ impl<'a> Bundler<'a> {
                         all_inlined_stmts.push(namespace_stmt);
                         self.created_namespaces.insert(namespace_var.clone());
 
-                        // Check if __all__ is accessed on this module and add it if needed
-                        // Only add it here if the module will NOT get namespace population later
-                        // (namespace population handles __all__ for directly imported modules)
-                        if let Some(module_id) = self.get_module_id(&module_name) {
-                            // Check if this module is directly imported (will get namespace
-                            // population)
-                            let is_directly_imported = modules
-                                .get(&crate::resolver::ModuleId::ENTRY)
-                                .is_some_and(|(ast, _, _)| {
-                                    Self::entry_directly_imports_module(ast, &module_name)
-                                });
-
-                            // Only add __all__ here if NOT directly imported
-                            // (directly imported modules get __all__ via
-                            // populate_namespace_with_module_symbols)
-                            if !is_directly_imported {
-                                self.add_all_if_accessed(
-                                    module_id,
-                                    &module_name,
-                                    &namespace_var,
-                                    &mut all_inlined_stmts,
-                                );
-                            }
-                        }
+                        // NOTE: Do not add __all__ here. Namespace population handles
+                        // attaching __all__ when accessed, avoiding duplicate assignments.
 
                         // Recursively handle the entire namespace chain for submodules
                         self.create_namespace_chain_for_module(
@@ -2303,7 +2224,19 @@ impl<'a> Bundler<'a> {
                         // This ensures that both directly imported modules (import module) and
                         // modules imported via from-imports (from package import module) have
                         // their symbols properly assigned to their namespace objects
-                        log::debug!("Populating namespace for inlined module: {module_name}");
+                        log::debug!(
+                            "[bundler] Populating namespace for inlined module: {module_name} \
+                             (id={current_module_id:?})"
+                        );
+                        if let Some(exports) = self.module_exports.get(&current_module_id) {
+                            log::debug!(
+                                "Module '{module_name}' exports before filtering: {exports:?}"
+                            );
+                        } else {
+                            log::debug!(
+                                "Module '{module_name}' has no entry in module_exports map"
+                            );
+                        }
                         let namespace_var = sanitize_module_name_for_identifier(&module_name);
 
                         // Create a context for namespace population
@@ -2328,6 +2261,11 @@ impl<'a> Bundler<'a> {
                             &namespace_var,
                             current_module_id,
                             &symbol_renames,
+                        );
+                        log::debug!(
+                            "[bundler] Namespace population produced {} statements for module '{}'",
+                            population_stmts.len(),
+                            module_name
                         );
 
                         all_inlined_stmts.extend(population_stmts);
