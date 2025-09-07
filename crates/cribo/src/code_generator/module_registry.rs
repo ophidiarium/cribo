@@ -289,12 +289,13 @@ pub fn create_assignments_for_inlined_imports(
                 }
             } else {
                 // Regular symbol import
-                // Check if this symbol was renamed during inlining
-                let module_id = resolver
-                    .get_module_id_by_name(module_name)
-                    .expect("Module should exist");
+                // Try to resolve the parent module; it may be absent for namespace packages
+                let module_id_opt = resolver.get_module_id_by_name(module_name);
 
-                let actual_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
+                // Determine the actual (possibly renamed) symbol name if we have rename info
+                let actual_name = if let Some(id) = module_id_opt
+                    && let Some(module_renames) = symbol_renames.get(&id)
+                {
                     module_renames
                         .get(imported_name)
                         .map_or(imported_name, std::string::String::as_str)
@@ -303,8 +304,11 @@ pub fn create_assignments_for_inlined_imports(
                 };
 
                 // When we're inside a wrapper init function and importing from an inlined module,
-                // we need to qualify the symbol with the module's namespace variable
-                let source_ref = if is_wrapper_init && inlined_modules.contains(&module_id) {
+                // we need to qualify the symbol with the module's namespace variable. Only possible
+                // if the parent module actually exists and was inlined.
+                let source_ref = if is_wrapper_init
+                    && module_id_opt.is_some_and(|id| inlined_modules.contains(&id))
+                {
                     // The module is inlined, so its symbols are attached to a namespace object
                     let sanitized_module = sanitize_module_name_for_identifier(module_name);
                     format!("{sanitized_module}.{actual_name}")
@@ -321,7 +325,9 @@ pub fn create_assignments_for_inlined_imports(
                         &mut assignments,
                         python_version,
                     );
-                } else if is_wrapper_init && inlined_modules.contains(&module_id) {
+                } else if is_wrapper_init
+                    && module_id_opt.is_some_and(|id| inlined_modules.contains(&id))
+                {
                     // Even if names match, we need the assignment to access through namespace
                     create_assignment_if_no_stdlib_conflict(
                         local_name.as_str(),
