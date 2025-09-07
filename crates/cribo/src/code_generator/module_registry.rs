@@ -292,6 +292,19 @@ pub fn create_assignments_for_inlined_imports(
                 // Try to resolve the parent module; it may be absent for namespace packages
                 let module_id_opt = resolver.get_module_id_by_name(module_name);
 
+                // Apply tree-shaking outside wrapper init
+                if !is_wrapper_init
+                    && let Some(id) = module_id_opt
+                    && let Some(check_fn) = tree_shaking_check
+                    && !check_fn(id, imported_name)
+                {
+                    log::debug!(
+                        "Skipping assignment for tree-shaken symbol '{imported_name}' from module \
+                         '{module_name}' (outside wrapper init)"
+                    );
+                    continue;
+                }
+
                 // Determine the actual (possibly renamed) symbol name if we have rename info
                 let actual_name = if let Some(id) = module_id_opt
                     && let Some(module_renames) = symbol_renames.get(&id)
