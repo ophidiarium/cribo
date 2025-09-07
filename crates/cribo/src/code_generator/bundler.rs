@@ -290,7 +290,7 @@ impl<'a> Bundler<'a> {
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
         wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
-        needed: &mut FxIndexSet<String>,
+        needed: &mut FxIndexSet<ModuleId>,
     ) {
         // Handle "from . import X" pattern
         if import_from.level > 0 && import_from.module.is_none() {
@@ -310,7 +310,7 @@ impl<'a> Bundler<'a> {
                         .iter()
                         .any(|(id, _, _, _)| *id == potential_module_id)
                 {
-                    needed.insert(potential_module.clone());
+                    needed.insert(potential_module_id);
                     let module_name_str = self
                         .resolver
                         .get_module_name(module_id)
@@ -338,9 +338,12 @@ impl<'a> Bundler<'a> {
         };
 
         if let Some(ref resolved) = resolved_module
-            && self.has_synthetic_name(resolved.as_str())
+            && let Some(resolved_id) = self.get_module_id(resolved)
+            && wrapper_modules_saved
+                .iter()
+                .any(|(id, _, _, _)| *id == resolved_id)
         {
-            needed.insert(resolved.clone());
+            needed.insert(resolved_id);
             let module_name_str = self
                 .resolver
                 .get_module_name(module_id)
@@ -358,7 +361,7 @@ impl<'a> Bundler<'a> {
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
         wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
-        deps: &mut FxIndexMap<String, FxIndexSet<String>>,
+        deps: &mut FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
     ) {
         // Handle from . import X
         if import_from.level > 0 && import_from.module.is_none() {
@@ -378,13 +381,9 @@ impl<'a> Bundler<'a> {
                         .iter()
                         .any(|(id, _, _, _)| *id == potential_module_id)
                 {
-                    let module_name_str = self
-                        .resolver
-                        .get_module_name(module_id)
-                        .expect("Module name must exist for ModuleId");
-                    deps.entry(module_name_str)
+                    deps.entry(module_id)
                         .or_default()
-                        .insert(potential_module);
+                        .insert(potential_module_id);
                 }
             }
         }
@@ -408,13 +407,7 @@ impl<'a> Bundler<'a> {
                 .iter()
                 .any(|(id, _, _, _)| *id == resolved_id)
         {
-            let module_name_str = self
-                .resolver
-                .get_module_name(module_id)
-                .expect("Module name must exist for ModuleId");
-            deps.entry(module_name_str)
-                .or_default()
-                .insert(resolved.clone());
+            deps.entry(module_id).or_default().insert(resolved_id);
         }
     }
 
@@ -1856,7 +1849,8 @@ impl<'a> Bundler<'a> {
         // Before inlining modules, check which wrapper modules they depend on
         // We only track direct dependencies from inlined modules to wrapper modules
         // Wrapper-to-wrapper dependencies will be handled through normal init ordering
-        let mut wrapper_modules_needed_by_inlined = FxIndexSet::default();
+        // Track wrapper modules needed directly by inlined modules using ModuleId
+        let mut wrapper_modules_needed_by_inlined: FxIndexSet<ModuleId> = FxIndexSet::default();
         for (module_id, ast, module_path, _) in &inlinable_modules {
             for stmt in &ast.body {
                 let Stmt::ImportFrom(import_from) = stmt else {
@@ -1875,7 +1869,8 @@ impl<'a> Bundler<'a> {
         // Now we need to find transitive dependencies for wrapper modules needed by inlined modules
         // If an inlined module needs wrapper A, and wrapper A needs wrapper B, then B must be
         // initialized before A. We need to build the full dependency chain.
-        let mut wrapper_to_wrapper_deps: FxIndexMap<String, FxIndexSet<String>> =
+        // Map wrapper ModuleId -> set of wrapper ModuleId dependencies
+        let mut wrapper_to_wrapper_deps: FxIndexMap<ModuleId, FxIndexSet<ModuleId>> =
             FxIndexMap::default();
 
         // Collect wrapper-to-wrapper dependencies
@@ -1904,9 +1899,20 @@ impl<'a> Bundler<'a> {
                 if let Some(deps) = wrapper_to_wrapper_deps.get(module) {
                     for dep in deps {
                         if !all_needed.contains(dep) {
-                            all_needed.insert(dep.clone());
-                            next_to_process.insert(dep.clone());
-                            log::debug!("Adding transitive dependency: {dep} (needed by {module})");
+                            all_needed.insert(*dep);
+                            next_to_process.insert(*dep);
+                            let module_name = self
+                                .resolver
+                                .get_module_name(*module)
+                                .unwrap_or_else(|| format!("module_{}", module.as_u32()));
+                            let dep_name = self
+                                .resolver
+                                .get_module_name(*dep)
+                                .unwrap_or_else(|| format!("module_{}", dep.as_u32()));
+                            log::debug!(
+                                "Adding transitive dependency: {dep_name} (needed by \
+                                 {module_name})"
+                            );
                         }
                     }
                 }
