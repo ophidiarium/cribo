@@ -1,5 +1,4 @@
-use ruff_python_ast::{AtomicNodeIndex, ExprContext, Stmt, StmtFor};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{ExprContext, Stmt};
 
 use crate::ast_builder::{expressions, statements};
 
@@ -15,9 +14,6 @@ use crate::ast_builder::{expressions, statements};
 /// Returns the `for` statement node.
 pub fn generate_merge_module_attributes(namespace_name: &str, source_module_name: &str) -> Stmt {
     let attr_var = "attr";
-
-    // Target of the for loop: `attr`
-    let loop_target = expressions::name(attr_var, ExprContext::Store);
 
     // Iterator of the for loop: `dir(source_module)`
     let dir_call = expressions::call(
@@ -65,13 +61,5 @@ pub fn generate_merge_module_attributes(namespace_name: &str, source_module_name
     let if_stmt = statements::if_stmt(condition, vec![setattr_call_stmt], vec![]);
 
     // for attr in dir(...): if ...
-    Stmt::For(StmtFor {
-        node_index: AtomicNodeIndex::dummy(),
-        target: Box::new(loop_target),
-        iter: Box::new(dir_call),
-        body: vec![if_stmt],
-        orelse: vec![],
-        is_async: false,
-        range: TextRange::default(),
-    })
+    statements::for_loop(attr_var, dir_call, vec![if_stmt], vec![])
 }
