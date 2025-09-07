@@ -1931,7 +1931,8 @@ impl<'a> Bundler<'a> {
         // `modules` already maps ModuleId -> (AST, Path, Hash); use it directly
 
         let mut all_inlined_stmts = Vec::new();
-        let mut processed_modules = FxIndexSet::default();
+        // Track processed modules by ModuleId (not by name)
+        let mut processed_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
 
         // Build SCC groups (cycles) mapping for two-phase emission
         let mut cycle_groups: Vec<Vec<ModuleId>> = Vec::new();
@@ -1970,7 +1971,7 @@ impl<'a> Bundler<'a> {
                 .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
 
             // Skip modules already processed (e.g., via SCC group handling)
-            if processed_modules.contains(&module_name) {
+            if processed_modules.contains(module_id) {
                 continue;
             }
 
@@ -2003,7 +2004,7 @@ impl<'a> Bundler<'a> {
                 // Phase A: Predeclare module objects and attach to parents
                 for (mid, mname) in &members {
                     // Skip if we already processed this module (defensive)
-                    if processed_modules.contains(mname) {
+                    if processed_modules.contains(mid) {
                         continue;
                     }
 
@@ -2050,7 +2051,7 @@ impl<'a> Bundler<'a> {
                         &mut all_inlined_stmts,
                     );
 
-                    processed_modules.insert(mname.clone());
+                    processed_modules.insert(*mid);
                 }
 
                 // Phase B: Define all init functions after objects exist
@@ -2187,7 +2188,7 @@ impl<'a> Bundler<'a> {
                 // Import assignments were previously collected and processed here
 
                 // Mark this module as processed
-                processed_modules.insert(module_name.clone());
+                processed_modules.insert(*module_id);
 
                 // For inlined modules, we need to populate the namespace with the module's symbols
                 // This assigns the inlined functions/variables to the namespace object
@@ -2275,13 +2276,13 @@ impl<'a> Bundler<'a> {
                     .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
 
                 // Generate the init function for this wrapper module
-                let module_id = self
+                let wrapper_module_id = self
                     .get_module_id(&module_name)
                     .expect("Wrapper module should be registered");
 
                 let synthetic_name = self
                     .module_synthetic_names
-                    .entry(module_id)
+                    .entry(wrapper_module_id)
                     .or_insert_with(|| {
                         let name =
                             crate::code_generator::module_registry::get_synthetic_module_name(
@@ -2411,7 +2412,7 @@ impl<'a> Bundler<'a> {
                 );
 
                 // Mark this module as processed
-                processed_modules.insert(module_name.clone());
+                processed_modules.insert(*module_id);
             }
         }
 
