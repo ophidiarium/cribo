@@ -28,15 +28,20 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def format_result(operation, result):
-    """Format operation result for display."""
-    return f"{operation}: {result}"
+calculator = _cribo.types.SimpleNamespace(__name__='calculator')
 def add(a, b):
     """Add two numbers."""
     return a + b
 def multiply(a, b):
     """Multiply two numbers."""
     return a * b
+calculator.add = add
+calculator.multiply = multiply
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+def format_result(operation, result):
+    """Format operation result for display."""
+    return f"{operation}: {result}"
+utils.format_result = format_result
 def main():
     result1 = add(5, 3)
     result2 = multiply(4, 7)

@@ -28,8 +28,18 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-VERSION = "1.0.0"
+foo = _cribo.types.SimpleNamespace(__name__='foo')
+def greet(name):
+    return f"Hello, {name}!"
+def get_value():
+    return 42
 MESSAGE = "This is foo module"
+foo.MESSAGE = MESSAGE
+foo.get_value = get_value
+foo.greet = greet
+bar = _cribo.types.SimpleNamespace(__name__='bar')
+def process(data):
+    return f"Processed: {data}"
 class Calculator:
 
     def add(self, a, b):
@@ -37,13 +47,11 @@ class Calculator:
 
     def multiply(self, a, b):
         return a * b
-def process(data):
-    return f"Processed: {data}"
-def greet(name):
-    return f"Hello, {name}!"
-def get_value():
-    return 42
 Calculator.__module__ = 'bar'
+VERSION = "1.0.0"
+bar.Calculator = Calculator
+bar.VERSION = VERSION
+bar.process = process
 il = _cribo.importlib
 foo = _cribo.types.SimpleNamespace(greet=greet, get_value=get_value, MESSAGE=MESSAGE)
 bar_module = _cribo.types.SimpleNamespace(process=process, Calculator=Calculator, VERSION=VERSION)

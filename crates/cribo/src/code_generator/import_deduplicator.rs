@@ -5,12 +5,12 @@
 
 use std::path::PathBuf;
 
-use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
+use ruff_python_ast::{Alias, ModModule, Stmt, StmtImport, StmtImportFrom};
 
-use super::{bundler::Bundler, expression_handlers};
+use super::bundler::Bundler;
 use crate::{
-    code_generator::module_registry::is_init_function, cribo_graph::CriboGraph as DependencyGraph,
-    tree_shaking::TreeShaker, types::FxIndexSet,
+    cribo_graph::CriboGraph as DependencyGraph,
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Check if a statement is a hoisted import
@@ -33,331 +33,6 @@ pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
         }
         _ => false,
     }
-}
-
-/// Collect imports from a module for hoisting
-pub(super) fn collect_imports_from_module(
-    bundler: &mut Bundler,
-    ast: &ModModule,
-    module_name: &str,
-    python_version: u8,
-) {
-    log::debug!("Collecting imports from module: {module_name}");
-    for stmt in &ast.body {
-        match stmt {
-            Stmt::ImportFrom(import_from) => {
-                // Skip relative imports - they can never be stdlib imports
-                if import_from.level > 0 {
-                    log::trace!(
-                        "Skipping relative import: from {} import {:?} (level: {})",
-                        import_from
-                            .module
-                            .as_ref()
-                            .map_or("", ruff_python_ast::Identifier::as_str),
-                        import_from
-                            .names
-                            .iter()
-                            .map(|a| a.name.as_str())
-                            .collect::<Vec<_>>(),
-                        import_from.level
-                    );
-                    // Do not process relative imports as stdlib
-                    continue;
-                }
-                if let Some(module) = &import_from.module {
-                    let module_str = module.as_str();
-
-                    log::debug!(
-                        "Checking import: from {} import {:?} (level: {})",
-                        module_str,
-                        import_from
-                            .names
-                            .iter()
-                            .map(|a| a.name.as_str())
-                            .collect::<Vec<_>>(),
-                        import_from.level
-                    );
-
-                    // Stdlib imports are now handled by the _cribo proxy
-                    // We only need to track aliases for expression transformation
-                    let root_module = module_str.split('.').next().unwrap_or(module_str);
-                    if module_str != "__future__"
-                        && ruff_python_stdlib::sys::is_known_standard_library(
-                            python_version,
-                            root_module,
-                        )
-                    {
-                        // Track aliases for stdlib modules (for expression transformation)
-                        for alias in &import_from.names {
-                            if let Some(alias_name) = alias.asname.as_ref() {
-                                bundler.stdlib_module_aliases.insert(
-                                    alias_name.as_str().to_string(),
-                                    module_str.to_string(),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            Stmt::Import(import_stmt) => {
-                // Track stdlib module aliases for expression transformation
-                for alias in &import_stmt.names {
-                    let imported_module_name = alias.name.as_str();
-                    let root_module = imported_module_name
-                        .split('.')
-                        .next()
-                        .unwrap_or(imported_module_name);
-                    if ruff_python_stdlib::sys::is_known_standard_library(
-                        python_version,
-                        root_module,
-                    ) {
-                        // Track the module and its alias
-                        if let Some(alias_name) = alias.asname.as_ref() {
-                            bundler.stdlib_module_aliases.insert(
-                                alias_name.as_str().to_string(),
-                                imported_module_name.to_string(),
-                            );
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Add hoisted imports to the final body
-pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>) {
-    use crate::ast_builder::{other, statements};
-
-    // Future imports first - combine all into a single import statement
-    if !bundler.future_imports.is_empty() {
-        // Sort future imports for deterministic output
-        let mut sorted_imports: Vec<String> = bundler.future_imports.iter().cloned().collect();
-        sorted_imports.sort();
-
-        let aliases: Vec<Alias> = sorted_imports
-            .into_iter()
-            .map(|import| other::alias(&import, None))
-            .collect();
-
-        final_body.push(statements::import_from(Some("__future__"), aliases, 0));
-    }
-
-    // Stdlib imports are now handled by _cribo proxy, no need to add them here
-    // Third-party imports are NEVER hoisted because they may have side effects
-    // (e.g., registering plugins, modifying global state, network calls).
-    // Third-party imports remain in their original location to preserve execution order.
-}
-
-/// Deduplicate deferred imports against existing body statements
-pub(super) fn deduplicate_deferred_imports_with_existing(
-    imports: Vec<Stmt>,
-    existing_body: &[Stmt],
-) -> Vec<Stmt> {
-    let mut seen_init_calls = FxIndexSet::default();
-    let mut seen_assignments = FxIndexSet::default();
-    let mut result = Vec::new();
-
-    // First, collect all existing assignments from the body
-    for stmt in existing_body {
-        if let Stmt::Assign(assign) = stmt
-            && assign.targets.len() == 1
-        {
-            // Handle attribute assignments like schemas.user = ...
-            if let Expr::Attribute(target_attr) = &assign.targets[0] {
-                let target_path = expression_handlers::extract_attribute_path(target_attr);
-
-                // Handle init function calls
-                if let Expr::Call(call) = &assign.value.as_ref()
-                    && let Expr::Name(name) = &call.func.as_ref()
-                {
-                    let func_name = name.id.as_str();
-                    if is_init_function(func_name) {
-                        // Use just the target path as the key for module init assignments
-                        let key = target_path.clone();
-                        log::debug!("Found existing module init assignment: {key} = {func_name}");
-                        seen_assignments.insert(key);
-                    } else {
-                        // For other attribute assignments like pkg_compat.bytes = bytes
-                        // Only track simple name assignments to avoid catching namespace creations
-                        if let Expr::Name(value_name) = &assign.value.as_ref() {
-                            let value_key = format!("{} = {}", target_path, value_name.id.as_str());
-                            seen_assignments.insert(value_key);
-                        }
-                    }
-                } else {
-                    // For non-call attribute assignments
-                    // Only track simple name assignments
-                    if let Expr::Name(value_name) = &assign.value.as_ref() {
-                        let value_key = format!("{} = {}", target_path, value_name.id.as_str());
-                        seen_assignments.insert(value_key);
-                    }
-                }
-            }
-            // Handle simple name assignments
-            else if let Expr::Name(target) = &assign.targets[0] {
-                let target_str = target.id.as_str();
-
-                // Handle simple name assignments
-                if let Expr::Name(value) = &assign.value.as_ref() {
-                    let key = format!("{} = {}", target_str, value.id.as_str());
-                    seen_assignments.insert(key);
-                }
-                // Handle attribute assignments like User = services.auth.manager.User
-                else if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                    let attr_path = expression_handlers::extract_attribute_path(attr);
-                    let key = format!("{target_str} = {attr_path}");
-                    seen_assignments.insert(key);
-                }
-            }
-        }
-    }
-
-    log::debug!(
-        "Found {} existing assignments in body",
-        seen_assignments.len()
-    );
-    log::debug!("Deduplicating {} deferred imports", imports.len());
-
-    // Now process the deferred imports
-    for (idx, stmt) in imports.into_iter().enumerate() {
-        log::debug!("Processing deferred import {idx}: {stmt:?}");
-        match &stmt {
-            // Check for init function calls
-            Stmt::Expr(expr_stmt) => {
-                if let Expr::Call(call) = &expr_stmt.value.as_ref() {
-                    if let Expr::Name(name) = &call.func.as_ref() {
-                        let func_name = name.id.as_str();
-                        if is_init_function(func_name) {
-                            if seen_init_calls.insert(func_name.to_string()) {
-                                result.push(stmt);
-                            } else {
-                                log::debug!("Skipping duplicate init call: {func_name}");
-                            }
-                        } else {
-                            result.push(stmt);
-                        }
-                    } else {
-                        result.push(stmt);
-                    }
-                } else {
-                    result.push(stmt);
-                }
-            }
-            // Check for symbol assignments
-            Stmt::Assign(assign) => {
-                // First check if this is an attribute assignment with an init function call
-                // like: schemas.user = <cribo_init_prefix>__cribo_f275a8_schemas_user()
-                if assign.targets.len() == 1
-                    && let Expr::Attribute(target_attr) = &assign.targets[0]
-                {
-                    let target_path = expression_handlers::extract_attribute_path(target_attr);
-
-                    // Check if value is an init function call
-                    if let Expr::Call(call) = &assign.value.as_ref()
-                        && let Expr::Name(name) = &call.func.as_ref()
-                    {
-                        let func_name = name.id.as_str();
-                        if is_init_function(func_name) {
-                            // For module init assignments, just check the target path
-                            // since the same module should only be initialized once
-                            let key = target_path.clone();
-                            log::debug!(
-                                "Checking deferred module init assignment: {key} = {func_name}"
-                            );
-                            if seen_assignments.contains(&key) {
-                                log::debug!(
-                                    "Skipping duplicate module init assignment: {key} = \
-                                     {func_name}"
-                                );
-                                continue; // Skip this statement entirely
-                            }
-                            log::debug!("Adding new module init assignment: {key} = {func_name}");
-                            seen_assignments.insert(key);
-                            result.push(stmt);
-                            continue;
-                        }
-                    }
-
-                    // Also handle general attribute assignments like pkg_compat.bytes = bytes
-                    // But NOT namespace creations (types.SimpleNamespace())
-                    // Only deduplicate simple name assignments to attributes
-                    if let Expr::Name(value_name) = &assign.value.as_ref() {
-                        let key = format!("{} = {}", target_path, value_name.id.as_str());
-
-                        if seen_assignments.contains(&key) {
-                            log::debug!("Skipping duplicate attribute assignment: {key}");
-                            continue;
-                        }
-
-                        seen_assignments.insert(key.clone());
-                        log::debug!("Adding attribute assignment: {key}");
-                    }
-                    // For other types (like namespace creations), don't deduplicate
-                    result.push(stmt);
-                    continue;
-                }
-
-                // Check for simple assignments like: Logger = Logger_4
-                if assign.targets.len() == 1 {
-                    if let Expr::Name(target) = &assign.targets[0] {
-                        if let Expr::Name(value) = &assign.value.as_ref() {
-                            // This is a simple name assignment
-                            let target_str = target.id.as_str();
-                            let value_str = value.id.as_str();
-                            let key = format!("{target_str} = {value_str}");
-
-                            // Check for self-assignment
-                            if target_str == value_str {
-                                log::debug!("Found self-assignment in deferred imports: {key}");
-                                // Skip self-assignments entirely
-                                log::debug!("Skipping self-assignment: {key}");
-                            } else if seen_assignments.insert(key.clone()) {
-                                log::debug!("First occurrence of simple assignment: {key}");
-                                result.push(stmt);
-                            } else {
-                                log::debug!("Skipping duplicate simple assignment: {key}");
-                            }
-                        } else {
-                            // Not a simple name assignment, check for duplicates
-                            // Handle attribute assignments like User =
-                            // services.auth.manager.User
-                            let target_str = target.id.as_str();
-
-                            // For attribute assignments, extract the actual attribute path
-                            let key = if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                                // Extract the full attribute path (e.g.,
-                                // services.auth.manager.User)
-                                let attr_path = expression_handlers::extract_attribute_path(attr);
-                                format!("{target_str} = {attr_path}")
-                            } else {
-                                // Fallback to debug format for other types
-                                let value_str = format!("{:?}", assign.value);
-                                format!("{target_str} = {value_str}")
-                            };
-
-                            if seen_assignments.insert(key.clone()) {
-                                log::debug!("First occurrence of attribute assignment: {key}");
-                                result.push(stmt);
-                            } else {
-                                log::debug!("Skipping duplicate attribute assignment: {key}");
-                            }
-                        }
-                    } else {
-                        // Target is not a simple name, include it
-                        result.push(stmt);
-                    }
-                } else {
-                    // Multiple targets, include it
-                    result.push(stmt);
-                }
-            }
-            _ => result.push(stmt),
-        }
-    }
-
-    result
 }
 
 /// Check if an import from statement is a duplicate
@@ -428,30 +103,36 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
 
 /// Check if a module is bundled or is a package containing bundled modules
 pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str) -> bool {
-    // Direct check
-    if bundler.bundled_modules.contains(module_name) {
+    // Direct check - convert module_name to ModuleId for lookup
+    if bundler
+        .get_module_id(module_name)
+        .is_some_and(|id| bundler.bundled_modules.contains(&id))
+    {
         return true;
     }
     // Check if it's a package containing bundled modules
     // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
     let package_prefix = format!("{module_name}.");
-    bundler
-        .bundled_modules
-        .iter()
-        .any(|bundled| bundled.starts_with(&package_prefix))
+    bundler.bundled_modules.iter().any(|bundled_id| {
+        bundler
+            .resolver
+            .get_module_name(*bundled_id)
+            .is_some_and(|name| name.starts_with(&package_prefix))
+    })
 }
 
 /// Trim unused imports from modules using dependency graph analysis
 pub(super) fn trim_unused_imports_from_modules(
-    modules: &[(String, ModModule, PathBuf, String)],
+    modules: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
     graph: &DependencyGraph,
-    tree_shaker: Option<&TreeShaker>,
+    tree_shaker: Option<&crate::tree_shaking::TreeShaker<'_>>,
     python_version: u8,
-) -> Vec<(String, ModModule, PathBuf, String)> {
-    let mut trimmed_modules = Vec::new();
+    circular_modules: &FxIndexSet<crate::resolver::ModuleId>,
+) -> FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)> {
+    let mut trimmed_modules = FxIndexMap::default();
 
-    for (module_name, ast, module_path, content_hash) in modules {
-        log::debug!("Trimming unused imports from module: {module_name}");
+    for (module_id, (ast, module_path, content_hash)) in modules {
+        log::debug!("Trimming unused imports from module: {module_id:?}");
         let mut ast = ast.clone(); // Clone here to allow mutation
 
         // Check if this is an __init__.py file
@@ -459,13 +140,13 @@ pub(super) fn trim_unused_imports_from_modules(
             module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
 
         // Get unused imports from the graph
-        if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+        if let Some(module_dep_graph) = graph.get_module(*module_id) {
             // Check if this module has side effects (will become a wrapper module)
             let has_side_effects = !module_dep_graph.side_effect_items.is_empty();
 
             if has_side_effects {
                 log::debug!(
-                    "Module '{module_name}' has side effects - skipping stdlib import removal"
+                    "Module {module_id:?} has side effects - skipping stdlib import removal"
                 );
             }
 
@@ -475,14 +156,80 @@ pub(super) fn trim_unused_imports_from_modules(
                     is_init_py,
                 );
 
+            // Skip tree-shaking based import removal for circular modules
+            // Circular modules become init functions that include ALL their original code,
+            // even the parts that would be tree-shaken, so we need to keep all imports
+            let is_circular_module = circular_modules.contains(module_id);
+            log::debug!(
+                "Module {module_id:?} - checking if circular: {is_circular_module}, \
+                 circular_modules: {circular_modules:?}"
+            );
+            if is_circular_module {
+                log::debug!(
+                    "Module {module_id:?} is circular - skipping tree-shaking based import removal"
+                );
+                // For circular modules, also preserve imports that are module-level symbols
+                // These can be accessed from other modules as module attributes even if not
+                // directly used within this module A module-level symbol is one
+                // that is either:
+                // 1. Imported at module level (not inside a function/class)
+                // 2. In __all__ export list
+                // 3. Explicitly re-exported
+                let original_count = unused_imports.len();
+                unused_imports.retain(|import_info| {
+                    // Check if this symbol is in __all__ or explicitly re-exported
+                    let is_in_all = module_dep_graph.is_in_all_export(&import_info.name);
+
+                    // Check if any import item has this as a reexported name
+                    let is_reexported = module_dep_graph
+                        .items
+                        .values()
+                        .any(|item| item.reexported_names.contains(&import_info.name));
+
+                    // Check if this import is at module level (any import item that imports this
+                    // name) In circular modules, all imports at module level
+                    // become module attributes in the init function
+                    let is_module_level_import = module_dep_graph
+                        .items
+                        .values()
+                        .any(|item| item.imported_names.contains(&import_info.name));
+
+                    let should_preserve = is_in_all || is_reexported || is_module_level_import;
+
+                    if should_preserve {
+                        log::debug!(
+                            "Preserving import '{}' in circular module - module-level import \
+                             (in_all: {}, reexported: {}, module_level: {})",
+                            import_info.name,
+                            is_in_all,
+                            is_reexported,
+                            is_module_level_import
+                        );
+                    }
+
+                    !should_preserve // Keep in unused list only if NOT to be preserved
+                });
+
+                if original_count != unused_imports.len() {
+                    log::debug!(
+                        "Filtered {} module-level imports from unused list in circular module",
+                        original_count - unused_imports.len()
+                    );
+                }
+            }
+
             // If tree shaking is enabled, also check if imported symbols were removed
             // Note: We only apply tree-shaking logic to "from module import symbol" style
             // imports, not to "import module" style imports, since module
             // imports set up namespace objects
-            if let Some(shaker) = tree_shaker {
+            if let Some(shaker) = tree_shaker
+                && !is_circular_module
+            {
                 // Only apply tree-shaking-aware import removal if tree shaking is actually
                 // enabled Get the symbols that survive tree-shaking for
                 // this module
+                // TreeShaker still uses string-based module names, get it from the dep graph
+                let module_name = &module_dep_graph.module_name;
                 let used_symbols = shaker.get_used_symbols_for_module(module_name);
 
                 // Check each import to see if it's only used by tree-shaken code
@@ -520,10 +267,12 @@ pub(super) fn trim_unused_imports_from_modules(
                                     continue;
                                 }
 
-                                // Check if this imported symbol itself is marked as used by tree shaker
-                                // This handles the case where the symbol is accessed via module attributes
-                                // (e.g., yaml_module.OtherYAMLObject where OtherYAMLObject is from an import)
-                                // Check both the local name (alias) and the original imported name
+                                // Check if this imported symbol itself is marked as used by tree
+                                // shaker This handles the case
+                                // where the symbol is accessed via module attributes
+                                // (e.g., yaml_module.OtherYAMLObject where OtherYAMLObject is from
+                                // an import) Check both the local
+                                // name (alias) and the original imported name
                                 if shaker.is_symbol_used(module_name, local_name)
                                     || shaker.is_symbol_used(module_name, imported_name)
                                 {
@@ -555,8 +304,10 @@ pub(super) fn trim_unused_imports_from_modules(
                                     // Check if the submodule has side effects or symbols that
                                     // survived Even if no
                                     // symbols survived, if it has side effects, we need to keep it
-                                    let has_side_effects =
-                                        shaker.module_has_side_effects(&submodule_name);
+                                    let has_side_effects = graph
+                                        .get_module_by_name(&submodule_name)
+                                        .map(|m| m.module_id)
+                                        .is_some_and(|id| shaker.module_has_side_effects(id));
                                     let has_used_symbols = !shaker
                                         .get_used_symbols_for_module(&submodule_name)
                                         .is_empty();
@@ -573,7 +324,7 @@ pub(super) fn trim_unused_imports_from_modules(
 
                                 // Check if this import is only used by symbols that were
                                 // tree-shaken
-                                let used_by_surviving_code = submodule_needed
+                                let mut used_by_surviving_code = submodule_needed
                                     || is_import_used_by_surviving_symbols(
                                         &used_symbols,
                                         module_dep_graph,
@@ -581,10 +332,19 @@ pub(super) fn trim_unused_imports_from_modules(
                                     )
                                     || is_import_used_by_side_effect_code(
                                         shaker,
-                                        module_name,
                                         module_dep_graph,
                                         local_name,
                                     );
+
+                                // Also check if this import is used by symbols in __all__
+                                // These symbols might be exported even if not directly used
+                                if !used_by_surviving_code {
+                                    log::debug!(
+                                        "Checking if '{local_name}' is used by __all__ symbols"
+                                    );
+                                    used_by_surviving_code =
+                                        is_import_used_by_all_exports(module_dep_graph, local_name);
+                                }
 
                                 if !used_by_surviving_code {
                                     // This import is not used by any surviving symbol or
@@ -627,6 +387,23 @@ pub(super) fn trim_unused_imports_from_modules(
                                 continue;
                             }
 
+                            // Check if the imported module itself has side effects and needs
+                            // initialization This handles the case
+                            // where a wrapper module with side effects is imported
+                            // but not directly used (e.g., import mypackage where mypackage has
+                            // print statements)
+                            let module_has_side_effects = graph
+                                .get_module_by_name(module)
+                                .map(|m| m.module_id)
+                                .is_some_and(|id| shaker.module_has_side_effects(id));
+                            if module_has_side_effects {
+                                log::debug!(
+                                    "Module '{module}' has side effects - preserving import for \
+                                     initialization"
+                                );
+                                continue;
+                            }
+
                             // Check if this import is only used by symbols that were
                             // tree-shaken
                             log::debug!(
@@ -660,6 +437,16 @@ pub(super) fn trim_unused_imports_from_modules(
                                     import_name,
                                     &used_symbols,
                                 );
+                            }
+
+                            // Also check if this import is used by symbols in __all__
+                            // These symbols might be exported even if not directly used
+                            if !used_by_surviving_code {
+                                log::debug!(
+                                    "Checking if '{import_name}' is used by __all__ symbols"
+                                );
+                                used_by_surviving_code =
+                                    is_import_used_by_all_exports(module_dep_graph, import_name);
                             }
 
                             if !used_by_surviving_code {
@@ -711,7 +498,7 @@ pub(super) fn trim_unused_imports_from_modules(
                         log::debug!(
                             "Filtered {} stdlib imports from unused list for wrapper module '{}'",
                             original_count - unused_imports.len(),
-                            module_name
+                            module_dep_graph.module_name
                         );
                     }
                 }
@@ -720,7 +507,7 @@ pub(super) fn trim_unused_imports_from_modules(
                     log::debug!(
                         "Found {} unused imports in {}",
                         unused_imports.len(),
-                        module_name
+                        module_dep_graph.module_name
                     );
                     // Log unused imports details
                     log_unused_imports_details(&unused_imports);
@@ -732,12 +519,7 @@ pub(super) fn trim_unused_imports_from_modules(
             }
         }
 
-        trimmed_modules.push((
-            module_name.clone(),
-            ast,
-            module_path.clone(),
-            content_hash.clone(),
-        ));
+        trimmed_modules.insert(*module_id, (ast, module_path.clone(), content_hash.clone()));
     }
 
     log::debug!(
@@ -753,19 +535,73 @@ fn is_import_used_by_surviving_symbols(
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
-    used_symbols
-        .iter()
-        .any(|symbol| module_dep_graph.does_symbol_use_import(symbol, local_name))
+    log::debug!(
+        "Checking if any of {} surviving symbols use import '{}'",
+        used_symbols.len(),
+        local_name
+    );
+    let result = used_symbols.iter().any(|symbol| {
+        let uses = module_dep_graph.does_symbol_use_import(symbol, local_name);
+        if uses {
+            log::debug!("  Symbol '{symbol}' uses import '{local_name}'");
+        }
+        uses
+    });
+    if !result {
+        log::debug!("  No surviving symbols use import '{local_name}'");
+    }
+    result
+}
+
+/// Check if an import is used by any symbols in __all__ exports
+fn is_import_used_by_all_exports(
+    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    local_name: &str,
+) -> bool {
+    // Find __all__ assignment and get the exported symbols
+    let mut all_exports = Vec::new();
+    for item_data in module_dep_graph.items.values() {
+        if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
+            && targets.contains(&"__all__".to_string())
+        {
+            // The eventual_read_vars contains the names in __all__
+            all_exports.extend(item_data.eventual_read_vars.iter().cloned());
+            break;
+        }
+    }
+
+    if all_exports.is_empty() {
+        return false;
+    }
+
+    log::debug!(
+        "Checking if import '{}' is used by any of {} __all__ symbols",
+        local_name,
+        all_exports.len()
+    );
+
+    // Check if any __all__ symbol uses this import
+    for export_name in all_exports {
+        let uses = module_dep_graph.does_symbol_use_import(&export_name, local_name);
+        if uses {
+            log::debug!("  __all__ symbol '{export_name}' uses import '{local_name}'");
+            return true;
+        }
+    }
+
+    log::debug!("  Import '{local_name}' is not used by any __all__ symbols");
+    false
 }
 
 /// Check if an import is used by module-level code with side effects
 fn is_import_used_by_side_effect_code(
-    shaker: &TreeShaker,
-    module_name: &str,
+    shaker: &crate::tree_shaking::TreeShaker<'_>,
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
-    if !shaker.module_has_side_effects(module_name) {
+    let module_id = module_dep_graph.module_id;
+
+    if !shaker.module_has_side_effects(module_id) {
         return false;
     }
 
@@ -774,7 +610,8 @@ fn is_import_used_by_side_effect_code(
             item.item_type,
             crate::cribo_graph::ItemType::Expression
                 | crate::cribo_graph::ItemType::Assignment { .. }
-        ) && item.read_vars.contains(local_name)
+                | crate::cribo_graph::ItemType::Other
+        ) && (item.read_vars.contains(local_name) || item.eventual_read_vars.contains(local_name))
     })
 }
 
@@ -866,10 +703,26 @@ fn should_remove_import_stmt(
                     .as_ref()
                     .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
-                unused_imports.iter().any(|unused| {
-                    // Match by both name and module for from imports
-                    unused.name == local_name
-                })
+                // For relative imports (level > 0), we can't directly compare module names
+                // since UnusedImportInfo has resolved names but import_from_stmt has raw syntax.
+                // For absolute imports, we can compare the module names directly.
+                if import_from_stmt.level > 0 {
+                    // Relative import - just match by name since we can't easily resolve the module
+                    // here This is safe because the UnusedImportInfo was
+                    // created from the same module context
+                    unused_imports
+                        .iter()
+                        .any(|unused| unused.name == local_name)
+                } else {
+                    // Absolute import - match by both name and module
+                    let from_module = import_from_stmt
+                        .module
+                        .as_ref()
+                        .map_or("", ruff_python_ast::Identifier::as_str);
+                    unused_imports
+                        .iter()
+                        .any(|unused| unused.name == local_name && unused.module == from_module)
+                }
             });
 
             if should_remove {

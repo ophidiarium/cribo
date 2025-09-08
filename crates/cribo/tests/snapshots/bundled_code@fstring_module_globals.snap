@@ -28,6 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+worker = _cribo.types.SimpleNamespace(__name__='worker')
+"""Worker module with globals that need lifting when using f-strings"""
 status = "idle"
 counter = 0
 tasks = []
@@ -56,8 +58,11 @@ class Worker:
         status = "working"
         counter += 1
         return f"Started task: {tasks[-1]} (total: {len(tasks)}, status: {status.upper()})"
-"""Worker module with globals that need lifting when using f-strings"""
 Worker.__module__ = 'worker'
+worker.Worker = Worker
+worker.counter = counter
+worker.status = status
+worker.tasks = tasks
 """Test f-string transformation with module globals lifting"""
 def main():
     w = Worker()

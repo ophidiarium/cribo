@@ -28,41 +28,61 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
 mypackage_exceptions = _cribo.types.SimpleNamespace(__name__='mypackage.exceptions')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.exceptions = mypackage_exceptions
 class CustomError(Exception):
     """Custom exception that is used by utils module."""
     pass
 CustomError.__module__ = 'mypackage.exceptions'
-@_cribo.functools.cache
-def _cribo_init___cribo_ddd935_mypackage():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypackage'
+mypackage_exceptions.CustomError = CustomError
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
+mypackage.utils = mypackage_utils
+def _cribo_init___cribo_ddd935_mypackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypackage_utils
+    mypackage_utils = _cribo_init___cribo_09b9b3_mypackage_utils(mypackage_utils)
+    utils = mypackage.utils
+    self.utils = utils
     print("mypackage initialized")
-    _cribo_module.exceptions = mypackage_exceptions
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_09b9b3_mypackage_utils():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypackage.utils'
-    _cribo_module.CustomError = CustomError
+    self.exceptions = mypackage_exceptions
+    self.exceptions = mypackage_exceptions
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage.__init__ = _cribo_init___cribo_ddd935_mypackage
+def _cribo_init___cribo_09b9b3_mypackage_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    CustomError = mypackage_exceptions.CustomError
+    mypackage_utils.CustomError = CustomError
     os = _cribo.os
-    _cribo_module.os = os
+    self.os = os
+    self.os = os
     DEFAULT_PATH = _cribo.os.environ.get("DEFAULT_PATH", "/tmp")
-    _cribo_module.DEFAULT_PATH = DEFAULT_PATH
+    self.DEFAULT_PATH = DEFAULT_PATH
 
     def process_data(data):
         """Process data, raising CustomError if data is None."""
         if data is None:
             raise CustomError("Data cannot be None")
         return f"Processed: {data}"
-    _cribo_module.process_data = process_data
-    return _cribo_module
-mypackage.utils = _cribo_init___cribo_09b9b3_mypackage_utils()
-__cribo_init_result = _cribo_init___cribo_ddd935_mypackage()
+    self.process_data = process_data
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage_utils.__init__ = _cribo_init___cribo_09b9b3_mypackage_utils
+__cribo_init_result = _cribo_init___cribo_ddd935_mypackage(mypackage)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-mypackage_exceptions.CustomError = CustomError
 print("Test completed")
+utils = mypackage.utils
+exceptions = mypackage.exceptions

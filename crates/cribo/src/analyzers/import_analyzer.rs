@@ -626,16 +626,21 @@ impl ImportAnalyzer {
             _ => {}
         }
     }
+
     /// Check if a symbol from a module is imported by any other module in the bundle
     ///
     /// This function is used to determine if private symbols (e.g., starting with underscore)
     /// should still be exported because they're imported by other modules.
     pub fn is_symbol_imported_by_other_modules(
-        module_asts: &[(String, ModModule, PathBuf, String)],
-        module_name: &str,
+        module_asts: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
+        module_id: crate::resolver::ModuleId,
         symbol_name: &str,
-        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
+        module_exports: Option<&FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>>,
+        resolver: &crate::resolver::ModuleResolver,
     ) -> bool {
+        let module_name = resolver
+            .get_module_name(module_id)
+            .unwrap_or_else(|| format!("module#{module_id}"));
         debug!(
             "Checking imports for symbol '{}' from module '{}' in {} modules",
             symbol_name,
@@ -644,43 +649,81 @@ impl ImportAnalyzer {
         );
 
         // Look through all modules to see if any import this symbol
-        for (other_module_name, ast, _, _) in module_asts {
+        for (other_module_id, (ast, _, _)) in module_asts {
             // Skip the module itself
-            if other_module_name == module_name {
+            if other_module_id == &module_id {
                 continue;
             }
 
+            let other_module_name = resolver
+                .get_module_name(*other_module_id)
+                .unwrap_or_else(|| format!("module#{other_module_id}"));
+
             // Check import statements in the module
-            if Self::module_imports_symbol(
+            if Self::module_imports_symbol_with_ids(
                 ast,
-                other_module_name,
-                module_name,
+                *other_module_id,
+                module_id,
                 symbol_name,
                 module_exports,
+                resolver,
             ) {
                 debug!(
-                    "Symbol '{symbol_name}' from module '{module_name}' is imported by module '{other_module_name}'"
+                    "Symbol '{symbol_name}' from module '{module_name}' is imported by module \
+                     '{other_module_name}'"
                 );
                 return true;
             }
         }
 
         debug!(
-            "Symbol '{symbol_name}' from module '{module_name}' is not imported by any other modules"
+            "Symbol '{symbol_name}' from module '{module_name}' is not imported by any other \
+             modules"
         );
         false
     }
 
-    /// Check if a module imports a specific symbol from another module
-    fn module_imports_symbol(
+    /// Check if a module imports a specific symbol from another module (using `ModuleIds`)
+    fn module_imports_symbol_with_ids(
         ast: &ModModule,
-        importing_module: &str,
-        target_module: &str,
+        importing_module_id: crate::resolver::ModuleId,
+        target_module_id: crate::resolver::ModuleId,
         symbol_name: &str,
-        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
+        module_exports: Option<&FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>>,
+        resolver: &crate::resolver::ModuleResolver,
     ) -> bool {
-        let mut visitor =
-            SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
+        // Convert to strings for now - we'll need to update SymbolImportVisitor later
+        let importing_module = resolver
+            .get_module_name(importing_module_id)
+            .unwrap_or_else(|| format!("module#{importing_module_id}"));
+        let target_module = resolver
+            .get_module_name(target_module_id)
+            .unwrap_or_else(|| format!("module#{target_module_id}"));
+
+        // Convert module_exports to String-based for the visitor
+        let module_exports_strings: FxIndexMap<String, Option<Vec<String>>> = module_exports
+            .map(|exports| {
+                exports
+                    .iter()
+                    .filter_map(|(id, export_list)| {
+                        resolver
+                            .get_module_name(*id)
+                            .map(|name| (name, export_list.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut visitor = SymbolImportVisitor::new(
+            &importing_module,
+            &target_module,
+            symbol_name,
+            if module_exports_strings.is_empty() {
+                None
+            } else {
+                Some(&module_exports_strings)
+            },
+        );
         ruff_python_ast::visitor::walk_body(&mut visitor, &ast.body);
         visitor.found
     }

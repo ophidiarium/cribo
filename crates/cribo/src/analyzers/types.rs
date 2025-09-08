@@ -145,7 +145,7 @@ pub enum ResolutionStrategy {
 /// A group of modules forming a circular dependency
 #[derive(Debug, Clone)]
 pub struct CircularDependencyGroup {
-    pub modules: Vec<String>,
+    pub modules: Vec<crate::resolver::ModuleId>,
     pub cycle_type: CircularDependencyType,
     pub suggested_resolution: ResolutionStrategy,
 }

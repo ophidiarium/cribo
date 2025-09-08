@@ -25,7 +25,7 @@ jobs:
   static-analysis:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -41,7 +41,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        run: rustup show
 
       - run: cargo clippy --workspace --all-targets --all-features --locked
 
@@ -99,7 +99,7 @@ jobs:
         run: mkdir -p $HOME/rca-json-base
       - name: Checkout main branch for baseline
         if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           path: main

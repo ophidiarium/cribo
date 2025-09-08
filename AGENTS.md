@@ -27,19 +27,19 @@ cargo build
 cargo build --release
 
 # Run the tool directly
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py
+cargo run -- --entry path/to/main.py --output bundle.py
 
 # Output to stdout for debugging (no temporary files)
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --stdout
+cargo run -- --entry path/to/main.py --stdout
 
 # Run with verbose output for debugging
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vv
+cargo run -- --entry path/to/main.py --output bundle.py -vv
 
 # Run with trace-level output for detailed debugging
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vvv
+cargo run -- --entry path/to/main.py --output bundle.py -vvv
 
 # Combine stdout output with verbose logging for development
-cargo run --package cribo --bin cribo -- --entry path/to/main.py --stdout -vv
+cargo run -- --entry path/to/main.py --stdout -vv
 ```
 
 ### CLI Usage
@@ -70,10 +70,10 @@ The `--stdout` flag is especially valuable for debugging workflows as it avoids 
 
 ```bash
 # Run all tests
-cargo test --workspace
+cargo nextest run --workspace
 
 # Run with code coverage
-cargo llvm-cov --json
+cargo llvm-cov nextest --workspace --json
 ```
 
 #### Snapshot Testing with Insta
@@ -134,16 +134,24 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 **Usage Pattern**:
 
 ```bash
-# 1. Create fixture directory
+# Create fixture directory
 mkdir crates/cribo/tests/fixtures/my_new_feature
-
-# 2. Add test files (main.py + any supporting modules)
+# Add test files (main.py + any supporting modules)
 echo "print('Hello Feature')" > crates/cribo/tests/fixtures/my_new_feature/main.py
 
-# 3. Run tests - automatically discovered and tested
-cargo test test_all_bundling_fixtures
+# Run a specific fixture using environment variable
+INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --workspace --test test_bundling_snapshots --cargo-quiet
 
-# 4. Accept snapshots
+# Run all fixtures matching a pattern
+INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo nextest run --workspace --test test_bundling_snapshots --cargo-quiet
+
+# Run fixture with debug output to see which fixture is running
+INSTA_GLOB_FILTER="**/my_new_feature/main.py" cargo nextest run --workspace --no-capture --test test_bundling_snapshots --cargo-quiet
+
+# List available fixtures (useful for finding fixture names)
+find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||' | sed 's|/main.py||' | sort
+
+# Accept snapshots
 cargo insta accept
 ```
 
@@ -243,3 +251,59 @@ This approach provides **comprehensive validation with minimal effort** and crea
 - **Binary-only interface**: This project does not maintain API compatibility for external consumers - all code must serve the current CLI functionality
 - **Dead code elimination**: Aggressively remove any unused functions, methods, structs, or modules during refactoring
 - **Immediate cleanup**: When refactoring or implementing features, remove unused code paths immediately rather than marking them for future removal
+
+### MANDATORY: Handling GitHub PR Review Comments
+
+Follow this exact workflow whenever you receive a GitHub PR review comment link like:
+
+```text
+https://github.com/ophidiarium/cribo/pull/<PR_NUMBER>#discussion_r<COMMENT_ID>
+```
+
+1. Parse identifiers
+
+- `<PR_NUMBER>`: digits after `/pull/`
+- `<COMMENT_ID>`: digits after `discussion_r`
+
+2. Fetch the comment body
+
+```bash
+GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
+  --jq '
+"id:         \(.id)
+pr_number:   \(.pull_request_url | split("/") | last)
+author:      \(.user.login)
+created_at:  \(.created_at)
+file:        \(.path)
+line:        \(.start_line)
+--- BEGIN_BODY ---
+\(.body)
+--- END_BODY ---"'
+```
+
+3. Apply every suggestion immediately
+
+- Treat even nitpicks as mandatory; do not defer
+- Implement requested changes directly and completely
+
+4. Commit and push
+
+```bash
+git add -A
+git commit -m "chore: address PR review comment <COMMENT_ID>"
+git push
+```
+
+5. Reply inline to the original comment
+
+```bash
+gh api repos/ophidiarium/cribo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+  -X POST -f body='✅ Addressed in <short-hash>. Thanks!'
+```
+
+Pre-checks and validations
+
+- Verify GitHub CLI auth: `gh auth status`
+- Ensure tests and lint are clean before replying:
+  - `cargo nextest run --workspace`
+  - `cargo clippy --workspace --all-targets`

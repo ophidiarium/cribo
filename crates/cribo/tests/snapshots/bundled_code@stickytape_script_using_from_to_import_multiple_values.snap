@@ -28,7 +28,10 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+greeting = _cribo.types.SimpleNamespace(__name__='greeting')
 message = "Hello"
 def print_stdout(value):
     print(value)
+greeting.message = message
+greeting.print_stdout = print_stdout
 print_stdout(message)

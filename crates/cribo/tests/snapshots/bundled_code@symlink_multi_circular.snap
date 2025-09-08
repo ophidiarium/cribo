@@ -28,37 +28,112 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def from_e():
-    return "E(->A)"
-def from_c():
-    return "C(->A)"
-def start_chain():
-    return f"A -> {from_b()}"
-def from_d():
-    return f"D(->B) -> {from_e()}"
-def continue_chain():
-    return from_d()
-def from_b():
-    return f"B -> {from_c()} -> {continue_chain()}"
-def start_chain_link_e():
-    return f"A -> {from_b()}"
-def from_c_link_e():
-    return "C(->A)"
-def from_e_link_e():
-    return "E(->A)"
-def from_b_link_d():
-    return f"B -> {from_c()} -> {continue_chain()}"
-def continue_chain_link_d():
-    return from_d()
-def from_d_link_d():
-    return f"D(->B) -> {from_e()}"
-def start_chain_link_c():
-    return f"A -> {from_b()}"
-def from_c_link_c():
-    return "C(->A)"
-def from_e_link_c():
-    return "E(->A)"
-from_e = from_e_link_e
+real_a = _cribo.types.SimpleNamespace(__name__='real_a', __initializing__=False, __initialized__=False)
+real_b = _cribo.types.SimpleNamespace(__name__='real_b', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_5676b5_real_a(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global real_b
+
+    def start_chain():
+        global real_b
+        real_b = _cribo_init___cribo_85e139_real_b(real_b)
+        from_b = real_b.from_b
+        return f"A -> {from_b()}"
+    self.start_chain = start_chain
+
+    def from_a():
+        return "A"
+    self.from_a = from_a
+
+    def from_c():
+        return "C(->A)"
+    self.from_c = from_c
+
+    def from_e():
+        return "E(->A)"
+    self.from_e = from_e
+
+    def unused_function_a():
+        global real_b
+        real_b = _cribo_init___cribo_85e139_real_b(real_b)
+        unused_function_b = real_b.unused_function_b
+        return f"Unused A -> {unused_function_b()}"
+    self.unused_function_a = unused_function_a
+
+    def unused_with_stdlib():
+        json = _cribo.json
+        self.json = json
+        os = _cribo.os
+        self.os = os
+        return _cribo.json.dumps({"path": _cribo.os.getcwd()})
+    self.unused_with_stdlib = unused_with_stdlib
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+real_a.__init__ = _cribo_init___cribo_5676b5_real_a
+def _cribo_init___cribo_85e139_real_b(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global real_a
+
+    def from_b():
+        global real_a
+        real_a = _cribo_init___cribo_5676b5_real_a(real_a)
+        from_c = real_a.from_c
+        return f"B -> {from_c()} -> {continue_chain()}"
+    self.from_b = from_b
+
+    def continue_chain():
+        global real_b
+        from_d = real_b.from_d
+        self.from_d = from_d
+        return from_d()
+    self.continue_chain = continue_chain
+
+    def from_d():
+        global real_a
+        real_a = _cribo_init___cribo_5676b5_real_a(real_a)
+        from_e = real_a.from_e
+        return f"D(->B) -> {from_e()}"
+    self.from_d = from_d
+
+    def unused_function_b():
+        return "Unused B"
+    self.unused_function_b = unused_function_b
+
+    def unused_with_symlink():
+        global real_a
+        real_a = _cribo_init___cribo_5676b5_real_a(real_a)
+        unused_function_a = real_a.unused_function_a
+        from_a = real_a.from_a
+        return f"Unused symlink -> {from_a()}"
+    self.unused_with_symlink = unused_with_symlink
+
+    class UnusedClass:
+
+        def __init__(self):
+            global real_a
+            real_a = _cribo_init___cribo_5676b5_real_a(real_a)
+            from_c = real_a.from_c
+            self.value = from_c()
+
+        def get_value(self):
+            return self.value
+    UnusedClass.__module__ = 'real_b'
+    self.UnusedClass = UnusedClass
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+real_b.__init__ = _cribo_init___cribo_85e139_real_b
+real_a = _cribo_init___cribo_5676b5_real_a(real_a)
+start_chain = real_a.start_chain
 print("Testing multi-symlink circular dependency")
 result = start_chain()
 print(f"Chain result: {result}")

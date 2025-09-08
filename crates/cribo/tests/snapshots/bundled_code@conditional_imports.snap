@@ -28,93 +28,46 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_17f1ec_try_except_module():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'try_except_module'
-    """Module with imports inside try/except blocks."""
-    etree = None
-    _cribo_module.etree = etree
-    ETREE_VERSION = None
-    _cribo_module.ETREE_VERSION = ETREE_VERSION
-    try:
-        from lxml import etree
-        _cribo_module.etree = etree
-        ETREE_VERSION = "lxml"
-        _cribo_module.ETREE_VERSION = ETREE_VERSION
-    except ImportError:
-        try:
-            etree = _cribo.xml.etree.ElementTree
-            _cribo_module.etree = etree
-            ETREE_VERSION = "stdlib"
-            _cribo_module.ETREE_VERSION = ETREE_VERSION
-        except ImportError:
-            _cribo.xml.etree.ElementTree = None
-            ETREE_VERSION = None
-            _cribo_module.ETREE_VERSION = ETREE_VERSION
-    parser_backend = None
-    _cribo_module.parser_backend = parser_backend
-    try:
-        import cElementTree as ET
-        _cribo_module.ET = ET
-        parser_backend = "cElementTree"
-        _cribo_module.parser_backend = parser_backend
-    except ImportError:
-        try:
-            ET = _cribo.xml.etree.ElementTree
-            _cribo_module.ET = ET
-            parser_backend = "ElementTree"
-            _cribo_module.parser_backend = parser_backend
-        except ImportError:
-            _cribo.xml.etree.ElementTree = None
-            parser_backend = None
-            _cribo_module.parser_backend = parser_backend
-
-    def parse_xml(xml_string):
-        """Parse XML using available parser."""
-        if _cribo.xml.etree.ElementTree is not None:
-            return _cribo.xml.etree.ElementTree.fromstring(xml_string)
-        elif _cribo.xml.etree.ElementTree is not None:
-            return _cribo.xml.etree.ElementTree.fromstring(xml_string)
-        else:
-            raise ImportError("No XML parser available")
-    _cribo_module.parse_xml = parse_xml
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_e43fad_conditional_module():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'conditional_module'
+conditional_module = _cribo.types.SimpleNamespace(__name__='conditional_module', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_e43fad_conditional_module(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     """Module with conditional imports inside if/else blocks."""
     has_simplejson = False
-    _cribo_module.has_simplejson = has_simplejson
+    self.has_simplejson = has_simplejson
     try:
         import simplejson as json
-        _cribo_module.json = json
+        conditional_module.json = json
         has_simplejson = True
-        _cribo_module.has_simplejson = has_simplejson
+        conditional_module.has_simplejson = has_simplejson
     except ImportError:
         json = _cribo.json
-        _cribo_module.json = json
+        conditional_module.json = json
+        self.json = json
     if has_simplejson:
         from simplejson import JSONDecodeError
-        _cribo_module.JSONDecodeError = JSONDecodeError
+        conditional_module.JSONDecodeError = JSONDecodeError
     else:
         JSONDecodeError = _cribo.json.JSONDecodeError
-        _cribo_module.JSONDecodeError = JSONDecodeError
+        conditional_module.JSONDecodeError = JSONDecodeError
     sys = _cribo.sys
-    _cribo_module.sys = sys
+    self.sys = sys
+    self.sys = sys
     if _cribo.sys.version_info[0] >= 3:
         builtin_str = str
-        _cribo_module.builtin_str = builtin_str
+        conditional_module.builtin_str = builtin_str
         my_str = str
-        _cribo_module.my_str = my_str
+        conditional_module.my_str = my_str
     else:
         builtin_str = str
-        _cribo_module.builtin_str = builtin_str
+        conditional_module.builtin_str = builtin_str
         my_str = unicode
-        _cribo_module.my_str = my_str
+        conditional_module.my_str = my_str
     basestring = str, bytes
-    _cribo_module.basestring = basestring
+    self.basestring = basestring
     if has_simplejson:
         if hasattr(_cribo.json, "JSONDecodeError"):
             pass
@@ -129,11 +82,74 @@ def _cribo_init___cribo_e43fad_conditional_module():
             return _cribo.json.loads(text)
         except JSONDecodeError as e:
             return None
-    _cribo_module.decode_json = decode_json
-    return _cribo_module
+    self.decode_json = decode_json
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+conditional_module.__init__ = _cribo_init___cribo_e43fad_conditional_module
+try_except_module = _cribo.types.SimpleNamespace(__name__='try_except_module', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_17f1ec_try_except_module(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Module with imports inside try/except blocks."""
+    etree = None
+    self.etree = etree
+    ETREE_VERSION = None
+    self.ETREE_VERSION = ETREE_VERSION
+    try:
+        from lxml import etree
+        try_except_module.etree = etree
+        ETREE_VERSION = "lxml"
+        try_except_module.ETREE_VERSION = ETREE_VERSION
+    except ImportError:
+        try:
+            etree = _cribo.xml.etree.ElementTree
+            try_except_module.etree = etree
+            self.etree = etree
+            ETREE_VERSION = "stdlib"
+            try_except_module.ETREE_VERSION = ETREE_VERSION
+        except ImportError:
+            _cribo.xml.etree.ElementTree = None
+            ETREE_VERSION = None
+            try_except_module.ETREE_VERSION = ETREE_VERSION
+    parser_backend = None
+    self.parser_backend = parser_backend
+    try:
+        import cElementTree as ET
+        try_except_module.ET = ET
+        parser_backend = "cElementTree"
+        try_except_module.parser_backend = parser_backend
+    except ImportError:
+        try:
+            ET = _cribo.xml.etree.ElementTree
+            try_except_module.ET = ET
+            self.ET = ET
+            parser_backend = "ElementTree"
+            try_except_module.parser_backend = parser_backend
+        except ImportError:
+            _cribo.xml.etree.ElementTree = None
+            parser_backend = None
+            try_except_module.parser_backend = parser_backend
+
+    def parse_xml(xml_string):
+        """Parse XML using available parser."""
+        if _cribo.xml.etree.ElementTree is not None:
+            return _cribo.xml.etree.ElementTree.fromstring(xml_string)
+        elif _cribo.xml.etree.ElementTree is not None:
+            return _cribo.xml.etree.ElementTree.fromstring(xml_string)
+        else:
+            raise ImportError("No XML parser available")
+    self.parse_xml = parse_xml
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+try_except_module.__init__ = _cribo_init___cribo_17f1ec_try_except_module
 """Test conditional imports in if/else and try/except blocks."""
-conditional_module = _cribo_init___cribo_e43fad_conditional_module()
-try_except_module = _cribo_init___cribo_17f1ec_try_except_module()
+conditional_module = _cribo_init___cribo_e43fad_conditional_module(conditional_module)
+try_except_module = _cribo_init___cribo_17f1ec_try_except_module(try_except_module)
 print("If/else import - JSONDecodeError:", hasattr(conditional_module, "JSONDecodeError"))
 print("If/else import - json:", hasattr(conditional_module, "json"))
 print("If/else import - builtin_str:", hasattr(conditional_module, "builtin_str"))

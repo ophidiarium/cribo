@@ -28,47 +28,28 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-class DatabaseConnection:
-    """Represents a database connection."""
-
-    def __init__(self, connection_string: str):
-        self.connection_string = connection_string
-        self.is_connected = False
-
-    def connect(self) -> bool:
-        """Connect to the database."""
-        self.is_connected = True
-        return True
-
-    def disconnect(self) -> None:
-        """Disconnect from the database."""
-        self.is_connected = False
-class DatabaseService:
-    """Service for database operations."""
-
-    def __init__(self, database_path: str):
-        self.connection_string = f"sqlite://{database_path}"
-        self.connection = DatabaseConnection(self.connection_string)
-        self.cache: _cribo.typing.Dict[str, _cribo.typing.Any] = {}
-
-    def connect(self) -> bool:
-        """Connect to the database."""
-        return self.connection.connect()
-
-    def query(self, sql: str) -> _cribo.typing.Optional[_cribo.typing.Dict[str, _cribo.typing.Any]]:
-        """Execute a query."""
-        if not self.connection.is_connected:
-            self.connect()
-        return {"result": f"Executed: {sql}"}
-
-    def close(self) -> None:
-        """Close the database connection."""
-        self.connection.disconnect()
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
+utils.helpers = utils_helpers
+"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+def format_message(greeting: str, name: str) -> str:
+    """Format a greeting message."""
+    return f"{greeting}, {name}!"
+def calculate_total(values: _cribo.typing.List[int]) -> int:
+    """Calculate the sum of a list of integers."""
+    return sum(values)
+utils_helpers.calculate_total = calculate_total
+utils_helpers.format_message = format_message
+models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models.user = models_user
+"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 class UserRole(_cribo.enum.Enum):
     """User role enumeration."""
     ADMIN = "admin"
     USER = "user"
     GUEST = "guest"
+UserRole.__module__ = 'models.user'
 class User:
     """Simple user model."""
 
@@ -91,34 +72,53 @@ class User:
     def deactivate(self) -> None:
         """Deactivate the user."""
         self.active = False
-def format_message(greeting: str, name: str) -> str:
-    """Format a greeting message."""
-    return f"{greeting}, {name}!"
-def calculate_total(values: _cribo.typing.List[int]) -> int:
-    """Calculate the sum of a list of integers."""
-    return sum(values)
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
-DatabaseConnection.__module__ = 'services.database'
-DatabaseService.__module__ = 'services.database'
-"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
-UserRole.__module__ = 'models.user'
 User.__module__ = 'models.user'
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
-services = _cribo.types.SimpleNamespace(__name__='services')
+models_user.User = User
+models_user.UserRole = UserRole
 services_database = _cribo.types.SimpleNamespace(__name__='services.database')
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
 services.database = services_database
-models = _cribo.types.SimpleNamespace(__name__='models')
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
-models.user = models_user
-utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
+"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+class DatabaseConnection:
+    """Represents a database connection."""
+
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+        self.is_connected = False
+
+    def connect(self) -> bool:
+        """Connect to the database."""
+        self.is_connected = True
+        return True
+
+    def disconnect(self) -> None:
+        """Disconnect from the database."""
+        self.is_connected = False
+DatabaseConnection.__module__ = 'services.database'
+class DatabaseService:
+    """Service for database operations."""
+
+    def __init__(self, database_path: str):
+        self.connection_string = f"sqlite://{database_path}"
+        self.connection = DatabaseConnection(self.connection_string)
+        self.cache: _cribo.typing.Dict[str, _cribo.typing.Any] = {}
+
+    def connect(self) -> bool:
+        """Connect to the database."""
+        return self.connection.connect()
+
+    def query(self, sql: str) -> _cribo.typing.Optional[_cribo.typing.Dict[str, _cribo.typing.Any]]:
+        """Execute a query."""
+        if not self.connection.is_connected:
+            self.connect()
+        return {"result": f"Executed: {sql}"}
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self.connection.disconnect()
+DatabaseService.__module__ = 'services.database'
 services_database.DatabaseConnection = DatabaseConnection
 services_database.DatabaseService = DatabaseService
-models_user.UserRole = UserRole
-models_user.User = User
-utils_helpers.format_message = format_message
-utils_helpers.calculate_total = calculate_total
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)
@@ -134,3 +134,4 @@ def main():
 if __name__ == "__main__":
     result = main()
     print("Result:", result)
+database = services.database

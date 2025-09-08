@@ -28,22 +28,24 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage.__version__ = mypackage___version__
+"""Version information for the package."""
 __version__ = "3.0.0"
+__build__ = 196608
+mypackage___version__.__version__ = __version__
+mypackage___version__.__build__ = __build__
+"""Main package module."""
+mypackage.__version__ = __version__
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils')
+mypackage.utils = mypackage_utils
+"""Utilities module that needs version from sibling module."""
 def get_user_agent():
     """Return user agent string with version."""
     return f"mypackage/{__version__}"
-"""Utilities module that needs version from sibling module."""
-"""Version information for the package."""
-"""Main package module."""
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils')
-mypackage.utils = mypackage_utils
-mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
-mypackage.__version__ = mypackage___version__
 mypackage_utils.get_user_agent = get_user_agent
-mypackage___version__.__version__ = __version__
 """Test fixture for version imports with complex module initialization."""
-mypackage.__version__ = __version__
-mypackage.utils.get_user_agent = get_user_agent
 print(f"User agent: {mypackage.utils.get_user_agent()}")
 print(f"Version from package: {mypackage.__version__}")
+utils = mypackage.utils

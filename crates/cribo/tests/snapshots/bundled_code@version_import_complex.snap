@@ -28,22 +28,65 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-__version__ = "2.0.0"
-def get_user_agent():
-    """Return a user agent string with version."""
-    return f"mypackage/{__version__}"
-"""Utility module that imports __version__ from a sibling module."""
-"""Version information."""
-"""Main package that exposes version and imports submodules."""
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils')
-mypackage.utils = mypackage_utils
 mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.__version__ = mypackage___version__
-utils = mypackage_utils
-mypackage_utils.get_user_agent = get_user_agent
+"""Version information."""
+__version__ = "2.0.0"
+__author__ = "Test Author"
 mypackage___version__.__version__ = __version__
+mypackage___version__.__author__ = __author__
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
+mypackage.utils = mypackage_utils
+def _cribo_init___cribo_623f97_mypackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypackage_utils
+    """Main package that exposes version and imports submodules."""
+    __version__ = mypackage___version__.__version__
+    mypackage.__version__ = __version__
+    __author__ = mypackage___version__.__author__
+    mypackage.__author__ = __author__
+    mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)
+    utils = mypackage.utils
+    self.utils = utils
+    self.__version__ = __version__
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage.__init__ = _cribo_init___cribo_623f97_mypackage
+def _cribo_init___cribo_254d99_mypackage_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Utility module that imports __version__ from a sibling module."""
+    __version__ = mypackage___version__.__version__
+    mypackage_utils.__version__ = __version__
+
+    def get_user_agent():
+        """Return a user agent string with version."""
+        return f"mypackage/{__version__}"
+    self.get_user_agent = get_user_agent
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage_utils.__init__ = _cribo_init___cribo_254d99_mypackage_utils
 """Test fixture for importing __version__ in a complex module structure."""
-mypackage.__version__ = __version__
+__cribo_init_result = _cribo_init___cribo_623f97_mypackage(mypackage)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypackage, attr, getattr(__cribo_init_result, attr))
+__cribo_init_result = _cribo_init___cribo_623f97_mypackage(mypackage)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypackage, attr, getattr(__cribo_init_result, attr))
+mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)
+get_user_agent = mypackage.utils.get_user_agent
 print(f"User agent: {get_user_agent()}")
 print(f"Package version: {mypackage.__version__}")
+utils = mypackage.utils

@@ -4,7 +4,10 @@ use std::path::Path;
 
 use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
 
-use crate::{resolver::ModuleResolver, types::FxIndexMap};
+use crate::{
+    resolver::{ModuleId, ModuleResolver},
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Finds which module a symbol was imported from in a wrapper module.
 ///
@@ -12,31 +15,31 @@ use crate::{resolver::ModuleResolver, types::FxIndexMap};
 /// of a symbol, handling both direct imports and aliased imports.
 ///
 /// # Arguments
-/// * `module_asts` - Slice of tuples containing (`module_name`, ast, `module_path`, `content_hash`)
+/// * `module_asts` - Map of `ModuleId` to (ast, `module_path`, `content_hash`)
 /// * `resolver` - Module resolver for handling relative imports
-/// * `module_registry` - Registry mapping wrapper module names to their synthetic function names;
-///   used here only to check if a resolved import source is a known wrapper module
+/// * `wrapper_modules` - Set of `ModuleIds` that are wrapper modules
 /// * `module_name` - The module to search in
 /// * `symbol_name` - The symbol to find the source of
 ///
 /// # Returns
 /// * `Some((source_module, original_name))` if the symbol is imported from a wrapper module
-/// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper module
+/// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper
+///   module
 pub fn find_symbol_source_from_wrapper_module(
-    module_asts: &[(String, ModModule, std::path::PathBuf, String)],
+    module_asts: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
     resolver: &ModuleResolver,
-    module_registry: &FxIndexMap<String, String>,
+    wrapper_modules: &FxIndexSet<ModuleId>,
     module_name: &str,
     symbol_name: &str,
 ) -> Option<(String, String)> {
     log::trace!(
-        "find_symbol_source_from_wrapper_module: looking for symbol '{symbol_name}' in module '{module_name}'"
+        "find_symbol_source_from_wrapper_module: looking for symbol '{symbol_name}' in module \
+         '{module_name}'"
     );
 
     // Find the module's AST to check its imports
-    let (_, ast, module_path, _) = module_asts
-        .iter()
-        .find(|(name, _, _, _)| name == module_name)?;
+    let module_id = resolver.get_module_id_by_name(module_name)?;
+    let (ast, module_path, _) = module_asts.get(&module_id)?;
 
     // Check if this symbol is imported from another module (including nested scopes)
     for import_from in collect_import_from_statements_in_module(ast) {
@@ -69,9 +72,12 @@ pub fn find_symbol_source_from_wrapper_module(
                 );
 
                 // Check if the source module is a wrapper module
-                if module_registry.contains_key(&resolved_module) {
+                if let Some(resolved_id) = resolver.get_module_id_by_name(&resolved_module)
+                    && wrapper_modules.contains(&resolved_id)
+                {
                     log::debug!(
-                        "Source module '{resolved_module}' is a wrapper module - returning ({resolved_module}, {})",
+                        "Source module '{resolved_module}' is a wrapper module - returning \
+                         ({resolved_module}, {})",
                         alias.name.as_str()
                     );
                     // Return the immediate source from the wrapper module

@@ -1,6 +1,5 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 549
 input_file: crates/cribo/tests/fixtures/stdlib_name_conflict_ordering/main.py
 ---
 ExecutionResults {

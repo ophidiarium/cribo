@@ -28,35 +28,46 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg = _cribo.types.SimpleNamespace(__name__='pkg')
-@_cribo.functools.cache
-def _cribo_init___cribo_73cafd_pkg__internal():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pkg._internal'
+pkg__internal = _cribo.types.SimpleNamespace(__name__='pkg._internal', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_73cafd_pkg__internal(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     """Internal module with private variables."""
     re = _cribo.re
-    _cribo_module.re = re
+    self.re = re
+    self.re = re
     _VALID_HEADER_NAME_RE_BYTE = _cribo.re.compile(rb"^[^:\s][^:\r\n]*$")
-    _cribo_module._VALID_HEADER_NAME_RE_BYTE = _VALID_HEADER_NAME_RE_BYTE
+    self._VALID_HEADER_NAME_RE_BYTE = _VALID_HEADER_NAME_RE_BYTE
     _VALID_HEADER_NAME_RE_STR = _cribo.re.compile(r"^[^:\s][^:\r\n]*$")
-    _cribo_module._VALID_HEADER_NAME_RE_STR = _VALID_HEADER_NAME_RE_STR
+    self._VALID_HEADER_NAME_RE_STR = _VALID_HEADER_NAME_RE_STR
     _VALID_HEADER_VALUE_RE_BYTE = _cribo.re.compile(rb"^\S[^\r\n]*$|^$")
-    _cribo_module._VALID_HEADER_VALUE_RE_BYTE = _VALID_HEADER_VALUE_RE_BYTE
+    self._VALID_HEADER_VALUE_RE_BYTE = _VALID_HEADER_VALUE_RE_BYTE
     _VALID_HEADER_VALUE_RE_STR = _cribo.re.compile(r"^\S[^\r\n]*$|^$")
-    _cribo_module._VALID_HEADER_VALUE_RE_STR = _VALID_HEADER_VALUE_RE_STR
-    _HEADER_VALIDATORS_STR = _cribo_module._VALID_HEADER_NAME_RE_STR, _cribo_module._VALID_HEADER_VALUE_RE_STR
-    _cribo_module._HEADER_VALIDATORS_STR = _HEADER_VALIDATORS_STR
-    _HEADER_VALIDATORS_BYTE = _cribo_module._VALID_HEADER_NAME_RE_BYTE, _cribo_module._VALID_HEADER_VALUE_RE_BYTE
-    _cribo_module._HEADER_VALIDATORS_BYTE = _HEADER_VALIDATORS_BYTE
-    HEADER_VALIDATORS = {bytes: _cribo_module._HEADER_VALIDATORS_BYTE, str: _cribo_module._HEADER_VALIDATORS_STR}
-    _cribo_module.HEADER_VALIDATORS = HEADER_VALIDATORS
+    self._VALID_HEADER_VALUE_RE_STR = _VALID_HEADER_VALUE_RE_STR
+    _HEADER_VALIDATORS_STR = _VALID_HEADER_NAME_RE_STR, _VALID_HEADER_VALUE_RE_STR
+    self._HEADER_VALIDATORS_STR = _HEADER_VALIDATORS_STR
+    _HEADER_VALIDATORS_BYTE = _VALID_HEADER_NAME_RE_BYTE, _VALID_HEADER_VALUE_RE_BYTE
+    self._HEADER_VALIDATORS_BYTE = _HEADER_VALIDATORS_BYTE
+    HEADER_VALIDATORS = {bytes: _HEADER_VALIDATORS_BYTE, str: _HEADER_VALIDATORS_STR}
+    self.HEADER_VALIDATORS = HEADER_VALIDATORS
 
     def process_headers(headers):
         """Example function that uses the validators."""
         return f"Processing {len(headers)} headers with validators"
-    _cribo_module.process_headers = process_headers
-    return _cribo_module
-pkg._internal = _cribo_init___cribo_73cafd_pkg__internal()
+    self.process_headers = process_headers
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg__internal.__init__ = _cribo_init___cribo_73cafd_pkg__internal
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg._internal = pkg__internal
+pkg_consumer = _cribo.types.SimpleNamespace(__name__='pkg.consumer')
+pkg.consumer = pkg_consumer
+"""Consumer module that imports private variables from _internal module."""
+pkg__internal = pkg__internal.__init__(pkg__internal)
 def get_validators():
     """Return the validators."""
     assert pkg._internal._HEADER_VALIDATORS_BYTE is not None
@@ -70,10 +81,6 @@ def validate_header(header_type, header_data):
         validators = pkg._internal._HEADER_VALIDATORS_STR
     name_re, value_re = validators
     return f"Validated with {name_re.pattern}"
-"""Consumer module that imports private variables from _internal module."""
-pkg_consumer = _cribo.types.SimpleNamespace(__name__='pkg.consumer')
-pkg.consumer = pkg_consumer
-pkg._internal = _cribo_init___cribo_73cafd_pkg__internal()
 pkg_consumer.get_validators = get_validators
 pkg_consumer.validate_header = validate_header
 """Test case for bundling modules that have private module variables accessed by other modules."""
@@ -85,3 +92,4 @@ assert str in validators
 assert len(validators[bytes]) == 2
 assert len(validators[str]) == 2
 print("✓ All tests passed!")
+consumer = pkg.consumer

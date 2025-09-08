@@ -28,18 +28,24 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_332fbf_my_module():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'my-module'
+my_module = _cribo.types.SimpleNamespace(__name__='my-module', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_332fbf_my_module(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     value = 42
-    _cribo_module.value = value
+    self.value = value
 
     def get_value():
-        return _cribo_module.value
-    _cribo_module.get_value = get_value
-    return _cribo_module
-mod = _cribo_init___cribo_332fbf_my_module()
+        return value
+    self.get_value = get_value
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+my_module.__init__ = _cribo_init___cribo_332fbf_my_module
+mod = _cribo_init___cribo_332fbf_my_module(my_module)
 print(f"Value: {mod.value}")
 print(f"Function result: {mod.get_value()}")
 assert mod.value == 42

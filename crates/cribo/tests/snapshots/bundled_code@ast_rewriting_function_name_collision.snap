@@ -28,17 +28,21 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-def process_data_1(input_data: str) -> str:
-    """Process data in module B's way."""
-    return f"Module B processed: {input_data.lower()}"
+module_a = _cribo.types.SimpleNamespace(__name__='module_a')
+"""\nModule A with a process_data function.\nThis will conflict with module_b.process_data when bundled.\n"""
 def process_data_2(input_data: str) -> str:
     """Process data in module A's way."""
     return f"Module A processed: {input_data.upper()}"
+module_a.process_data = process_data_2
+module_b = _cribo.types.SimpleNamespace(__name__='module_b')
 """\nModule B with a process_data function.\nThis will conflict with module_a.process_data when bundled.\n"""
-"""\nModule A with a process_data function.\nThis will conflict with module_b.process_data when bundled.\n"""
+def process_data_1(input_data: str) -> str:
+    """Process data in module B's way."""
+    return f"Module B processed: {input_data.lower()}"
+module_b.process_data = process_data_1
 """\nFunction name collision test.\nBoth modules define a function with the same name.\n"""
-process_a = process_data_2
-process_b = process_data_1
+process_a = module_a.process_data
+process_b = module_b.process_data
 def main():
     result_a = process_a("input from A")
     result_b = process_b("input from B")

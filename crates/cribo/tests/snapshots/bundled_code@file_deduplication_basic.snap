@@ -28,8 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-app = _cribo.types.SimpleNamespace(__name__='app')
 app_utils = _cribo.types.SimpleNamespace(__name__='app.utils')
+app = _cribo.types.SimpleNamespace(__name__='app', __initializing__=False, __initialized__=False)
 app.utils = app_utils
 def get_name():
     return "app.utils"
@@ -37,8 +37,6 @@ def helper():
     return "I am from app.utils"
 app_utils.get_name = get_name
 app_utils.helper = helper
-app.utils.get_name = get_name
-app.utils.helper = helper
 app_utils = app_utils
 mod = _cribo.types.SimpleNamespace(get_name=get_name, helper=helper)
 print(f"Direct import: {app.utils.get_name()}")
@@ -46,3 +44,4 @@ print(f"From import: {app_utils.get_name()}")
 print(f"Importlib: {get_name()}")
 assert app.utils.helper() == app_utils.helper() == helper()
 print("SUCCESS: All imports reference the same module!")
+utils = app.utils

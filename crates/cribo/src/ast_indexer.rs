@@ -52,7 +52,7 @@ impl IndexingVisitor {
         // Check for overflow within module range
         let relative_index = *current - self.base_index;
         assert!(
-            (relative_index < MODULE_INDEX_RANGE),
+            relative_index < MODULE_INDEX_RANGE,
             "Module index overflow: attempted to assign index {} (relative: {}) which exceeds \
              MODULE_INDEX_RANGE ({})",
             *current,
@@ -73,7 +73,7 @@ impl Transformer for IndexingVisitor {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        let _node_index = match stmt {
+        match stmt {
             Stmt::FunctionDef(func) => self.assign_index(&func.node_index),
             Stmt::ClassDef(class) => self.assign_index(&class.node_index),
             Stmt::Import(import) => self.assign_index(&import.node_index),

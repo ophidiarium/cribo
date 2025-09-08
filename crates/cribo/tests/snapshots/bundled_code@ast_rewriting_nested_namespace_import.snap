@@ -28,15 +28,15 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+greetings_greeting = _cribo.types.SimpleNamespace(__name__='greetings.greeting')
+greetings = _cribo.types.SimpleNamespace(__name__='greetings', __initializing__=False, __initialized__=False)
+greetings.greeting = greetings_greeting
+"""Greeting module"""
 def get_greeting(name):
     return f"Hello, {name}!"
-"""Greetings package"""
-"""Greeting module"""
-greetings = _cribo.types.SimpleNamespace(__name__='greetings')
-greetings_greeting = _cribo.types.SimpleNamespace(__name__='greetings.greeting')
-greetings.greeting = greetings_greeting
 greetings_greeting.get_greeting = get_greeting
+"""Greetings package"""
 """Test nested namespace imports"""
-greetings.greeting.get_greeting = get_greeting
 message = greetings.greeting.get_greeting("Python")
 print(message)
+greeting = greetings.greeting

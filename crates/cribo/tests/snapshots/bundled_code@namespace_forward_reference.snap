@@ -28,7 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+mypkg_compat = _cribo.types.SimpleNamespace(__name__='mypkg.compat')
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg.compat = mypkg_compat
 JSONDecodeError = _cribo.json.JSONDecodeError
+mypkg_compat.JSONDecodeError = JSONDecodeError
+mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
+mypkg.exceptions = mypkg_exceptions
 class MyJSONError(JSONDecodeError, Exception):
     """Error class that inherits from JSONDecodeError"""
 
@@ -36,15 +42,11 @@ class MyJSONError(JSONDecodeError, Exception):
         JSONDecodeError.__init__(self, *args)
         Exception.__init__(self, str(args[0]) if args else "")
 MyJSONError.__module__ = 'mypkg.exceptions'
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
-mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
-mypkg.exceptions = mypkg_exceptions
-mypkg_compat = _cribo.types.SimpleNamespace(__name__='mypkg.compat')
-mypkg.compat = mypkg_compat
 mypkg_exceptions.MyJSONError = MyJSONError
-mypkg_compat.JSONDecodeError = JSONDecodeError
 try:
     raise MyJSONError("Test error", "doc", 42)
 except MyJSONError as e:
     print(f"Caught error: {e}")
     print("SUCCESS")
+exceptions = mypkg.exceptions
+compat = mypkg.compat

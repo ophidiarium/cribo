@@ -15,27 +15,14 @@ use std::path::{Path, PathBuf};
 /// - Side effect preservation
 use anyhow::{Result, anyhow};
 use petgraph::{
-    algo::{is_cyclic_directed, toposort},
+    algo::{is_cyclic_directed, tarjan_scc, toposort},
     graph::{DiGraph, NodeIndex},
 };
 
-use crate::types::{FxIndexMap, FxIndexSet};
-
-/// Unique identifier for a module
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ModuleId(u32);
-
-impl ModuleId {
-    pub fn new(id: u32) -> Self {
-        Self(id)
-    }
-
-    /// Returns the underlying u32 value of the `ModuleId`
-    #[inline]
-    pub const fn as_u32(self) -> u32 {
-        self.0
-    }
-}
+use crate::{
+    resolver::ModuleId,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Unique identifier for an item within a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -243,10 +230,19 @@ impl ModuleDepGraph {
         // Find the item that defines the symbol
         for item in self.items.values() {
             if item.defined_symbols.contains(symbol) {
+                log::trace!(
+                    "Checking if symbol '{}' uses import '{}' - read_vars: {:?}, \
+                     eventual_read_vars: {:?}",
+                    symbol,
+                    import_name,
+                    item.read_vars,
+                    item.eventual_read_vars
+                );
                 // Check if this item uses the import
                 if item.read_vars.contains(import_name)
                     || item.eventual_read_vars.contains(import_name)
                 {
+                    log::trace!("  Found: symbol '{symbol}' uses import '{import_name}'");
                     return true;
                 }
 
@@ -254,6 +250,10 @@ impl ModuleDepGraph {
                 if let Some(deps) = item.symbol_dependencies.get(symbol)
                     && deps.contains(import_name)
                 {
+                    log::trace!(
+                        "  Found in symbol_dependencies: symbol '{symbol}' uses import \
+                         '{import_name}'"
+                    );
                     return true;
                 }
             }
@@ -262,15 +262,7 @@ impl ModuleDepGraph {
     }
 }
 
-/// State for Tarjan's strongly connected components algorithm
-struct TarjanState {
-    index_counter: usize,
-    stack: Vec<NodeIndex>,
-    indices: FxIndexMap<NodeIndex, usize>,
-    lowlinks: FxIndexMap<NodeIndex, usize>,
-    on_stack: FxIndexMap<NodeIndex, bool>,
-    components: Vec<Vec<NodeIndex>>,
-}
+// Note: Custom Tarjan SCC implementation removed in favor of petgraph::algo::tarjan_scc
 
 /// High-level dependency graph managing multiple modules
 /// Combines the best of three approaches:
@@ -289,10 +281,8 @@ pub struct CriboGraph {
     graph: DiGraph<ModuleId, ()>,
     /// Node index mapping
     node_indices: FxIndexMap<ModuleId, NodeIndex>,
-    /// Next module ID to allocate
-    next_module_id: u32,
 
-    // NEW: Fields for file-based deduplication
+    // Fields for file-based deduplication
     /// Track canonical paths for each module
     module_canonical_paths: FxIndexMap<ModuleId, PathBuf>,
     /// Track all import names that resolve to each canonical file
@@ -302,8 +292,9 @@ pub struct CriboGraph {
     /// (The first import name discovered for this file)
     file_primary_module: FxIndexMap<PathBuf, (String, ModuleId)>,
     /// Track modules whose __all__ attribute is accessed
-    /// Maps module name to set of modules that access its __all__
-    modules_accessing_all: FxIndexMap<String, FxIndexSet<String>>,
+    /// Maps (`accessing_module_id`, `accessed_module_id`) for __all__ access tracking to prevent
+    /// alias collisions
+    modules_accessing_all: FxIndexSet<(ModuleId, ModuleId)>,
 }
 
 impl CriboGraph {
@@ -315,16 +306,15 @@ impl CriboGraph {
             module_paths: FxIndexMap::default(),
             graph: DiGraph::new(),
             node_indices: FxIndexMap::default(),
-            next_module_id: 0,
             module_canonical_paths: FxIndexMap::default(),
             file_to_import_names: FxIndexMap::default(),
             file_primary_module: FxIndexMap::default(),
-            modules_accessing_all: FxIndexMap::default(),
+            modules_accessing_all: FxIndexSet::default(),
         }
     }
 
-    /// Add a new module to the graph
-    pub fn add_module(&mut self, name: String, path: &Path) -> ModuleId {
+    /// Add a module to the graph with a pre-assigned `ModuleId` from the resolver
+    pub fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
 
@@ -343,8 +333,8 @@ impl CriboGraph {
                 // Same import name but different files: reuse existing mapping deterministically.
                 // Prevents alias flapping and preserves previously built edges.
                 log::warn!(
-                    "Import name '{name}' refers to different files: {} and {}. \
-                     Reusing existing ModuleId {} to keep mapping stable.",
+                    "Import name '{name}' refers to different files: {} and {}. Reusing existing \
+                     ModuleId {} to keep mapping stable.",
                     existing_canonical.display(),
                     canonical_path.display(),
                     existing_id.as_u32()
@@ -375,9 +365,8 @@ impl CriboGraph {
             return *primary_id;
         }
 
-        // This is the first time we're seeing this file
-        let id = ModuleId::new(self.next_module_id);
-        self.next_module_id += 1;
+        // Use the pre-assigned ID from the resolver
+        // The resolver guarantees that the entry module gets ID 0
 
         // Create module
         let module_graph = ModuleDepGraph::new(id, name.clone());
@@ -401,14 +390,19 @@ impl CriboGraph {
         id
     }
 
-    /// Get a module by name
+    /// Get a module by ID
+    pub fn get_module(&self, id: ModuleId) -> Option<&ModuleDepGraph> {
+        self.modules.get(&id)
+    }
+
+    /// Get a module by name (for compatibility during migration)
     pub fn get_module_by_name(&self, name: &str) -> Option<&ModuleDepGraph> {
         self.module_names
             .get(name)
             .and_then(|&id| self.modules.get(&id))
     }
 
-    /// Get a mutable module by name
+    /// Get a mutable module by name (for compatibility during migration)
     pub fn get_module_by_name_mut(&mut self, name: &str) -> Option<&mut ModuleDepGraph> {
         if let Some(&id) = self.module_names.get(name) {
             self.modules.get_mut(&id)
@@ -418,16 +412,18 @@ impl CriboGraph {
     }
 
     /// Get modules that access __all__ attribute
-    pub fn get_modules_accessing_all(&self) -> &FxIndexMap<String, FxIndexSet<String>> {
+    pub fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
         &self.modules_accessing_all
     }
 
     /// Add a module that accesses __all__ of another module
-    pub fn add_module_accessing_all(&mut self, base_module: String, accessing_module: String) {
+    pub fn add_module_accessing_all(
+        &mut self,
+        accessing_module_id: ModuleId,
+        accessed_module_id: ModuleId,
+    ) {
         self.modules_accessing_all
-            .entry(base_module)
-            .or_default()
-            .insert(accessing_module);
+            .insert((accessing_module_id, accessed_module_id));
     }
 
     /// Add a dependency between modules (from depends on to)
@@ -480,78 +476,20 @@ impl CriboGraph {
     /// This is more efficient than Kosaraju for our use case and provides components in
     /// reverse topological order
     pub fn find_strongly_connected_components(&self) -> Vec<Vec<ModuleId>> {
-        let mut state = TarjanState {
-            index_counter: 0,
-            stack: Vec::new(),
-            indices: FxIndexMap::default(),
-            lowlinks: FxIndexMap::default(),
-            on_stack: FxIndexMap::default(),
-            components: Vec::new(),
-        };
+        // Use petgraph's implementation for correctness and maintainability
+        let components = tarjan_scc(&self.graph);
 
-        for node_index in self.graph.node_indices() {
-            if !state.indices.contains_key(&node_index) {
-                self.tarjan_strongconnect(node_index, &mut state);
-            }
-        }
-
-        // Convert NodeIndex components to ModuleId components
-        state
-            .components
+        // Convert NodeIndex components to ModuleId components and keep only real cycles
+        // Include single-node components if there is a self-loop edge
+        components
             .into_iter()
+            .filter(|component| {
+                component.len() > 1
+                    || (component.len() == 1
+                        && self.graph.contains_edge(component[0], component[0]))
+            })
             .map(|component| component.into_iter().map(|idx| self.graph[idx]).collect())
             .collect()
-    }
-
-    /// Helper for Tarjan's algorithm
-    fn tarjan_strongconnect(&self, v: NodeIndex, state: &mut TarjanState) {
-        state.indices.insert(v, state.index_counter);
-        state.lowlinks.insert(v, state.index_counter);
-        state.index_counter += 1;
-        state.stack.push(v);
-        state.on_stack.insert(v, true);
-
-        // Note: Our edges go from dependency to dependent, so we traverse outgoing edges
-        for w in self
-            .graph
-            .neighbors_directed(v, petgraph::Direction::Outgoing)
-        {
-            if !state.indices.contains_key(&w) {
-                self.tarjan_strongconnect(w, state);
-                let w_lowlink = *state.lowlinks.get(&w).expect("w should exist in lowlinks");
-                let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
-                state.lowlinks.insert(v, v_lowlink.min(w_lowlink));
-            } else if *state.on_stack.get(&w).unwrap_or(&false) {
-                let w_index = *state.indices.get(&w).expect("w should exist in indices");
-                let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
-                state.lowlinks.insert(v, v_lowlink.min(w_index));
-            }
-        }
-
-        if state.lowlinks[&v] == state.indices[&v] {
-            let component = self.pop_scc_component(&mut state.stack, &mut state.on_stack, v);
-            if component.len() > 1 {
-                state.components.push(component);
-            }
-        }
-    }
-
-    /// Pop a strongly connected component from the stack
-    fn pop_scc_component(
-        &self,
-        stack: &mut Vec<NodeIndex>,
-        on_stack: &mut FxIndexMap<NodeIndex, bool>,
-        v: NodeIndex,
-    ) -> Vec<NodeIndex> {
-        let mut component = Vec::new();
-        while let Some(w) = stack.pop() {
-            on_stack.insert(w, false);
-            component.push(w);
-            if w == v {
-                break;
-            }
-        }
-        component
     }
 }
 
@@ -570,8 +508,16 @@ mod tests {
     fn test_basic_module_graph() {
         let mut graph = CriboGraph::new();
 
-        let utils_id = graph.add_module("utils".to_string(), &PathBuf::from("utils.py"));
-        let main_id = graph.add_module("main".to_string(), &PathBuf::from("main.py"));
+        let utils_id = graph.add_module(
+            ModuleId::new(0),
+            "utils".to_string(),
+            &PathBuf::from("utils.py"),
+        );
+        let main_id = graph.add_module(
+            ModuleId::new(1),
+            "main".to_string(),
+            &PathBuf::from("main.py"),
+        );
 
         graph.add_module_dependency(main_id, utils_id);
 
@@ -587,9 +533,21 @@ mod tests {
         let mut graph = CriboGraph::new();
 
         // Create a three-module circular dependency: A -> B -> C -> A
-        let module_a = graph.add_module("module_a".to_string(), &PathBuf::from("module_a.py"));
-        let module_b = graph.add_module("module_b".to_string(), &PathBuf::from("module_b.py"));
-        let module_c = graph.add_module("module_c".to_string(), &PathBuf::from("module_c.py"));
+        let module_a = graph.add_module(
+            ModuleId::new(0),
+            "module_a".to_string(),
+            &PathBuf::from("module_a.py"),
+        );
+        let module_b = graph.add_module(
+            ModuleId::new(1),
+            "module_b".to_string(),
+            &PathBuf::from("module_b.py"),
+        );
+        let module_c = graph.add_module(
+            ModuleId::new(2),
+            "module_c".to_string(),
+            &PathBuf::from("module_c.py"),
+        );
 
         graph.add_module_dependency(module_a, module_b);
         graph.add_module_dependency(module_b, module_c);
@@ -613,10 +571,16 @@ mod tests {
         let mut graph = CriboGraph::new();
 
         // Create a circular dependency with "constants" in the name
-        let constants_a =
-            graph.add_module("constants_a".to_string(), &PathBuf::from("constants_a.py"));
-        let constants_b =
-            graph.add_module("constants_b".to_string(), &PathBuf::from("constants_b.py"));
+        let constants_a = graph.add_module(
+            ModuleId::new(0),
+            "constants_a".to_string(),
+            &PathBuf::from("constants_a.py"),
+        );
+        let constants_b = graph.add_module(
+            ModuleId::new(1),
+            "constants_b".to_string(),
+            &PathBuf::from("constants_b.py"),
+        );
 
         // Add some constant assignments to make these actual constant modules
         if let Some(module_a) = graph.modules.get_mut(&constants_a) {
@@ -687,7 +651,7 @@ mod tests {
 
         // Add a module with a canonical path
         let path = PathBuf::from("src/utils.py");
-        let utils_id = graph.add_module("utils".to_string(), &path);
+        let utils_id = graph.add_module(ModuleId::new(0), "utils".to_string(), &path);
 
         // Add some items to the utils module
         let utils_module = graph
@@ -714,7 +678,7 @@ mod tests {
 
         // Add the same file with a different import name
         // This should return the SAME ModuleId due to file-based deduplication
-        let alt_utils_id = graph.add_module("src.utils".to_string(), &path);
+        let alt_utils_id = graph.add_module(ModuleId::new(1), "src.utils".to_string(), &path);
 
         // Verify that both names map to the same ModuleId (file-based deduplication)
         assert_eq!(utils_id, alt_utils_id, "Same file should get same ModuleId");
