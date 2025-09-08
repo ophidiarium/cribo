@@ -131,21 +131,31 @@ impl ModuleRegistry {
             "Entry module must be registered first"
         );
 
-        let is_package = path
+        // Determine whether this path represents a package and its kind,
+        // including support for PEP 420 namespace packages.
+        let (is_package, kind) = if path.is_dir() {
+            // A directory without __init__.py is a namespace package
+            (
+                true,
+                crate::python::module_path::ModuleKind::NamespacePackageDir,
+            )
+        } else if path
             .file_name()
             .and_then(|n| n.to_str())
-            .is_some_and(crate::python::module_path::is_init_file_name);
-
-        let kind = if is_package {
-            crate::python::module_path::ModuleKind::PackageInit
+            .is_some_and(crate::python::module_path::is_init_file_name)
+        {
+            // A file named __init__.py (or equivalent) is a regular package init
+            (true, crate::python::module_path::ModuleKind::PackageInit)
         } else if path
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n == crate::python::constants::MAIN_FILE)
         {
-            crate::python::module_path::ModuleKind::Main
+            // A file named __main__.py
+            (false, crate::python::module_path::ModuleKind::Main)
         } else {
-            crate::python::module_path::ModuleKind::RegularModule
+            // Any other file is a regular module
+            (false, crate::python::module_path::ModuleKind::RegularModule)
         };
 
         let metadata = ModuleMetadata {
