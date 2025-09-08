@@ -605,7 +605,7 @@ pub fn transform_module_to_init_function<'a>(
                 && target.id.as_str() == "__init__"
                 && let Expr::Call(call) = assign.value.as_ref()
                 && let Expr::Name(func_name) = call.func.as_ref()
-                && func_name.id.starts_with("_cribo_init_")
+                && crate::code_generator::module_registry::is_init_function(func_name.id.as_str())
             {
                 debug!(
                     "Skipping entry package __init__ re-initialization inside wrapper init to \
@@ -671,7 +671,9 @@ pub fn transform_module_to_init_function<'a>(
                     // Check if the value is a call to an init function
                     if let Expr::Call(call) = assign.value.as_ref()
                         && let Expr::Name(name) = call.func.as_ref()
-                        && name.id.starts_with("_cribo_init_")
+                        && crate::code_generator::module_registry::is_init_function(
+                            name.id.as_str(),
+                        )
                     {
                         // Check if the assignment target is also used as an argument
                         if assign.targets.len() == 1
