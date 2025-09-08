@@ -134,6 +134,12 @@ impl ModuleRegistry {
         // including support for PEP 420 namespace packages.
         let (is_package, kind) = if path.is_dir() {
             // A directory without __init__.py is a namespace package
+            debug_assert!(
+                !crate::python::module_path::is_package_dir_with_init(path),
+                "register_module(name, path) should receive the __init__.py file for regular \
+                 packages; got a directory: {}",
+                path.display()
+            );
             (
                 true,
                 crate::python::module_path::ModuleKind::NamespacePackageDir,
