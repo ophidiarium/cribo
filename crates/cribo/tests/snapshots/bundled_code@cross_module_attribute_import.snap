@@ -28,38 +28,90 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
-__version__ = "1.0.0"
-def get_full_info():
-    """Combine version and processed data."""
-    return f"{mypackage.utils.get_version_info()} - {process_data()}"
-def process_data():
-    """Process some data."""
-    return "Processed Data"
-"""Package init that creates circular dependency."""
-"""Core module that creates circular dependency."""
-"""Version information module."""
-mypackage.get_full_info = get_full_info
-mypackage_core = _cribo.types.SimpleNamespace(__name__='mypackage.core')
-mypackage.core = mypackage_core
 mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.__version__ = mypackage___version__
-@_cribo.functools.cache
-def _cribo_init___cribo_35f1d1_mypackage_utils():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypackage.utils'
+"""Version information module."""
+__version__ = "1.0.0"
+mypackage___version__.__version__ = __version__
+mypackage_core = _cribo.types.SimpleNamespace(__name__='mypackage.core', __initializing__=False, __initialized__=False)
+mypackage.core = mypackage_core
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False)
+mypackage.utils = mypackage_utils
+def _cribo_init___cribo_370515_mypackage(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypackage_core, mypackage_utils
+    """Package init that creates circular dependency."""
+    mypackage_utils = _cribo_init___cribo_35f1d1_mypackage_utils(mypackage_utils)
+    get_version_info = mypackage_utils.get_version_info
+    self.get_version_info = get_version_info
+    self.get_version_info = get_version_info
+    mypackage_core = _cribo_init___cribo_e49d78_mypackage_core(mypackage_core)
+    process_data = mypackage_core.process_data
+    self.process_data = process_data
+    self.process_data = process_data
+
+    def get_full_info():
+        """Combine version and processed data."""
+        return f"{get_version_info()} - {process_data()}"
+    self.get_full_info = get_full_info
+    self.__version__ = mypackage___version__
+    self.__version__ = mypackage___version__
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage.__init__ = _cribo_init___cribo_370515_mypackage
+def _cribo_init___cribo_e49d78_mypackage_core(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Core module that creates circular dependency."""
+    __cribo_init_result = _cribo_init___cribo_370515_mypackage(mypackage)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(mypackage, attr, getattr(__cribo_init_result, attr))
+
+    def process_data():
+        """Process some data."""
+        return "Processed Data"
+    self.process_data = process_data
+    package_ref = mypackage
+    self.package_ref = package_ref
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage_core.__init__ = _cribo_init___cribo_e49d78_mypackage_core
+def _cribo_init___cribo_35f1d1_mypackage_utils(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     """Utils module that imports from __version__ module and uses it at module level."""
-    _cribo_module.__version__ = __version__
+    __version__ = mypackage___version__.__version__
+    mypackage_utils.__version__ = __version__
     VERSION_PREFIX = f"v{__version__}"
-    _cribo_module.VERSION_PREFIX = VERSION_PREFIX
+    self.VERSION_PREFIX = VERSION_PREFIX
 
     def get_version_info():
         """Return version information using the imported __version__ variable."""
-        return _cribo_module.VERSION_PREFIX
-    _cribo_module.get_version_info = get_version_info
-    return _cribo_module
-mypackage.utils = _cribo_init___cribo_35f1d1_mypackage_utils()
-mypackage_core.process_data = process_data
-mypackage___version__.__version__ = __version__
+        return VERSION_PREFIX
+    self.get_version_info = get_version_info
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypackage_utils.__init__ = _cribo_init___cribo_35f1d1_mypackage_utils
 """Test cross-module attribute import with circular dependencies that require init functions."""
+__cribo_init_result = _cribo_init___cribo_370515_mypackage(mypackage)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypackage, attr, getattr(__cribo_init_result, attr))
 print(mypackage.get_full_info())
+core = mypackage.core
+utils = mypackage.utils

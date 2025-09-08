@@ -28,13 +28,14 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+myhelper = _cribo.types.SimpleNamespace(__name__='myhelper')
+"""Helper module to test import aliasing that shadows stdlib names."""
 def process_data(data):
     """Process data in a custom way."""
     if isinstance(data, dict):
         return {"processed": True, "original": data}
     return {"processed": True, "original": str(data)}
-"""Helper module to test import aliasing that shadows stdlib names."""
-myhelper = _cribo.types.SimpleNamespace(__name__='myhelper', process_data=process_data)
+myhelper.process_data = process_data
 """Test fixture for stdlib wildcard imports and local shadowing."""
 from collections import *
 counter = Counter(["a", "b", "c", "a", "b", "b"])

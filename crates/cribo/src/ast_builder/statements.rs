@@ -7,7 +7,7 @@
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, Identifier, Parameters,
     Stmt, StmtAssign, StmtExpr, StmtFunctionDef, StmtGlobal, StmtImport, StmtImportFrom, StmtPass,
-    StmtReturn, StmtTry,
+    StmtRaise, StmtReturn, StmtTry,
 };
 use ruff_text_size::TextRange;
 
@@ -81,6 +81,25 @@ pub fn assign_attribute(obj_name: &str, attr_name: &str, value: Expr) -> Stmt {
         )],
         value,
     )
+}
+
+/// Creates an assignment to a possibly dotted attribute path.
+///
+/// Builds a nested attribute target for arbitrary dotted parents, e.g.
+/// `pkg.subpkg.module = value` or `obj.attr = value`.
+pub fn assign_attribute_path(path: &str, value: Expr) -> Stmt {
+    if let Some((parent, child)) = path.rsplit_once('.') {
+        let mut parts = parent.split('.');
+        let first = parts.next().expect("non-empty parent path");
+        let mut obj = expressions::name(first, ExprContext::Load);
+        for part in parts {
+            obj = expressions::attribute(obj, part, ExprContext::Load);
+        }
+        let target = expressions::attribute(obj, child, ExprContext::Store);
+        assign(vec![target], value)
+    } else {
+        simple_assign(path, value)
+    }
 }
 
 /// Creates an expression statement node.
@@ -206,6 +225,34 @@ pub fn pass() -> Stmt {
 pub fn return_stmt(value: Option<Expr>) -> Stmt {
     Stmt::Return(StmtReturn {
         value: value.map(Box::new),
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a raise statement node.
+///
+/// # Arguments
+/// * `exc` - The exception to raise (None for bare `raise`)
+/// * `cause` - The exception cause for `raise ... from ...` (None for no cause)
+///
+/// # Example
+/// ```rust
+/// // Creates: `raise ImportError("module not found")`
+/// let exc = expressions::call(
+///     expressions::name("ImportError", ExprContext::Load),
+///     vec![expressions::string_literal("module not found")],
+///     vec![],
+/// );
+/// let stmt = raise(Some(exc), None);
+///
+/// // Creates: `raise`
+/// let stmt = raise(None, None);
+/// ```
+pub fn raise(exc: Option<Expr>, cause: Option<Expr>) -> Stmt {
+    Stmt::Raise(StmtRaise {
+        exc: exc.map(Box::new),
+        cause: cause.map(Box::new),
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     })

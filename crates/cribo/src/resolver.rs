@@ -1,18 +1,159 @@
 use std::{
     cell::RefCell,
     ffi::OsStr,
+    fmt,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 use anyhow::{Result, anyhow};
 use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use pep508_rs::PackageName;
 use ruff_python_stdlib::sys;
 
-use crate::config::Config;
+use crate::{config::Config, types::FxIndexMap};
+
+/// Unique identifier for a module in the dependency graph
+/// The entry module ALWAYS has ID 0 - this is a fundamental invariant
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModuleId(pub u32);
+
+impl ModuleId {
+    /// The entry point - always ID 0
+    /// This is where bundling starts, the origin of our module universe
+    pub const ENTRY: ModuleId = ModuleId(0);
+
+    #[inline]
+    pub const fn new(id: u32) -> Self {
+        Self(id)
+    }
+
+    #[inline]
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// Check if this is the entry module
+    /// No more complex path detection or boolean flags!
+    #[inline]
+    pub const fn is_entry(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Format this `ModuleId` with the resolver to show the module name and path
+    /// This is useful for debugging and error messages
+    pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
+        if let Some(name) = resolver.get_module_name(*self) {
+            if let Some(path) = resolver.get_module_path(*self) {
+                format!("ModuleId({})='{}' at '{}'", self.0, name, path.display())
+            } else {
+                format!("ModuleId({})='{}'", self.0, name)
+            }
+        } else {
+            format!("ModuleId({})", self.0)
+        }
+    }
+}
+
+impl fmt::Display for ModuleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "module#{}", self.0)
+    }
+}
+
+impl From<u32> for ModuleId {
+    fn from(value: u32) -> Self {
+        ModuleId(value)
+    }
+}
+
+impl From<ModuleId> for u32 {
+    fn from(value: ModuleId) -> u32 {
+        value.0
+    }
+}
+
+/// Module metadata tracked by resolver
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Part of public API, will be used in future
+pub struct ModuleMetadata {
+    pub id: ModuleId,
+    pub name: String,
+    pub canonical_path: PathBuf,
+    pub is_package: bool,
+}
+
+/// Internal module registry for ID allocation
+#[derive(Debug)]
+struct ModuleRegistry {
+    next_id: u32,
+    by_id: FxIndexMap<ModuleId, ModuleMetadata>,
+    by_name: FxIndexMap<String, ModuleId>,
+    by_path: FxIndexMap<PathBuf, ModuleId>,
+}
+
+impl ModuleRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: 0, // Start at 0 - entry point gets this
+            by_id: FxIndexMap::default(),
+            by_name: FxIndexMap::default(),
+            by_path: FxIndexMap::default(),
+        }
+    }
+
+    fn register(&mut self, name: String, path: &Path) -> ModuleId {
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+
+        // Check for duplicates
+        if let Some(&id) = self.by_name.get(&name)
+            && self.by_id[&id].canonical_path == canonical_path
+        {
+            return id;
+        }
+
+        if let Some(&id) = self.by_path.get(&canonical_path) {
+            self.by_name.insert(name, id);
+            return id;
+        }
+
+        // Allocate ID - entry gets 0, others get sequential IDs
+        let id = ModuleId::new(self.next_id);
+        self.next_id += 1;
+
+        // The beauty: first registered module (entry) automatically gets ID 0!
+        debug_assert!(
+            id != ModuleId::ENTRY || self.by_id.is_empty(),
+            "Entry module must be registered first"
+        );
+
+        let is_package = path.file_name().is_some_and(|n| n == "__init__.py");
+
+        let metadata = ModuleMetadata {
+            id,
+            name: name.clone(),
+            canonical_path: canonical_path.clone(),
+            is_package,
+        };
+
+        self.by_id.insert(id, metadata);
+        self.by_name.insert(name, id);
+        self.by_path.insert(canonical_path, id);
+
+        id
+    }
+
+    fn get_metadata(&self, id: ModuleId) -> Option<&ModuleMetadata> {
+        self.by_id.get(&id)
+    }
+
+    fn get_id_by_name(&self, name: &str) -> Option<&ModuleId> {
+        self.by_name.get(name)
+    }
+}
 
 /// Resolve a relative import based on module name (standalone utility)
 ///
@@ -115,6 +256,8 @@ impl ImportModuleDescriptor {
 #[derive(Debug)]
 pub struct ModuleResolver {
     config: Config,
+    /// Module registry for ID allocation - the single source of truth for module identity
+    registry: Mutex<ModuleRegistry>,
     /// Cache of resolved module paths
     module_cache: RefCell<IndexMap<String, Option<PathBuf>>>,
     /// Cache of module classifications
@@ -157,6 +300,7 @@ impl ModuleResolver {
     ) -> Self {
         Self {
             config,
+            registry: Mutex::new(ModuleRegistry::new()),
             module_cache: RefCell::new(IndexMap::new()),
             classification_cache: RefCell::new(IndexMap::new()),
             virtualenv_packages_cache: RefCell::new(None),
@@ -174,6 +318,38 @@ impl ModuleResolver {
             self.entry_dir = Some(parent.to_path_buf());
             debug!("Set entry directory to: {}", parent.display());
         }
+    }
+
+    /// Get module name by ID
+    pub fn get_module_name(&self, id: ModuleId) -> Option<String> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).map(|m| m.name.clone())
+    }
+
+    /// Get module path by ID
+    pub fn get_module_path(&self, id: ModuleId) -> Option<PathBuf> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).map(|m| m.canonical_path.clone())
+    }
+
+    /// Check if the entry module is a package
+    pub fn is_entry_package(&self) -> bool {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry
+            .get_metadata(ModuleId::ENTRY)
+            .is_some_and(|m| m.is_package)
+    }
+
+    /// Get module metadata by ID
+    pub fn get_module(&self, id: ModuleId) -> Option<ModuleMetadata> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).cloned()
+    }
+
+    /// Get module ID by name (reverse lookup)
+    pub fn get_module_id_by_name(&self, name: &str) -> Option<ModuleId> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_id_by_name(name).copied()
     }
 
     /// Get all directories to search for modules
@@ -588,6 +764,44 @@ impl ModuleResolver {
                             .insert(module_name.to_string(), import_type.clone());
                         return import_type;
                     } else {
+                        // Check if the parent module is a package
+                        // If parent is NOT a package (just a .py file), then submodules can't exist
+                        // This preserves Python's shadowing behavior
+
+                        // First, try to resolve the parent module to get its path
+                        let parent_descriptor =
+                            ImportModuleDescriptor::from_module_name(parent_module);
+                        let mut parent_is_package = false;
+                        let mut parent_found = false;
+
+                        for search_dir in &search_dirs {
+                            if let Some(parent_path) =
+                                self.resolve_in_directory(search_dir, &parent_descriptor)
+                            {
+                                parent_found = true;
+                                // Check if it's a package (__init__.py) or a module (.py file)
+                                parent_is_package =
+                                    parent_path.file_name().is_some_and(|n| n == "__init__.py");
+                                break;
+                            }
+                        }
+
+                        if parent_found && !parent_is_package {
+                            // Parent is a module file, not a package - submodules can't exist
+                            // This mimics Python's behavior where a .py file shadows a package
+                            debug!(
+                                "Module '{module_name}' cannot exist - parent '{parent_module}' \
+                                 is a module file, not a package (shadowing behavior)"
+                            );
+                            // Return FirstParty to trigger an error during bundling
+                            // (the module won't be found and will cause an appropriate error)
+                            let import_type = ImportType::FirstParty;
+                            self.classification_cache
+                                .borrow_mut()
+                                .insert(module_name.to_string(), import_type.clone());
+                            return import_type;
+                        }
+
                         // Can't find source file, treat as third-party
                         // This could be a C extension or dynamically available module
                         debug!(
@@ -933,12 +1147,14 @@ impl ModuleResolver {
             current_parts.pop();
         }
 
-        // If name is provided, split it and append
-        if let Some(name) = name
-            && !name.is_empty()
-        {
-            let name_parts: Vec<&str> = name.split('.').collect();
-            current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
+        // If name is provided, split it and append. Trim any leading dots to avoid
+        // accidental empty components (e.g., "._types").
+        if let Some(raw_name) = name {
+            let cleaned = raw_name.trim_start_matches('.');
+            if !cleaned.is_empty() {
+                let name_parts: Vec<&str> = cleaned.split('.').filter(|s| !s.is_empty()).collect();
+                current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
+            }
         }
 
         if current_parts.is_empty() {
@@ -966,7 +1182,8 @@ impl ModuleResolver {
         let result = resolve_relative_import_from_name(level, name, current_module_name);
 
         debug!(
-            "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' → '{result}'"
+            "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' \
+             → '{result}'"
         );
 
         result
@@ -1016,6 +1233,26 @@ impl ModuleResolver {
                     .collect(),
             )
         }
+    }
+
+    /// Register a module - entry gets 0, others get sequential IDs
+    pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
+        let mut registry = self.registry.lock().expect("Module registry lock poisoned");
+
+        let id = registry.register(name.clone(), path);
+
+        if id.is_entry() {
+            info!("Registered ENTRY module '{name}' at the origin (ID 0)");
+        } else {
+            debug!(
+                "Registered module '{}' with ID {} (package: {})",
+                name,
+                id.as_u32(),
+                registry.get_metadata(id).is_some_and(|m| m.is_package)
+            );
+        }
+
+        id
     }
 }
 

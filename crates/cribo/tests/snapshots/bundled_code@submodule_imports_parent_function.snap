@@ -28,29 +28,41 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg = _cribo.types.SimpleNamespace(__name__='pkg')
+pkg_submodule = _cribo.types.SimpleNamespace(__name__='pkg.submodule', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_dca395_pkg_submodule(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Submodule that becomes a wrapper module due to module-level import from parent."""
+    get_base = pkg.get_base
+    pkg_submodule.get_base = get_base
+    computed_value = f"computed: {get_base()}"
+    self.computed_value = computed_value
+
+    def process():
+        return computed_value
+    self.process = process
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg_submodule.__init__ = _cribo_init___cribo_dca395_pkg_submodule
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg.submodule = pkg_submodule
+"""Package __init__ that gets inlined (not wrapped)."""
 base_value = "base"
 def get_base():
     return base_value
 def get_result():
+    global pkg_submodule
+    pkg_submodule = pkg_submodule.__init__(pkg_submodule)
+    globals()['pkg_submodule'] = _cribo_init___cribo_dca395_pkg_submodule(globals()['pkg_submodule'])
+    process = pkg.submodule.process
     return pkg.submodule.process()
-"""Package __init__ that gets inlined (not wrapped)."""
 pkg.base_value = base_value
 pkg.get_base = get_base
 pkg.get_result = get_result
-@_cribo.functools.cache
-def _cribo_init___cribo_dca395_pkg_submodule():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pkg.submodule'
-    """Submodule that becomes a wrapper module due to module-level import from parent."""
-    _cribo_module.get_base = get_base
-    computed_value = f"computed: {get_base()}"
-    _cribo_module.computed_value = computed_value
-
-    def process():
-        return _cribo_module.computed_value
-    _cribo_module.process = process
-    return _cribo_module
-pkg.submodule = _cribo_init___cribo_dca395_pkg_submodule()
 """Test where submodule imports function from parent package.\n\nThis test works in Python but fails when bundled because:\n1. pkg.submodule imports get_base from parent at module level\n2. pkg.submodule uses the imported function at module level\n3. The bundler fails to properly initialize pkg.submodule\n4. When get_result() tries to access pkg.submodule.process(), it fails\n"""
 print(pkg.get_result())
+submodule = pkg.submodule

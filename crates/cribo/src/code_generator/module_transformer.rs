@@ -3,7 +3,8 @@
 //! This module handles the complex transformation of Python module ASTs into
 //! initialization functions that can be called to create module objects.
 
-use std::path::{Path, PathBuf};
+// Constant for the self parameter name used in init functions
+const SELF_PARAM: &str = "self";
 
 use log::debug;
 #[allow(unused_imports)] // These imports are used in pattern matching
@@ -19,16 +20,15 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::dependency_analyzer::DependencyAnalyzer,
     ast_builder,
     code_generator::{
         bundler::Bundler,
-        context::{ModuleTransformContext, ProcessGlobalsParams, SemanticContext},
+        context::ModuleTransformContext,
         expression_handlers,
         globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{self, MODULE_VAR, sanitize_module_name_for_identifier},
+        module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -38,13 +38,73 @@ pub fn transform_module_to_init_function<'a>(
     bundler: &'a Bundler<'a>,
     ctx: &ModuleTransformContext,
     mut ast: ModModule,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> Stmt {
-    let init_func_name = &bundler.init_functions[ctx.synthetic_name];
+    let module_id = bundler
+        .get_module_id(ctx.module_name)
+        .expect("Module ID must exist for module being transformed");
+    let init_func_name = bundler
+        .module_init_functions
+        .get(&module_id)
+        .expect("Init function must exist for wrapper module");
     let mut body = Vec::new();
 
-    // Create module object (returns multiple statements)
-    body.extend(create_module_object_stmt(ctx.module_name, ctx.module_path));
+    // Get the global module variable name
+    let module_var_name = sanitize_module_name_for_identifier(ctx.module_name);
+
+    // Check if already fully initialized
+    // if getattr(self, "__initialized__", False):
+    //     return self
+    let check_initialized = ast_builder::statements::if_stmt(
+        ast_builder::expressions::call(
+            ast_builder::expressions::name("getattr", ExprContext::Load),
+            vec![
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+                ast_builder::expressions::string_literal("__initialized__"),
+                ast_builder::expressions::bool_literal(false),
+            ],
+            vec![],
+        ),
+        vec![ast_builder::statements::return_stmt(Some(
+            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+        ))],
+        vec![],
+    );
+    body.push(check_initialized);
+
+    // Check if currently initializing (circular dependency)
+    // if getattr(self, "__initializing__", False):
+    //     return self  # Return partial module in partially-initialized state
+    let check_initializing = ast_builder::statements::if_stmt(
+        ast_builder::expressions::call(
+            ast_builder::expressions::name("getattr", ExprContext::Load),
+            vec![
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+                ast_builder::expressions::string_literal("__initializing__"),
+                ast_builder::expressions::bool_literal(false),
+            ],
+            vec![],
+        ),
+        vec![ast_builder::statements::return_stmt(Some(
+            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
+        ))],
+        vec![],
+    );
+    body.push(check_initializing);
+
+    // Mark as initializing at the start of init to emulate Python's partial module semantics
+    body.push(ast_builder::statements::assign_attribute(
+        SELF_PARAM,
+        "__initializing__",
+        ast_builder::expressions::bool_literal(true),
+    ));
+
+    // NOTE: We do NOT call parent init from child modules
+    // In Python, the import machinery ensures parent is initialized before child,
+    // but this happens OUTSIDE the child module's code.
+    // Child modules don't explicitly call parent init - that would create
+    // artificial circular dependencies.
+    // The parent will be initialized by whoever imports the child module.
 
     // Apply globals lifting if needed
     let lifted_names = if let Some(ref global_info) = ctx.global_info {
@@ -65,14 +125,10 @@ pub fn transform_module_to_init_function<'a>(
 
     // First, recursively transform all imports in the AST
     // For wrapper modules, we don't need to defer imports since they run in their own scope
-    let mut wrapper_deferred_imports = Vec::new();
     let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
         bundler,
-        module_name: ctx.module_name,
-        module_path: Some(ctx.module_path),
+        module_id,
         symbol_renames,
-        deferred_imports: &mut wrapper_deferred_imports,
-        is_entry_module: false,        // This is not the entry module
         is_wrapper_init: true,         // This IS a wrapper init function
         global_deferred_imports: None, // No need for global deferred imports in wrapper modules
         python_version: ctx.python_version,
@@ -80,8 +136,10 @@ pub fn transform_module_to_init_function<'a>(
 
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
-    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
-    let mut imports_from_inlined: Vec<(String, String)> = Vec::new();
+    //   Format: (exported_name, value_name, source_module)
+    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if
+    //   present)
+    let mut imports_from_inlined: Vec<(String, String, Option<String>)> = Vec::new();
     let mut inlined_import_bindings = Vec::new();
     // Track wrapper module symbols that need placeholders (symbol_name, value_name)
     let mut wrapper_module_symbols_global_only: Vec<(String, String)> = Vec::new();
@@ -92,6 +150,10 @@ pub fn transform_module_to_init_function<'a>(
     // Track stdlib symbols that need to be added to the module namespace
     // Use a stable set to dedup and preserve insertion order
     let mut stdlib_reexports: FxIndexSet<(String, String)> = FxIndexSet::default();
+
+    // Do not reorder statements in wrapper modules. Some libraries (e.g., httpx)
+    // define constants used by function default arguments; hoisting functions would
+    // break evaluation order of those defaults.
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -151,8 +213,9 @@ pub fn transform_module_to_init_function<'a>(
                                 .map_or(imported_name, ruff_python_ast::Identifier::as_str);
 
                             // Check if this symbol should be re-exported (in __all__ or no __all__)
-                            let should_reexport = if let Some(Some(export_list)) =
-                                bundler.module_exports.get(ctx.module_name)
+                            let should_reexport = if let Some(Some(export_list)) = bundler
+                                .get_module_id(ctx.module_name)
+                                .and_then(|id| bundler.module_exports.get(&id))
                             {
                                 export_list.contains(&local_name.to_string())
                             } else {
@@ -177,7 +240,9 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Check if the module is inlined (NOT wrapper modules)
                 // Only inlined modules have their symbols in global scope
-                let is_inlined = bundler.inlined_modules.contains(module);
+                let is_inlined = bundler
+                    .get_module_id(module)
+                    .is_some_and(|id| bundler.inlined_modules.contains(&id));
 
                 debug!("Checking if resolved module '{module}' is inlined: {is_inlined}");
 
@@ -199,7 +264,8 @@ pub fn transform_module_to_init_function<'a>(
                             // We need to track them separately to create placeholder assignments
                             for (symbol_name, value_name) in wrapper_symbols {
                                 debug!(
-                                    "Collecting wrapper module symbol '{symbol_name}' for special handling"
+                                    "Collecting wrapper module symbol '{symbol_name}' for special \
+                                     handling"
                                 );
                                 wrapper_module_symbols_global_only.push((symbol_name, value_name));
                             }
@@ -222,7 +288,8 @@ pub fn transform_module_to_init_function<'a>(
         // Also handle plain import statements to avoid name collisions
         if let Stmt::Import(import_stmt) = stmt {
             for alias in &import_stmt.names {
-                // Local binding is either `asname` or the top-level package segment (`pkg` in `pkg.sub`)
+                // Local binding is either `asname` or the top-level package segment (`pkg` in
+                // `pkg.sub`)
                 let local_name = alias
                     .asname
                     .as_ref()
@@ -248,18 +315,19 @@ pub fn transform_module_to_init_function<'a>(
         debug!("Namespace objects were created in wrapper module, types import already present");
     }
 
-    // Store deferred imports to add after module body
-    let deferred_imports_to_add = wrapper_deferred_imports.clone();
-
     // Add global declarations for symbols imported from inlined modules
     // This is necessary because the symbols are defined in the global scope
     // but we need to access them inside the init function
     // Also include wrapper module symbols that will be defined later
     if !imports_from_inlined.is_empty() || !wrapper_module_symbols_global_only.is_empty() {
-        // Deduplicate by value name (what's actually in global scope) and sort for deterministic output
+        // Deduplicate by value name (what's actually in global scope) and sort for deterministic
+        // output
+        // Only add symbols from NON-inlined modules to globals (they exist as bare symbols)
+        // Symbols from inlined modules will be accessed through their namespace
         let mut unique_imports: Vec<String> = imports_from_inlined
             .iter()
-            .map(|(_, value_name)| value_name.clone())
+            .filter(|(_, _, source_module)| source_module.is_none())
+            .map(|(_, value_name, _)| value_name.clone())
             .chain(
                 wrapper_module_symbols_global_only
                     .iter()
@@ -281,13 +349,18 @@ pub fn transform_module_to_init_function<'a>(
                             let module_name = tree_shaking_keep
                                 .iter()
                                 .find(|(_, symbols)| symbols.contains(symbol))
-                                .map_or("unknown", |(name, _)| name.as_str());
-                            debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
+                                .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
+                                .unwrap_or_else(|| "unknown".to_string());
+                            debug!(
+                                "Symbol '{symbol}' kept by tree-shaking from module \
+                                 '{module_name}'"
+                            );
                         }
                         true
                     } else {
                         debug!(
-                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global declaration"
+                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global \
+                             declaration"
                         );
                         false
                     }
@@ -311,20 +384,8 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // IMPORTANT: Add import alias assignments FIRST, before processing the module body
-    // This ensures that aliases like 'helper_validate = validate' are available when
-    // the module body code tries to use them (e.g., helper_validate.__name__)
-    for stmt in &deferred_imports_to_add {
-        if let Stmt::Assign(assign) = stmt {
-            // Check if this is a simple name-to-name assignment (import alias)
-            if let [Expr::Name(_)] = assign.targets.as_slice()
-                && let Expr::Name(_) = &*assign.value
-            {
-                // This is an import alias assignment, add it immediately
-                body.push(stmt.clone());
-            }
-        }
-    }
+    // Note: deferred imports functionality has been removed
+    // Import alias assignments were previously added here
 
     // Add placeholder assignments for wrapper module symbols
     // These symbols will be properly assigned later when wrapper modules are initialized,
@@ -345,7 +406,7 @@ pub fn transform_module_to_init_function<'a>(
         // Also add as module attribute so it's visible in vars(__cribo_module)
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                MODULE_VAR,
+                SELF_PARAM,
                 symbol_name,
             ),
         );
@@ -357,7 +418,7 @@ pub fn transform_module_to_init_function<'a>(
     // (e.g., the setattr pattern used by httpx and similar libraries)
 
     // Dedup and sort wildcard imports for deterministic output
-    let mut wildcard_attrs: Vec<(String, String)> = imports_from_inlined
+    let mut wildcard_attrs: Vec<(String, String, Option<String>)> = imports_from_inlined
         .iter()
         .cloned()
         .collect::<FxIndexSet<_>>()
@@ -365,13 +426,25 @@ pub fn transform_module_to_init_function<'a>(
         .collect();
     wildcard_attrs.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by exported name
 
-    for (exported_name, value_name) in wildcard_attrs {
+    for (exported_name, value_name, source_module) in wildcard_attrs {
         if bundler.should_export_symbol(&exported_name, ctx.module_name) {
+            // If the symbol comes from an inlined module, access it through the module's namespace
+            let value_expr = if let Some(ref module) = source_module {
+                // Access through the inlined module's namespace
+                let sanitized =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        module,
+                    );
+                format!("{sanitized}.{value_name}")
+            } else {
+                value_name.clone()
+            };
+
             body.push(
                 crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                    MODULE_VAR,
+                    SELF_PARAM,
                     &exported_name,
-                    &value_name,
+                    &value_expr,
                 ),
             );
         }
@@ -512,7 +585,7 @@ pub fn transform_module_to_init_function<'a>(
                 let mut exported_vars = FxIndexSet::default();
                 for var in all_vars {
                     if bundler.should_export_symbol(var, ctx.module_name) {
-                        exported_vars.insert(var.to_string());
+                        exported_vars.insert(var.clone());
                     }
                 }
                 exported_vars
@@ -522,8 +595,31 @@ pub fn transform_module_to_init_function<'a>(
         };
 
     // Process the body with a new recursive approach
-    let processed_body =
+    let processed_body_raw =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
+
+    // Filter out accidental attempts to (re)initialize the entry package (__init__) from
+    // within submodule init functions, which can create circular initialization.
+    let processed_body: Vec<Stmt> = processed_body_raw
+        .into_iter()
+        .filter(|stmt| {
+            if let Stmt::Assign(assign) = stmt
+                && assign.targets.len() == 1
+                && let Expr::Name(target) = &assign.targets[0]
+                && target.id.as_str() == "__init__"
+                && let Expr::Call(call) = assign.value.as_ref()
+                && let Expr::Name(func_name) = call.func.as_ref()
+                && crate::code_generator::module_registry::is_init_function(func_name.id.as_str())
+            {
+                debug!(
+                    "Skipping entry package __init__ re-initialization inside wrapper init to \
+                     avoid circular init"
+                );
+                return false;
+            }
+            true
+        })
+        .collect();
 
     debug!(
         "Processing init function for module '{}', inlined_import_bindings: {:?}",
@@ -547,6 +643,73 @@ pub fn transform_module_to_init_function<'a>(
 
     // Track which lifted globals we've already initialized to avoid duplicates
     let mut initialized_lifted_globals = FxIndexSet::default();
+
+    // First pass: collect all wrapper module namespace variables that need global declarations
+    // Use a visitor to properly traverse the AST
+    let wrapper_globals_needed = {
+        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
+
+        struct WrapperGlobalCollector {
+            globals_needed: FxIndexSet<String>,
+        }
+
+        impl WrapperGlobalCollector {
+            fn new() -> Self {
+                Self {
+                    globals_needed: FxIndexSet::default(),
+                }
+            }
+
+            fn collect(processed_body: &[Stmt]) -> FxIndexSet<String> {
+                let mut collector = Self::new();
+                for stmt in processed_body {
+                    collector.visit_stmt(stmt);
+                }
+                collector.globals_needed
+            }
+        }
+
+        impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                if let Stmt::Assign(assign) = stmt {
+                    // Check if the value is a call to an init function
+                    if let Expr::Call(call) = assign.value.as_ref()
+                        && let Expr::Name(name) = call.func.as_ref()
+                        && crate::code_generator::module_registry::is_init_function(
+                            name.id.as_str(),
+                        )
+                    {
+                        // Check if the assignment target is also used as an argument
+                        if assign.targets.len() == 1
+                            && let Expr::Name(target) = &assign.targets[0]
+                        {
+                            // Check if the target is also passed as an argument
+                            let needs_global = call.arguments.args.iter().any(|arg| {
+                                matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
+                            });
+                            if needs_global {
+                                self.globals_needed.insert(target.id.to_string());
+                            }
+                        }
+                    }
+                }
+                // Continue traversing the statement tree
+                source_order::walk_stmt(self, stmt);
+            }
+        }
+
+        WrapperGlobalCollector::collect(&processed_body)
+    };
+
+    // Add global declarations for wrapper module namespace variables at the beginning
+    if !wrapper_globals_needed.is_empty() {
+        let mut globals: Vec<&str> = wrapper_globals_needed
+            .iter()
+            .map(std::string::String::as_str)
+            .collect();
+        globals.sort_unstable();
+        body.push(ast_builder::statements::global(globals));
+    }
 
     // Process each statement from the transformed module body
     for (idx, stmt) in processed_body.into_iter().enumerate() {
@@ -621,6 +784,7 @@ pub fn transform_module_to_init_function<'a>(
                         &global_info.module_level_vars,
                         &global_info.global_declarations,
                         lifted_names.as_ref(),
+                        SELF_PARAM,
                     );
                 }
 
@@ -676,9 +840,11 @@ pub fn transform_module_to_init_function<'a>(
                     transform_expr_for_builtin_shadowing(&mut assign_clone.value, &builtin_locals);
 
                     // Also transform module-level variable references
+                    // Inside the init function, use "self" to refer to the module
                     transform_expr_for_module_vars(
                         &mut assign_clone.value,
                         &module_level_vars,
+                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
                         ctx.python_version,
                     );
 
@@ -705,7 +871,7 @@ pub fn transform_module_to_init_function<'a>(
                         // Keep the module attribute consistent with the current value
                         body.push(
                             crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                                MODULE_VAR,
+                                SELF_PARAM,
                                 &name,
                                 lifted_name,
                             ),
@@ -715,7 +881,8 @@ pub fn transform_module_to_init_function<'a>(
                             debug!("Initialized lifted global '{lifted_name}' from '{name}'");
                         } else {
                             debug!(
-                                "Refreshed lifted global '{lifted_name}' after reassignment of '{name}'"
+                                "Refreshed lifted global '{lifted_name}' after reassignment of \
+                                 '{name}'"
                             );
                         }
                         lifted_var_handled = true;
@@ -728,7 +895,8 @@ pub fn transform_module_to_init_function<'a>(
                         expression_handlers::extract_simple_assign_target(assign)
                     {
                         debug!(
-                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
+                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: \
+                             {:?})",
                             name, ctx.module_name, inlined_import_bindings
                         );
 
@@ -737,7 +905,8 @@ pub fn transform_module_to_init_function<'a>(
                             // Module attributes for imports are now handled by import_transformer
                             // to ensure correct value assignment (original_name vs local_name)
                             debug!(
-                                "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
+                                "Skipping module attribute for imported symbol '{name}' - handled \
+                                 by import_transformer"
                             );
                         } else if vars_used_by_exported_functions.contains(&name) {
                             // Check if this variable is used by exported functions
@@ -749,7 +918,7 @@ pub fn transform_module_to_init_function<'a>(
                             if should_include {
                                 debug!("Exporting '{name}' as it's used by exported functions");
                                 body.push(crate::code_generator::module_registry::create_module_attr_assignment(
-                                    MODULE_VAR,
+                                    SELF_PARAM,
                                     &name,
                                 ));
                             }
@@ -797,9 +966,12 @@ pub fn transform_module_to_init_function<'a>(
                         transform_expr_for_builtin_shadowing(value, &builtin_locals);
 
                         // Also transform module-level variable references
+                        // Inside the init function, use "self" to refer to the module
                         transform_expr_for_module_vars(
                             value,
                             &module_level_vars,
+                            SELF_PARAM, /* Use "self" instead of module_var_name inside init
+                                         * function */
                             ctx.python_version,
                         );
                     }
@@ -812,6 +984,7 @@ pub fn transform_module_to_init_function<'a>(
                     transform_expr_for_module_vars(
                         &mut ann_assign_clone.annotation,
                         &module_level_vars,
+                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
                         ctx.python_version,
                     );
 
@@ -833,19 +1006,21 @@ pub fn transform_module_to_init_function<'a>(
 
                         // Keep the module attribute consistent with the current value
                         body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                            MODULE_VAR,
+                            SELF_PARAM,
                             target.id.as_str(),
                             lifted_name,
                         ));
 
                         if initialized_lifted_globals.insert(target.id.to_string()) {
                             debug!(
-                                "Initialized lifted global '{lifted_name}' from annotated assignment '{}'",
+                                "Initialized lifted global '{lifted_name}' from annotated \
+                                 assignment '{}'",
                                 target.id
                             );
                         } else {
                             debug!(
-                                "Refreshed lifted global '{lifted_name}' after annotated reassignment '{}'",
+                                "Refreshed lifted global '{lifted_name}' after annotated \
+                                 reassignment '{}'",
                                 target.id
                             );
                         }
@@ -889,14 +1064,16 @@ pub fn transform_module_to_init_function<'a>(
                 } else {
                     FxIndexSet::default()
                 };
-                transform_stmt_for_module_vars_with_bundler(
-                    &mut stmt_clone,
+                let transform_ctx = ModuleVarTransformContext {
                     bundler,
-                    &module_level_vars,
-                    ctx.global_info.as_ref().map(|g| &g.global_declarations),
-                    lifted_names.as_ref(),
-                    ctx.python_version,
-                );
+                    module_level_vars: &module_level_vars,
+                    module_var_name: SELF_PARAM, /* Use "self" instead of module_var_name inside
+                                                  * init function */
+                    global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
+                    lifted_names: lifted_names.as_ref(),
+                    python_version: ctx.python_version,
+                };
+                transform_stmt_for_module_vars_with_bundler(&mut stmt_clone, &transform_ctx);
                 body.push(stmt_clone);
             }
         }
@@ -908,7 +1085,11 @@ pub fn transform_module_to_init_function<'a>(
     let mut submodules_to_add = Vec::new();
 
     // Collect all direct submodules
-    for (module_name, _) in &bundler.module_registry {
+    for module_id in &bundler.bundled_modules {
+        let module_name = bundler
+            .resolver
+            .get_module_name(*module_id)
+            .expect("Module name should exist");
         if module_name.starts_with(&current_module_prefix) {
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
@@ -919,7 +1100,11 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Also check inlined modules
-    for module_name in &bundler.inlined_modules {
+    for module_id in &bundler.inlined_modules {
+        let module_name = bundler
+            .resolver
+            .get_module_name(*module_id)
+            .expect("Module name should exist");
         if module_name.starts_with(&current_module_prefix) {
             let relative_name = &module_name[current_module_prefix.len()..];
             // Only handle direct children, not nested submodules
@@ -937,13 +1122,15 @@ pub fn transform_module_to_init_function<'a>(
     for (full_name, relative_name) in submodules_to_add {
         // CRITICAL: Check if this wrapper module already imports a symbol with the same name
         // as the submodule. If it does, skip setting the submodule namespace to avoid overwriting
-        // the imported symbol. For example, if package.__init__ imports `__version__` from `.__version__`,
-        // we should NOT overwrite that with the namespace object for package.__version__.
+        // the imported symbol. For example, if package.__init__ imports `__version__` from
+        // `.__version__`, we should NOT overwrite that with the namespace object for
+        // package.__version__.
         let symbol_already_imported = imported_symbols.contains(&relative_name);
 
         if symbol_already_imported {
             debug!(
-                "Skipping submodule namespace assignment for {full_name} because symbol '{relative_name}' is already imported"
+                "Skipping submodule namespace assignment for {full_name} because symbol \
+                 '{relative_name}' is already imported"
             );
             continue;
         }
@@ -953,27 +1140,32 @@ pub fn transform_module_to_init_function<'a>(
             full_name, relative_name, ctx.module_name
         );
 
-        if bundler.inlined_modules.contains(&full_name) {
+        if bundler
+            .get_module_id(&full_name)
+            .is_some_and(|id| bundler.inlined_modules.contains(&id))
+        {
             // Check if we're inside a wrapper function context
             // If we are, skip creating namespace for inlined submodules because
             // their symbols are at global scope and can't be referenced from
             // inside the wrapper function at definition time
             if ctx.is_wrapper_body {
                 debug!(
-                    "Skipping namespace creation for inlined submodule '{}' inside wrapper module '{}'",
+                    "Skipping namespace creation for inlined submodule '{}' inside wrapper module \
+                     '{}'",
                     full_name, ctx.module_name
                 );
                 // Bind existing global namespace object to module.<relative_name>
                 // Example: module.submodule = pkg_submodule
-                // IMPORTANT: This references a namespace variable (e.g., package___version__) that MUST
-                // already exist at the global scope. These namespace objects are pre-created earlier
-                // in the bundling pipeline via namespace_manager::generate_submodule_attributes_with_exclusions()
-                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is not defined",
-                // the pre-creation step likely ran too late.
+                // IMPORTANT: This references a namespace variable (e.g., package___version__) that
+                // MUST already exist at the global scope. These namespace objects
+                // are pre-created earlier in the bundling pipeline via
+                // namespace_manager::generate_submodule_attributes_with_exclusions()
+                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is
+                // not defined", the pre-creation step likely ran too late.
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                        MODULE_VAR,
+                        SELF_PARAM,
                         &relative_name,
                         &namespace_var,
                     ),
@@ -984,6 +1176,7 @@ pub fn transform_module_to_init_function<'a>(
                     bundler,
                     &full_name,
                     &relative_name,
+                    SELF_PARAM,
                     symbol_renames,
                 );
                 body.extend(create_namespace_stmts);
@@ -995,40 +1188,8 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // Add remaining deferred imports after submodule namespaces are created
-    // Skip import alias assignments since they were already added at the beginning
-    for stmt in &deferred_imports_to_add {
-        // Skip simple name-to-name assignments (import aliases) as they were already added
-        let is_import_alias = if let Stmt::Assign(assign) = stmt {
-            matches!(
-                (assign.targets.as_slice(), &*assign.value),
-                ([Expr::Name(_)], Expr::Name(_))
-            )
-        } else {
-            false
-        };
-
-        if is_import_alias {
-            continue; // Already added at the beginning
-        }
-
-        if let Stmt::Assign(assign) = stmt
-            && !expression_handlers::is_self_referential_assignment(assign, ctx.python_version)
-        {
-            // For deferred imports that are assignments, also set as module attribute if
-            // exported
-            body.push(stmt.clone());
-            add_module_attr_if_exported(
-                bundler,
-                assign,
-                ctx.module_name,
-                &mut body,
-                module_scope_symbols,
-            );
-        } else {
-            body.push(stmt.clone());
-        }
-    }
+    // Note: deferred imports functionality has been removed
+    // Remaining deferred imports were previously added here
 
     // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
 
@@ -1041,7 +1202,7 @@ pub fn transform_module_to_init_function<'a>(
 
         body.push(ast_builder::statements::assign(
             vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
                 &local_name,
                 ExprContext::Store,
             )],
@@ -1066,7 +1227,7 @@ pub fn transform_module_to_init_function<'a>(
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
                     && let Expr::Name(name) = &*attr.value
                 {
-                    return name.id == MODULE_VAR && attr.attr == imported_name;
+                    return name.id.as_str() == SELF_PARAM && attr.attr == imported_name;
                 }
                 false
             });
@@ -1074,7 +1235,7 @@ pub fn transform_module_to_init_function<'a>(
             if !already_assigned {
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment(
-                        MODULE_VAR,
+                        SELF_PARAM,
                         &imported_name,
                     ),
                 );
@@ -1084,44 +1245,61 @@ pub fn transform_module_to_init_function<'a>(
 
     // Transform globals() calls to module.__dict__ in the entire body
     for stmt in &mut body {
-        transform_globals_in_stmt(stmt);
-        // Transform locals() calls to vars(__cribo_module) in the entire body
-        transform_locals_in_stmt(stmt);
+        transform_globals_in_stmt(stmt, &module_var_name);
+        // Transform locals() calls to vars(module_var) in the entire body
+        transform_locals_in_stmt(stmt, &module_var_name);
     }
 
-    // Return the module object
+    // Mark as fully initialized (module is now fully populated)
+    // self.__initialized__ = True  (set this first!)
+    // self.__initializing__ = False
+    body.push(ast_builder::statements::assign_attribute(
+        SELF_PARAM,
+        "__initialized__",
+        ast_builder::expressions::bool_literal(true),
+    ));
+    body.push(ast_builder::statements::assign_attribute(
+        SELF_PARAM,
+        "__initializing__",
+        ast_builder::expressions::bool_literal(false),
+    ));
+
+    // Return the module object (self)
     body.push(ast_builder::statements::return_stmt(Some(
-        ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+        ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
     )));
 
-    // Create the init function parameters
+    // Create the init function parameters with 'self' parameter
+    let self_param = ruff_python_ast::ParameterWithDefault {
+        range: TextRange::default(),
+        parameter: ruff_python_ast::Parameter {
+            range: TextRange::default(),
+            name: Identifier::new(SELF_PARAM, TextRange::default()),
+            annotation: None,
+            node_index: AtomicNodeIndex::dummy(),
+        },
+        default: None,
+        node_index: AtomicNodeIndex::dummy(),
+    };
+
     let parameters = ruff_python_ast::Parameters {
         node_index: AtomicNodeIndex::dummy(),
         posonlyargs: vec![],
-        args: vec![],
+        args: vec![self_param],
         vararg: None,
         kwonlyargs: vec![],
         kwarg: None,
         range: TextRange::default(),
     };
 
-    // Add the @functools.cache decorator to ensure modules are only initialized once
-    let decorator = Decorator {
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-        expression: ast_builder::expressions::dotted_name(
-            &[crate::ast_builder::CRIBO_PREFIX, "functools", "cache"],
-            ExprContext::Load,
-        ),
-    };
-
+    // No decorator - we manage initialization ourselves
     ast_builder::statements::function_def(
         init_func_name,
         parameters,
         body,
-        vec![decorator], // Always add @functools.cache decorator
-        None,            // No return type annotation
-        false,           // Not async
+        vec![], // No decorators
+        None,   // No return type annotation
+        false,  // Not async
     )
 }
 
@@ -1129,6 +1307,7 @@ pub fn transform_module_to_init_function<'a>(
 fn transform_expr_for_module_vars(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match expr {
@@ -1137,7 +1316,7 @@ fn transform_expr_for_module_vars(
             if name.id.as_str() == "__name__" {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -1153,7 +1332,7 @@ fn transform_expr_for_module_vars(
             {
                 // Transform to module.var
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     name.id.as_str(),
                     ExprContext::Load,
                 );
@@ -1161,121 +1340,275 @@ fn transform_expr_for_module_vars(
         }
         // Recursively handle other expressions
         Expr::Call(call) => {
-            transform_expr_for_module_vars(&mut call.func, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut call.func,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for arg in &mut call.arguments.args {
-                transform_expr_for_module_vars(arg, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    arg,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             for kw in &mut call.arguments.keywords {
-                transform_expr_for_module_vars(&mut kw.value, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    &mut kw.value,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::Attribute(attr) => {
-            transform_expr_for_module_vars(&mut attr.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut attr.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::BinOp(binop) => {
-            transform_expr_for_module_vars(&mut binop.left, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut binop.right, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut binop.left,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut binop.right,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::UnaryOp(unop) => {
-            transform_expr_for_module_vars(&mut unop.operand, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut unop.operand,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::If(if_expr) => {
-            transform_expr_for_module_vars(&mut if_expr.test, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut if_expr.body, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut if_expr.orelse, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut if_expr.test,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut if_expr.body,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut if_expr.orelse,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::List(list) => {
             for elem in &mut list.elts {
-                transform_expr_for_module_vars(elem, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    elem,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::Tuple(tuple) => {
             for elem in &mut tuple.elts {
-                transform_expr_for_module_vars(elem, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    elem,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::Dict(dict) => {
             for item in &mut dict.items {
                 if let Some(key) = &mut item.key {
-                    transform_expr_for_module_vars(key, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        key,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
-                transform_expr_for_module_vars(&mut item.value, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    &mut item.value,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::Subscript(sub) => {
-            transform_expr_for_module_vars(&mut sub.value, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut sub.slice, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut sub.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut sub.slice,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::Set(set) => {
             for elem in &mut set.elts {
-                transform_expr_for_module_vars(elem, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    elem,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::Lambda(lambda) => {
             // Note: Lambda parameters create a new scope, so we don't transform them
-            transform_expr_for_module_vars(&mut lambda.body, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut lambda.body,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::Compare(cmp) => {
-            transform_expr_for_module_vars(&mut cmp.left, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut cmp.left,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for comp in &mut cmp.comparators {
-                transform_expr_for_module_vars(comp, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    comp,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::BoolOp(boolop) => {
             for value in &mut boolop.values {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    value,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::ListComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut comp.elt,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for generator in &mut comp.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        if_clause,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
         }
         Expr::SetComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut comp.elt,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for generator in &mut comp.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        if_clause,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
         }
         Expr::DictComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.key, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut comp.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut comp.key,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut comp.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for generator in &mut comp.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        if_clause,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
         }
         Expr::Generator(r#gen) => {
-            transform_expr_for_module_vars(&mut r#gen.elt, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut r#gen.elt,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for generator in &mut r#gen.generators {
                 transform_expr_for_module_vars(
                     &mut generator.iter,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        if_clause,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
         }
@@ -1283,36 +1616,68 @@ fn transform_expr_for_module_vars(
             transform_expr_for_module_vars(
                 &mut await_expr.value,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         Expr::Yield(yield_expr) => {
             if let Some(ref mut value) = yield_expr.value {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    value,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::YieldFrom(yield_from) => {
             transform_expr_for_module_vars(
                 &mut yield_from.value,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         Expr::Starred(starred) => {
-            transform_expr_for_module_vars(&mut starred.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut starred.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::Named(named) => {
-            transform_expr_for_module_vars(&mut named.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut named.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Expr::Slice(slice) => {
             if let Some(ref mut lower) = slice.lower {
-                transform_expr_for_module_vars(lower, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    lower,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             if let Some(ref mut upper) = slice.upper {
-                transform_expr_for_module_vars(upper, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    upper,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             if let Some(ref mut step) = slice.step {
-                transform_expr_for_module_vars(step, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    step,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Expr::FString(_fstring) => {
@@ -1339,6 +1704,7 @@ fn transform_expr_for_module_vars(
 fn transform_stmt_for_module_vars(
     stmt: &mut Stmt,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match stmt {
@@ -1347,55 +1713,131 @@ fn transform_stmt_for_module_vars(
             transform_nested_function_for_module_vars(
                 nested_func,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
         Stmt::Assign(assign) => {
             // Transform assignment targets and values
             for target in &mut assign.targets {
-                transform_expr_for_module_vars(target, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    target,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
-            transform_expr_for_module_vars(&mut assign.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut assign.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Stmt::Expr(expr_stmt) => {
-            transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut expr_stmt.value,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
         }
         Stmt::Return(return_stmt) => {
             if let Some(value) = &mut return_stmt.value {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    value,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::If(if_stmt) => {
-            transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut if_stmt.test,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for stmt in &mut if_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             for clause in &mut if_stmt.elif_else_clauses {
                 if let Some(condition) = &mut clause.test {
-                    transform_expr_for_module_vars(condition, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        condition,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
                 for stmt in &mut clause.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                    transform_stmt_for_module_vars(
+                        stmt,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
         }
         Stmt::For(for_stmt) => {
-            transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars, python_version);
-            transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut for_stmt.target,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut for_stmt.iter,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for stmt in &mut for_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             for stmt in &mut for_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::While(while_stmt) => {
-            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars, python_version);
+            transform_expr_for_module_vars(
+                &mut while_stmt.test,
+                module_level_vars,
+                module_var_name,
+                python_version,
+            );
             for stmt in &mut while_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             for stmt in &mut while_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::With(with_stmt) => {
@@ -1403,46 +1845,88 @@ fn transform_stmt_for_module_vars(
                 transform_expr_for_module_vars(
                     &mut item.context_expr,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
                 if let Some(ref mut optional_vars) = item.optional_vars {
                     transform_expr_for_module_vars(
                         optional_vars,
                         module_level_vars,
+                        module_var_name,
                         python_version,
                     );
                 }
             }
             for stmt in &mut with_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::Try(try_stmt) => {
             for stmt in &mut try_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             for handler in &mut try_stmt.handlers {
                 let ExceptHandler::ExceptHandler(except_handler) = handler;
                 if let Some(ref mut type_) = except_handler.type_ {
-                    transform_expr_for_module_vars(type_, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        type_,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
                 for stmt in &mut except_handler.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                    transform_stmt_for_module_vars(
+                        stmt,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
             for stmt in &mut try_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             for stmt in &mut try_stmt.finalbody {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::Raise(raise_stmt) => {
             if let Some(ref mut exc) = raise_stmt.exc {
-                transform_expr_for_module_vars(exc, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    exc,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
             if let Some(ref mut cause) = raise_stmt.cause {
-                transform_expr_for_module_vars(cause, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    cause,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::ClassDef(class_def) => {
@@ -1451,36 +1935,50 @@ fn transform_stmt_for_module_vars(
                 transform_expr_for_module_vars(
                     &mut decorator.expression,
                     module_level_vars,
+                    module_var_name,
                     python_version,
                 );
             }
             // Transform class arguments (base classes and keyword arguments)
             if let Some(ref mut arguments) = class_def.arguments {
                 for arg in &mut arguments.args {
-                    transform_expr_for_module_vars(arg, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        arg,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
                 for keyword in &mut arguments.keywords {
                     transform_expr_for_module_vars(
                         &mut keyword.value,
                         module_level_vars,
+                        module_var_name,
                         python_version,
                     );
                 }
             }
             // Transform class body
             for stmt in &mut class_def.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                transform_stmt_for_module_vars(
+                    stmt,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::AugAssign(aug_assign) => {
             transform_expr_for_module_vars(
                 &mut aug_assign.target,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars(
                 &mut aug_assign.value,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1488,36 +1986,59 @@ fn transform_stmt_for_module_vars(
             transform_expr_for_module_vars(
                 &mut ann_assign.target,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars(
                 &mut ann_assign.annotation,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             if let Some(ref mut value) = ann_assign.value {
-                transform_expr_for_module_vars(value, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    value,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::Delete(delete_stmt) => {
             for target in &mut delete_stmt.targets {
-                transform_expr_for_module_vars(target, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    target,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::Match(match_stmt) => {
             transform_expr_for_module_vars(
                 &mut match_stmt.subject,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             // Match cases have complex patterns that may need specialized handling
             // For now, we'll focus on transforming the guard expressions and bodies
             for case in &mut match_stmt.cases {
                 if let Some(ref mut guard) = case.guard {
-                    transform_expr_for_module_vars(guard, module_level_vars, python_version);
+                    transform_expr_for_module_vars(
+                        guard,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
                 for stmt in &mut case.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+                    transform_stmt_for_module_vars(
+                        stmt,
+                        module_level_vars,
+                        module_var_name,
+                        python_version,
+                    );
                 }
             }
         }
@@ -1525,10 +2046,16 @@ fn transform_stmt_for_module_vars(
             transform_expr_for_module_vars(
                 &mut assert_stmt.test,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
             if let Some(ref mut msg) = assert_stmt.msg {
-                transform_expr_for_module_vars(msg, module_level_vars, python_version);
+                transform_expr_for_module_vars(
+                    msg,
+                    module_level_vars,
+                    module_var_name,
+                    python_version,
+                );
             }
         }
         Stmt::TypeAlias(_)
@@ -1545,43 +2072,55 @@ fn transform_stmt_for_module_vars(
     }
 }
 
+/// Context for transforming statements with module variable awareness
+struct ModuleVarTransformContext<'a> {
+    bundler: &'a Bundler<'a>,
+    module_level_vars: &'a FxIndexSet<String>,
+    module_var_name: &'a str,
+    global_declarations: Option<&'a FxIndexMap<String, Vec<ruff_text_size::TextRange>>>,
+    lifted_names: Option<&'a FxIndexMap<String, String>>,
+    python_version: u8,
+}
+
 /// Transform a statement to use module attributes for module-level variables,
 /// with awareness of lifted globals for nested functions
-fn transform_stmt_for_module_vars_with_bundler(
-    stmt: &mut Stmt,
-    bundler: &Bundler,
-    module_level_vars: &FxIndexSet<String>,
-    global_declarations: Option<&FxIndexMap<String, Vec<ruff_text_size::TextRange>>>,
-    lifted_names: Option<&FxIndexMap<String, String>>,
-    python_version: u8,
-) {
+fn transform_stmt_for_module_vars_with_bundler(stmt: &mut Stmt, ctx: &ModuleVarTransformContext) {
     if let Stmt::FunctionDef(nested_func) = stmt {
         // For function definitions, use the global-aware transformation
-        if let Some(globals_map) = global_declarations {
-            bundler.transform_nested_function_for_module_vars_with_global_info(
-                nested_func,
-                module_level_vars,
-                globals_map,
-                lifted_names,
-            );
+        if let Some(globals_map) = ctx.global_declarations {
+            ctx.bundler
+                .transform_nested_function_for_module_vars_with_global_info(
+                    nested_func,
+                    ctx.module_level_vars,
+                    globals_map,
+                    ctx.lifted_names,
+                    ctx.module_var_name,
+                );
         } else {
             // Fallback to legacy path when no global info is available
             transform_nested_function_for_module_vars(
                 nested_func,
-                module_level_vars,
-                python_version,
+                ctx.module_level_vars,
+                ctx.module_var_name,
+                ctx.python_version,
             );
         }
         return;
     }
     // Non-function statements: reuse the existing traversal
-    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
+    transform_stmt_for_module_vars(
+        stmt,
+        ctx.module_level_vars,
+        ctx.module_var_name,
+        ctx.python_version,
+    );
 }
 
 /// Transform nested function to use module attributes for module-level variables
 fn transform_nested_function_for_module_vars(
     func_def: &mut StmtFunctionDef,
     module_level_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     // Collect local variables defined in this function
@@ -1613,6 +2152,7 @@ fn transform_nested_function_for_module_vars(
             stmt,
             module_level_vars,
             &local_vars,
+            module_var_name,
             python_version,
         );
     }
@@ -1700,6 +2240,7 @@ fn transform_stmt_for_module_vars_with_locals(
     stmt: &mut Stmt,
     module_level_vars: &FxIndexSet<String>,
     local_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match stmt {
@@ -1708,6 +2249,7 @@ fn transform_stmt_for_module_vars_with_locals(
             transform_nested_function_for_module_vars(
                 nested_func,
                 module_level_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1718,6 +2260,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     target,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1725,6 +2268,7 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut assign.value,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1733,6 +2277,7 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut expr_stmt.value,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1742,6 +2287,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     value,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1751,6 +2297,7 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut if_stmt.test,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             for stmt in &mut if_stmt.body {
@@ -1758,6 +2305,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     stmt,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1767,6 +2315,7 @@ fn transform_stmt_for_module_vars_with_locals(
                         condition,
                         module_level_vars,
                         local_vars,
+                        module_var_name,
                         python_version,
                     );
                 }
@@ -1775,6 +2324,7 @@ fn transform_stmt_for_module_vars_with_locals(
                         stmt,
                         module_level_vars,
                         local_vars,
+                        module_var_name,
                         python_version,
                     );
                 }
@@ -1785,12 +2335,14 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut for_stmt.target,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut for_stmt.iter,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             for stmt in &mut for_stmt.body {
@@ -1798,6 +2350,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     stmt,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1807,6 +2360,7 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut while_stmt.test,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             for stmt in &mut while_stmt.body {
@@ -1814,6 +2368,7 @@ fn transform_stmt_for_module_vars_with_locals(
                     stmt,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1829,6 +2384,7 @@ fn transform_expr_for_module_vars_with_locals(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
     local_vars: &FxIndexSet<String>,
+    module_var_name: &str,
     python_version: u8,
 ) {
     match expr {
@@ -1839,7 +2395,7 @@ fn transform_expr_for_module_vars_with_locals(
             if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -1853,7 +2409,7 @@ fn transform_expr_for_module_vars_with_locals(
             {
                 // Transform foo -> module.foo
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                    ast_builder::expressions::name(module_var_name, ExprContext::Load),
                     name_str,
                     ExprContext::Load,
                 );
@@ -1864,6 +2420,7 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut call.func,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             for arg in &mut call.arguments.args {
@@ -1871,6 +2428,7 @@ fn transform_expr_for_module_vars_with_locals(
                     arg,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1879,6 +2437,7 @@ fn transform_expr_for_module_vars_with_locals(
                     &mut keyword.value,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1888,12 +2447,14 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut binop.left,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut binop.right,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1904,6 +2465,7 @@ fn transform_expr_for_module_vars_with_locals(
                         key,
                         module_level_vars,
                         local_vars,
+                        module_var_name,
                         python_version,
                     );
                 }
@@ -1911,6 +2473,7 @@ fn transform_expr_for_module_vars_with_locals(
                     &mut item.value,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1921,6 +2484,7 @@ fn transform_expr_for_module_vars_with_locals(
                     elem,
                     module_level_vars,
                     local_vars,
+                    module_var_name,
                     python_version,
                 );
             }
@@ -1930,6 +2494,7 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut attr.value,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1938,12 +2503,14 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut subscript.value,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut subscript.slice,
                 module_level_vars,
                 local_vars,
+                module_var_name,
                 python_version,
             );
         }
@@ -1953,25 +2520,24 @@ fn transform_expr_for_module_vars_with_locals(
     }
 }
 
-/// Create module object statements (types.SimpleNamespace)
-pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
-    let module_call = ast_builder::expressions::call(
-        ast_builder::expressions::simple_namespace_ctor(),
-        vec![],
-        vec![],
-    );
-
-    vec![
-        // __cribo_module = types.SimpleNamespace()
-        ast_builder::statements::simple_assign(MODULE_VAR, module_call),
-        // __cribo_module.__name__ = "module_name"
-        ast_builder::statements::assign_attribute(
-            MODULE_VAR,
-            "__name__",
-            ast_builder::expressions::string_literal(module_name),
-        ),
-    ]
-}
+// pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
+//     let module_call = ast_builder::expressions::call(
+//         ast_builder::expressions::simple_namespace_ctor(),
+//         vec![],
+//         vec![],
+//     );
+//
+//     vec![
+//         // self = types.SimpleNamespace()
+//         ast_builder::statements::simple_assign("self", module_call),
+//         // self.__name__ = "module_name"
+//         ast_builder::statements::assign_attribute(
+//             "self",
+//             "__name__",
+//             ast_builder::expressions::string_literal(module_name),
+//         ),
+//     ]
+// }
 
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
@@ -2173,15 +2739,18 @@ fn should_include_symbol(
         // Even if not in module_scope_symbols, check if it's a private symbol imported by others
         if symbol_name.starts_with('_')
             && let Some(module_asts) = &bundler.module_asts
+            && let Some(module_id) = bundler.resolver.get_module_id_by_name(module_name)
             && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
                 module_asts,
-                module_name,
+                module_id,
                 symbol_name,
                 Some(&bundler.module_exports),
+                bundler.resolver,
             )
         {
             log::debug!(
-                "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, so including it"
+                "Private symbol '{symbol_name}' from module '{module_name}' is not in \
+                 module_scope_symbols but is imported by other modules, so including it"
             );
             return true;
         }
@@ -2194,7 +2763,8 @@ fn should_include_symbol(
                 .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
         if is_constant_like {
             log::debug!(
-                "Constant '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it appears to be a constant"
+                "Constant '{symbol_name}' from module '{module_name}' is not in \
+                 module_scope_symbols but including as it appears to be a constant"
             );
             return true;
         }
@@ -2210,7 +2780,8 @@ fn should_include_symbol(
         ];
         if COMMON_DUNDERS.contains(&symbol_name) {
             log::debug!(
-                "Common dunder '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it's a standard module attribute"
+                "Common dunder '{symbol_name}' from module '{module_name}' is not in \
+                 module_scope_symbols but including as it's a standard module attribute"
             );
             return true;
         }
@@ -2263,14 +2834,15 @@ fn emit_module_attr_if_exportable(
     let should_export =
         should_include_symbol(bundler, symbol_name, module_name, module_scope_symbols);
     debug!(
-        "Symbol '{symbol_name}' in module '{module_name}' should_include_symbol returned: {should_export}"
+        "Symbol '{symbol_name}' in module '{module_name}' should_include_symbol returned: \
+         {should_export}"
     );
 
     if should_export {
         debug!("Adding module attribute for symbol '{symbol_name}'");
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                MODULE_VAR,
+                SELF_PARAM,
                 symbol_name,
             ),
         );
@@ -2282,7 +2854,8 @@ fn create_namespace_for_inlined_submodule(
     bundler: &Bundler,
     full_module_name: &str,
     attr_name: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    parent_module_var: &str,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
@@ -2307,12 +2880,14 @@ fn create_namespace_for_inlined_submodule(
         ),
     ));
 
+    // Get the module ID for this module
+    let module_id = bundler
+        .resolver
+        .get_module_id_by_name(full_module_name)
+        .expect("Module should exist in resolver");
+
     // Get the module exports for this inlined module
-    let exported_symbols = bundler
-        .module_exports
-        .get(full_module_name)
-        .cloned()
-        .flatten();
+    let exported_symbols = bundler.module_exports.get(&module_id).cloned().flatten();
 
     // Add all exported symbols from the inlined module to the namespace
     if let Some(exports) = exported_symbols {
@@ -2320,7 +2895,7 @@ fn create_namespace_for_inlined_submodule(
             // For re-exported symbols, check if the original symbol is kept by tree-shaking
             let should_include = if bundler.tree_shaking_keep_symbols.is_some() {
                 // First check if this symbol is directly defined in this module
-                if bundler.is_symbol_kept_by_tree_shaking(full_module_name, &symbol) {
+                if bundler.is_symbol_kept_by_tree_shaking(module_id, &symbol) {
                     true
                 } else {
                     // If not, check if this is a re-exported symbol from another module
@@ -2328,7 +2903,7 @@ fn create_namespace_for_inlined_submodule(
                     // even if they're not directly defined in the module
                     let module_has_all_export = bundler
                         .module_exports
-                        .get(full_module_name)
+                        .get(&module_id)
                         .and_then(|exports| exports.as_ref())
                         .is_some_and(|exports| exports.contains(&symbol));
 
@@ -2356,7 +2931,8 @@ fn create_namespace_for_inlined_submodule(
             }
 
             // Get the renamed version of this symbol
-            let renamed_symbol = if let Some(module_renames) = symbol_renames.get(full_module_name)
+            let renamed_symbol = if let Some(module_id) = bundler.get_module_id(full_module_name)
+                && let Some(module_renames) = symbol_renames.get(&module_id)
             {
                 module_renames
                     .get(&symbol)
@@ -2403,7 +2979,7 @@ fn create_namespace_for_inlined_submodule(
     // This allows the parent module to access the submodule via the expected attribute name
     stmts.push(
         crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-            MODULE_VAR,
+            parent_module_var,
             attr_name,
             &namespace_var,
         ),
@@ -2416,7 +2992,7 @@ fn create_namespace_for_inlined_submodule(
 fn renamed_symbol_exists(
     bundler: &Bundler,
     renamed_symbol: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> bool {
     // If not using tree-shaking, all symbols exist
     if bundler.tree_shaking_keep_symbols.is_none() {
@@ -2424,11 +3000,11 @@ fn renamed_symbol_exists(
     }
 
     // Check all modules to see if any have this renamed symbol
-    for (module, renames) in symbol_renames {
+    for (module_id, renames) in symbol_renames {
         for (original, renamed) in renames {
             if renamed == renamed_symbol {
                 // Found the renamed symbol, check if it's kept
-                if bundler.is_symbol_kept_by_tree_shaking(module, original) {
+                if bundler.is_symbol_kept_by_tree_shaking(*module_id, original) {
                     return true;
                 }
             }
@@ -2443,9 +3019,9 @@ fn renamed_symbol_exists(
 fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    imports_from_inlined: &mut Vec<(String, String)>,
-    _current_module: &str,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    imports_from_inlined: &mut Vec<(String, String, Option<String>)>,
+    current_module: &str,
 ) -> Vec<(String, String)> {
     debug!("Processing wildcard import from inlined module '{module}'");
 
@@ -2453,31 +3029,58 @@ fn process_wildcard_import(
     let mut wrapper_module_symbols = Vec::new();
 
     // Get all exported symbols from this module
-    let exports = bundler.module_exports.get(module);
+    let module_id = bundler.get_module_id(module);
+    let exports = module_id.and_then(|id| bundler.module_exports.get(&id));
 
     if let Some(Some(export_list)) = exports {
+        let module_id = module_id.expect("Module ID should exist if exports found");
+
         // Module has explicit __all__, use it
+        // Determine if the importing module accesses __all__ dynamically
+        let importer_accesses_all = bundler.get_module_id(current_module).is_some_and(|id| {
+            bundler
+                .modules_with_accessed_all
+                .iter()
+                .any(|(mid, _)| *mid == id)
+        });
+
+        // Detect if importing module is a package (__init__.py)
+        let importer_is_package = bundler
+            .get_module_id(current_module)
+            .and_then(|id| bundler.resolver.get_module(id))
+            .is_some_and(|m| m.is_package);
+
         for symbol in export_list {
             if symbol != "*" {
                 // A symbol is kept if it's kept in the re-exporting module itself,
                 // or if it's re-exported from a submodule and kept in that source module.
-                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module, symbol) || {
-                    let mut found_in_submodule = false;
-                    for (potential_module, module_exports) in &bundler.module_exports {
-                        if potential_module.starts_with(&format!("{module}."))
-                            && let Some(exports) = module_exports
-                            && exports.contains(symbol)
-                            && bundler.is_symbol_kept_by_tree_shaking(potential_module, symbol)
-                        {
-                            debug!(
-                                "Symbol '{symbol}' is kept in source module '{potential_module}'"
-                            );
-                            found_in_submodule = true;
-                            break;
+                let is_kept_final = importer_accesses_all
+                    || importer_is_package
+                    || bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+                    || {
+                        let mut found_in_submodule = false;
+                        for (potential_module_id, module_exports) in &bundler.module_exports {
+                            // Check if this is a submodule by comparing names
+                            let potential_module_name = bundler
+                                .resolver
+                                .get_module_name(*potential_module_id)
+                                .expect("Module name must exist");
+                            if potential_module_name.starts_with(&format!("{module}."))
+                                && let Some(exports) = module_exports
+                                && exports.contains(symbol)
+                                && bundler
+                                    .is_symbol_kept_by_tree_shaking(*potential_module_id, symbol)
+                            {
+                                debug!(
+                                    "Symbol '{symbol}' is kept in source module \
+                                     '{potential_module_name}'"
+                                );
+                                found_in_submodule = true;
+                                break;
+                            }
                         }
-                    }
-                    found_in_submodule
-                };
+                        found_in_submodule
+                    };
 
                 if is_kept_final {
                     // Check if this symbol comes from a wrapper module
@@ -2485,11 +3088,13 @@ fn process_wildcard_import(
                     // because the wrapper module hasn't been initialized yet
                     if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                         debug!(
-                            "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
+                            "Symbol '{symbol}' from inlined module '{module}' comes from a \
+                             wrapper module - deferring assignment"
                         );
                         // Track for deferred assignment after wrapper module initialization
-                        let value_name = symbol_renames
-                            .get(module)
+                        let value_name = bundler
+                            .get_module_id(module)
+                            .and_then(|id| symbol_renames.get(&id))
                             .and_then(|m| m.get(symbol))
                             .cloned()
                             .unwrap_or_else(|| symbol.clone());
@@ -2498,19 +3103,27 @@ fn process_wildcard_import(
                     }
 
                     // Get the actual value name (might be renamed to avoid collisions)
-                    let value_name = symbol_renames
-                        .get(module)
+                    let value_name = bundler
+                        .get_module_id(module)
+                        .and_then(|id| symbol_renames.get(&id))
                         .and_then(|m| m.get(symbol))
                         .cloned()
                         .unwrap_or_else(|| symbol.clone());
 
                     debug!(
-                        "Tracking wildcard-imported symbol '{symbol}' (value: '{value_name}') from inlined module '{module}'"
+                        "Tracking wildcard-imported symbol '{symbol}' (value: '{value_name}') \
+                         from inlined module '{module}'"
                     );
-                    imports_from_inlined.push((symbol.clone(), value_name));
+                    // Track the source module for proper namespace access
+                    imports_from_inlined.push((
+                        symbol.clone(),
+                        value_name,
+                        Some(module.to_string()),
+                    ));
                 } else {
                     debug!(
-                        "Skipping wildcard-imported symbol '{symbol}' from inlined module '{module}' - removed by tree-shaking"
+                        "Skipping wildcard-imported symbol '{symbol}' from inlined module \
+                         '{module}' - removed by tree-shaking"
                     );
                 }
             }
@@ -2521,16 +3134,19 @@ fn process_wildcard_import(
     if exports.is_some() {
         // Module exists but has no explicit __all__
         // Look at the symbol renames which contains all symbols from the module
-        if let Some(renames) = symbol_renames.get(module) {
+        if let Some(module_id) = bundler.get_module_id(module)
+            && let Some(renames) = symbol_renames.get(&module_id)
+        {
             for (original_name, renamed_name) in renames {
                 // Track the renamed symbol (which is what will be in the global scope)
                 if !renamed_name.starts_with('_') {
                     // Check if the original symbol was kept by tree-shaking
-                    if bundler.is_symbol_kept_by_tree_shaking(module, original_name) {
+                    if bundler.is_symbol_kept_by_tree_shaking(module_id, original_name) {
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, original_name) {
                             debug!(
-                                "Symbol '{original_name}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
+                                "Symbol '{original_name}' from inlined module '{module}' comes \
+                                 from a wrapper module - deferring assignment"
                             );
                             // Track for deferred assignment
                             wrapper_module_symbols
@@ -2539,13 +3155,21 @@ fn process_wildcard_import(
                         }
 
                         debug!(
-                            "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
+                            "Tracking wildcard-imported symbol '{renamed_name}' (renamed from \
+                             '{original_name}') from inlined module '{module}'"
                         );
                         // For renamed symbols, use original as exported name, renamed as value
-                        imports_from_inlined.push((original_name.clone(), renamed_name.clone()));
+                        // Track the source module for proper namespace access
+                        imports_from_inlined.push((
+                            original_name.clone(),
+                            renamed_name.clone(),
+                            Some(module.to_string()),
+                        ));
                     } else {
                         debug!(
-                            "Skipping wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}' - removed by tree-shaking"
+                            "Skipping wildcard-imported symbol '{renamed_name}' (renamed from \
+                             '{original_name}') from inlined module '{module}' - removed by \
+                             tree-shaking"
                         );
                     }
                 }
@@ -2554,15 +3178,18 @@ fn process_wildcard_import(
         }
 
         // Fallback to semantic exports when no renames are available
-        if let Some(semantic) = bundler.semantic_exports.get(module) {
+        if let Some(module_id) = bundler.get_module_id(module)
+            && let Some(semantic) = bundler.semantic_exports.get(&module_id)
+        {
             for symbol in semantic {
                 if !symbol.starts_with('_') {
                     // Check if the symbol was kept by tree-shaking
-                    if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                    if bundler.is_symbol_kept_by_tree_shaking(module_id, symbol) {
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                             debug!(
-                                "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
+                                "Symbol '{symbol}' from inlined module '{module}' comes from a \
+                                 wrapper module - deferring assignment"
                             );
                             // Track for deferred assignment
                             wrapper_module_symbols.push((symbol.clone(), symbol.clone()));
@@ -2570,13 +3197,20 @@ fn process_wildcard_import(
                         }
 
                         debug!(
-                            "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
+                            "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) \
+                             from inlined module '{module}'"
                         );
                         // No rename, so exported name and value are the same
-                        imports_from_inlined.push((symbol.clone(), symbol.clone()));
+                        // Track the source module for proper namespace access
+                        imports_from_inlined.push((
+                            symbol.clone(),
+                            symbol.clone(),
+                            Some(module.to_string()),
+                        ));
                     } else {
                         debug!(
-                            "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}' - removed by tree-shaking"
+                            "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) \
+                             from inlined module '{module}' - removed by tree-shaking"
                         );
                     }
                 }
@@ -2585,7 +3219,8 @@ fn process_wildcard_import(
         }
 
         log::warn!(
-            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard import may miss symbols"
+            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard \
+             import may miss symbols"
         );
     } else {
         log::warn!("Could not find exports for inlined module '{module}'");
@@ -2601,12 +3236,10 @@ fn symbol_comes_from_wrapper_module(
     symbol_name: &str,
 ) -> bool {
     // Find the module's AST in the module_asts if available
-    let module_data = bundler
-        .module_asts
-        .as_ref()
-        .and_then(|asts| asts.iter().find(|(name, _, _, _)| name == inlined_module));
+    let module_id = bundler.get_module_id(inlined_module);
+    let module_data = module_id.and_then(|id| bundler.module_asts.as_ref()?.get(&id));
 
-    if let Some((_, ast, module_path, _)) = module_data {
+    if let Some((ast, module_path, _)) = module_data {
         // Check all import statements in the module
         for stmt in &ast.body {
             if let Stmt::ImportFrom(import_from) = stmt {
@@ -2639,26 +3272,35 @@ fn symbol_comes_from_wrapper_module(
                         };
 
                         // Check if the source module is a wrapper module
-                        if !bundler.module_registry.contains_key(source_module)
-                            || bundler.inlined_modules.contains(source_module)
+                        let source_module_id = match bundler.get_module_id(source_module) {
+                            Some(id) => id,
+                            None => continue,
+                        };
+
+                        if !bundler.bundled_modules.contains(&source_module_id)
+                            || bundler.inlined_modules.contains(&source_module_id)
                         {
                             continue;
                         }
 
                         // For wildcard imports, verify the symbol is actually exported
                         if is_wildcard {
-                            if let Some(Some(exports)) = bundler.module_exports.get(source_module)
+                            if let Some(Some(exports)) =
+                                bundler.module_exports.get(&source_module_id)
                                 && exports.iter().any(|s| s == symbol_name)
                             {
                                 debug!(
-                                    "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
+                                    "Symbol '{symbol_name}' in inlined module '{inlined_module}' \
+                                     comes from wrapper module '{source_module}' via wildcard \
+                                     import"
                                 );
                                 return true;
                             }
                         } else {
                             // Direct import - we know this symbol comes from the wrapper module
                             debug!(
-                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}'"
+                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' \
+                                 comes from wrapper module '{source_module}'"
                             );
                             return true;
                         }
@@ -2669,113 +3311,4 @@ fn symbol_comes_from_wrapper_module(
     }
 
     false
-}
-
-/// Sort wrapper modules by dependencies
-pub fn sort_wrapper_modules_by_dependencies(
-    wrapper_modules: &[(String, ModModule, PathBuf, String)],
-    graph: &crate::cribo_graph::CriboGraph,
-) -> Vec<(String, ModModule, PathBuf, String)> {
-    // Extract module names
-    let wrapper_names: Vec<String> = wrapper_modules
-        .iter()
-        .map(|(name, _, _, _)| name.clone())
-        .collect();
-
-    // Get all modules for the analyzer (wrapper modules are a subset)
-    let all_modules = wrapper_modules;
-
-    // Use DependencyAnalyzer to sort
-    let sorted_names =
-        DependencyAnalyzer::sort_wrapper_modules_by_dependencies(wrapper_names, all_modules, graph);
-
-    // Create a map for quick lookup
-    let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> = wrapper_modules
-        .iter()
-        .map(|m| (m.0.clone(), m.clone()))
-        .collect();
-
-    // Map sorted names back to full modules
-
-    sorted_names
-        .into_iter()
-        .filter_map(|module_name| module_map.get(&module_name).cloned())
-        .collect()
-}
-
-/// Process wrapper modules: sort them, handle globals, and generate init functions
-pub fn process_wrapper_modules(
-    bundler: &mut Bundler,
-    wrapper_modules: &[(String, ModModule, PathBuf, String)],
-    wrapper_modules_needed_by_inlined: &FxIndexSet<String>,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    semantic_ctx: &SemanticContext,
-    python_version: u8,
-) -> Vec<Stmt> {
-    let mut result = Vec::new();
-
-    // Sort wrapper modules by dependencies
-    let sorted_wrapper_modules =
-        sort_wrapper_modules_by_dependencies(wrapper_modules, semantic_ctx.graph);
-
-    // Process globals for all wrapper modules
-    let mut module_globals = FxIndexMap::default();
-    let mut all_lifted_declarations = Vec::new();
-
-    for (module_name, ast, _, _) in &sorted_wrapper_modules {
-        let params = ProcessGlobalsParams {
-            module_name,
-            ast,
-            semantic_ctx,
-        };
-        crate::code_generator::globals::process_wrapper_module_globals(
-            &params,
-            &mut module_globals,
-            &mut all_lifted_declarations,
-        );
-    }
-
-    // Add lifted declarations if any
-    if !all_lifted_declarations.is_empty() {
-        debug!(
-            "Adding {} lifted global declarations for wrapper modules",
-            all_lifted_declarations.len()
-        );
-        result.extend(all_lifted_declarations.iter().cloned());
-        bundler
-            .lifted_global_declarations
-            .extend(all_lifted_declarations);
-    }
-
-    // Transform wrapper modules to init functions
-    for (module_name, ast, module_path, _) in &sorted_wrapper_modules {
-        // Skip modules that were already defined early for inlined module dependencies
-        if wrapper_modules_needed_by_inlined.contains(module_name) {
-            log::debug!("Skipping wrapper module '{module_name}' - already defined early");
-            continue;
-        }
-
-        let synthetic_name = &bundler.module_registry[module_name];
-        let global_info = module_globals.get(module_name).cloned();
-        let ctx = ModuleTransformContext {
-            module_name,
-            synthetic_name,
-            module_path,
-            global_info,
-            semantic_bundler: Some(semantic_ctx.semantic_bundler),
-            python_version,
-            is_wrapper_body: true, // This is for wrapper modules
-        };
-
-        // Transform module to init function with @functools.cache decorator
-        let init_function =
-            transform_module_to_init_function(bundler, &ctx, ast.clone(), symbol_renames);
-
-        result.push(init_function);
-    }
-
-    // Generate module registries and hook (always using module cache for wrapper modules)
-    result.extend(module_registry::generate_registries_and_hook());
-
-    result
 }

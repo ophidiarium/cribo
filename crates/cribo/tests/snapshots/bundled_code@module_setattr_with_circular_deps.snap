@@ -28,90 +28,142 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg = _cribo.types.SimpleNamespace(__name__='pkg')
-pkg__client = _cribo.types.SimpleNamespace(__name__='pkg._client')
-pkg._client = pkg__client
-pkg__main = _cribo.types.SimpleNamespace(__name__='pkg._main')
-pkg._main = pkg__main
-pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models')
-pkg._models = pkg__models
 pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types')
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
 pkg._types = pkg__types
-class Request:
-    """Request model."""
-
-    def __init__(self):
-        self.stream = pkg.SyncStream()
-class Response:
-    """Response model."""
-
-    def __init__(self):
-        self.stream = pkg.AsyncStream()
-class Client:
-    """Client that uses streams."""
-
-    def __init__(self):
-        self.async_stream = pkg.AsyncStream()
-        self.sync_stream = pkg.SyncStream()
-
-    def make_request(self):
-        req = Request()
-        return Response()
+"""Types module with stream classes."""
 class AsyncStream:
     """Async stream implementation."""
 
     def read(self):
         return "async data"
+AsyncStream.__module__ = 'pkg._types'
 class SyncStream:
     """Sync stream implementation."""
 
     def read(self):
         return "sync data"
-def main():
-    """Main function using Client."""
-    client = Client()
-    return client.make_request()
-"""Main module that imports client which imports back to parent."""
-"""Models module that also imports from parent."""
-Request.__module__ = 'pkg._models'
-Response.__module__ = 'pkg._models'
-Client.__module__ = 'pkg._client'
-"""Client module with circular import and other dependencies."""
-"""Types module with stream classes."""
-AsyncStream.__module__ = 'pkg._types'
 SyncStream.__module__ = 'pkg._types'
-@_cribo.functools.cache
-def _cribo_init___cribo_1fb248_pkg():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pkg'
-    global AsyncStream, SyncStream
-    _cribo_module.AsyncStream = AsyncStream
-    _cribo_module.SyncStream = SyncStream
-    """Package that sets __module__ on all exported items, like httpx does."""
-    _cribo_module.Client = Client
-    _cribo_module.Request = Request
-    _cribo_module.Response = Response
-    _cribo_module.main = main
-    __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
-    __locals = vars(_cribo_module)
-    _cribo_module.__locals = __locals
-    for __name in __all__:
-        if not __name.startswith("__"):
-            setattr(_cribo_module.__locals[__name], "__module__", "pkg")
-    _cribo_module._main = pkg__main
-    _cribo_module._models = pkg__models
-    _cribo_module._client = pkg__client
-    _cribo_module._types = pkg__types
-    return _cribo_module
-pkg = _cribo_init___cribo_1fb248_pkg()
-pkg__main.main = main
-pkg__models.Request = Request
-pkg__models.Response = Response
-pkg__client.Client = Client
 pkg__types.AsyncStream = AsyncStream
 pkg__types.SyncStream = SyncStream
+pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models')
+pkg._models = pkg__models
+"""Models module that also imports from parent."""
+class Request:
+    """Request model."""
+
+    def __init__(self):
+        self.stream = pkg.SyncStream()
+Request.__module__ = 'pkg._models'
+class Response:
+    """Response model."""
+
+    def __init__(self):
+        self.stream = pkg.AsyncStream()
+Response.__module__ = 'pkg._models'
+pkg__models.Request = Request
+pkg__models.Response = Response
+pkg__client = _cribo.types.SimpleNamespace(__name__='pkg._client', __initializing__=False, __initialized__=False)
+pkg._client = pkg__client
+pkg__main = _cribo.types.SimpleNamespace(__name__='pkg._main', __initializing__=False, __initialized__=False)
+pkg._main = pkg__main
+def _cribo_init___cribo_1fb248_pkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    self.AsyncStream = pkg__types.AsyncStream
+    self.SyncStream = pkg__types.SyncStream
+    global pkg__client, pkg__main
+    """Package that sets __module__ on all exported items, like httpx does."""
+    pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
+    Client = pkg__client.Client
+    self.Client = Client
+    self.Client = Client
+    Request = pkg__models.Request
+    pkg.Request = Request
+    Response = pkg__models.Response
+    pkg.Response = Response
+    pkg__main = _cribo_init___cribo_fc6bcd_pkg__main(pkg__main)
+    main = pkg__main.main
+    self.main = main
+    self.main = main
+    __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
+    __locals = vars(pkg)
+    self.__locals = __locals
+    for __name in __all__:
+        if not __name.startswith("__"):
+            setattr(__locals[__name], "__module__", "pkg")
+    self._models = pkg__models
+    self._types = pkg__types
+    self._models = pkg__models
+    self._types = pkg__types
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg.__init__ = _cribo_init___cribo_1fb248_pkg
+def _cribo_init___cribo_7e63ae_pkg__client(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Client module with circular import and other dependencies."""
+    AsyncStream = pkg.AsyncStream
+    self.AsyncStream = AsyncStream
+    self.AsyncStream = AsyncStream
+    SyncStream = pkg.SyncStream
+    self.SyncStream = SyncStream
+    self.SyncStream = SyncStream
+    Request = pkg__models.Request
+    pkg__client.Request = Request
+    Response = pkg__models.Response
+    pkg__client.Response = Response
+
+    class Client:
+        """Client that uses streams."""
+
+        def __init__(self):
+            self.async_stream = AsyncStream()
+            self.sync_stream = SyncStream()
+
+        def make_request(self):
+            req = Request()
+            return Response()
+    Client.__module__ = 'pkg._client'
+    self.Client = Client
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg__client.__init__ = _cribo_init___cribo_7e63ae_pkg__client
+def _cribo_init___cribo_fc6bcd_pkg__main(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global pkg__client
+    """Main module that imports client which imports back to parent."""
+    pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
+    Client = pkg._client.Client
+    self.Client = Client
+    self.Client = Client
+
+    def main():
+        """Main function using Client."""
+        client = Client()
+        return client.make_request()
+    self.main = main
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg__main.__init__ = _cribo_init___cribo_fc6bcd_pkg__main
 """Test module attribute setting on wildcard imports with circular dependencies."""
-pkg = _cribo_init___cribo_1fb248_pkg()
+__cribo_init_result = _cribo_init___cribo_1fb248_pkg(pkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(pkg, attr, getattr(__cribo_init_result, attr))
 stream_a = pkg.AsyncStream()
 stream_s = pkg.SyncStream()
 print(f"AsyncStream: {stream_a.read()}")

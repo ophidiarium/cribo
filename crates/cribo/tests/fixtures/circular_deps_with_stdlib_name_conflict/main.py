@@ -21,4 +21,4 @@ pp.pretty_print({"test": "data"})
 # Verify that abc module is properly initialized
 from pkg.abc import RichRenderable
 
-print(f"RichRenderable class: {RichRenderable}")
+print(f"RichRenderable class: {RichRenderable.__module__}.{RichRenderable.__name__}")

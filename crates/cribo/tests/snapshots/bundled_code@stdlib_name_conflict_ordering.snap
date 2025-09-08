@@ -28,6 +28,9 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+complex_pkg_abc = _cribo.types.SimpleNamespace(__name__='complex_pkg.abc')
+complex_pkg = _cribo.types.SimpleNamespace(__name__='complex_pkg', __initializing__=False, __initialized__=False)
+complex_pkg.abc = complex_pkg_abc
 class Base(_cribo.abc.ABC):
     """Base class like rich.abc.RichRenderable"""
 
@@ -38,29 +41,84 @@ class Base(_cribo.abc.ABC):
     @classmethod
     def __subclasshook__(cls, other):
         return hasattr(other, "render")
-class Console(Base):
-    """Console class similar to rich.console.Console"""
-
-    def __init__(self):
-        self.buffer: _cribo.typing.List[str] = []
-
-    def render(self):
-        return "\n".join(self.buffer)
-
-    def print(self, *args: _cribo.typing.Any):
-        self.buffer.append(" ".join(str(arg) for arg in args))
-        print(*args)
-def main():
-    console = Console()
-    console.print("Testing")
-Console.__module__ = 'complex_pkg.console'
 Base.__module__ = 'complex_pkg.abc'
-complex_pkg = _cribo.types.SimpleNamespace(__name__='complex_pkg')
-complex_pkg_console = _cribo.types.SimpleNamespace(__name__='complex_pkg.console')
-complex_pkg.console = complex_pkg_console
-complex_pkg_abc = _cribo.types.SimpleNamespace(__name__='complex_pkg.abc')
-complex_pkg.abc = complex_pkg_abc
-complex_pkg.main = main
-complex_pkg_console.Console = Console
 complex_pkg_abc.Base = Base
+complex_pkg_console = _cribo.types.SimpleNamespace(__name__='complex_pkg.console', __initializing__=False, __initialized__=False)
+complex_pkg.console = complex_pkg_console
+def _cribo_init___cribo_937418_complex_pkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global complex_pkg_console
+    Base = complex_pkg_abc.Base
+    complex_pkg.Base = Base
+    complex_pkg_console = _cribo_init___cribo_beaba5_complex_pkg_console(complex_pkg_console)
+    Console = complex_pkg_console.Console
+    self.Console = Console
+    self.Console = Console
+
+    def main():
+        console = Console()
+        console.print("Testing")
+    self.main = main
+    self.abc = complex_pkg_abc
+    self.abc = complex_pkg_abc
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+complex_pkg.__init__ = _cribo_init___cribo_937418_complex_pkg
+def _cribo_init___cribo_beaba5_complex_pkg_console(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    Any = _cribo.typing.Any
+    self.Any = Any
+    Optional = _cribo.typing.Optional
+    self.Optional = Optional
+    List = _cribo.typing.List
+    self.List = List
+    Enum = _cribo.enum.Enum
+    self.Enum = Enum
+    Base = complex_pkg_abc.Base
+    complex_pkg_console.Base = Base
+
+    class RenderMode(_cribo.enum.Enum):
+        DEFAULT = "default"
+        HTML = "html"
+    RenderMode.__module__ = 'complex_pkg.console'
+    self.RenderMode = RenderMode
+
+    class Console(Base):
+        """Console class similar to rich.console.Console"""
+
+        def __init__(self):
+            self.buffer: _cribo.typing.List[str] = []
+
+        def render(self):
+            return "\n".join(self.buffer)
+
+        def print(self, *args: _cribo.typing.Any):
+            self.buffer.append(" ".join(str(arg) for arg in args))
+            print(*args)
+    Console.__module__ = 'complex_pkg.console'
+    self.Console = Console
+    self.Any = _cribo.typing.Any
+    self.Optional = _cribo.typing.Optional
+    self.List = _cribo.typing.List
+    self.Enum = _cribo.enum.Enum
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+complex_pkg_console.__init__ = _cribo_init___cribo_beaba5_complex_pkg_console
+__cribo_init_result = _cribo_init___cribo_937418_complex_pkg(complex_pkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(complex_pkg, attr, getattr(__cribo_init_result, attr))
+main = complex_pkg.main
 main()
+console = complex_pkg.console
+abc = complex_pkg.abc

@@ -3,7 +3,6 @@
 //! This module contains visitor patterns for traversing Python AST nodes,
 //! enabling comprehensive import discovery and AST transformations.
 
-mod class_def_dependencies;
 mod export_collector;
 mod import_discovery;
 mod local_var_collector;
@@ -12,7 +11,6 @@ pub mod symbol_collector;
 pub mod utils;
 mod variable_collector;
 
-pub use class_def_dependencies::ClassDefDependencyCollector;
 pub use export_collector::ExportCollector;
 pub use import_discovery::{
     DiscoveredImport, ImportDiscoveryVisitor, ImportLocation, ImportType, ScopeElement,

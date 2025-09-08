@@ -28,20 +28,28 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_f0aa89_compat():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'compat'
+compat = _cribo.types.SimpleNamespace(__name__='compat', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_f0aa89_compat(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     """compat.py - Compatibility module with side effects."""
     print("Loading compat module...")
     MutableMapping = _cribo.collections.abc.MutableMapping
-    _cribo_module.MutableMapping = MutableMapping
+    self.MutableMapping = MutableMapping
     Mapping = _cribo.collections.abc.Mapping
-    _cribo_module.Mapping = Mapping
-    _cribo_module.MutableMapping = _cribo.collections.abc.MutableMapping
-    _cribo_module.Mapping = _cribo.collections.abc.Mapping
-    return _cribo_module
-compat = _cribo_init___cribo_f0aa89_compat()
+    self.Mapping = Mapping
+    self.MutableMapping = _cribo.collections.abc.MutableMapping
+    self.Mapping = _cribo.collections.abc.Mapping
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+compat.__init__ = _cribo_init___cribo_f0aa89_compat
+structures = _cribo.types.SimpleNamespace(__name__='structures')
+"""structures.py - Contains data structures."""
+compat = compat.__init__(compat)
 class CaseInsensitiveDict(compat.MutableMapping):
     """A case-insensitive dict-like object."""
 
@@ -62,9 +70,8 @@ class CaseInsensitiveDict(compat.MutableMapping):
 
     def __len__(self):
         return len(self._store)
-"""structures.py - Contains data structures."""
 CaseInsensitiveDict.__module__ = 'structures'
-compat = _cribo_init___cribo_f0aa89_compat()
+structures.CaseInsensitiveDict = CaseInsensitiveDict
 """Test case for collections.abc imports in wrapper modules."""
 d = CaseInsensitiveDict()
 d["Accept"] = "application/json"

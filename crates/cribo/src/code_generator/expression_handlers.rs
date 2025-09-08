@@ -5,8 +5,8 @@
 
 use log::debug;
 use ruff_python_ast::{
-    ExceptHandler, Expr, ExprAttribute, ExprContext, Identifier, Stmt, StmtAssign, StmtClassDef,
-    StmtFunctionDef,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, Identifier, Stmt, StmtAssign,
+    StmtClassDef, StmtFunctionDef,
 };
 use ruff_text_size::TextRange;
 
@@ -953,6 +953,11 @@ fn rewrite_aliases_in_function(
     // First handle global statements specially
     rewrite_global_statements_in_function(func_def, alias_to_canonical);
 
+    // Hoist and deduplicate any global statements to the start of the function body
+    // (after a possible docstring). This prevents Python errors where a name is
+    // used before its corresponding `global` declaration within the same function.
+    hoist_and_dedup_global_statements(func_def);
+
     // Then rewrite all non-global statements in the function body
     for (idx, stmt) in func_def.body.iter_mut().enumerate() {
         // Skip global statements as they've already been processed
@@ -1047,6 +1052,58 @@ fn rewrite_global_statements_only(
         }
         _ => {}
     }
+}
+
+/// Move all `global` statements in a function to the start of the function body
+/// (after a leading docstring, if present) and deduplicate their names.
+fn hoist_and_dedup_global_statements(func_def: &mut StmtFunctionDef) {
+    use ruff_python_ast::helpers::is_docstring_stmt;
+
+    // Collect all global names in order of first appearance
+    let mut names: FxIndexSet<String> = FxIndexSet::default();
+    let mut has_global = false;
+
+    for stmt in &func_def.body {
+        if let Stmt::Global(g) = stmt {
+            has_global = true;
+            for ident in &g.names {
+                names.insert(ident.as_str().to_string());
+            }
+        }
+    }
+
+    if !has_global {
+        return;
+    }
+
+    debug!("Hoisting {} global name(s) to function start", names.len());
+
+    // Rebuild body without any existing global statements
+    let mut new_body: Vec<Stmt> = Vec::with_capacity(func_def.body.len());
+    for stmt in func_def.body.drain(..) {
+        if !matches!(stmt, Stmt::Global(_)) {
+            new_body.push(stmt);
+        }
+    }
+
+    // Determine insertion index: after a leading docstring statement, if any
+    let insert_at = usize::from(new_body.first().is_some_and(is_docstring_stmt));
+
+    // Build a single combined global statement with deduplicated names
+    let combined_global = Stmt::Global(ruff_python_ast::StmtGlobal {
+        names: names
+            .into_iter()
+            .map(|s| Identifier::new(s, TextRange::default()))
+            .collect(),
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    });
+
+    // Insert the combined global at the computed position
+    new_body.insert(insert_at, combined_global);
+
+    // Replace function body
+    func_def.body = new_body;
 }
 
 /// Rewrite aliases in class definitions

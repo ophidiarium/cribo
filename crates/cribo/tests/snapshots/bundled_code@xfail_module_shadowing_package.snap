@@ -28,28 +28,38 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-@_cribo.functools.cache
-def _cribo_init___cribo_2b5490_pandera():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pandera'
+pandera = _cribo.types.SimpleNamespace(__name__='pandera', __initializing__=False, __initialized__=False, __path__=[])
+def _cribo_init___cribo_2b5490_pandera(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     """First-party pandera package that shadows the third-party pandera package."""
     print("Loading first-party pandera package")
     __version__ = "0.0.1-local-package"
-    _cribo_module.__version__ = __version__
+    self.__version__ = __version__
 
     def local_function():
         return "This is from the local pandera package"
-    _cribo_module.local_function = local_function
-    return _cribo_module
-@_cribo.functools.cache
-def _cribo_init___cribo_a6eb08_test_import():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'test_import'
+    self.local_function = local_function
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pandera.__init__ = _cribo_init___cribo_2b5490_pandera
+test_import = _cribo.types.SimpleNamespace(__name__='test_import', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_a6eb08_test_import(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global pandera
     """Test module that tries to import pandera.polars.\n\nThis demonstrates what happens when we have a local 'pandera' package\nthat shadows the third-party pandera package, and we try to import\na submodule that only exists in the third-party package.\n"""
     print("Starting test_import.py")
     try:
         import pandera.polars as pa
-        _cribo_module.pa = pa
+        test_import.pa = pa
         print("Successfully imported pandera.polars")
         print(f"pandera.polars module: {pa.__name__}")
     except ImportError as e:
@@ -57,8 +67,8 @@ def _cribo_init___cribo_a6eb08_test_import():
     except AttributeError as e:
         print(f"AttributeError: {e}")
     try:
-        pandera = _cribo_init___cribo_2b5490_pandera()
-        _cribo_module.pandera = pandera
+        pandera = _cribo_init___cribo_2b5490_pandera(pandera)
+        test_import.pandera = pandera
         print("\nImported pandera successfully")
         print(f"pandera.__version__: {pandera.__version__}")
         if hasattr(pandera, "local_function"):
@@ -67,9 +77,13 @@ def _cribo_init___cribo_a6eb08_test_import():
             print("This is the third-party pandera package")
     except ImportError as e:
         print(f"\nFailed to import pandera: {e}")
-    return _cribo_module
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+test_import.__init__ = _cribo_init___cribo_a6eb08_test_import
 """Main entry point that imports test_import to demonstrate module shadowing behavior."""
 print("=== Module Shadowing Test (Package Version) ===")
 print("This test demonstrates Python's behavior when a first-party package")
 print("shadows a third-party package name.\n")
+test_import = _cribo_init___cribo_a6eb08_test_import(test_import)
 print("\n=== Test Complete ===")

@@ -5,10 +5,11 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprCall,
-    ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
-    ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart, FStringValue, Keyword,
-    Operator, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    AtomicNodeIndex, BoolOp, CmpOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprBooleanLiteral,
+    ExprCall, ExprCompare, ExprContext, ExprIf, ExprList, ExprName, ExprNoneLiteral,
+    ExprStringLiteral, ExprSubscript, ExprTuple, ExprUnaryOp, FStringFlags, FStringPart,
+    FStringValue, Keyword, Operator, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -110,6 +111,25 @@ pub fn string_literal(value: &str) -> Expr {
 /// ```
 pub fn none_literal() -> Expr {
     Expr::NoneLiteral(ExprNoneLiteral {
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a boolean literal expression node.
+///
+/// # Arguments
+/// * `value` - The boolean value
+///
+/// # Example
+/// ```rust
+/// // Creates: `True` or `False`
+/// let true_expr = bool_literal(true);
+/// let false_expr = bool_literal(false);
+/// ```
+pub fn bool_literal(value: bool) -> Expr {
+    Expr::BooleanLiteral(ExprBooleanLiteral {
+        value,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     })
@@ -367,10 +387,7 @@ pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
 /// # Example
 /// ```rust
 /// // Creates: `a or b`
-/// let values = vec![
-///     name("a", ExprContext::Load),
-///     name("b", ExprContext::Load),
-/// ];
+/// let values = vec![name("a", ExprContext::Load), name("b", ExprContext::Load)];
 /// let expr = bool_op(BoolOp::Or, values);
 /// ```
 pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
@@ -430,30 +447,23 @@ pub fn in_op(left: Expr, right: Expr) -> Expr {
     })
 }
 
-/// Convert an expression to a dotted name string
+/// Creates a keyword argument node.
 ///
-/// This function extracts a dotted name string from Name and Attribute expressions.
-/// It's the inverse of the `dotted_name` function.
+/// # Arguments
+/// * `arg` - The keyword argument name (None for **kwargs)
+/// * `value` - The value expression
 ///
-/// # Examples
+/// # Example
 /// ```rust
-/// // Name("foo") -> "foo"
-/// // Attribute(Name("foo"), "bar") -> "foo.bar"
-/// // Attribute(Attribute(Name("foo"), "bar"), "baz") -> "foo.bar.baz"
-/// // Other expression types -> ""
+/// // Creates: `key=value` (as part of a function call)
+/// let value_expr = name("value", ExprContext::Load);
+/// let kw = keyword(Some("key"), value_expr);
 /// ```
-pub fn expr_to_dotted_name(expr: &Expr) -> String {
-    match expr {
-        Expr::Name(name) => name.id.as_str().to_string(),
-        Expr::Attribute(attr) => {
-            let base = expr_to_dotted_name(&attr.value);
-            if base.is_empty() {
-                // If base is not a name or attribute chain, return empty
-                String::new()
-            } else {
-                format!("{}.{}", base, attr.attr.as_str())
-            }
-        }
-        _ => String::new(),
+pub fn keyword(arg: Option<&str>, value: Expr) -> Keyword {
+    Keyword {
+        node_index: AtomicNodeIndex::dummy(),
+        arg: arg.map(|s| ruff_python_ast::Identifier::new(s, TextRange::default())),
+        value,
+        range: TextRange::default(),
     }
 }

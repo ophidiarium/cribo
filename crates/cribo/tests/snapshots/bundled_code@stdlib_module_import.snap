@@ -28,6 +28,8 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+helper = _cribo.types.SimpleNamespace(__name__='helper')
+"""Helper module that imports stdlib modules at module level."""
 def process():
     """Use the imported modules."""
 
@@ -43,7 +45,6 @@ def process():
     lock = _cribo.threading.Lock()
     print("All modules used successfully")
     return True
-"""Helper module that imports stdlib modules at module level."""
-helper = _cribo.types.SimpleNamespace(__name__='helper', process=process)
+helper.process = process
 """Test case for stdlib module-level imports being incorrectly transformed."""
 helper.process()

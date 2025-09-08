@@ -28,17 +28,22 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg = _cribo.types.SimpleNamespace(__name__='pkg')
 pkg_submodule = _cribo.types.SimpleNamespace(__name__='pkg.submodule')
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
 pkg.submodule = pkg_submodule
 def create_object():
     """Factory function that imports from parent."""
+    RealObject = globals()['pkg'].MyObject
     return pkg.MyObject()
-@_cribo.functools.cache
-def _cribo_init___cribo_9c0ae3_pkg():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'pkg'
-    _cribo_module.create_object = create_object
+pkg_submodule.create_object = create_object
+def _cribo_init___cribo_9c0ae3_pkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    create_object = pkg_submodule.create_object
+    pkg.create_object = create_object
 
     class MyMetaclass(type):
         """The metaclass."""
@@ -48,7 +53,7 @@ def _cribo_init___cribo_9c0ae3_pkg():
             if hasattr(cls, "tag"):
                 print(f"Metaclass initialized {name} with tag {cls.tag}")
     MyMetaclass.__module__ = 'pkg'
-    _cribo_module.MyMetaclass = MyMetaclass
+    self.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
         """An object with metaclass."""
@@ -60,12 +65,20 @@ def _cribo_init___cribo_9c0ae3_pkg():
         def __repr__(self):
             return f"MyObject(value={self.value})"
     MyObject.__module__ = 'pkg'
-    _cribo_module.MyObject = MyObject
-    _cribo_module.submodule = pkg_submodule
-    return _cribo_module
-pkg_submodule.create_object = create_object
-pkg = _cribo_init___cribo_9c0ae3_pkg()
+    self.MyObject = MyObject
+    self.submodule = pkg_submodule
+    self.submodule = pkg_submodule
+    self.create_object = create_object
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+pkg.__init__ = _cribo_init___cribo_9c0ae3_pkg
+__cribo_init_result = _cribo_init___cribo_9c0ae3_pkg(pkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(pkg, attr, getattr(__cribo_init_result, attr))
 MyObject = pkg.MyObject
 obj = create_object()
 print(f"Object created: {obj}")
 print(f"Object tag: {obj.tag}")
+submodule = pkg.submodule

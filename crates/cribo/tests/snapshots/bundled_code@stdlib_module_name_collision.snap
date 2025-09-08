@@ -28,42 +28,91 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+mypkg_abc = _cribo.types.SimpleNamespace(__name__='mypkg.abc')
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg.abc = mypkg_abc
+"""Local 'abc' module that imports from stdlib 'abc'."""
 class MyBaseClass(_cribo.abc.ABC):
     """Base class using stdlib ABC."""
     pass
-def test_function():
-    """Test function using imports."""
-    if _cribo.abc.ABC:
-        my_list: _cribo.typing.List[str] = ["test"]
-        TestEnum = _cribo.enum.Enum("TestEnum", ["A", "B"])
-        obj = local_abc.create_object()
-        loader = _cribo.importlib.machinery.SourceFileLoader
-        return f"Success with {my_list} and {TestEnum.A} and {loader.__name__}"
-    return "Failed"
+MyBaseClass.__module__ = 'mypkg.abc'
 def create_object():
     """Create an object for testing."""
 
     class TestObject(MyBaseClass):
         pass
     return TestObject()
-"""Package with modules including one named 'abc' (same as stdlib)."""
-"""Console module that imports various stdlib modules."""
-"""Local 'abc' module that imports from stdlib 'abc'."""
-MyBaseClass.__module__ = 'mypkg.abc'
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
-mypkg_console = _cribo.types.SimpleNamespace(__name__='mypkg.console')
-mypkg.console = mypkg_console
-mypkg_abc = _cribo.types.SimpleNamespace(__name__='mypkg.abc')
-mypkg.abc = mypkg_abc
-abc = mypkg_abc
-console = mypkg_console
-local_abc = mypkg_abc
 mypkg_abc.MyBaseClass = MyBaseClass
 mypkg_abc.create_object = create_object
-mypkg_console.test_function = test_function
+mypkg_console = _cribo.types.SimpleNamespace(__name__='mypkg.console', __initializing__=False, __initialized__=False)
+mypkg.console = mypkg_console
+def _cribo_init___cribo_9a2a8c_mypkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypkg_console
+    """Package with modules including one named 'abc' (same as stdlib)."""
+    abc = mypkg.abc
+    self.abc = abc
+    self.abc = abc
+    mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
+    console = mypkg.console
+    self.console = console
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg.__init__ = _cribo_init___cribo_9a2a8c_mypkg
+def _cribo_init___cribo_6558da_mypkg_console(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    """Console module that imports various stdlib modules."""
+    abc = _cribo.abc
+    self.abc = abc
+    self.abc = abc
+    typing = _cribo.typing
+    self.typing = typing
+    self.typing = typing
+    enum = _cribo.enum
+    self.enum = enum
+    self.enum = enum
+    threading = _cribo.threading
+    self.threading = threading
+    self.threading = threading
+    ctypes = _cribo.ctypes
+    self.ctypes = ctypes
+    self.ctypes = ctypes
+    local_abc = mypkg.abc
+    self.local_abc = local_abc
+    self.local_abc = local_abc
+
+    def test_function():
+        """Test function using imports."""
+        if _cribo.abc.ABC:
+            my_list: _cribo.typing.List[str] = ["test"]
+            TestEnum = _cribo.enum.Enum("TestEnum", ["A", "B"])
+            obj = local_abc.create_object()
+            loader = _cribo.importlib.machinery.SourceFileLoader
+            return f"Success with {my_list} and {TestEnum.A} and {loader.__name__}"
+        return "Failed"
+    self.test_function = test_function
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg_console.__init__ = _cribo_init___cribo_6558da_mypkg_console
 """Test that triggers stdlib import collision bug when bundling packages."""
+__cribo_init_result = _cribo_init___cribo_9a2a8c_mypkg(mypkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypkg, attr, getattr(__cribo_init_result, attr))
 result = mypkg.console.test_function()
 print(f"Result: {result}")
 obj = mypkg.abc.create_object()
 print(f"Object type: {type(obj).__name__}")
 print("Test completed successfully")
+console = mypkg.console
+abc = mypkg.abc

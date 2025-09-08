@@ -4,12 +4,13 @@ use log::{debug, trace};
 use ruff_python_ast::{
     self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom, visitor::Visitor,
 };
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    cribo_graph::{CriboGraph, ModuleId},
+    cribo_graph::CriboGraph,
+    resolver::ModuleId,
     semantic_bundler::SemanticBundler,
-    visitors::{DiscoveredImport, ImportDiscoveryVisitor},
+    types::{FxIndexMap, FxIndexSet},
+    visitors::{DiscoveredImport, ImportDiscoveryVisitor, ImportLocation},
 };
 
 /// Strategy for deduplicating imports within functions
@@ -27,7 +28,7 @@ pub struct MovableImport {
     /// Functions that use this import
     pub target_functions: Vec<String>,
     /// The source module containing this import
-    pub source_module: String,
+    pub source_module_id: ModuleId,
 }
 
 /// Represents an import statement in a normalized form
@@ -64,13 +65,13 @@ impl ImportRewriter {
         graph: &CriboGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
         semantic_bundler: &SemanticBundler,
-        module_asts: &[(String, &ModModule)],
+        module_asts: &FxIndexMap<ModuleId, &ModModule>,
     ) -> Vec<MovableImport> {
         let mut movable_imports = Vec::new();
 
         // Cache to avoid re-analyzing modules that appear in multiple cycles
-        let mut module_import_cache: FxHashMap<ModuleId, Vec<DiscoveredImport>> =
-            FxHashMap::default();
+        let mut module_import_cache: FxIndexMap<ModuleId, Vec<DiscoveredImport>> =
+            FxIndexMap::default();
 
         for cycle in resolvable_cycles {
             debug!(
@@ -88,44 +89,47 @@ impl ImportRewriter {
             }
 
             // For each module in the cycle, find imports that can be moved
-            for module_name in &cycle.modules {
-                if let Some(module_id) = graph.module_names.get(module_name) {
-                    // Check if we've already analyzed this module
-                    let discovered_imports =
-                        if let Some(cached_imports) = module_import_cache.get(module_id) {
-                            trace!("Using cached import analysis for module '{module_name}'");
-                            cached_imports.clone()
-                        } else {
-                            // Find the AST for this module
-                            if let Some((_, ast)) =
-                                module_asts.iter().find(|(name, _)| name == module_name)
-                            {
-                                // Perform semantic analysis using enhanced ImportDiscoveryVisitor
-                                let mut visitor = ImportDiscoveryVisitor::with_semantic_bundler(
-                                    semantic_bundler,
-                                    *module_id,
-                                );
-                                for stmt in &ast.body {
-                                    visitor.visit_stmt(stmt);
-                                }
-                                let imports = visitor.into_imports();
+            for &module_id in &cycle.modules {
+                // Get module name from graph (for logging only)
+                let module_name = if let Some(module) = graph.modules.get(&module_id) {
+                    &module.module_name
+                } else {
+                    continue;
+                };
 
-                                // Cache the results for future use
-                                module_import_cache.insert(*module_id, imports.clone());
-                                imports
-                            } else {
-                                continue;
-                            }
-                        };
+                // Check if we've already analyzed this module
+                let discovered_imports = if let Some(cached_imports) =
+                    module_import_cache.get(&module_id)
+                {
+                    trace!("Using cached import analysis for module '{module_name}'");
+                    cached_imports.clone()
+                } else {
+                    // Find the AST for this module using ModuleId
+                    let Some(ast) = module_asts.get(&module_id) else {
+                        continue;
+                    };
 
-                    // Find movable imports based on semantic analysis
-                    let candidates = self.find_movable_imports_from_discovered(
-                        &discovered_imports,
-                        module_name,
-                        &cycle.modules,
-                    );
-                    movable_imports.extend(candidates);
-                }
+                    // Perform semantic analysis using enhanced ImportDiscoveryVisitor
+                    let mut visitor =
+                        ImportDiscoveryVisitor::with_semantic_bundler(semantic_bundler, module_id);
+                    for stmt in &ast.body {
+                        visitor.visit_stmt(stmt);
+                    }
+                    let imports = visitor.into_imports();
+
+                    // Cache the results for future use
+                    module_import_cache.insert(module_id, imports.clone());
+                    imports
+                };
+
+                // Find movable imports based on semantic analysis
+                let candidates = self.find_movable_imports_from_discovered(
+                    &discovered_imports,
+                    module_id,
+                    &cycle.modules,
+                    graph,
+                );
+                movable_imports.extend(candidates);
             }
         }
 
@@ -140,15 +144,22 @@ impl ImportRewriter {
     fn find_movable_imports_from_discovered(
         &self,
         discovered_imports: &[DiscoveredImport],
-        module_name: &str,
-        cycle_modules: &[String],
+        source_module_id: ModuleId,
+        cycle_module_ids: &[ModuleId],
+        graph: &CriboGraph,
     ) -> Vec<MovableImport> {
         let mut movable = Vec::new();
+
+        // Get module name for logging
+        let module_name = graph
+            .modules
+            .get(&source_module_id)
+            .map_or("<unknown>", |m| m.module_name.as_str());
 
         for import_info in discovered_imports {
             // Check if this import is part of the cycle
             if let Some(imported_module) = &import_info.module_name {
-                if !self.is_import_in_cycle(imported_module, cycle_modules) {
+                if !self.is_import_in_cycle(imported_module, cycle_module_ids, graph) {
                     continue;
                 }
 
@@ -160,11 +171,45 @@ impl ImportRewriter {
                     continue;
                 }
 
-                // Import is movable, now determine target functions
-                // For now, we'll move to all functions (could be enhanced later)
-                let target_functions = vec!["*".to_string()]; // Move to all functions
-
-                trace!("Import {imported_module} in {module_name} can be moved to functions");
+                // Import is movable, now determine target functions based on import location
+                let target_functions = match &import_info.location {
+                    ImportLocation::Function(func_name) => {
+                        // Import is in a specific function, move it only to that function
+                        trace!(
+                            "Import {imported_module} in {module_name}::{func_name} can be moved \
+                             to function scope"
+                        );
+                        vec![func_name.clone()]
+                    }
+                    ImportLocation::Method { class, method } => {
+                        // Import is in a method, we need to handle this specially
+                        // For now, skip methods as they're more complex
+                        trace!(
+                            "Import {imported_module} in {module_name}::{class}::{method} is in a \
+                             method, skipping"
+                        );
+                        continue;
+                    }
+                    ImportLocation::Module => {
+                        // Module-level import that needs to be moved to all functions that use it
+                        // This requires more complex analysis to determine which functions actually
+                        // use it For now, move to all functions
+                        trace!(
+                            "Import {imported_module} in {module_name} is at module level, moving \
+                             to all functions"
+                        );
+                        vec!["*".to_string()]
+                    }
+                    _ => {
+                        // Other locations (Class, Conditional, Nested) are not handled yet
+                        trace!(
+                            "Import {imported_module} in {module_name} has complex location {:?}, \
+                             skipping",
+                            import_info.location
+                        );
+                        continue;
+                    }
+                };
 
                 // Convert to ImportStatement
                 let import_stmt =
@@ -190,7 +235,7 @@ impl ImportRewriter {
                 movable.push(MovableImport {
                     import_stmt,
                     target_functions,
-                    source_module: module_name.to_string(),
+                    source_module_id,
                 });
             }
         }
@@ -199,19 +244,25 @@ impl ImportRewriter {
     }
 
     /// Check if an import is part of a circular dependency cycle
-    fn is_import_in_cycle(&self, imported_module: &str, cycle_modules: &[String]) -> bool {
-        // Direct match
-        if cycle_modules.contains(&imported_module.to_string()) {
-            return true;
-        }
-
-        // Check if it's a submodule of any cycle module
-        for cycle_module in cycle_modules {
-            if imported_module.starts_with(&format!("{cycle_module}.")) {
-                return true;
+    fn is_import_in_cycle(
+        &self,
+        imported_module_name: &str,
+        cycle_module_ids: &[ModuleId],
+        graph: &CriboGraph,
+    ) -> bool {
+        // Check each module ID in the cycle
+        for &module_id in cycle_module_ids {
+            if let Some(module) = graph.modules.get(&module_id) {
+                // Direct match
+                if module.module_name == imported_module_name {
+                    return true;
+                }
+                // Check if it's a submodule
+                if imported_module_name.starts_with(&format!("{}.", module.module_name)) {
+                    return true;
+                }
             }
         }
-
         false
     }
 
@@ -220,18 +271,18 @@ impl ImportRewriter {
         &mut self,
         module_ast: &mut ModModule,
         movable_imports: &[MovableImport],
-        module_name: &str,
+        module_id: ModuleId,
     ) {
         debug!(
-            "Rewriting module {} with {} movable imports",
-            module_name,
+            "Rewriting module {:?} with {} movable imports",
+            module_id,
             movable_imports.len()
         );
 
         // Filter imports for this module
         let module_imports: Vec<_> = movable_imports
             .iter()
-            .filter(|mi| mi.source_module == module_name)
+            .filter(|mi| mi.source_module_id == module_id)
             .collect();
 
         if module_imports.is_empty() {
@@ -251,23 +302,22 @@ impl ImportRewriter {
         &self,
         movable_imports: &[&MovableImport],
         body: &[Stmt],
-    ) -> FxHashSet<usize> {
-        let mut indices_to_remove = FxHashSet::default();
+    ) -> FxIndexSet<usize> {
+        let mut indices_to_remove = FxIndexSet::default();
 
         for (idx, stmt) in body.iter().enumerate() {
             match stmt {
                 Stmt::Import(import_stmt) => {
-                    // For regular imports, check each alias individually
-                    for alias in &import_stmt.names {
+                    // Check if all aliases in the import are movable
+                    let all_aliases_movable = import_stmt.names.iter().all(|alias| {
                         let import = ImportStatement::Import {
                             module: alias.name.to_string(),
                             alias: alias.asname.as_ref().map(std::string::ToString::to_string),
                         };
-
-                        if movable_imports.iter().any(|mi| mi.import_stmt == import) {
-                            indices_to_remove.insert(idx);
-                            break; // Once we find a match, mark the whole statement for removal
-                        }
+                        movable_imports.iter().any(|mi| mi.import_stmt == import)
+                    });
+                    if all_aliases_movable {
+                        indices_to_remove.insert(idx);
                     }
                 }
                 Stmt::ImportFrom(import_from) => {
@@ -365,7 +415,7 @@ impl ImportRewriter {
     fn remove_module_imports(
         &self,
         module_ast: &mut ModModule,
-        indices_to_remove: &FxHashSet<usize>,
+        indices_to_remove: &FxIndexSet<usize>,
     ) {
         // Remove imports in reverse order to maintain indices
         let mut indices: Vec<_> = indices_to_remove.iter().copied().collect();
@@ -379,7 +429,8 @@ impl ImportRewriter {
     /// Add imports to function bodies
     fn add_function_imports(&self, module_ast: &mut ModModule, module_imports: &[&MovableImport]) {
         // Group imports by target function
-        let mut imports_by_function: FxHashMap<String, Vec<&MovableImport>> = FxHashMap::default();
+        let mut imports_by_function: FxIndexMap<String, Vec<&MovableImport>> =
+            FxIndexMap::default();
 
         for import in module_imports {
             for func_name in &import.target_functions {
@@ -417,7 +468,7 @@ impl ImportRewriter {
         imports: &[&MovableImport],
     ) {
         // First, collect existing imports in the function to avoid duplicates
-        let mut existing_imports = FxHashSet::default();
+        let mut existing_imports = FxIndexSet::default();
         for stmt in &func_def.body {
             match stmt {
                 Stmt::Import(import_stmt) => {
@@ -429,23 +480,24 @@ impl ImportRewriter {
                     }
                 }
                 Stmt::ImportFrom(from_stmt) => {
-                    if let Some(module) = &from_stmt.module {
-                        let names: Vec<(String, Option<String>)> = from_stmt
-                            .names
-                            .iter()
-                            .map(|alias| {
-                                (
-                                    alias.name.to_string(),
-                                    alias.asname.as_ref().map(std::string::ToString::to_string),
-                                )
-                            })
-                            .collect();
-                        existing_imports.insert(ImportStatement::FromImport {
-                            module: Some(module.to_string()),
-                            names,
-                            level: from_stmt.level,
-                        });
-                    }
+                    let names: Vec<(String, Option<String>)> = from_stmt
+                        .names
+                        .iter()
+                        .map(|alias| {
+                            (
+                                alias.name.to_string(),
+                                alias.asname.as_ref().map(std::string::ToString::to_string),
+                            )
+                        })
+                        .collect();
+                    existing_imports.insert(ImportStatement::FromImport {
+                        module: from_stmt
+                            .module
+                            .as_ref()
+                            .map(std::string::ToString::to_string),
+                        names,
+                        level: from_stmt.level,
+                    });
                 }
                 _ => {}
             }

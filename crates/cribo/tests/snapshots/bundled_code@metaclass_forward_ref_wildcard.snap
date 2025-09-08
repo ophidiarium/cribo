@@ -28,7 +28,9 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-wildcard_pkg = _cribo.types.SimpleNamespace(__name__='wildcard_pkg')
+wildcard_pkg_meta = _cribo.types.SimpleNamespace(__name__='wildcard_pkg.meta')
+wildcard_pkg = _cribo.types.SimpleNamespace(__name__='wildcard_pkg', __initializing__=False, __initialized__=False)
+wildcard_pkg.meta = wildcard_pkg_meta
 class WildcardMetaclass(type):
     """Metaclass that adds yaml_tag"""
 
@@ -37,13 +39,35 @@ class WildcardMetaclass(type):
         if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
             cls.yaml_tag = f"!{name}"
 WildcardMetaclass.__module__ = 'wildcard_pkg.meta'
-wildcard_pkg_meta = _cribo.types.SimpleNamespace(__name__='wildcard_pkg.meta')
-wildcard_pkg.meta = wildcard_pkg_meta
-@_cribo.functools.cache
-def _cribo_init___cribo_5d409b_wildcard_pkg_base():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'wildcard_pkg.base'
-    _cribo_module.WildcardMetaclass = WildcardMetaclass
+wildcard_pkg_meta.WildcardMetaclass = WildcardMetaclass
+wildcard_pkg_base = _cribo.types.SimpleNamespace(__name__='wildcard_pkg.base', __initializing__=False, __initialized__=False)
+wildcard_pkg.base = wildcard_pkg_base
+def _cribo_init___cribo_99f82c_wildcard_pkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global wildcard_pkg_base
+    wildcard_pkg_base = _cribo_init___cribo_5d409b_wildcard_pkg_base(wildcard_pkg_base)
+    WildcardObject = wildcard_pkg.base.WildcardObject
+    wildcard_pkg.WildcardObject = WildcardObject
+    WildcardMetaclass = wildcard_pkg.base.WildcardMetaclass
+    wildcard_pkg.WildcardMetaclass = WildcardMetaclass
+    self.meta = wildcard_pkg_meta
+    self.meta = wildcard_pkg_meta
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+wildcard_pkg.__init__ = _cribo_init___cribo_99f82c_wildcard_pkg
+def _cribo_init___cribo_5d409b_wildcard_pkg_base(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    WildcardMetaclass = wildcard_pkg_meta.WildcardMetaclass
+    wildcard_pkg_base.WildcardMetaclass = WildcardMetaclass
 
     class WildcardObject(metaclass=WildcardMetaclass):
         """An object with a metaclass"""
@@ -52,15 +76,19 @@ def _cribo_init___cribo_5d409b_wildcard_pkg_base():
         def __str__(self):
             return f"WildcardObject(tag={self.yaml_tag})"
     WildcardObject.__module__ = 'wildcard_pkg.base'
-    _cribo_module.WildcardObject = WildcardObject
-    return _cribo_module
-wildcard_pkg.base = _cribo_init___cribo_5d409b_wildcard_pkg_base()
-WildcardObject = wildcard_pkg.base.WildcardObject
-WildcardMetaclass = wildcard_pkg.base.WildcardMetaclass
-wildcard_pkg_meta.WildcardMetaclass = WildcardMetaclass
-wildcard_pkg.WildcardMetaclass = WildcardMetaclass
-wildcard_pkg.WildcardObject = WildcardObject
+    self.WildcardObject = WildcardObject
+    self.WildcardMetaclass = WildcardMetaclass
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+wildcard_pkg_base.__init__ = _cribo_init___cribo_5d409b_wildcard_pkg_base
+__cribo_init_result = _cribo_init___cribo_99f82c_wildcard_pkg(wildcard_pkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(wildcard_pkg, attr, getattr(__cribo_init_result, attr))
 obj = wildcard_pkg.WildcardObject()
 print(f"WildcardObject: {obj}")
 print(f"Tag: {obj.yaml_tag}")
 print(f"Metaclass: {wildcard_pkg.WildcardMetaclass}")
+base = wildcard_pkg.base
+meta = wildcard_pkg.meta

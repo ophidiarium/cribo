@@ -294,7 +294,7 @@ fn test_bundling_fixtures() {
         let original_stdout = String::from_utf8_lossy(&original_output.stdout)
             .trim()
             .replace("\r\n", "\n")
-            .to_string();
+            .clone();
         let original_exit_code = original_output.status.code().unwrap_or(-1);
 
         // Create temporary directory for output
@@ -439,7 +439,7 @@ fn test_bundling_fixtures() {
         let bundled_stdout = String::from_utf8_lossy(&python_output.stdout)
             .trim()
             .replace("\r\n", "\n")
-            .to_string();
+            .clone();
         let python_exit_code = python_output.status.code().unwrap_or(-1);
 
         // For normal tests (not pyfail_ or xfail_), stdout should match exactly
@@ -491,12 +491,27 @@ fn test_bundling_fixtures() {
 
             if bundled_success {
                 // Both original and bundled succeeded - check if outputs match
-                assert!(
-                    (bundled_stdout != original_stdout),
-                    "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded and \
-                     produced same output as original.\nThis test is now fully passing. Please \
-                     remove the 'xfail_' prefix from the fixture directory name."
-                );
+                if bundled_stdout == original_stdout {
+                    // Before suggesting to remove xfail prefix, check for duplicate lines
+                    // If there are duplicates, the test should remain xfail
+                    if let Err(duplicate_msg) =
+                        check_for_duplicate_lines_with_result(&bundled_code, fixture_name)
+                    {
+                        // Has duplicates - don't suggest renaming, the test is still xfail
+                        eprintln!(
+                            "Note: Fixture '{fixture_name}' produces matching output but has \
+                             duplicate lines. It remains an xfail test.\n{duplicate_msg}"
+                        );
+                    } else {
+                        // No duplicates and matching output - suggest renaming
+                        panic!(
+                            "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded \
+                             and produced same output as original.\nThis test is now fully \
+                             passing. Please remove the 'xfail_' prefix from the fixture \
+                             directory name."
+                        );
+                    }
+                }
                 // Outputs differ - this is expected for xfail
             }
             // If bundled failed, that's expected for xfail
@@ -514,7 +529,7 @@ fn test_bundling_fixtures() {
             stdout: String::from_utf8_lossy(&python_output.stdout)
                 .trim()
                 .replace("\r\n", "\n")
-                .to_string(),
+                .clone(),
             stderr: {
                 let full_stderr = String::from_utf8_lossy(&python_output.stderr)
                     .trim()
@@ -568,9 +583,12 @@ fn test_bundling_fixtures() {
     );
 }
 
-/// Check for duplicate lines in the bundled code
-/// Trims lines from the right but preserves left indentation
-fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
+/// Check for duplicate lines in the bundled code and return Result
+/// Returns Ok(()) if no problematic duplicates, Err(message) if duplicates found
+fn check_for_duplicate_lines_with_result(
+    bundled_code: &str,
+    fixture_name: &str,
+) -> Result<(), String> {
     use std::fmt::Write;
 
     use indexmap::IndexMap;
@@ -648,6 +666,15 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
             );
         }
 
-        panic!("{}", error_msg);
+        return Err(error_msg);
+    }
+    Ok(())
+}
+
+/// Check for duplicate lines in the bundled code
+/// Trims lines from the right but preserves left indentation
+fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
+    if let Err(msg) = check_for_duplicate_lines_with_result(bundled_code, fixture_name) {
+        panic!("{}", msg);
     }
 }

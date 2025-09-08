@@ -28,15 +28,16 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg')
-MyError = None
-@_cribo.functools.cache
-def _cribo_init___cribo_19d82f_mypkg_compat():
-    _cribo_module = _cribo.types.SimpleNamespace()
-    _cribo_module.__name__ = 'mypkg.compat'
+mypkg_compat = _cribo.types.SimpleNamespace(__name__='mypkg.compat', __initializing__=False, __initialized__=False)
+def _cribo_init___cribo_19d82f_mypkg_compat(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
     try:
         JSONDecodeError = _cribo.json.JSONDecodeError
-        _cribo_module.JSONDecodeError = JSONDecodeError
+        mypkg_compat.JSONDecodeError = JSONDecodeError
     except ImportError:
 
         class JSONDecodeError(ValueError):
@@ -47,31 +48,73 @@ def _cribo_init___cribo_19d82f_mypkg_compat():
                 self.doc = doc
                 self.pos = pos
     bytes = __import__('builtins').bytes
-    _cribo_module.bytes = bytes
+    self.bytes = bytes
     basestring = str
-    _cribo_module.basestring = basestring
-    return _cribo_module
-mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
-class MyError(Exception):
-    """Base exception class"""
-    pass
-class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
-    """JSON error that inherits from compat JSONDecodeError"""
-
-    def __init__(self, *args):
-        mypkg.compat.JSONDecodeError.__init__(self, *args)
-        MyError.__init__(self, str(args[0]) if args else "")
-MyError.__module__ = 'mypkg.exceptions'
-MyJSONError.__module__ = 'mypkg.exceptions'
-mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions')
+    self.basestring = basestring
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg_compat.__init__ = _cribo_init___cribo_19d82f_mypkg_compat
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg.compat = mypkg_compat
+mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions', __initializing__=False, __initialized__=False)
 mypkg.exceptions = mypkg_exceptions
-mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
-exceptions = mypkg_exceptions
-compat = mypkg.compat
-mypkg_exceptions.MyError = MyError
-mypkg_exceptions.MyJSONError = MyJSONError
+def _cribo_init___cribo_d4de1c_mypkg(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    global mypkg_compat, mypkg_exceptions
+    mypkg_compat = _cribo_init___cribo_19d82f_mypkg_compat(mypkg_compat)
+    compat = mypkg.compat
+    self.compat = compat
+    mypkg_exceptions = _cribo_init___cribo_4c6596_mypkg_exceptions(mypkg_exceptions)
+    exceptions = mypkg.exceptions
+    self.exceptions = exceptions
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg.__init__ = _cribo_init___cribo_d4de1c_mypkg
+def _cribo_init___cribo_4c6596_mypkg_exceptions(self):
+    if getattr(self, '__initialized__', False):
+        return self
+    if getattr(self, '__initializing__', False):
+        return self
+    self.__initializing__ = True
+    __cribo_init_result = _cribo_init___cribo_d4de1c_mypkg(mypkg)
+    for attr in dir(__cribo_init_result):
+        if not attr.startswith('_'):
+            setattr(mypkg, attr, getattr(__cribo_init_result, attr))
+
+    class MyError(Exception):
+        """Base exception class"""
+        pass
+    MyError.__module__ = 'mypkg.exceptions'
+    self.MyError = MyError
+
+    class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
+        """JSON error that inherits from compat JSONDecodeError"""
+
+        def __init__(self, *args):
+            mypkg.compat.JSONDecodeError.__init__(self, *args)
+            MyError.__init__(self, str(args[0]) if args else "")
+    MyJSONError.__module__ = 'mypkg.exceptions'
+    self.MyJSONError = MyJSONError
+    self.__initialized__ = True
+    self.__initializing__ = False
+    return self
+mypkg_exceptions.__init__ = _cribo_init___cribo_4c6596_mypkg_exceptions
+__cribo_init_result = _cribo_init___cribo_d4de1c_mypkg(mypkg)
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(mypkg, attr, getattr(__cribo_init_result, attr))
+mypkg_exceptions = _cribo_init___cribo_4c6596_mypkg_exceptions(mypkg_exceptions)
+MyJSONError = mypkg.exceptions.MyJSONError
 try:
     raise MyJSONError("Test error", "doc", 42)
 except MyJSONError as e:
     print(f"Caught error: {e}")
     print("SUCCESS")
+compat = mypkg.compat
+exceptions = mypkg.exceptions

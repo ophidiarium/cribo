@@ -28,12 +28,14 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+schema = _cribo.types.SimpleNamespace(__name__='schema')
 import pandera.polars as pa
 class CitySchema(pa.DataFrameModel):
     state: str
     city: str
     price: int
 CitySchema.__module__ = 'schema'
+schema.CitySchema = CitySchema
 import polars as pl
 from pandera.typing import DataFrame
 @pa.check_types(lazy=True)

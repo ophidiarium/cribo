@@ -28,10 +28,12 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+helper = _cribo.types.SimpleNamespace(__name__='helper')
 def validate_2():
     """Helper validate function"""
     return "helper validate"
-validate_imported = validate_2
+helper.validate = validate_2
+validate_imported = helper.validate
 def validate_1():
     """Local validate function that conflicts with imported one"""
     return "local validate"
