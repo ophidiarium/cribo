@@ -1272,26 +1272,22 @@ impl ModuleResolver {
             file_path
         };
 
-        // Convert current_dir to absolute path if it's relative
+        // Convert current_dir to absolute path if it's relative and canonicalize it
         let absolute_current_dir = if current_dir.is_absolute() {
-            current_dir.to_path_buf()
+            current_dir
+                .canonicalize()
+                .unwrap_or_else(|_| current_dir.to_path_buf())
         } else {
             let current_working_dir = std::env::current_dir().ok()?;
-            current_working_dir.join(current_dir)
+            let joined = current_working_dir.join(current_dir);
+            joined.canonicalize().unwrap_or(joined)
         };
 
-        // Find which source directory contains this file
-        let relative_dir = self.config.src.iter().find_map(|src_dir| {
-            // Handle case where paths might be relative vs absolute
-            if src_dir.is_absolute() {
-                absolute_current_dir.strip_prefix(src_dir).ok()
-            } else {
-                // For relative source directories, resolve them relative to current working
-                // directory
-                let current_working_dir = std::env::current_dir().ok()?;
-                let absolute_src_dir = current_working_dir.join(src_dir);
-                absolute_current_dir.strip_prefix(&absolute_src_dir).ok()
-            }
+        // Find which search directory (entry dir, PYTHONPATH, or src) contains this file
+        let search_dirs = self.get_search_directories();
+        let relative_dir = search_dirs.iter().find_map(|dir| {
+            // The search directories are already canonicalized/absolute from get_search_directories
+            absolute_current_dir.strip_prefix(dir).ok()
         })?;
 
         // Convert directory path to module path components
