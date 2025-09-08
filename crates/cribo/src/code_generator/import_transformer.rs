@@ -2181,23 +2181,17 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Do not emit init calls for the entry package (__init__ or __main__).
                         // Initializing the entry package from submodules can create circular init.
                         let is_entry_pkg = if self.bundler.entry_is_package_init_or_main {
-                            // Derive entry package name from entry_module_name (__init__ or
-                            // __main__)
-                            if let Some(pkg) = self
-                                .bundler
-                                .entry_module_name
-                                .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
-                                .or_else(|| {
-                                    self.bundler.entry_module_name.strip_suffix(&format!(
-                                        ".{}",
-                                        crate::python::constants::MAIN_STEM
-                                    ))
-                                })
-                            {
-                                pkg == resolved
-                            } else {
-                                false
-                            }
+                            let entry_pkg = [
+                                crate::python::constants::INIT_STEM,
+                                crate::python::constants::MAIN_STEM,
+                            ]
+                            .iter()
+                            .find_map(|stem| {
+                                self.bundler
+                                    .entry_module_name
+                                    .strip_suffix(&format!(".{stem}"))
+                            });
+                            entry_pkg.is_some_and(|pkg| pkg == resolved)
                         } else {
                             false
                         };
@@ -2206,39 +2200,37 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 "  Skipping init call for entry package '{resolved}' to avoid \
                                  circular initialization"
                             );
-                            return vec![];
-                        }
-                        log::debug!(
-                            "  Generating initialization call for wrapper module '{resolved}' at \
-                             import location"
-                        );
-
-                        // Use ast_builder helper to generate wrapper init call
-                        use crate::{
-                            ast_builder::module_wrapper,
-                            code_generator::module_registry::get_module_var_identifier,
-                        };
-
-                        let module_var =
-                            get_module_var_identifier(module_id, self.bundler.resolver);
-
-                        // If we're not at module level (i.e., inside any local scope), we need to
-                        // declare the module variable as global to avoid
-                        // UnboundLocalError when the init assignment
-                        // tries to read it
-                        if !self.at_module_level {
+                        } else {
                             log::debug!(
-                                "  Adding global declaration for '{module_var}' (inside local \
-                                 scope)"
+                                "  Generating initialization call for wrapper module '{resolved}' \
+                                 at import location"
                             );
-                            // Create a global statement: global module_var
-                            init_stmts.push(crate::ast_builder::statements::global(vec![
-                                module_var.as_str(),
-                            ]));
-                        }
 
-                        init_stmts
-                            .push(module_wrapper::create_wrapper_module_init_call(&module_var));
+                            // Use ast_builder helper to generate wrapper init call
+                            use crate::{
+                                ast_builder::module_wrapper,
+                                code_generator::module_registry::get_module_var_identifier,
+                            };
+
+                            let module_var =
+                                get_module_var_identifier(module_id, self.bundler.resolver);
+
+                            // If we're not at module level (i.e., inside any local scope), we need
+                            // to declare the module variable as global
+                            // to avoid UnboundLocalError.
+                            if !self.at_module_level {
+                                log::debug!(
+                                    "  Adding global declaration for '{module_var}' (inside local \
+                                     scope)"
+                                );
+                                init_stmts.push(crate::ast_builder::statements::global(vec![
+                                    module_var.as_str(),
+                                ]));
+                            }
+
+                            init_stmts
+                                .push(module_wrapper::create_wrapper_module_init_call(&module_var));
+                        }
                     } else if is_parent_import && !is_wildcard {
                         log::debug!(
                             "  Skipping init call for parent package '{resolved}' from inlined \
