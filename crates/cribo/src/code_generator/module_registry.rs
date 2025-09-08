@@ -216,20 +216,24 @@ pub fn initialize_submodule_if_needed(
     initialized_modules.insert(module_id);
 }
 
+/// Parameters for creating assignments for inlined imports
+pub struct InlinedImportParams<'a> {
+    pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    pub module_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
+    pub inlined_modules: &'a FxIndexSet<crate::resolver::ModuleId>,
+    pub bundled_modules: &'a FxIndexSet<crate::resolver::ModuleId>,
+    pub resolver: &'a crate::resolver::ModuleResolver,
+    pub python_version: u8,
+    pub is_wrapper_init: bool,
+    pub tree_shaking_check: Option<&'a dyn Fn(crate::resolver::ModuleId, &str) -> bool>,
+}
+
 /// Create assignments for inlined imports
 /// Returns (statements, `namespace_requirements`)
-#[allow(clippy::too_many_arguments)]
 pub fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
-    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-    module_registry: Option<&crate::orchestrator::ModuleRegistry>,
-    inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
-    bundled_modules: &FxIndexSet<crate::resolver::ModuleId>,
-    resolver: &crate::resolver::ModuleResolver,
-    python_version: u8,
-    is_wrapper_init: bool,
-    tree_shaking_check: Option<&dyn Fn(crate::resolver::ModuleId, &str) -> bool>,
+    params: InlinedImportParams,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();
@@ -251,12 +255,17 @@ pub fn create_assignments_for_inlined_imports(
 
         // Check if this is a module import
         // First check if it's a wrapped module
-        if let Some(module_id) = resolver.get_module_id_by_name(&full_module_path) {
-            if module_registry.is_some_and(|reg| reg.contains_module(&module_id)) {
+        if let Some(module_id) = params.resolver.get_module_id_by_name(&full_module_path) {
+            if params
+                .module_registry
+                .is_some_and(|reg| reg.contains_module(&module_id))
+            {
                 // Skip wrapped modules - they will be handled as deferred imports
                 log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
                 continue;
-            } else if inlined_modules.contains(&module_id) || bundled_modules.contains(&module_id) {
+            } else if params.inlined_modules.contains(&module_id)
+                || params.bundled_modules.contains(&module_id)
+            {
                 // Create a namespace object for the inlined module
                 log::debug!(
                     "Creating namespace object for module '{imported_name}' imported from \
@@ -264,7 +273,7 @@ pub fn create_assignments_for_inlined_imports(
                 );
 
                 // Record that we need a namespace for this module
-                let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
+                let sanitized_name = get_module_var_identifier(module_id, params.resolver);
 
                 namespace_requirements.push(NamespaceRequirement {
                     path: full_module_path.clone(),
@@ -278,18 +287,18 @@ pub fn create_assignments_for_inlined_imports(
                         local_name.as_str(),
                         &sanitized_name,
                         &mut assignments,
-                        python_version,
+                        params.python_version,
                     );
                 }
             } else {
                 // Regular symbol import
                 // Try to resolve the parent module; it may be absent for namespace packages
-                let module_id_opt = resolver.get_module_id_by_name(module_name);
+                let module_id_opt = params.resolver.get_module_id_by_name(module_name);
 
                 // Apply tree-shaking outside wrapper init
-                if !is_wrapper_init
+                if !params.is_wrapper_init
                     && let Some(id) = module_id_opt
-                    && let Some(check_fn) = tree_shaking_check
+                    && let Some(check_fn) = params.tree_shaking_check
                     && !check_fn(id, imported_name)
                 {
                     log::debug!(
@@ -301,7 +310,7 @@ pub fn create_assignments_for_inlined_imports(
 
                 // Determine the actual (possibly renamed) symbol name if we have rename info
                 let actual_name = if let Some(id) = module_id_opt
-                    && let Some(module_renames) = symbol_renames.get(&id)
+                    && let Some(module_renames) = params.symbol_renames.get(&id)
                 {
                     module_renames
                         .get(imported_name)
@@ -313,13 +322,13 @@ pub fn create_assignments_for_inlined_imports(
                 // When we're inside a wrapper init function and importing from an inlined module,
                 // we need to qualify the symbol with the module's namespace variable. Only possible
                 // if the parent module actually exists and was inlined.
-                let source_ref = if is_wrapper_init
-                    && module_id_opt.is_some_and(|id| inlined_modules.contains(&id))
+                let source_ref = if params.is_wrapper_init
+                    && module_id_opt.is_some_and(|id| params.inlined_modules.contains(&id))
                 {
                     // The module is inlined, so its symbols are attached to a namespace object
                     let ns = module_id_opt.map_or_else(
                         || sanitize_module_name_for_identifier(module_name),
-                        |id| get_module_var_identifier(id, resolver),
+                        |id| get_module_var_identifier(id, params.resolver),
                     );
                     format!("{ns}.{actual_name}")
                 } else {
@@ -333,24 +342,24 @@ pub fn create_assignments_for_inlined_imports(
                         local_name.as_str(),
                         &source_ref,
                         &mut assignments,
-                        python_version,
+                        params.python_version,
                     );
-                } else if is_wrapper_init
-                    && module_id_opt.is_some_and(|id| inlined_modules.contains(&id))
+                } else if params.is_wrapper_init
+                    && module_id_opt.is_some_and(|id| params.inlined_modules.contains(&id))
                 {
                     // Even if names match, we need the assignment to access through namespace
                     create_assignment_if_no_stdlib_conflict(
                         local_name.as_str(),
                         &source_ref,
                         &mut assignments,
-                        python_version,
+                        params.python_version,
                     );
                 }
             }
         } else {
             // Module doesn't exist, treat as regular symbol import
             // Check if this symbol was renamed during inlining
-            let parent_module_id = resolver.get_module_id_by_name(module_name);
+            let parent_module_id = params.resolver.get_module_id_by_name(module_name);
 
             // IMPORTANT: When we're inside a wrapper init function, we must not skip
             // assignments based on tree-shaking. The wrapper's body may still reference
@@ -358,9 +367,9 @@ pub fn create_assignments_for_inlined_imports(
             // by the entry module. Skipping here can lead to NameError at runtime.
             // Therefore, only apply the tree-shaking check when we're NOT in a
             // wrapper init context.
-            if !is_wrapper_init
+            if !params.is_wrapper_init
                 && let Some(id) = parent_module_id
-                && let Some(check_fn) = tree_shaking_check
+                && let Some(check_fn) = params.tree_shaking_check
                 && !check_fn(id, imported_name)
             {
                 log::debug!(
@@ -371,7 +380,7 @@ pub fn create_assignments_for_inlined_imports(
             }
 
             let actual_name = if let Some(id) = parent_module_id
-                && let Some(module_renames) = symbol_renames.get(&id)
+                && let Some(module_renames) = params.symbol_renames.get(&id)
             {
                 module_renames
                     .get(imported_name)
@@ -382,13 +391,13 @@ pub fn create_assignments_for_inlined_imports(
 
             // When we're inside a wrapper init function and importing from an inlined module,
             // we need to qualify the symbol with the module's namespace variable
-            let source_ref = if is_wrapper_init
-                && parent_module_id.is_some_and(|id| inlined_modules.contains(&id))
+            let source_ref = if params.is_wrapper_init
+                && parent_module_id.is_some_and(|id| params.inlined_modules.contains(&id))
             {
                 // The module is inlined, so its symbols are attached to a namespace object
                 let ns = parent_module_id.map_or_else(
                     || sanitize_module_name_for_identifier(module_name),
-                    |id| get_module_var_identifier(id, resolver),
+                    |id| get_module_var_identifier(id, params.resolver),
                 );
                 format!("{ns}.{actual_name}")
             } else {
@@ -402,17 +411,17 @@ pub fn create_assignments_for_inlined_imports(
                     local_name.as_str(),
                     &source_ref,
                     &mut assignments,
-                    python_version,
+                    params.python_version,
                 );
-            } else if is_wrapper_init
-                && parent_module_id.is_some_and(|id| inlined_modules.contains(&id))
+            } else if params.is_wrapper_init
+                && parent_module_id.is_some_and(|id| params.inlined_modules.contains(&id))
             {
                 // Even if names match, we need the assignment to access through namespace
                 create_assignment_if_no_stdlib_conflict(
                     local_name.as_str(),
                     &source_ref,
                     &mut assignments,
-                    python_version,
+                    params.python_version,
                 );
             }
         }

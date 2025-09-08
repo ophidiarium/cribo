@@ -78,12 +78,12 @@ impl From<ModuleId> for u32 {
 
 /// Module metadata tracked by resolver
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Part of public API, will be used in future
 pub struct ModuleMetadata {
     pub id: ModuleId,
     pub name: String,
     pub canonical_path: PathBuf,
     pub is_package: bool,
+    pub kind: crate::python::module_path::ModuleKind,
 }
 
 /// Internal module registry for ID allocation
@@ -130,13 +130,45 @@ impl ModuleRegistry {
             "Entry module must be registered first"
         );
 
-        let is_package = path.file_name().is_some_and(|n| n == "__init__.py");
+        // Determine whether this path represents a package and its kind,
+        // including support for PEP 420 namespace packages.
+        let (is_package, kind) = if path.is_dir() {
+            // A directory without __init__.py is a namespace package
+            debug_assert!(
+                !crate::python::module_path::is_package_dir_with_init(path),
+                "register_module(name, path) should receive the __init__.py file for regular \
+                 packages; got a directory: {}",
+                path.display()
+            );
+            (
+                true,
+                crate::python::module_path::ModuleKind::NamespacePackageDir,
+            )
+        } else if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(crate::python::module_path::is_init_file_name)
+        {
+            // A file named __init__.py (or equivalent) is a regular package init
+            (true, crate::python::module_path::ModuleKind::PackageInit)
+        } else if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n == crate::python::constants::MAIN_FILE)
+        {
+            // A file named __main__.py
+            (false, crate::python::module_path::ModuleKind::Main)
+        } else {
+            // Any other file is a regular module
+            (false, crate::python::module_path::ModuleKind::RegularModule)
+        };
 
         let metadata = ModuleMetadata {
             id,
             name: name.clone(),
             canonical_path: canonical_path.clone(),
             is_package,
+            kind,
         };
 
         self.by_id.insert(id, metadata);
@@ -177,7 +209,9 @@ pub fn resolve_relative_import_from_name(
     // For modules (not packages), we need to remove the module itself first
     // then go up additional levels
     // Check if this is likely a package (__init__) or a regular module
-    let is_likely_package = package_parts.last().is_some_and(|part| *part == "__init__");
+    let is_likely_package = package_parts
+        .last()
+        .is_some_and(|part| *part == crate::python::constants::INIT_STEM);
 
     if !is_likely_package && package_parts.len() > 1 {
         // Remove the module name itself for regular modules
@@ -313,8 +347,29 @@ impl ModuleResolver {
 
     /// Set the entry file for the resolver
     /// This establishes the first search path directory
-    pub fn set_entry_file(&mut self, entry_path: &Path) {
-        if let Some(parent) = entry_path.parent() {
+    pub fn set_entry_file(&mut self, entry_path: &Path, original_entry_path: &Path) {
+        // If the original entry was a directory that became __init__.py,
+        // use the parent of the directory as the search root
+        if original_entry_path.is_dir()
+            && entry_path.file_name()
+                == Some(std::ffi::OsStr::new(crate::python::constants::INIT_FILE))
+        {
+            // For package directories, use the parent of the package dir as search root
+            if let Some(package_parent) = original_entry_path.parent() {
+                self.entry_dir = Some(package_parent.to_path_buf());
+                debug!(
+                    "Set entry directory to package parent: {}",
+                    package_parent.display()
+                );
+            } else {
+                // Fallback to the package directory itself if no parent
+                self.entry_dir = Some(original_entry_path.to_path_buf());
+                debug!(
+                    "Set entry directory to package dir: {}",
+                    original_entry_path.display()
+                );
+            }
+        } else if let Some(parent) = entry_path.parent() {
             self.entry_dir = Some(parent.to_path_buf());
             debug!("Set entry directory to: {}", parent.display());
         }
@@ -326,6 +381,28 @@ impl ModuleResolver {
         registry.get_metadata(id).map(|m| m.name.clone())
     }
 
+    /// Get module kind by ID (post-registration truth source)
+    pub fn get_module_kind(&self, id: ModuleId) -> Option<crate::python::module_path::ModuleKind> {
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.get_metadata(id).map(|m| m.kind)
+    }
+
+    /// Returns true if the module is a package initializer (__init__.py)
+    pub fn is_package_init(&self, id: ModuleId) -> bool {
+        matches!(
+            self.get_module_kind(id),
+            Some(crate::python::module_path::ModuleKind::PackageInit)
+        )
+    }
+
+    /// Returns true if the module is a namespace package (directory without __init__.py)
+    pub fn is_namespace_package(&self, id: ModuleId) -> bool {
+        matches!(
+            self.get_module_kind(id),
+            Some(crate::python::module_path::ModuleKind::NamespacePackageDir)
+        )
+    }
+
     /// Get module path by ID
     pub fn get_module_path(&self, id: ModuleId) -> Option<PathBuf> {
         let registry = self.registry.lock().expect("Module registry lock poisoned");
@@ -335,9 +412,13 @@ impl ModuleResolver {
     /// Check if the entry module is a package
     pub fn is_entry_package(&self) -> bool {
         let registry = self.registry.lock().expect("Module registry lock poisoned");
-        registry
-            .get_metadata(ModuleId::ENTRY)
-            .is_some_and(|m| m.is_package)
+        registry.get_metadata(ModuleId::ENTRY).is_some_and(|m| {
+            matches!(
+                m.kind,
+                crate::python::module_path::ModuleKind::PackageInit
+                    | crate::python::module_path::ModuleKind::NamespacePackageDir
+            )
+        })
     }
 
     /// Get module metadata by ID
@@ -598,7 +679,7 @@ impl ModuleResolver {
             }
 
             // Try as a package directory with __init__.py
-            let init_path = module_path.join("__init__.py");
+            let init_path = module_path.join(crate::python::constants::INIT_FILE);
             if init_path.is_file() {
                 debug!("Found ImportlibStatic package at: {}", init_path.display());
                 let canonical = self.canonicalize_path(init_path);
@@ -636,7 +717,9 @@ impl ModuleResolver {
                 // 4. Namespace package (foo/ directory)
 
                 // Check for package first
-                let package_init = current_path.join(part).join("__init__.py");
+                let package_init = current_path
+                    .join(part)
+                    .join(crate::python::constants::INIT_FILE);
                 if package_init.is_file() {
                     debug!("Found package at: {}", package_init.display());
                     let canonical = self.canonicalize_path(package_init);
@@ -653,7 +736,7 @@ impl ModuleResolver {
 
                 // Check for namespace package (directory without __init__.py)
                 let namespace_dir = current_path.join(part);
-                if namespace_dir.is_dir() {
+                if crate::python::module_path::is_namespace_package_dir(&namespace_dir) {
                     debug!("Found namespace package at: {}", namespace_dir.display());
                     // Return the directory path to indicate this is a namespace package
                     let canonical = self.canonicalize_path(namespace_dir);
@@ -662,11 +745,11 @@ impl ModuleResolver {
             } else {
                 // For intermediate parts, they must be packages
                 let package_dir = current_path.join(part);
-                let package_init = package_dir.join("__init__.py");
+                let package_init = package_dir.join(crate::python::constants::INIT_FILE);
 
                 if package_init.is_file() {
                     current_path = package_dir;
-                } else if package_dir.is_dir() {
+                } else if crate::python::module_path::is_namespace_package_dir(&package_dir) {
                     // Namespace package - continue but don't add to resolved paths
                     current_path = package_dir;
                 } else {
@@ -780,8 +863,10 @@ impl ModuleResolver {
                             {
                                 parent_found = true;
                                 // Check if it's a package (__init__.py) or a module (.py file)
-                                parent_is_package =
-                                    parent_path.file_name().is_some_and(|n| n == "__init__.py");
+                                parent_is_package = parent_path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .is_some_and(crate::python::module_path::is_init_file_name);
                                 break;
                             }
                         }
@@ -1179,13 +1264,34 @@ impl ModuleResolver {
         name: Option<&str>,
         current_module_name: &str,
     ) -> String {
-        let result = resolve_relative_import_from_name(level, name, current_module_name);
+        // Determine if current_module_name is a package (__init__ or namespace)
+        let mut parts: Vec<&str> = current_module_name.split('.').collect();
+        let current_is_package = self.get_module_id_by_name(current_module_name).map_or_else(
+            || parts.len() == 1,
+            |id| self.is_package_init(id) || self.is_namespace_package(id),
+        );
 
+        // For regular modules, drop the last segment; for packages, keep it
+        if !current_is_package && parts.len() > 1 {
+            parts.pop();
+        }
+
+        for _ in 1..level {
+            if parts.is_empty() {
+                break;
+            }
+            parts.pop();
+        }
+
+        if let Some(name_part) = name.filter(|s| !s.is_empty()) {
+            parts.push(name_part);
+        }
+
+        let result = parts.join(".");
         debug!(
             "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' \
              → '{result}'"
         );
-
         result
     }
 
@@ -1199,26 +1305,22 @@ impl ModuleResolver {
             file_path
         };
 
-        // Convert current_dir to absolute path if it's relative
+        // Convert current_dir to absolute path if it's relative and canonicalize it
         let absolute_current_dir = if current_dir.is_absolute() {
-            current_dir.to_path_buf()
+            current_dir
+                .canonicalize()
+                .unwrap_or_else(|_| current_dir.to_path_buf())
         } else {
             let current_working_dir = std::env::current_dir().ok()?;
-            current_working_dir.join(current_dir)
+            let joined = current_working_dir.join(current_dir);
+            joined.canonicalize().unwrap_or(joined)
         };
 
-        // Find which source directory contains this file
-        let relative_dir = self.config.src.iter().find_map(|src_dir| {
-            // Handle case where paths might be relative vs absolute
-            if src_dir.is_absolute() {
-                absolute_current_dir.strip_prefix(src_dir).ok()
-            } else {
-                // For relative source directories, resolve them relative to current working
-                // directory
-                let current_working_dir = std::env::current_dir().ok()?;
-                let absolute_src_dir = current_working_dir.join(src_dir);
-                absolute_current_dir.strip_prefix(&absolute_src_dir).ok()
-            }
+        // Find which search directory (entry dir, PYTHONPATH, or src) contains this file
+        let search_dirs = self.get_search_directories();
+        let relative_dir = search_dirs.iter().find_map(|dir| {
+            // The search directories are already canonicalized/absolute from get_search_directories
+            absolute_current_dir.strip_prefix(dir).ok()
         })?;
 
         // Convert directory path to module path components
@@ -1281,7 +1383,10 @@ mod tests {
         let root = temp_dir.path();
 
         // Create both foo/__init__.py and foo.py
-        create_test_file(&root.join("foo/__init__.py"), "# Package")?;
+        create_test_file(
+            &root.join(format!("foo/{}", crate::python::constants::INIT_FILE)),
+            "# Package",
+        )?;
         create_test_file(&root.join("foo.py"), "# Module")?;
 
         let config = Config {
@@ -1292,7 +1397,9 @@ mod tests {
 
         // Resolve foo - should prefer foo/__init__.py
         let result = resolver.resolve_module_path("foo")?;
-        let expected = root.join("foo/__init__.py").canonicalize()?;
+        let expected = root
+            .join(format!("foo/{}", crate::python::constants::INIT_FILE))
+            .canonicalize()?;
         assert_eq!(
             result.map(|p| p
                 .canonicalize()
@@ -1323,7 +1430,7 @@ mod tests {
             ..Default::default()
         };
         let mut resolver = ModuleResolver::new(config);
-        resolver.set_entry_file(&entry_file);
+        resolver.set_entry_file(&entry_file, &entry_file);
 
         // Resolve helper - should find the one in entry dir, not lib
         let result = resolver.resolve_module_path("helper")?;
@@ -1350,8 +1457,17 @@ mod tests {
         let root = temp_dir.path();
 
         // Create nested package structure
-        create_test_file(&root.join("myapp/__init__.py"), "")?;
-        create_test_file(&root.join("myapp/utils/__init__.py"), "")?;
+        create_test_file(
+            &root.join(format!("myapp/{}", crate::python::constants::INIT_FILE)),
+            "",
+        )?;
+        create_test_file(
+            &root.join(format!(
+                "myapp/utils/{}",
+                crate::python::constants::INIT_FILE
+            )),
+            "",
+        )?;
         create_test_file(&root.join("myapp/utils/helpers.py"), "")?;
 
         let config = Config {
@@ -1365,13 +1481,22 @@ mod tests {
             resolver.resolve_module_path("myapp")?.map(|p| p
                 .canonicalize()
                 .expect("failed to canonicalize resolved path")),
-            Some(root.join("myapp/__init__.py").canonicalize()?)
+            Some(
+                root.join(format!("myapp/{}", crate::python::constants::INIT_FILE))
+                    .canonicalize()?
+            )
         );
         assert_eq!(
             resolver.resolve_module_path("myapp.utils")?.map(|p| p
                 .canonicalize()
                 .expect("failed to canonicalize resolved path")),
-            Some(root.join("myapp/utils/__init__.py").canonicalize()?)
+            Some(
+                root.join(format!(
+                    "myapp/utils/{}",
+                    crate::python::constants::INIT_FILE
+                ))
+                .canonicalize()?
+            )
         );
         assert_eq!(
             resolver
@@ -1471,15 +1596,24 @@ mod tests {
         //       module3.py
 
         fs::create_dir_all(root.join("mypackage/subpackage/deeper"))?;
-        create_test_file(&root.join("mypackage/__init__.py"), "# Package init")?;
+        create_test_file(
+            &root.join(format!("mypackage/{}", crate::python::constants::INIT_FILE)),
+            "# Package init",
+        )?;
         create_test_file(&root.join("mypackage/module1.py"), "# Module 1")?;
         create_test_file(
-            &root.join("mypackage/subpackage/__init__.py"),
+            &root.join(format!(
+                "mypackage/subpackage/{}",
+                crate::python::constants::INIT_FILE
+            )),
             "# Subpackage init",
         )?;
         create_test_file(&root.join("mypackage/subpackage/module2.py"), "# Module 2")?;
         create_test_file(
-            &root.join("mypackage/subpackage/deeper/__init__.py"),
+            &root.join(format!(
+                "mypackage/subpackage/deeper/{}",
+                crate::python::constants::INIT_FILE
+            )),
             "# Deeper init",
         )?;
         create_test_file(
@@ -1524,8 +1658,11 @@ mod tests {
         assert_eq!(
             resolver.resolve_module_path_with_context(".", Some(&module3_path))?,
             Some(
-                root.join("mypackage/subpackage/deeper/__init__.py")
-                    .canonicalize()?
+                root.join(format!(
+                    "mypackage/subpackage/deeper/{}",
+                    crate::python::constants::INIT_FILE
+                ))
+                .canonicalize()?
             )
         );
 
@@ -1533,13 +1670,19 @@ mod tests {
         assert_eq!(
             resolver.resolve_module_path_with_context("..", Some(&module3_path))?,
             Some(
-                root.join("mypackage/subpackage/__init__.py")
-                    .canonicalize()?
+                root.join(format!(
+                    "mypackage/subpackage/{}",
+                    crate::python::constants::INIT_FILE
+                ))
+                .canonicalize()?
             )
         );
 
         // Test relative import from a package __init__.py
-        let subpackage_init = root.join("mypackage/subpackage/__init__.py");
+        let subpackage_init = root.join(format!(
+            "mypackage/subpackage/{}",
+            crate::python::constants::INIT_FILE
+        ));
 
         // Test "from . import module2" from __init__.py
         assert_eq!(
@@ -1588,7 +1731,7 @@ mod tests {
         // Create a package in PYTHONPATH directory
         let pythonpath_pkg = pythonpath_dir.join("pythonpath_pkg");
         fs::create_dir_all(&pythonpath_pkg)?;
-        let pythonpath_pkg_init = pythonpath_pkg.join("__init__.py");
+        let pythonpath_pkg_init = pythonpath_pkg.join(crate::python::constants::INIT_FILE);
         fs::write(&pythonpath_pkg_init, "# PYTHONPATH package")?;
         let pythonpath_pkg_module = pythonpath_pkg.join("submodule.py");
         fs::write(&pythonpath_pkg_module, "# PYTHONPATH submodule")?;

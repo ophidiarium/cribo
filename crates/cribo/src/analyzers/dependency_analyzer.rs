@@ -138,7 +138,9 @@ impl DependencyAnalyzer {
         if analysis_result.imports_used_in_functions_only {
             CircularDependencyType::FunctionLevel
         } else if analysis_result.has_module_level_imports
-            || module_names.iter().any(|name| name.contains("__init__"))
+            || module_names
+                .iter()
+                .any(|name| crate::util::is_init_module(name))
         {
             CircularDependencyType::ImportTime
         } else {

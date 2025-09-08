@@ -15,6 +15,7 @@ use ruff_text_size::{Ranged, TextRange};
 
 use crate::{
     import_alias_tracker::{EnhancedFromImport, ImportAliasTracker},
+    python::module_path,
     resolver::ModuleId,
     types::{FxIndexMap, FxIndexSet},
 };
@@ -48,7 +49,11 @@ impl<'a> SemanticModelBuilder<'a> {
         // Step 1: We already have the parsed AST; no need to re-parse the source here.
 
         // Step 2: Determine module kind
-        let kind = if file_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py") {
+        let kind = if file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(module_path::is_init_file_name)
+        {
             ModuleKind::Package
         } else {
             ModuleKind::Module

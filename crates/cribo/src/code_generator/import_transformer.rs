@@ -523,8 +523,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Create a new transformer from parameters
-    #[allow(clippy::needless_pass_by_value)] // params contains mutable references
-    pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
+    pub fn new(params: &RecursiveImportTransformerParams<'a>) -> Self {
         Self {
             bundler: params.bundler,
             module_id: params.module_id,
@@ -2178,17 +2177,20 @@ impl<'a> RecursiveImportTransformer<'a> {
                     };
 
                     if let Some(module_id) = wrapper_module_id {
-                        // Do not emit init calls for the entry package (__init__).
+                        // Do not emit init calls for the entry package (__init__ or __main__).
                         // Initializing the entry package from submodules can create circular init.
                         let is_entry_pkg = if self.bundler.entry_is_package_init_or_main {
-                            // Derive entry package name from entry_module_name
-                            if let Some(pkg) =
-                                self.bundler.entry_module_name.strip_suffix(".__init__")
-                            {
-                                pkg == resolved
-                            } else {
-                                false
-                            }
+                            let entry_pkg = [
+                                crate::python::constants::INIT_STEM,
+                                crate::python::constants::MAIN_STEM,
+                            ]
+                            .iter()
+                            .find_map(|stem| {
+                                self.bundler
+                                    .entry_module_name
+                                    .strip_suffix(&format!(".{stem}"))
+                            });
+                            entry_pkg.is_some_and(|pkg| pkg == resolved)
                         } else {
                             false
                         };
@@ -2197,39 +2199,37 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 "  Skipping init call for entry package '{resolved}' to avoid \
                                  circular initialization"
                             );
-                            return vec![];
-                        }
-                        log::debug!(
-                            "  Generating initialization call for wrapper module '{resolved}' at \
-                             import location"
-                        );
-
-                        // Use ast_builder helper to generate wrapper init call
-                        use crate::{
-                            ast_builder::module_wrapper,
-                            code_generator::module_registry::get_module_var_identifier,
-                        };
-
-                        let module_var =
-                            get_module_var_identifier(module_id, self.bundler.resolver);
-
-                        // If we're not at module level (i.e., inside any local scope), we need to
-                        // declare the module variable as global to avoid
-                        // UnboundLocalError when the init assignment
-                        // tries to read it
-                        if !self.at_module_level {
+                        } else {
                             log::debug!(
-                                "  Adding global declaration for '{module_var}' (inside local \
-                                 scope)"
+                                "  Generating initialization call for wrapper module '{resolved}' \
+                                 at import location"
                             );
-                            // Create a global statement: global module_var
-                            init_stmts.push(crate::ast_builder::statements::global(vec![
-                                module_var.as_str(),
-                            ]));
-                        }
 
-                        init_stmts
-                            .push(module_wrapper::create_wrapper_module_init_call(&module_var));
+                            // Use ast_builder helper to generate wrapper init call
+                            use crate::{
+                                ast_builder::module_wrapper,
+                                code_generator::module_registry::get_module_var_identifier,
+                            };
+
+                            let module_var =
+                                get_module_var_identifier(module_id, self.bundler.resolver);
+
+                            // If we're not at module level (i.e., inside any local scope), we need
+                            // to declare the module variable as global
+                            // to avoid UnboundLocalError.
+                            if !self.at_module_level {
+                                log::debug!(
+                                    "  Adding global declaration for '{module_var}' (inside local \
+                                     scope)"
+                                );
+                                init_stmts.push(crate::ast_builder::statements::global(vec![
+                                    module_var.as_str(),
+                                ]));
+                            }
+
+                            init_stmts
+                                .push(module_wrapper::create_wrapper_module_init_call(&module_var));
+                        }
                     } else if is_parent_import && !is_wildcard {
                         log::debug!(
                             "  Skipping init call for parent package '{resolved}' from inlined \
@@ -3606,20 +3606,23 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             "Module '{module_name}' was inlined, creating assignments for imported symbols"
         );
 
+        let params = crate::code_generator::module_registry::InlinedImportParams {
+            symbol_renames,
+            module_registry: bundler.module_info_registry,
+            inlined_modules: &bundler.inlined_modules,
+            bundled_modules: &bundler.bundled_modules,
+            resolver: bundler.resolver,
+            python_version,
+            is_wrapper_init: inside_wrapper_init,
+            tree_shaking_check: Some(&|module_id, symbol| {
+                bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+            }),
+        };
         let (assignments, namespace_requirements) =
             crate::code_generator::module_registry::create_assignments_for_inlined_imports(
                 &import_from,
                 &module_name,
-                symbol_renames,
-                bundler.module_info_registry,
-                &bundler.inlined_modules,
-                &bundler.bundled_modules,
-                bundler.resolver,
-                python_version,
-                inside_wrapper_init,
-                Some(&|module_id, symbol| {
-                    bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
-                }),
+                params,
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection

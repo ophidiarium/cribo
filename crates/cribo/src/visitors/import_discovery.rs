@@ -267,7 +267,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 && last_fn_idx == self.scope_stack.len() - 1
             {
                 return ExecutionContext::ClassMethod {
-                    is_init: method_name == "__init__",
+                    is_init: method_name == crate::python::constants::INIT_STEM,
                 };
             }
             return ExecutionContext::FunctionBody;

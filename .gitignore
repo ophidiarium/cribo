@@ -69,3 +69,5 @@ temp/
 mise.local.toml
 
 .lsmcp/cache/
+
++rustc-ice-*.txt
