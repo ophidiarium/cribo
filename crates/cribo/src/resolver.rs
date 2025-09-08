@@ -389,6 +389,14 @@ impl ModuleResolver {
         )
     }
 
+    /// Returns true if the module is a namespace package (directory without __init__.py)
+    pub fn is_namespace_package(&self, id: ModuleId) -> bool {
+        matches!(
+            self.get_module_kind(id),
+            Some(crate::python::module_path::ModuleKind::NamespacePackageDir)
+        )
+    }
+
     /// Get module path by ID
     pub fn get_module_path(&self, id: ModuleId) -> Option<PathBuf> {
         let registry = self.registry.lock().expect("Module registry lock poisoned");
@@ -1253,15 +1261,7 @@ impl ModuleResolver {
         // Determine if current_module_name is a package (__init__ or namespace)
         let mut parts: Vec<&str> = current_module_name.split('.').collect();
         let current_is_package = self
-            .get_module_id_by_name(current_module_name)
-            .and_then(|id| self.get_module_kind(id))
-            .map(|k| matches!(
-                k,
-                crate::python::module_path::ModuleKind::PackageInit
-                    | crate::python::module_path::ModuleKind::NamespacePackageDir
-            ))
-            // Fallback: single-part names are treated as packages
-            .unwrap_or_else(|| parts.len() == 1);
+            .get_module_id_by_name(current_module_name).map_or_else(|| parts.len() == 1, |id| self.is_package_init(id) || self.is_namespace_package(id));
 
         // For regular modules, drop the last segment; for packages, keep it
         if !current_is_package && parts.len() > 1 {
