@@ -619,6 +619,55 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Infer the root package name for the entry when the entry module name alone is insufficient.
+    /// This handles the case where the entry module name is just "__init__" and we need to
+    /// discover the package root (e.g., "requests") by scanning known modules.
+    fn infer_entry_root_package(&self) -> Option<String> {
+        // Prefer explicit strip if available
+        if let Some(pkg) = self.entry_package_name() {
+            return Some(pkg.to_string());
+        }
+
+        // If the entry module name already includes a dot, use its root component
+        if self.entry_module_name.contains('.') {
+            return self
+                .entry_module_name
+                .split('.')
+                .next()
+                .map(std::string::ToString::to_string);
+        }
+
+        // Fallback discovery: scan known modules for a dotted name and return its root component
+        // Check inlined, wrapper (synthetic), and bundled modules for robustness
+        for name in self
+            .inlined_modules
+            .iter()
+            .filter_map(|id| self.resolver.get_module_name(*id))
+            .chain(
+                self.module_synthetic_names
+                    .keys()
+                    .filter_map(|id| self.resolver.get_module_name(*id)),
+            )
+            .chain(
+                self.bundled_modules
+                    .iter()
+                    .filter_map(|id| self.resolver.get_module_name(*id)),
+            )
+        {
+            if name.contains('.') {
+                if let Some(root) = name.split('.').next()
+                    && !root.is_empty() && root != "__init__" {
+                        return Some(root.to_string());
+                    }
+            } else if name != "__init__" {
+                // Single-name module that's not __init__ can serve as the root
+                return Some(name.clone());
+            }
+        }
+
+        None
+    }
+
     /// Create a new bundler instance
     pub fn new(
         module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
@@ -2424,7 +2473,9 @@ impl<'a> Bundler<'a> {
         let package_name = if let Some(pkg) = self.entry_package_name() {
             pkg.to_string()
         } else {
-            self.entry_module_name.clone()
+            // Try to infer a proper root if the entry name is insufficient (e.g., "__init__")
+            self.infer_entry_root_package()
+                .unwrap_or_else(|| self.entry_module_name.clone())
         };
 
         // Collect already-defined symbols to avoid overwriting them
@@ -2440,72 +2491,8 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        if package_name != "__init__" {
-            log::debug!("Generating module-level exports for package '{package_name}'");
-
-            // Find all direct submodules of the package
-            let mut submodule_exports = Vec::new();
-
-            // Check both inlined and wrapper modules
-            for module_name in self
-                .inlined_modules
-                .iter()
-                .filter_map(|id| self.resolver.get_module_name(*id))
-                .chain(
-                    self.module_synthetic_names
-                        .keys()
-                        .filter_map(|id| self.resolver.get_module_name(*id)),
-                )
-            {
-                // Check if this is a direct submodule of the package
-                if module_name.starts_with(&format!("{package_name}.")) {
-                    // Extract the first component after the package name
-                    let relative_path = &module_name[package_name.len() + 1..];
-                    if let Some(first_component) = relative_path.split('.').next() {
-                        // Generate: first_component = package.first_component
-                        // e.g., exceptions = requests.exceptions
-                        let export_name = first_component.to_string();
-                        let full_path = format!("{package_name}.{first_component}");
-
-                        // Only add if we haven't already exported this
-                        // AND if this name doesn't already exist as a symbol in the entry module
-                        // This prevents overwriting values like __version__ = "2.32.4" with
-                        // namespace objects
-                        if !submodule_exports.contains(&export_name) {
-                            // Check if this symbol already exists in the entry module's symbols
-                            // The entry module is always the first to be processed and its symbols
-                            // are the ones that should be preserved at the module level
-                            let symbol_already_exists =
-                                already_defined_symbols.contains(&export_name);
-
-                            if symbol_already_exists {
-                                log::debug!(
-                                    "  Skipping module-level export for '{export_name}' - already \
-                                     exists as a symbol in entry module"
-                                );
-                            } else {
-                                log::debug!(
-                                    "  Adding module-level export: {export_name} = {full_path}"
-                                );
-                                final_body.push(statements::simple_assign(
-                                    &export_name,
-                                    expressions::dotted_name(
-                                        &full_path.split('.').collect::<Vec<_>>(),
-                                        ExprContext::Load,
-                                    ),
-                                ));
-                                submodule_exports.push(export_name);
-                            }
-                        }
-                    }
-                }
-            }
-
-            log::debug!(
-                "Added {} module-level exports for entry module submodules",
-                submodule_exports.len()
-            );
-        }
+        // Note: module-level export aliases for package submodules are added later, after
+        // namespaces have been created, to avoid NameError on early references.
 
         // Add all inlined and wrapper module statements to final_body
         final_body.extend(all_inlined_stmts);
@@ -2745,10 +2732,12 @@ impl<'a> Bundler<'a> {
 
                 // For __init__ modules, derive the package name directly by stripping the suffix
                 let package_name = if crate::util::is_init_module(&module_name) {
+                    // Try to strip suffix; if it fails (bare "__init__"), infer the root package
                     module_name
                         .strip_suffix(".__init__")
-                        .unwrap_or(&module_name)
-                        .to_string()
+                        .map(std::string::ToString::to_string)
+                        .or_else(|| self.infer_entry_root_package())
+                        .unwrap_or_else(|| module_name.clone())
                 } else {
                     module_name.clone()
                 };
@@ -2869,15 +2858,10 @@ impl<'a> Bundler<'a> {
 
         // Final safety net: ensure critical package child aliases (like 'exceptions') exist
         {
-            let entry_pkg = if crate::util::is_init_module(&self.entry_module_name) {
-                self.entry_module_name
-                    .strip_suffix(".__init__")
-                    .unwrap_or(&self.entry_module_name)
-                    .to_string()
-            } else {
-                self.entry_module_name.clone()
-            };
-            if !entry_pkg.is_empty() {
+            let entry_pkg = self
+                .infer_entry_root_package()
+                .unwrap_or_else(|| self.entry_module_name.clone());
+            if !entry_pkg.is_empty() && entry_pkg != "__init__" {
                 // Collect simple names already defined
                 let existing_variables: FxIndexSet<String> = final_body
                     .iter()
@@ -2892,22 +2876,44 @@ impl<'a> Bundler<'a> {
                     })
                     .collect();
 
-                let exceptions_path = format!("{entry_pkg}.exceptions");
-                if self
-                    .get_module_id(&exceptions_path)
-                    .is_some_and(|id| self.bundled_modules.contains(&id))
-                    && !existing_variables.contains("exceptions")
+                // Add aliases for all direct child modules (first component after root)
+                let mut seen: FxIndexSet<String> = FxIndexSet::default();
+                let mut added = 0usize;
+                for child in self
+                    .bundled_modules
+                    .iter()
+                    .filter_map(|id| self.resolver.get_module_name(*id))
                 {
-                    log::debug!("Post-pass: adding missing alias 'exceptions = {exceptions_path}'");
-                    final_body.push(statements::simple_assign(
-                        "exceptions",
-                        expressions::attribute(
-                            expressions::name(&entry_pkg, ExprContext::Load),
-                            "exceptions",
-                            ExprContext::Load,
-                        ),
-                    ));
+                    if let Some(rest) = child.strip_prefix(&format!("{entry_pkg}.")) {
+                        let first = rest.split('.').next().unwrap_or("");
+                        if first.is_empty() || first.starts_with('_') {
+                            continue;
+                        }
+                        if !seen.insert(first.to_string()) {
+                            continue;
+                        }
+                        if existing_variables.contains(first) {
+                            log::debug!(
+                                "Post-pass: skipping alias for {child} as '{first}' (would \
+                                 overwrite)"
+                            );
+                            continue;
+                        }
+                        log::debug!("Post-pass: adding alias '{first} = {entry_pkg}.{first}'");
+                        final_body.push(statements::simple_assign(
+                            first,
+                            expressions::attribute(
+                                expressions::name(&entry_pkg, ExprContext::Load),
+                                first,
+                                ExprContext::Load,
+                            ),
+                        ));
+                        added += 1;
+                    }
                 }
+                log::debug!(
+                    "Post-pass: added {added} module-level aliases for package '{entry_pkg}'"
+                );
             }
         }
 
