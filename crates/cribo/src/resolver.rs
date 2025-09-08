@@ -1226,13 +1226,40 @@ impl ModuleResolver {
         name: Option<&str>,
         current_module_name: &str,
     ) -> String {
-        let result = resolve_relative_import_from_name(level, name, current_module_name);
+        // Determine if current_module_name is a package (__init__ or namespace)
+        let mut parts: Vec<&str> = current_module_name.split('.').collect();
+        let current_is_package = self
+            .get_module_id_by_name(current_module_name)
+            .and_then(|id| self.get_module_kind(id))
+            .map(|k| matches!(
+                k,
+                crate::python::module_path::ModuleKind::PackageInit
+                    | crate::python::module_path::ModuleKind::NamespacePackageDir
+            ))
+            // Fallback: single-part names are treated as packages
+            .unwrap_or_else(|| parts.len() == 1);
 
+        // For regular modules, drop the last segment; for packages, keep it
+        if !current_is_package && parts.len() > 1 {
+            parts.pop();
+        }
+
+        for _ in 1..level {
+            if parts.is_empty() {
+                break;
+            }
+            parts.pop();
+        }
+
+        if let Some(name_part) = name.filter(|s| !s.is_empty()) {
+            parts.push(name_part);
+        }
+
+        let result = parts.join(".");
         debug!(
             "Resolved relative import: level={level}, name={name:?}, from '{current_module_name}' \
              → '{result}'"
         );
-
         result
     }
 
