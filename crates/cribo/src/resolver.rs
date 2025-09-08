@@ -341,8 +341,29 @@ impl ModuleResolver {
 
     /// Set the entry file for the resolver
     /// This establishes the first search path directory
-    pub fn set_entry_file(&mut self, entry_path: &Path) {
-        if let Some(parent) = entry_path.parent() {
+    pub fn set_entry_file(&mut self, entry_path: &Path, original_entry_path: &Path) {
+        // If the original entry was a directory that became __init__.py,
+        // use the parent of the directory as the search root
+        if original_entry_path.is_dir()
+            && entry_path.file_name()
+                == Some(std::ffi::OsStr::new(crate::python::constants::INIT_FILE))
+        {
+            // For package directories, use the parent of the package dir as search root
+            if let Some(package_parent) = original_entry_path.parent() {
+                self.entry_dir = Some(package_parent.to_path_buf());
+                debug!(
+                    "Set entry directory to package parent: {}",
+                    package_parent.display()
+                );
+            } else {
+                // Fallback to the package directory itself if no parent
+                self.entry_dir = Some(original_entry_path.to_path_buf());
+                debug!(
+                    "Set entry directory to package dir: {}",
+                    original_entry_path.display()
+                );
+            }
+        } else if let Some(parent) = entry_path.parent() {
             self.entry_dir = Some(parent.to_path_buf());
             debug!("Set entry directory to: {}", parent.display());
         }
@@ -1397,7 +1418,7 @@ mod tests {
             ..Default::default()
         };
         let mut resolver = ModuleResolver::new(config);
-        resolver.set_entry_file(&entry_file);
+        resolver.set_entry_file(&entry_file, &entry_file);
 
         // Resolve helper - should find the one in entry dir, not lib
         let result = resolver.resolve_module_path("helper")?;

@@ -363,6 +363,9 @@ impl BundleOrchestrator {
         Vec<ParsedModuleData>,
         Option<CircularDependencyAnalysis>,
     )> {
+        // Store the original entry path before transformation
+        let original_entry_path = entry_path.to_path_buf();
+
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
             // Check for __main__.py first
@@ -448,7 +451,7 @@ impl BundleOrchestrator {
         let mut resolver = ModuleResolver::new(self.config.clone());
 
         // Set the entry file to establish the primary search path
-        resolver.set_entry_file(entry_path);
+        resolver.set_entry_file(entry_path, &original_entry_path);
 
         // Find the entry module name
         let entry_module_name = self.find_entry_module_name(entry_path, &resolver)?;
