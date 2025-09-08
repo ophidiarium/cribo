@@ -1260,8 +1260,10 @@ impl ModuleResolver {
     ) -> String {
         // Determine if current_module_name is a package (__init__ or namespace)
         let mut parts: Vec<&str> = current_module_name.split('.').collect();
-        let current_is_package = self
-            .get_module_id_by_name(current_module_name).map_or_else(|| parts.len() == 1, |id| self.is_package_init(id) || self.is_namespace_package(id));
+        let current_is_package = self.get_module_id_by_name(current_module_name).map_or_else(
+            || parts.len() == 1,
+            |id| self.is_package_init(id) || self.is_namespace_package(id),
+        );
 
         // For regular modules, drop the last segment; for packages, keep it
         if !current_is_package && parts.len() > 1 {
