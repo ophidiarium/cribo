@@ -44,19 +44,17 @@ impl<'a> ModuleClassifier<'a> {
         }
     }
 
-    /// Get the entry package name when entry is a package __init__.py
-    /// Returns None if entry is not a package __init__.py
+    /// Get the entry package name when entry is a package __init__.py or __main__.py
+    /// Returns None if entry is not a package __init__.py or __main__.py
     fn entry_package_name(&self) -> Option<String> {
         let entry_module_name = self.resolver.get_module_name(ModuleId::ENTRY)?;
-        if crate::util::is_init_module(&entry_module_name) {
-            // Strip the .__init__ suffix if present, otherwise return None
-            // Note: if entry is bare "__init__", we don't have the package name
-            entry_module_name
-                .strip_suffix(".__init__")
-                .map(std::string::ToString::to_string)
-        } else {
-            None
-        }
+        // Strip ".<init>" or ".<main>" suffix if present; bare "__init__"/"__main__" have no pkg.
+        entry_module_name
+            .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
+            .or_else(|| {
+                entry_module_name.strip_suffix(&format!(".{}", crate::python::constants::MAIN_STEM))
+            })
+            .map(std::string::ToString::to_string)
     }
 
     /// Classify modules into inlinable and wrapper modules
@@ -99,7 +97,7 @@ impl<'a> ModuleClassifier<'a> {
                         continue;
                     }
                 } else if crate::util::is_init_module(&entry_module_name)
-                    && entry_module_name == "__init__"
+                    && entry_module_name == crate::python::constants::INIT_STEM
                 {
                     // Special case: entry is bare "__init__" without package prefix
                     // In this case, we need to check if the module matches the inferred package

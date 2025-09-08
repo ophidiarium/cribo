@@ -190,7 +190,7 @@ fn create_cribo_module_init() -> Stmt {
     );
 
     statements::function_def(
-        "__init__",
+        crate::python::constants::INIT_STEM,
         make_params(&["self", "m", "p"]),
         vec![assign_stmt],
         vec![], // decorator_list
@@ -498,7 +498,7 @@ mod tests {
                 // Verify __init__ method
                 match &class_def.body[0] {
                     Stmt::FunctionDef(func) => {
-                        assert_eq!(func.name.as_str(), "__init__");
+                        assert_eq!(func.name.as_str(), crate::python::constants::INIT_STEM);
                         assert_eq!(func.parameters.args.len(), 3); // self, m, p
                     }
                     _ => panic!("Expected first method to be __init__"),

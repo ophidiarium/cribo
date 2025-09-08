@@ -3,10 +3,11 @@ use ruff_python_ast::{ExprContext, Stmt};
 use crate::{
     ast_builder::{expressions, statements},
     code_generator::module_registry::sanitize_module_name_for_identifier,
+    python::constants::INIT_STEM,
 };
 
 /// The __init__ attribute name for module initialization
-const MODULE_INIT_ATTR: &str = "__init__";
+const MODULE_INIT_ATTR: &str = INIT_STEM;
 
 /// Creates just the init function and __init__ assignment statements for a module
 /// Returns a vector containing the init function definition and the __init__ assignment

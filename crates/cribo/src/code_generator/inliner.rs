@@ -69,7 +69,7 @@ impl Bundler<'_> {
         let mut module_renames = FxIndexMap::default();
 
         // Then apply recursive import transformation to the module
-        let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+        let mut transformer = RecursiveImportTransformer::new(&RecursiveImportTransformerParams {
             bundler: self,
             module_id,
             symbol_renames: ctx.module_renames,
@@ -521,7 +521,7 @@ impl Bundler<'_> {
             && let Expr::Call(call) = &*assign.value
             && let Expr::Attribute(attr) = &*call.func
             && let Expr::Name(base_name) = &*attr.value
-            && attr.attr.as_str() == "__init__"
+            && attr.attr.as_str() == crate::python::constants::INIT_STEM
             && base_name.id == target_name.id
         {
             // This is a wrapper module initialization - preserve it as-is

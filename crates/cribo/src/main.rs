@@ -17,6 +17,7 @@ mod graph_builder;
 mod import_alias_tracker;
 mod import_rewriter;
 mod orchestrator;
+mod python;
 mod resolver;
 mod semantic_bundler;
 mod side_effects;

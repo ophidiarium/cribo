@@ -7,15 +7,9 @@
 const SELF_PARAM: &str = "self";
 
 use log::debug;
-#[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprAwait,
-    ExprBoolOp, ExprCall, ExprCompare, ExprContext, ExprDictComp, ExprFString, ExprGenerator,
-    ExprLambda, ExprListComp, ExprName, ExprNamed, ExprSet, ExprSetComp, ExprSlice, ExprStarred,
-    ExprStringLiteral, ExprYield, ExprYieldFrom, Identifier, ModModule, Stmt, StmtAnnAssign,
-    StmtAssert, StmtAssign, StmtAugAssign, StmtClassDef, StmtDelete, StmtFunctionDef, StmtGlobal,
-    StmtMatch, StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith, StringLiteral,
-    StringLiteralFlags, StringLiteralValue,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, Identifier, ModModule, Stmt, StmtAssign,
+    StmtFunctionDef, StmtGlobal,
 };
 use ruff_text_size::TextRange;
 
@@ -125,7 +119,7 @@ pub fn transform_module_to_init_function<'a>(
 
     // First, recursively transform all imports in the AST
     // For wrapper modules, we don't need to defer imports since they run in their own scope
-    let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+    let mut transformer = RecursiveImportTransformer::new(&RecursiveImportTransformerParams {
         bundler,
         module_id,
         symbol_renames,
@@ -606,7 +600,7 @@ pub fn transform_module_to_init_function<'a>(
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
                 && let Expr::Name(target) = &assign.targets[0]
-                && target.id.as_str() == "__init__"
+                && target.id.as_str() == crate::python::constants::INIT_STEM
                 && let Expr::Call(call) = assign.value.as_ref()
                 && let Expr::Name(func_name) = call.func.as_ref()
                 && crate::code_generator::module_registry::is_init_function(func_name.id.as_str())

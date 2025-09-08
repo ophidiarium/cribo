@@ -363,29 +363,36 @@ impl BundleOrchestrator {
         Vec<ParsedModuleData>,
         Option<CircularDependencyAnalysis>,
     )> {
+        // Store the original entry path before transformation
+        let original_entry_path = entry_path.to_path_buf();
+
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
             // Check for __main__.py first
-            let main_py = entry_path.join("__main__.py");
+            let main_py = entry_path.join(crate::python::constants::MAIN_FILE);
             if main_py.exists() && main_py.is_file() {
                 info!(
-                    "Using __main__.py as entry point from directory: {}",
+                    "Using {} as entry point from directory: {}",
+                    crate::python::constants::MAIN_FILE,
                     entry_path.display()
                 );
                 main_py
             } else {
                 // Check for __init__.py
-                let init_py = entry_path.join("__init__.py");
+                let init_py = entry_path.join(crate::python::constants::INIT_FILE);
                 if init_py.exists() && init_py.is_file() {
                     info!(
-                        "Using __init__.py as entry point from directory: {}",
+                        "Using {} as entry point from directory: {}",
+                        crate::python::constants::INIT_FILE,
                         entry_path.display()
                     );
                     init_py
                 } else {
                     return Err(anyhow!(
-                        "Directory {} does not contain __main__.py or __init__.py",
-                        entry_path.display()
+                        "Directory {} does not contain {} or {}",
+                        entry_path.display(),
+                        crate::python::constants::MAIN_FILE,
+                        crate::python::constants::INIT_FILE
                     ));
                 }
             }
@@ -415,7 +422,7 @@ impl BundleOrchestrator {
                 .file_name()
                 .and_then(|f| f.to_str())
                 .unwrap_or("");
-            let is_package_entry = filename == "__init__.py" || filename == "__main__.py";
+            let is_package_entry = crate::python::module_path::is_special_entry_file_name(filename);
 
             // If it's __init__.py or __main__.py, use the parent's parent as the src directory
             // to preserve the package structure
@@ -444,7 +451,7 @@ impl BundleOrchestrator {
         let mut resolver = ModuleResolver::new(self.config.clone());
 
         // Set the entry file to establish the primary search path
-        resolver.set_entry_file(entry_path);
+        resolver.set_entry_file(entry_path, &original_entry_path);
 
         // Find the entry module name
         let entry_module_name = self.find_entry_module_name(entry_path, &resolver)?;
@@ -944,11 +951,17 @@ impl BundleOrchestrator {
 
         // Special case: If the entry is __init__.py, always use __init__ as the module name
         // to avoid conflicts with wrapper modules that might have the same name as the package
-        if let Some(file_name) = entry_path.file_name()
-            && file_name == "__init__.py"
+        if entry_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(crate::python::module_path::is_init_file_name)
         {
-            log::debug!("Entry is __init__.py, using '__init__' as module name");
-            return Ok("__init__".to_string());
+            log::debug!(
+                "Entry is {}, using '{}' as module name",
+                crate::python::constants::INIT_FILE,
+                crate::python::constants::INIT_STEM
+            );
+            return Ok(crate::python::constants::INIT_STEM.to_string());
         }
 
         // Try to find which src directory contains the entry file
