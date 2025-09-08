@@ -115,8 +115,8 @@ pub struct ImportDiscoveryVisitor<'a> {
     imports: Vec<DiscoveredImport>,
     /// Current scope stack
     scope_stack: Vec<ScopeElement>,
-    /// Map from imported names to their module sources
-    imported_names: FxIndexMap<String, String>,
+    /// Stack of scope-local maps from imported names to their module sources
+    imported_names_stack: Vec<FxIndexMap<String, String>>,
     /// Track usage of each imported name
     name_usage: FxIndexMap<String, Vec<ImportUsage>>,
     /// Optional reference to semantic bundler for enhanced analysis
@@ -144,7 +144,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
-            imported_names: FxIndexMap::default(),
+            imported_names_stack: vec![FxIndexMap::default()],
             name_usage: FxIndexMap::default(),
             _semantic_bundler: None,
             _module_id: None,
@@ -162,7 +162,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
-            imported_names: FxIndexMap::default(),
+            imported_names_stack: vec![FxIndexMap::default()],
             name_usage: FxIndexMap::default(),
             _semantic_bundler: Some(semantic_bundler),
             _module_id: Some(module_id),
@@ -170,6 +170,23 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             in_type_checking: false,
             has_importlib: false,
         }
+    }
+
+    #[inline]
+    fn insert_imported_name(&mut self, name: String, module_key: String) {
+        if let Some(top) = self.imported_names_stack.last_mut() {
+            top.insert(name, module_key);
+        }
+    }
+
+    #[inline]
+    fn lookup_imported_name(&self, name: &str) -> Option<&String> {
+        for scope in self.imported_names_stack.iter().rev() {
+            if let Some(v) = scope.get(name) {
+                return Some(v);
+            }
+        }
+        None
     }
 
     /// Get all discovered imports
@@ -343,8 +360,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                     // Check if it's importlib directly or an alias to importlib
                     return name == "importlib"
                         || self
-                            .imported_names
-                            .get(name)
+                            .lookup_imported_name(name)
                             .is_some_and(|module| module == "importlib");
                 }
             }
@@ -406,8 +422,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 .map_or_else(|| module_name.clone(), std::string::ToString::to_string);
 
             // Track the import mapping
-            self.imported_names
-                .insert(imported_as.clone(), module_name.clone());
+            self.insert_imported_name(imported_as.clone(), module_name.clone());
 
             // Check if we're importing importlib
             if module_name == "importlib" {
@@ -456,7 +471,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                     }
                     (None, _) => name.clone(),
                 };
-                self.imported_names.insert(imported_as.clone(), module_key);
+                self.insert_imported_name(imported_as.clone(), module_key);
 
                 // Check if we're importing import_module from importlib
                 if module_name.as_deref() == Some("importlib") && name == "import_module" {
@@ -510,17 +525,21 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
             Stmt::FunctionDef(func) => {
                 self.scope_stack
                     .push(ScopeElement::Function(func.name.to_string()));
+                self.imported_names_stack.push(FxIndexMap::default());
                 // Visit the function body
                 walk_stmt(self, stmt);
                 self.scope_stack.pop();
+                self.imported_names_stack.pop();
                 return; // Don't call walk_stmt again
             }
             Stmt::ClassDef(class) => {
                 self.scope_stack
                     .push(ScopeElement::Class(class.name.to_string()));
+                self.imported_names_stack.push(FxIndexMap::default());
                 // Visit the class body
                 walk_stmt(self, stmt);
                 self.scope_stack.pop();
+                self.imported_names_stack.pop();
                 return;
             }
             Stmt::If(if_stmt) => {
@@ -613,7 +632,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                 let name = id.to_string();
 
                 // Check if this is an imported name
-                if self.imported_names.contains_key(&name) {
+                if self.lookup_imported_name(&name).is_some() {
                     let context = self.get_current_execution_context();
 
                     // Record usage
@@ -627,10 +646,10 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                         });
 
                     // Update the import's execution contexts
-                    if let Some(module_source) = self.imported_names.get(&name) {
+                    if let Some(module_source) = self.lookup_imported_name(&name).cloned() {
                         // Find the corresponding import and update its contexts
                         for import in &mut self.imports {
-                            if import.module_name.as_ref() == Some(module_source)
+                            if import.module_name.as_ref() == Some(&module_source)
                                 || import
                                     .names
                                     .iter()
