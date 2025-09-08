@@ -77,7 +77,6 @@ def _cribo_init___cribo_5b2acd_yaml_pkg(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    self.BaseLoader = yaml_pkg_loader.BaseLoader
     self.Dumper = yaml_pkg_dumper.Dumper
     self.FullLoader = yaml_pkg_loader.FullLoader
     self.Loader = yaml_pkg_loader.Loader

@@ -45,7 +45,7 @@ def _cribo_init___cribo_35e8d2_foo(self):
     self.__initializing__ = True
     global foo_boo___main__
     foo_boo___main__ = _cribo_init___cribo_9fa9ed_foo_boo___main__(foo_boo___main__)
-    tada = foo.boo.__main__.tada
+    tada = foo_boo___main__.tada
     self.tada = tada
     self.tada = tada
     self.boo = foo_boo
@@ -68,7 +68,6 @@ def _cribo_init___cribo_9fa9ed_foo_boo___main__(self):
     def tada() -> str:
         return f"Tada {ANIMAL}!"
     self.tada = tada
-    self.ANIMAL = ANIMAL
     self.__initialized__ = True
     self.__initializing__ = False
     return self

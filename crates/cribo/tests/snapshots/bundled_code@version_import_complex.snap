@@ -72,7 +72,6 @@ def _cribo_init___cribo_254d99_mypackage_utils(self):
         """Return a user agent string with version."""
         return f"mypackage/{__version__}"
     self.get_user_agent = get_user_agent
-    self.__version__ = __version__
     self.__initialized__ = True
     self.__initializing__ = False
     return self

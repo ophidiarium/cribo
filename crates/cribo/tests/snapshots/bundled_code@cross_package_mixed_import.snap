@@ -108,7 +108,6 @@ def _cribo_init___cribo_f00e4b_core(self):
     self.utils = core_utils
     self.version = core_version
     self.utils = core_utils
-    self.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     self.validate = validate
     self.get_config = get_config
     self.__initialized__ = True
@@ -201,7 +200,6 @@ def _cribo_init___cribo_563ea2_models(self):
     self.base = models_base
     self.user = models_user
     self.base = models_base
-    self.process_user = process_user
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -269,8 +267,6 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
             info["config"] = get_full_config()
         return info
     self.get_connection_info = get_connection_info
-    self.process_user = process_user
-    self.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -306,20 +302,15 @@ def _cribo_init___cribo_782908_core_database(self):
         return not any(char in name for char in ["/", "\\", ":"])
     self.validate_db_name = validate_db_name
     core_database_connection = _cribo_init___cribo_1f0c3d_core_database_connection(core_database_connection)
-    connect = core.database.connection.connect
+    connect = core_database_connection.connect
     self.connect = connect
     self.connect = connect
-    get_connection_info = core.database.connection.get_connection_info
+    get_connection_info = core_database_connection.get_connection_info
     self.get_connection_info = get_connection_info
     self.get_connection_info = get_connection_info
 
     def safe_connect(database_name: str) -> str:
         """Connect only if core is initialized."""
-        global core
-        __cribo_init_result = _cribo_init___cribo_f00e4b_core(core)
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(core, attr, getattr(__cribo_init_result, attr))
         is_initialized = core.is_initialized
         if not is_initialized():
             raise RuntimeError("Core package must be initialized before connecting")

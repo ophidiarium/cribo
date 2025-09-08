@@ -146,9 +146,6 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     self.Connection = Connection
     self.helpers = core_utils_helpers
     self.helpers = core_utils_helpers
-    self.Logger = Logger
-    self.process = process
-    self.validate = validate
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -313,7 +310,7 @@ def _cribo_init___cribo_98ecc1_models(self):
     process_user = models_user.process_user
     models.process_user = process_user
     models_base = _cribo_init___cribo_bca2f6_models_base(models_base)
-    initialize = models.base.initialize
+    initialize = models_base.initialize
     self.initialize = initialize
     self.initialize = initialize
     process = "models_process_string"
@@ -324,9 +321,6 @@ def _cribo_init___cribo_98ecc1_models(self):
     self.connection = connection
     self.user = models_user
     self.user = models_user
-    self.User = User
-    self.Logger = Logger
-    self.process_user = process_user
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -681,10 +675,10 @@ def _cribo_init___cribo_93a195_services(self):
         if not attr.startswith('_'):
             setattr(services.auth, attr, getattr(__cribo_init_result, attr))
     services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
-    User = services.auth.manager.User
+    User = services_auth_manager.User
     self.User = User
     self.User = User
-    process = services.auth.manager.process
+    process = services_auth_manager.process
     self.process = process
     self.process = process
     Logger = "services_logger_string"
@@ -703,20 +697,19 @@ def _cribo_init___cribo_b16105_services_auth(self):
     self.__initializing__ = True
     global services_auth_manager
     services_auth_manager = _cribo_init___cribo_ee1d45_services_auth_manager(services_auth_manager)
-    User = services.auth.manager.User
+    User = services_auth_manager.User
     self.User = User
     self.User = User
-    process = services.auth.manager.process
+    process = services_auth_manager.process
     self.process = process
     self.process = process
-    validate = services.auth.manager.validate
+    validate = services_auth_manager.validate
     self.validate = validate
     self.validate = validate
     Logger = Logger_4
     services_auth.Logger = Logger
     connection = "auth_connection_string"
     self.connection = connection
-    self.Logger = Logger
     self.__initialized__ = True
     self.__initializing__ = False
     return self

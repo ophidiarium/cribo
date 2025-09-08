@@ -55,7 +55,7 @@ def _cribo_init___cribo_937418_complex_pkg(self):
     Base = complex_pkg_abc.Base
     complex_pkg.Base = Base
     complex_pkg_console = _cribo_init___cribo_beaba5_complex_pkg_console(complex_pkg_console)
-    Console = complex_pkg.console.Console
+    Console = complex_pkg_console.Console
     self.Console = Console
     self.Console = Console
 
@@ -65,7 +65,6 @@ def _cribo_init___cribo_937418_complex_pkg(self):
     self.main = main
     self.abc = complex_pkg_abc
     self.abc = complex_pkg_abc
-    self.Base = Base
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -111,7 +110,6 @@ def _cribo_init___cribo_beaba5_complex_pkg_console(self):
     self.Optional = _cribo.typing.Optional
     self.List = _cribo.typing.List
     self.Enum = _cribo.enum.Enum
-    self.Base = Base
     self.__initialized__ = True
     self.__initializing__ = False
     return self

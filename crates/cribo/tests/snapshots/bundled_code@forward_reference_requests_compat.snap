@@ -104,15 +104,15 @@ def _cribo_init___cribo_a5ac5e_myrequests(self):
     utils = myrequests.utils
     self.utils = utils
     myrequests_cookies = _cribo_init___cribo_135ee1_myrequests_cookies(myrequests_cookies)
-    CookieJar = myrequests.cookies.CookieJar
+    CookieJar = myrequests_cookies.CookieJar
     self.CookieJar = CookieJar
     self.CookieJar = CookieJar
     myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
-    JSONDecodeError = myrequests.exceptions.JSONDecodeError
+    JSONDecodeError = myrequests_exceptions.JSONDecodeError
     self.JSONDecodeError = JSONDecodeError
     self.JSONDecodeError = JSONDecodeError
     myrequests_utils = _cribo_init___cribo_ce8acb_myrequests_utils(myrequests_utils)
-    decode_json = myrequests.utils.decode_json
+    decode_json = myrequests_utils.decode_json
     self.decode_json = decode_json
     self.decode_json = decode_json
     self.__initialized__ = True
@@ -127,10 +127,6 @@ def _cribo_init___cribo_135ee1_myrequests_cookies(self):
     self.__initializing__ = True
     global myrequests_compat
     """Cookies module that uses compat's MutableMapping in class inheritance."""
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     cookielib = myrequests.compat.cookielib
     self.cookielib = cookielib
@@ -183,10 +179,6 @@ def _cribo_init___cribo_530a30_myrequests_exceptions(self):
     self.__initializing__ = True
     global myrequests_compat
     """Exceptions module that uses compat types in class inheritance."""
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     CompatJSONDecodeError = myrequests.compat.JSONDecodeError
     self.CompatJSONDecodeError = CompatJSONDecodeError
@@ -221,10 +213,6 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
     self.__initializing__ = True
     global myrequests_compat, myrequests_exceptions
     """Utils module that also uses compat."""
-    __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(myrequests, attr, getattr(__cribo_init_result, attr))
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     json = myrequests.compat.json
     self.json = json
@@ -246,10 +234,6 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
             return _cribo.json.loads(content)
         except (ValueError, TypeError) as e:
             global myrequests_exceptions
-            __cribo_init_result = _cribo_init___cribo_a5ac5e_myrequests(myrequests)
-            for attr in dir(__cribo_init_result):
-                if not attr.startswith('_'):
-                    setattr(myrequests, attr, getattr(__cribo_init_result, attr))
             myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
             OurJSONDecodeError = myrequests.exceptions.JSONDecodeError
             raise OurJSONDecodeError(str(e))

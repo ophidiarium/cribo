@@ -59,7 +59,7 @@ def _cribo_init___cribo_30661c_mypkg(self):
     self.__initializing__ = True
     global mypkg_exceptions
     mypkg_exceptions = _cribo_init___cribo_72b028_mypkg_exceptions(mypkg_exceptions)
-    CustomJSONError = mypkg.exceptions.CustomJSONError
+    CustomJSONError = mypkg_exceptions.CustomJSONError
     self.CustomJSONError = CustomJSONError
     self.CustomJSONError = CustomJSONError
     self.__initialized__ = True
@@ -73,10 +73,6 @@ def _cribo_init___cribo_72b028_mypkg_exceptions(self):
         return self
     self.__initializing__ = True
     global mypkg_compat
-    __cribo_init_result = _cribo_init___cribo_30661c_mypkg(mypkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(mypkg, attr, getattr(__cribo_init_result, attr))
     mypkg_compat = _cribo_init___cribo_4089db_mypkg_compat(mypkg_compat)
     CompatJSONDecodeError = mypkg.compat.JSONDecodeError
     self.CompatJSONDecodeError = CompatJSONDecodeError

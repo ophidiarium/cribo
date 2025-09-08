@@ -104,14 +104,14 @@ def _cribo_init___cribo_0ac752_core(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core.utils, attr, getattr(__cribo_init_result, attr))
-    core_process = core.utils.process
+    core_process = core_utils.process
     self.core_process = core_process
     self.core_process = core_process
     __cribo_init_result = _cribo_init___cribo_b7b3e3_core_database(core_database)
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(core.database, attr, getattr(__cribo_init_result, attr))
-    CoreConnection = core.database.Connection
+    CoreConnection = core_database.Connection
     self.CoreConnection = CoreConnection
     self.CoreConnection = CoreConnection
     Logger = "core_logger_string"
@@ -128,10 +128,10 @@ def _cribo_init___cribo_b7b3e3_core_database(self):
     self.__initializing__ = True
     global core_database_connection
     core_database_connection = _cribo_init___cribo_df9c8d_core_database_connection(core_database_connection)
-    Connection = core.database.connection.Connection
+    Connection = core_database_connection.Connection
     self.Connection = Connection
     self.Connection = Connection
-    process = core.database.connection.process
+    process = core_database_connection.process
     self.process = process
     self.process = process
     validate = "db_package_validate"
@@ -156,9 +156,6 @@ def _cribo_init___cribo_e52b1d_core_utils(self):
     self.User = User
     self.helpers = core_utils_helpers
     self.helpers = core_utils_helpers
-    self.process = process
-    self.validate = validate
-    self.Logger = Logger
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -307,14 +304,14 @@ def _cribo_init___cribo_293a98_models(self):
     self.__initializing__ = True
     global models_base, models_user
     models_user = _cribo_init___cribo_1f9e6c_models_user(models_user)
-    User = models.user.User
+    User = models_user.User
     self.User = User
     self.User = User
-    process_user = models.user.process_user
+    process_user = models_user.process_user
     self.process_user = process_user
     self.process_user = process_user
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
-    initialize = models.base.initialize
+    initialize = models_base.initialize
     self.initialize = initialize
     self.initialize = initialize
     Logger = lambda x: f"models_logger_{x}"
@@ -337,10 +334,6 @@ def _cribo_init___cribo_1f9e6c_models_user(self):
     models_user.util_process = util_process
     UtilLogger = Logger_6
     models_user.UtilLogger = UtilLogger
-    __cribo_init_result = _cribo_init___cribo_293a98_models(models)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(models, attr, getattr(__cribo_init_result, attr))
     models_base = _cribo_init___cribo_0a162a_models_base(models_base)
     BaseLogger = models.base.Logger
     self.BaseLogger = BaseLogger
@@ -506,7 +499,6 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
             return process(f"{username}:{data}")
     AuthManager.__module__ = 'services.auth.manager'
     self.AuthManager = AuthManager
-    self.sanitize = sanitize
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -525,7 +517,7 @@ def _cribo_init___cribo_b2dda7_services(self):
     for attr in dir(__cribo_init_result):
         if not attr.startswith('_'):
             setattr(services.auth, attr, getattr(__cribo_init_result, attr))
-    ServiceUser = services.auth.User
+    ServiceUser = services_auth.User
     self.ServiceUser = ServiceUser
     self.ServiceUser = ServiceUser
     process = lambda x, y: f"services_process: {x}, {y}"
@@ -544,13 +536,13 @@ def _cribo_init___cribo_84bf42_services_auth(self):
     self.__initializing__ = True
     global services_auth_manager
     services_auth_manager = _cribo_init___cribo_0ecebd_services_auth_manager(services_auth_manager)
-    User = services.auth.manager.User
+    User = services_auth_manager.User
     self.User = User
     self.User = User
-    process = services.auth.manager.process
+    process = services_auth_manager.process
     self.process = process
     self.process = process
-    validate = services.auth.manager.validate
+    validate = services_auth_manager.validate
     self.validate = validate
     self.validate = validate
     Connection = lambda: "auth_package_connection"

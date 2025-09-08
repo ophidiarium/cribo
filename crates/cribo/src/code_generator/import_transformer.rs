@@ -4,7 +4,8 @@ use cow_utils::CowUtils;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprCall, ExprContext, ExprFString, ExprName, FString,
     FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, ModModule, Stmt, StmtClassDef, StmtImport, StmtImportFrom,
+    InterpolatedStringElements, ModModule, Stmt, StmtClassDef, StmtFunctionDef, StmtGlobal,
+    StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -910,6 +911,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Transform the function body
                         self.transform_statements(&mut func_def.body);
 
+                        // After all transformations, hoist and deduplicate any inserted
+                        // `global` statements to the start of the function body (after a
+                        // docstring if present) to ensure correct Python semantics.
+                        Self::hoist_function_globals(func_def);
+
                         // Restore the previous scope level
                         self.at_module_level = saved_at_module_level;
 
@@ -1063,6 +1069,60 @@ impl<'a> RecursiveImportTransformer<'a> {
                 i += 1;
             }
         }
+    }
+
+    /// Move all `global` statements in a function to the start of the function body
+    /// (after a leading docstring, if present) and deduplicate their names.
+    fn hoist_function_globals(func_def: &mut StmtFunctionDef) {
+        use ruff_python_ast::helpers::is_docstring_stmt;
+        use ruff_text_size::TextRange;
+
+        use crate::types::FxIndexSet;
+
+        let mut names: FxIndexSet<String> = FxIndexSet::default();
+        let mut has_global = false;
+
+        for stmt in &func_def.body {
+            if let Stmt::Global(g) = stmt {
+                has_global = true;
+                for ident in &g.names {
+                    names.insert(ident.as_str().to_string());
+                }
+            }
+        }
+
+        if !has_global {
+            return;
+        }
+
+        log::debug!(
+            "Hoisting {} global name(s) to function start (import transformer)",
+            names.len()
+        );
+
+        // Remove existing global statements
+        let mut new_body: Vec<Stmt> = Vec::with_capacity(func_def.body.len());
+        for stmt in func_def.body.drain(..) {
+            if !matches!(stmt, Stmt::Global(_)) {
+                new_body.push(stmt);
+            }
+        }
+
+        // Insert after docstring if present
+        let insert_at = usize::from(new_body.first().is_some_and(is_docstring_stmt));
+
+        // Build combined global
+        let global_stmt = Stmt::Global(StmtGlobal {
+            names: names
+                .into_iter()
+                .map(|s| Identifier::new(s, TextRange::default()))
+                .collect(),
+            range: TextRange::default(),
+            node_index: AtomicNodeIndex::dummy(),
+        });
+
+        new_body.insert(insert_at, global_stmt);
+        func_def.body = new_body;
     }
 
     /// Transform a class definition's base classes
@@ -2274,6 +2334,31 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         match expr {
             Expr::Attribute(attr_expr) => {
+                // Special case: inside a wrapper module's init function, rewrite references
+                // to the current module accessed via the parent namespace (e.g.,
+                // rich.console.X inside rich.console __init__) to use `self` directly.
+                // Do this before any other handling to avoid re-entrancy issues.
+                if self.is_wrapper_init {
+                    let current = self.get_module_name();
+                    if let Some((root, rel)) = current.split_once('.') {
+                        // Try to find the inner attribute node where value is Name(root)
+                        // and attribute equals the current module's relative name (rel).
+                        let mut cursor: &mut ruff_python_ast::ExprAttribute = attr_expr; // start at outer attribute
+                        while let Expr::Attribute(inner) = cursor.value.as_mut() {
+                            let is_base = matches!(
+                                inner.value.as_ref(),
+                                Expr::Name(n) if n.id.as_str() == root
+                            ) && inner.attr.as_str() == rel;
+                            if is_base {
+                                inner.value =
+                                    Box::new(expressions::name("self", ExprContext::Load));
+                                return;
+                            }
+                            cursor = inner;
+                        }
+                    }
+                }
+
                 // First check if the base of this attribute is a wrapper module import
                 if let Expr::Name(base_name) = &*attr_expr.value {
                     let name = base_name.id.as_str();

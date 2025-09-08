@@ -541,7 +541,6 @@ def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
     self.Optional = _cribo.typing.Optional
     self.Dict = _cribo.typing.Dict
     self.Any = _cribo.typing.Any
-    self.base = base
     self.__initialized__ = True
     self.__initializing__ = False
     return self

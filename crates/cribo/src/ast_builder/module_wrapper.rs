@@ -2,9 +2,7 @@ use ruff_python_ast::{ExprContext, Stmt};
 
 use crate::{
     ast_builder::{expressions, statements},
-    code_generator::module_registry::{
-        get_init_function_name, sanitize_module_name_for_identifier,
-    },
+    code_generator::module_registry::sanitize_module_name_for_identifier,
 };
 
 /// The __init__ attribute name for module initialization
@@ -14,14 +12,12 @@ const MODULE_INIT_ATTR: &str = "__init__";
 /// Returns a vector containing the init function definition and the __init__ assignment
 pub fn create_init_function_statements(
     module_name: &str,
-    synthetic_name: &str,
+    init_func_name: &str,
     init_function_body: Stmt,
 ) -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
     let module_var = sanitize_module_name_for_identifier(module_name);
-    let init_func_name = get_init_function_name(synthetic_name);
-
     // Add init function
     stmts.push(init_function_body);
 
@@ -32,7 +28,7 @@ pub fn create_init_function_statements(
             MODULE_INIT_ATTR,
             ExprContext::Store,
         )],
-        expressions::name(&init_func_name, ExprContext::Load),
+        expressions::name(init_func_name, ExprContext::Load),
     );
     stmts.push(attach_init);
 
@@ -44,7 +40,7 @@ pub fn create_init_function_statements(
 /// If `init_function_body` is None, only creates the namespace without init function
 pub fn create_wrapper_module(
     module_name: &str,
-    synthetic_name: &str,
+    init_func_name: &str,
     init_function_body: Option<Stmt>,
     is_package: bool,
 ) -> Vec<Stmt> {
@@ -77,7 +73,7 @@ pub fn create_wrapper_module(
 
     // 2. Add the init function definition and __init__ assignment if provided
     if let Some(init_body) = init_function_body {
-        let init_stmts = create_init_function_statements(module_name, synthetic_name, init_body);
+        let init_stmts = create_init_function_statements(module_name, init_func_name, init_body);
         stmts.extend(init_stmts);
     }
 

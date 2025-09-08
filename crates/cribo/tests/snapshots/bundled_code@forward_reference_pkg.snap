@@ -56,7 +56,7 @@ def _cribo_init___cribo_f70f3a_pkg(self):
     core = pkg.core
     self.core = core
     pkg_core = _cribo_init___cribo_1a829c_pkg_core(pkg_core)
-    get_value = pkg.core.get_value
+    get_value = pkg_core.get_value
     self.get_value = get_value
     self.get_value = get_value
     self.__initialized__ = True
@@ -87,7 +87,6 @@ def _cribo_init___cribo_1a829c_pkg_core(self):
         """Get the cached value."""
         return _cached_value
     self.get_value = get_value
-    self.CONSTANT = CONSTANT
     self.__initialized__ = True
     self.__initializing__ = False
     return self

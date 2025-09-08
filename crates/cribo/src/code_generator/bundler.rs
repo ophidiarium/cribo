@@ -114,6 +114,8 @@ pub struct Bundler<'a> {
     /// Reference to the semantic bundler for semantic analysis
     /// This is set during `bundle_modules` and used by import transformers
     pub(crate) semantic_bundler: Option<&'a crate::semantic_bundler::SemanticBundler>,
+    /// Track which wrapper modules have had their init function emitted (definition + assignment)
+    pub(crate) emitted_wrapper_inits: FxIndexSet<ModuleId>,
 }
 
 impl std::fmt::Debug for Bundler<'_> {
@@ -705,6 +707,7 @@ impl<'a> Bundler<'a> {
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,
             semantic_bundler: None,
+            emitted_wrapper_inits: FxIndexSet::default(),
         }
     }
 
@@ -928,7 +931,10 @@ impl<'a> Bundler<'a> {
                 // Regular attribute import
                 // Special case: if we're inside the wrapper init of a module importing its own
                 // submodule
-                if inside_wrapper_init && current_module == Some(module_name) {
+                if inside_wrapper_init
+                    && let Some(curr) = current_module
+                    && module_name.starts_with(&format!("{curr}."))
+                {
                     // Check if this is actually a submodule
                     let full_submodule_path = format!("{module_name}.{imported_name}");
                     if self
@@ -951,11 +957,19 @@ impl<'a> Bundler<'a> {
                             }
                         }
 
-                        // Now create the assignment from the parent namespace
-                        let module_expr = expressions::name(module_name, ExprContext::Load);
+                        // Now create the assignment from the initialized submodule's namespace
+                        // Use the submodule variable directly to avoid relying on parent namespace
+                        let submodule_var =
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                &full_submodule_path,
+                            );
                         let assignment = statements::simple_assign(
                             target_name.as_str(),
-                            expressions::attribute(module_expr, imported_name, ExprContext::Load),
+                            expressions::attribute(
+                                expressions::name(&submodule_var, ExprContext::Load),
+                                imported_name,
+                                ExprContext::Load,
+                            ),
                         );
                         assignments.push(assignment);
                         continue; // Skip the rest of the regular attribute handling
@@ -1002,10 +1016,16 @@ impl<'a> Bundler<'a> {
                 // Only initialize if we're inside a wrapper init OR if the module's init
                 // function has already been defined (to avoid forward references)
                 let needs_init = if let Some(module_id) = self.get_module_id(module_name) {
+                    // Avoid initializing a parent namespace from within a child's wrapper init
+                    let is_parent_of_current = current_module
+                        .is_some_and(|curr| curr.starts_with(&format!("{module_name}.")));
+
                     self.has_synthetic_name(module_name)
                         && !locally_initialized.contains(&module_id)
-                        && current_module != Some(module_name)  // Prevent self-initialization
-                        && (inside_wrapper_init || self.module_init_functions.contains_key(&module_id))
+                        && current_module != Some(module_name) // Prevent self-initialization
+                        && !is_parent_of_current
+                        && (inside_wrapper_init
+                            || self.module_init_functions.contains_key(&module_id))
                 } else {
                     false
                 };
@@ -1142,7 +1162,19 @@ impl<'a> Bundler<'a> {
                     .and_then(|id| self.resolver.get_module_name(id))
                     .unwrap_or_else(|| module_name.to_string());
 
-                let module_expr = if canonical_module_name.contains('.') {
+                // Prefer submodule variable when importing from a child module inside a wrapper
+                // init
+                let prefer_submodule_var = inside_wrapper_init
+                    && current_module
+                        .is_some_and(|curr| canonical_module_name.starts_with(&format!("{curr}.")));
+
+                let module_expr = if prefer_submodule_var {
+                    let var =
+                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                            &canonical_module_name,
+                        );
+                    expressions::name(&var, ExprContext::Load)
+                } else if canonical_module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = canonical_module_name.split('.').collect();
                     expressions::dotted_name(&parts, ExprContext::Load)
@@ -2129,12 +2161,14 @@ impl<'a> Bundler<'a> {
                         ast.clone(),
                         &symbol_renames,
                     );
-
-                    let synthetic = self
-                        .module_synthetic_names
-                        .get(mid)
-                        .expect("synthetic name must exist for cycle member")
-                        .clone();
+                    let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
+                        f.name.as_str().to_string()
+                    } else {
+                        self.module_init_functions
+                            .get(mid)
+                            .expect("init function must exist for cycle member")
+                            .clone()
+                    };
 
                     // Insert lifted global declarations (before init), if any
                     if let Some(ref info) = global_info
@@ -2149,13 +2183,19 @@ impl<'a> Bundler<'a> {
                         }
                     }
 
-                    let mut init_stmts =
-                        crate::ast_builder::module_wrapper::create_init_function_statements(
-                            mname,
-                            &synthetic,
-                            init_function,
+                    if self.emitted_wrapper_inits.insert(*mid) {
+                        let mut init_stmts =
+                            crate::ast_builder::module_wrapper::create_init_function_statements(
+                                mname,
+                                &init_func_name,
+                                init_function,
+                            );
+                        all_inlined_stmts.append(&mut init_stmts);
+                    } else {
+                        log::debug!(
+                            "Skipping duplicate init emission for cycle member module '{mname}'"
                         );
-                    all_inlined_stmts.append(&mut init_stmts);
+                    }
                 }
 
                 processed_cycle_groups.insert(*group_idx);
@@ -2331,7 +2371,7 @@ impl<'a> Bundler<'a> {
                     .get_module_id(&module_name)
                     .expect("Wrapper module should be registered");
 
-                let synthetic_name = self
+                let _synthetic_name = self
                     .module_synthetic_names
                     .entry(wrapper_module_id)
                     .or_insert_with(|| {
@@ -2346,6 +2386,13 @@ impl<'a> Bundler<'a> {
                         );
                         name
                     })
+                    .clone();
+                // Determine the init function name from the returned function def to ensure
+                // consistency
+                let init_func_name_from_map = self
+                    .module_init_functions
+                    .get(&wrapper_module_id)
+                    .expect("init function must exist for wrapper module")
                     .clone();
 
                 // Analyze global declarations for this wrapper module
@@ -2369,6 +2416,11 @@ impl<'a> Bundler<'a> {
                     ast.clone(),
                     &symbol_renames,
                 );
+                let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
+                    f.name.as_str().to_string()
+                } else {
+                    init_func_name_from_map
+                };
 
                 // Check if this is a package (ends with __init__.py)
                 let is_package = path.ends_with("__init__.py");
@@ -2380,19 +2432,37 @@ impl<'a> Bundler<'a> {
                 // Only create namespace if it doesn't already exist
                 let mut wrapper_stmts = if namespace_already_exists {
                     // Namespace exists, just add the init function and __init__ assignment
-                    crate::ast_builder::module_wrapper::create_init_function_statements(
-                        &module_name,
-                        &synthetic_name,
-                        init_function,
-                    )
+                    if self.emitted_wrapper_inits.insert(wrapper_module_id) {
+                        crate::ast_builder::module_wrapper::create_init_function_statements(
+                            &module_name,
+                            &init_func_name,
+                            init_function,
+                        )
+                    } else {
+                        log::debug!(
+                            "Skipping duplicate init emission for wrapper module '{module_name}'"
+                        );
+                        Vec::new()
+                    }
                 } else {
                     // Create the full wrapper module with namespace
-                    crate::ast_builder::module_wrapper::create_wrapper_module(
-                        &module_name,
-                        &synthetic_name,
-                        Some(init_function),
-                        is_package,
-                    )
+                    if self.emitted_wrapper_inits.insert(wrapper_module_id) {
+                        crate::ast_builder::module_wrapper::create_wrapper_module(
+                            &module_name,
+                            &init_func_name,
+                            Some(init_function),
+                            is_package,
+                        )
+                    } else {
+                        // Shouldn't happen (no namespace yet but init already emitted), but guard
+                        // anyway
+                        crate::ast_builder::module_wrapper::create_wrapper_module(
+                            &module_name,
+                            "",
+                            None,
+                            is_package,
+                        )
+                    }
                 };
 
                 // Insert lifted global declarations after namespace but before init function
@@ -2995,7 +3065,14 @@ impl<'a> Bundler<'a> {
         let module_id = self.get_module_id(module_name);
 
         // Check if the module has explicit __all__ exports
-        if let Some(Some(exports)) = module_id.and_then(|id| self.module_exports.get(&id)) {
+        // For wrapper modules (which use init functions), do NOT restrict exports to __all__.
+        // Wrapper modules should expose public symbols regardless of __all__ to preserve
+        // attribute access patterns like `rich.console.Console`.
+        let is_wrapper_module =
+            module_id.is_some_and(|id| self.module_init_functions.contains_key(&id));
+        if !is_wrapper_module
+            && let Some(Some(exports)) = module_id.and_then(|id| self.module_exports.get(&id))
+        {
             // Module defines __all__, check if symbol is listed there
             if exports.iter().any(|s| s == symbol_name) {
                 // Symbol is in __all__. For re-exported symbols, check if the symbol exists
@@ -4787,7 +4864,16 @@ impl Bundler<'_> {
                         .is_some_and(|pkg| pkg == parent_name);
 
                 // Check if parent has an init function and isn't the entry package parent
-                if self.module_init_functions.contains_key(&parent_id) && !is_entry_parent {
+                // Also avoid initializing a parent namespace when we're currently inside one of
+                // its child modules (wrapper init). The child should not re-initialize the parent.
+                let in_child_context = current_module
+                    .and_then(|id| self.resolver.get_module_name(id))
+                    .is_some_and(|curr| curr.starts_with(&format!("{parent_name}.")));
+
+                if self.module_init_functions.contains_key(&parent_id)
+                    && !is_entry_parent
+                    && !in_child_context
+                {
                     log::debug!(
                         "Ensuring parent '{parent_name}' is initialized before child \
                          '{module_name}'"
@@ -4801,10 +4887,10 @@ impl Bundler<'_> {
                         current_module,
                         at_module_level,
                     ));
-                } else if is_entry_parent {
+                } else if is_entry_parent || in_child_context {
                     log::debug!(
-                        "Skipping initialization of entry package parent '{parent_name}' while \
-                         initializing child '{module_name}' to avoid circular init"
+                        "Skipping initialization of parent '{parent_name}' while initializing \
+                         child '{module_name}' to avoid circular init"
                     );
                 }
             }

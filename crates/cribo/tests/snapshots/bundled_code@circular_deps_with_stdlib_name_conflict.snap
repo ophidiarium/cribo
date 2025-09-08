@@ -48,15 +48,15 @@ def _cribo_init___cribo_6b1af6_pkg(self):
     global pkg_abc, pkg_console, pkg_pretty
     """Package with circular dependencies and stdlib-conflicting module names."""
     pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
-    Console = pkg.console.Console
+    Console = pkg_console.Console
     self.Console = Console
     self.Console = Console
     pkg_pretty = _cribo_init___cribo_2353ad_pkg_pretty(pkg_pretty)
-    PrettyPrinter = pkg.pretty.PrettyPrinter
+    PrettyPrinter = pkg_pretty.PrettyPrinter
     self.PrettyPrinter = PrettyPrinter
     self.PrettyPrinter = PrettyPrinter
     pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
-    RichRenderable = pkg.abc.RichRenderable
+    RichRenderable = pkg_abc.RichRenderable
     self.RichRenderable = RichRenderable
     self.RichRenderable = RichRenderable
     self.__initialized__ = True
@@ -90,10 +90,6 @@ def _cribo_init___cribo_5f60be_pkg_abc(self):
             return hasattr(other, "render")
     RichRenderable.__module__ = 'pkg.abc'
     self.RichRenderable = RichRenderable
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
     ConsoleBase = pkg.console.ConsoleBase
     self.ConsoleBase = ConsoleBase
@@ -152,10 +148,6 @@ def _cribo_init___cribo_02808e_pkg_color(self):
     def color_from_style(style) -> "Color":
         """Create a color from a style."""
         global pkg_style
-        __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(pkg, attr, getattr(__cribo_init_result, attr))
         pkg_style = _cribo_init___cribo_4c91ba_pkg_style(pkg_style)
         Style = pkg.style.Style
         if style.color == "red":
@@ -170,10 +162,6 @@ def _cribo_init___cribo_02808e_pkg_color(self):
     def apply_color_to_console(console, color: Color) -> None:
         """Apply color to console."""
         global pkg_console
-        __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(pkg, attr, getattr(__cribo_init_result, attr))
         pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
         ConsoleBase = pkg.console.ConsoleBase
         pass
@@ -205,26 +193,14 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
         pass
     ConsoleBase.__module__ = 'pkg.console'
     self.ConsoleBase = ConsoleBase
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
     RichRenderable = pkg.abc.RichRenderable
     self.RichRenderable = RichRenderable
     self.RichRenderable = RichRenderable
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_style = _cribo_init___cribo_4c91ba_pkg_style(pkg_style)
     Style = pkg.style.Style
     self.Style = Style
     self.Style = Style
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_color = _cribo_init___cribo_02808e_pkg_color(pkg_color)
     Color = pkg.color.Color
     self.Color = Color
@@ -252,10 +228,6 @@ def _cribo_init___cribo_f0224b_pkg_console(self):
             return isinstance(obj, RichRenderable)
     Console.__module__ = 'pkg.console'
     self.Console = Console
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_pretty = _cribo_init___cribo_2353ad_pkg_pretty(pkg_pretty)
     format_pretty = pkg.pretty.format_pretty
     self.format_pretty = format_pretty
@@ -281,18 +253,10 @@ def _cribo_init___cribo_2353ad_pkg_pretty(self):
     """Pretty printing module with circular dependency on console."""
     Any = _cribo.typing.Any
     self.Any = Any
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
     RichRenderable = pkg.abc.RichRenderable
     self.RichRenderable = RichRenderable
     self.RichRenderable = RichRenderable
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
     Console = pkg.console.Console
     self.Console = Console
@@ -337,10 +301,6 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
     """Style module that participates in circular dependencies."""
     Optional = _cribo.typing.Optional
     self.Optional = Optional
-    __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg_color = _cribo_init___cribo_02808e_pkg_color(pkg_color)
     Color = pkg.color.Color
     self.Color = Color
@@ -366,10 +326,6 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
     def apply_style_to_console(console, style: Style) -> None:
         """Apply a style to console output."""
         global pkg_console
-        __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(pkg, attr, getattr(__cribo_init_result, attr))
         pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
         ConsoleBase = pkg.console.ConsoleBase
         pass

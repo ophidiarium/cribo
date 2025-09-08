@@ -86,10 +86,6 @@ def _cribo_init___cribo_6558da_mypkg_console(self):
     ctypes = _cribo.ctypes
     self.ctypes = ctypes
     self.ctypes = ctypes
-    __cribo_init_result = _cribo_init___cribo_9a2a8c_mypkg(mypkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(mypkg, attr, getattr(__cribo_init_result, attr))
     local_abc = mypkg.abc
     self.local_abc = local_abc
     self.local_abc = local_abc

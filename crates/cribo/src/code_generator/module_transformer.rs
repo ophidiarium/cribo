@@ -151,6 +151,10 @@ pub fn transform_module_to_init_function<'a>(
     // Use a stable set to dedup and preserve insertion order
     let mut stdlib_reexports: FxIndexSet<(String, String)> = FxIndexSet::default();
 
+    // Do not reorder statements in wrapper modules. Some libraries (e.g., httpx)
+    // define constants used by function default arguments; hoisting functions would
+    // break evaluation order of those defaults.
+
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
             // Collect ALL imported symbols (not just from inlined modules)

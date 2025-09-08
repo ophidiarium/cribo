@@ -51,7 +51,7 @@ def _cribo_init___cribo_a4c23d_package(self):
     __title__ = package___version__.__title__
     package.__title__ = __title__
     package_module_a = _cribo_init___cribo_cc4906_package_module_a(package_module_a)
-    func_a = package.module_a.func_a
+    func_a = package_module_a.func_a
     self.func_a = func_a
     self.func_a = func_a
 
@@ -74,11 +74,6 @@ def _cribo_init___cribo_cc4906_package_module_a(self):
     """Module A that creates circular dependency"""
 
     def func_a():
-        global package
-        __cribo_init_result = _cribo_init___cribo_a4c23d_package(package)
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(package, attr, getattr(__cribo_init_result, attr))
         package_func = package.package_func
         return "func_a"
     self.func_a = func_a

@@ -43,7 +43,7 @@ def _cribo_init___cribo_d7bb86_mymodule(self):
     self.__initializing__ = True
     global mymodule_exceptions
     mymodule_exceptions = _cribo_init___cribo_e5cbf4_mymodule_exceptions(mymodule_exceptions)
-    MyError = mymodule.exceptions.MyError
+    MyError = mymodule_exceptions.MyError
     self.MyError = MyError
     self.MyError = MyError
     self.compat = mymodule_compat

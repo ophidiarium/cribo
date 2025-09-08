@@ -101,7 +101,7 @@ def _cribo_init___cribo_a81151_mypackage(self):
     format_data = mypackage_formatter.format_data
     mypackage.format_data = format_data
     mypackage_config = _cribo_init___cribo_de6c46_mypackage_config(mypackage_config)
-    config = mypackage.config.config
+    config = mypackage_config.config
     self.config = config
     self.config = config
     __cribo_init_result = _cribo_init___cribo_99e487_mypackage_utils(mypackage_utils)

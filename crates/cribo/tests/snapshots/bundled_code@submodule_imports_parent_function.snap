@@ -44,7 +44,6 @@ def _cribo_init___cribo_dca395_pkg_submodule(self):
     def process():
         return computed_value
     self.process = process
-    self.get_base = get_base
     self.__initialized__ = True
     self.__initializing__ = False
     return self

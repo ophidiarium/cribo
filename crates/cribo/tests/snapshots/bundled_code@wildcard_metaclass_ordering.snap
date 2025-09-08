@@ -101,14 +101,6 @@ def _cribo_init___cribo_952a76_yaml_module(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    self.BaseDumper = yaml_module_dumper.BaseDumper
-    self.BaseLoader = yaml_module_loader.BaseLoader
-    self.Dumper = yaml_module_dumper.Dumper
-    self.FullLoader = yaml_module_loader.FullLoader
-    self.Loader = yaml_module_loader.Loader
-    self.SafeDumper = yaml_module_dumper.SafeDumper
-    self.SafeLoader = yaml_module_loader.SafeLoader
-    self.UnsafeLoader = yaml_module_loader.UnsafeLoader
 
     class YAMLObjectMetaclass(type):
         """The metaclass for YAMLObject."""

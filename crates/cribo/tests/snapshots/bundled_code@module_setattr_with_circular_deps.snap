@@ -78,7 +78,7 @@ def _cribo_init___cribo_1fb248_pkg(self):
     global pkg__client, pkg__main
     """Package that sets __module__ on all exported items, like httpx does."""
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
-    Client = pkg._client.Client
+    Client = pkg__client.Client
     self.Client = Client
     self.Client = Client
     Request = pkg__models.Request
@@ -86,7 +86,7 @@ def _cribo_init___cribo_1fb248_pkg(self):
     Response = pkg__models.Response
     pkg.Response = Response
     pkg__main = _cribo_init___cribo_fc6bcd_pkg__main(pkg__main)
-    main = pkg._main.main
+    main = pkg__main.main
     self.main = main
     self.main = main
     __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
@@ -99,8 +99,6 @@ def _cribo_init___cribo_1fb248_pkg(self):
     self._types = pkg__types
     self._models = pkg__models
     self._types = pkg__types
-    self.Request = Request
-    self.Response = Response
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -112,10 +110,6 @@ def _cribo_init___cribo_7e63ae_pkg__client(self):
         return self
     self.__initializing__ = True
     """Client module with circular import and other dependencies."""
-    __cribo_init_result = _cribo_init___cribo_1fb248_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     AsyncStream = pkg.AsyncStream
     self.AsyncStream = AsyncStream
     self.AsyncStream = AsyncStream
@@ -139,8 +133,6 @@ def _cribo_init___cribo_7e63ae_pkg__client(self):
             return Response()
     Client.__module__ = 'pkg._client'
     self.Client = Client
-    self.Request = Request
-    self.Response = Response
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -153,10 +145,6 @@ def _cribo_init___cribo_fc6bcd_pkg__main(self):
     self.__initializing__ = True
     global pkg__client
     """Main module that imports client which imports back to parent."""
-    __cribo_init_result = _cribo_init___cribo_1fb248_pkg(pkg)
-    for attr in dir(__cribo_init_result):
-        if not attr.startswith('_'):
-            setattr(pkg, attr, getattr(__cribo_init_result, attr))
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
     Client = pkg._client.Client
     self.Client = Client

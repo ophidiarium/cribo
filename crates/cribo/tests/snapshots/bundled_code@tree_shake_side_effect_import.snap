@@ -75,7 +75,6 @@ def _cribo_init___cribo_09b9b3_mypackage_utils(self):
             raise CustomError("Data cannot be None")
         return f"Processed: {data}"
     self.process_data = process_data
-    self.CustomError = CustomError
     self.__initialized__ = True
     self.__initializing__ = False
     return self
