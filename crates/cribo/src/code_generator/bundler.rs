@@ -2417,30 +2417,12 @@ impl<'a> Bundler<'a> {
         }
 
         // Generate module-level exports for all submodules of the entry module
-        // This ensures that imports like `requests.exceptions` work in the bundled module
-        // For package bundles, the entry is typically "__init__" but we want to export
-        // submodules of the package itself (e.g., "requests.exceptions" not "__init__.exceptions")
-        // So we need to find the package name from the modules
-        let package_name = if self.entry_module_name == "__init__" {
-            // Find the package name from any submodule
-            self.inlined_modules
-                .iter()
-                .filter_map(|id| self.resolver.get_module_name(*id))
-                .chain(
-                    self.module_synthetic_names
-                        .keys()
-                        .filter_map(|id| self.resolver.get_module_name(*id)),
-                )
-                .find_map(|name| {
-                    if name.contains('.') {
-                        name.split('.').next().map(std::string::ToString::to_string)
-                    } else if name != "__init__" {
-                        Some(name.clone())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| "__init__".to_string())
+        // This ensures that imports like `requests.exceptions` work in the bundled module.
+        // Determine the package name correctly: if the entry module is a package __init__,
+        // use its package root (e.g., "requests" for "requests.__init__"); otherwise use
+        // the entry module name as-is.
+        let package_name = if let Some(pkg) = self.entry_package_name() {
+            pkg.to_string()
         } else {
             self.entry_module_name.clone()
         };
@@ -2761,15 +2743,12 @@ impl<'a> Bundler<'a> {
                     "Adding module-level exposure for child modules of entry module {module_name}"
                 );
 
-                // For __init__ modules, we need to find the actual package name
-                // The package name is the wrapper module without __init__
+                // For __init__ modules, derive the package name directly by stripping the suffix
                 let package_name = if crate::util::is_init_module(&module_name) {
-                    // Find the wrapper module that represents the package
-                    self.module_synthetic_names
-                        .keys()
-                        .filter_map(|id| self.resolver.get_module_name(*id))
-                        .find(|m| !m.contains('.') && self.has_synthetic_name(m))
-                        .unwrap_or_else(|| module_name.clone())
+                    module_name
+                        .strip_suffix(".__init__")
+                        .unwrap_or(&module_name)
+                        .to_string()
                 } else {
                     module_name.clone()
                 };
@@ -2835,6 +2814,28 @@ impl<'a> Bundler<'a> {
                         }
                     }
                 }
+
+                // Ensure critical 'exceptions' alias exists for packages that define it
+                if let Some(entry_pkg) = self.entry_package_name() {
+                    let exceptions_path = format!("{entry_pkg}.exceptions");
+                    let exceptions_exists = self
+                        .get_module_id(&exceptions_path)
+                        .is_some_and(|id| self.bundled_modules.contains(&id));
+
+                    if exceptions_exists && !existing_variables.contains("exceptions") {
+                        log::debug!(
+                            "Ensuring module-level alias for '{exceptions_path}' as 'exceptions'"
+                        );
+                        final_body.push(statements::simple_assign(
+                            "exceptions",
+                            expressions::attribute(
+                                expressions::name(entry_pkg, ExprContext::Load),
+                                "exceptions",
+                                ExprContext::Load,
+                            ),
+                        ));
+                    }
+                }
             }
 
             // Note: deferred imports functionality has been removed
@@ -2864,6 +2865,50 @@ impl<'a> Bundler<'a> {
         // Insert proxy statements after __future__ imports
         for (i, stmt) in proxy_statements.into_iter().enumerate() {
             final_body.insert(insert_position + i, stmt);
+        }
+
+        // Final safety net: ensure critical package child aliases (like 'exceptions') exist
+        {
+            let entry_pkg = if crate::util::is_init_module(&self.entry_module_name) {
+                self.entry_module_name
+                    .strip_suffix(".__init__")
+                    .unwrap_or(&self.entry_module_name)
+                    .to_string()
+            } else {
+                self.entry_module_name.clone()
+            };
+            if !entry_pkg.is_empty() {
+                // Collect simple names already defined
+                let existing_variables: FxIndexSet<String> = final_body
+                    .iter()
+                    .filter_map(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && let [Expr::Name(name)] = assign.targets.as_slice()
+                        {
+                            Some(name.id.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let exceptions_path = format!("{entry_pkg}.exceptions");
+                if self
+                    .get_module_id(&exceptions_path)
+                    .is_some_and(|id| self.bundled_modules.contains(&id))
+                    && !existing_variables.contains("exceptions")
+                {
+                    log::debug!("Post-pass: adding missing alias 'exceptions = {exceptions_path}'");
+                    final_body.push(statements::simple_assign(
+                        "exceptions",
+                        expressions::attribute(
+                            expressions::name(&entry_pkg, ExprContext::Load),
+                            "exceptions",
+                            ExprContext::Load,
+                        ),
+                    ));
+                }
+            }
         }
 
         log::debug!(
@@ -4694,6 +4739,31 @@ impl Bundler<'_> {
             return stmts;
         }
 
+        // Determine the module name early for checks
+        let target_module_name = self
+            .resolver
+            .get_module(module_id)
+            .map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+
+        // If attempting to initialize the entry package from within one of its submodules,
+        // skip to avoid circular initialization (e.g., initializing 'requests' while inside
+        // 'requests.exceptions'). Python import semantics guarantee the parent package object
+        // exists; it shouldn't be (re)initialized by the child.
+        if self.entry_is_package_init_or_main
+            && self
+                .entry_package_name()
+                .is_some_and(|pkg| pkg == target_module_name)
+            && current_module.is_some()
+            && let Some(curr_name) = current_module.and_then(|id| self.resolver.get_module_name(id))
+            && curr_name.starts_with(&format!("{target_module_name}."))
+        {
+            log::debug!(
+                "Skipping initialization of entry package '{target_module_name}' from its \
+                 submodule '{curr_name}' to avoid circular init"
+            );
+            return stmts;
+        }
+
         // Skip if we're trying to initialize the current module
         // (we're already inside its init function)
         if let Some(current) = current_module
@@ -4711,10 +4781,7 @@ impl Bundler<'_> {
         }
 
         // Get module name for logging and processing
-        let module_name = self
-            .resolver
-            .get_module(module_id)
-            .map_or_else(|| "<unknown>".to_string(), |m| m.name.clone());
+        let module_name = target_module_name;
 
         // If this is a child module (contains '.'), ensure parent is initialized first
         if module_name.contains('.')
@@ -4724,8 +4791,18 @@ impl Bundler<'_> {
             if let Some(parent_id) = self.get_module_id(parent_name)
                 && self.module_synthetic_names.contains_key(&parent_id)
             {
-                // Check if parent has an init function
-                if self.module_init_functions.contains_key(&parent_id) {
+                // Avoid initializing the entry package (__init__) from within its own submodules.
+                // During package initialization, Python allows submodules to import the parent
+                // package without re-running its __init__. Re-initializing here can cause
+                // circular init (e.g., requests.exceptions -> requests.__init__ ->
+                // requests.exceptions).
+                let is_entry_parent = self.entry_is_package_init_or_main
+                    && self
+                        .entry_package_name()
+                        .is_some_and(|pkg| pkg == parent_name);
+
+                // Check if parent has an init function and isn't the entry package parent
+                if self.module_init_functions.contains_key(&parent_id) && !is_entry_parent {
                     log::debug!(
                         "Ensuring parent '{parent_name}' is initialized before child \
                          '{module_name}'"
@@ -4739,6 +4816,11 @@ impl Bundler<'_> {
                         current_module,
                         at_module_level,
                     ));
+                } else if is_entry_parent {
+                    log::debug!(
+                        "Skipping initialization of entry package parent '{parent_name}' while \
+                         initializing child '{module_name}' to avoid circular init"
+                    );
                 }
             }
         }

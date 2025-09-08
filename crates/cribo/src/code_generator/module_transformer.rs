@@ -591,8 +591,31 @@ pub fn transform_module_to_init_function<'a>(
         };
 
     // Process the body with a new recursive approach
-    let processed_body =
+    let processed_body_raw =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
+
+    // Filter out accidental attempts to (re)initialize the entry package (__init__) from
+    // within submodule init functions, which can create circular initialization.
+    let processed_body: Vec<Stmt> = processed_body_raw
+        .into_iter()
+        .filter(|stmt| {
+            if let Stmt::Assign(assign) = stmt
+                && assign.targets.len() == 1
+                && let Expr::Name(target) = &assign.targets[0]
+                && target.id.as_str() == "__init__"
+                && let Expr::Call(call) = assign.value.as_ref()
+                && let Expr::Name(func_name) = call.func.as_ref()
+                && func_name.id.starts_with("_cribo_init_")
+            {
+                debug!(
+                    "Skipping entry package __init__ re-initialization inside wrapper init to \
+                     avoid circular init"
+                );
+                return false;
+            }
+            true
+        })
+        .collect();
 
     debug!(
         "Processing init function for module '{}', inlined_import_bindings: {:?}",
