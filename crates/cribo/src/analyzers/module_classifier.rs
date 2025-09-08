@@ -52,7 +52,7 @@ impl<'a> ModuleClassifier<'a> {
             // Strip the .__init__ suffix if present, otherwise return None
             // Note: if entry is bare "__init__", we don't have the package name
             entry_module_name
-                .strip_suffix(".__init__")
+                .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
                 .map(std::string::ToString::to_string)
         } else {
             None
@@ -99,7 +99,7 @@ impl<'a> ModuleClassifier<'a> {
                         continue;
                     }
                 } else if crate::util::is_init_module(&entry_module_name)
-                    && entry_module_name == "__init__"
+                    && entry_module_name == crate::python::constants::INIT_STEM
                 {
                     // Special case: entry is bare "__init__" without package prefix
                     // In this case, we need to check if the module matches the inferred package

@@ -136,8 +136,10 @@ pub(super) fn trim_unused_imports_from_modules(
         let mut ast = ast.clone(); // Clone here to allow mutation
 
         // Check if this is an __init__.py file
-        let is_init_py =
-            module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
+        let is_init_py = module_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(crate::python::module_path::is_init_file_name);
 
         // Get unused imports from the graph
         if let Some(module_dep_graph) = graph.get_module(*module_id) {

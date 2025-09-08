@@ -2,7 +2,7 @@
 // It's used exclusively for benchmarking and does not affect dead code detection
 // in normal builds
 
-#![cfg(feature = "bench")]
+#![cfg(all(feature = "bench", not(doctest)))]
 
 pub mod analyzers;
 pub mod ast_builder;
@@ -16,6 +16,7 @@ pub mod graph_builder;
 pub mod import_alias_tracker;
 pub mod import_rewriter;
 pub mod orchestrator;
+pub mod python;
 pub mod resolver;
 pub mod semantic_bundler;
 pub mod side_effects;

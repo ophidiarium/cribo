@@ -606,7 +606,7 @@ pub fn transform_module_to_init_function<'a>(
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
                 && let Expr::Name(target) = &assign.targets[0]
-                && target.id.as_str() == "__init__"
+                && target.id.as_str() == crate::python::constants::INIT_STEM
                 && let Expr::Call(call) = assign.value.as_ref()
                 && let Expr::Name(func_name) = call.func.as_ref()
                 && crate::code_generator::module_registry::is_init_function(func_name.id.as_str())

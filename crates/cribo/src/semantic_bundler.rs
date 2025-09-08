@@ -48,7 +48,9 @@ impl<'a> SemanticModelBuilder<'a> {
         // Step 1: We already have the parsed AST; no need to re-parse the source here.
 
         // Step 2: Determine module kind
-        let kind = if file_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py") {
+        let kind = if file_path.file_name().and_then(|name| name.to_str())
+            == Some(crate::python::constants::INIT_FILE)
+        {
             ModuleKind::Package
         } else {
             ModuleKind::Module

@@ -21,6 +21,7 @@ use crate::{
         namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
+    python::constants::INIT_STEM,
     resolver::{ModuleId, ModuleResolver},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
@@ -615,7 +616,8 @@ impl<'a> Bundler<'a> {
         if crate::util::is_init_module(&self.entry_module_name) {
             // Strip the .__init__ suffix if present, otherwise return None
             // Note: if entry is bare "__init__", we don't have the package name
-            self.entry_module_name.strip_suffix(".__init__")
+            self.entry_module_name
+                .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
         } else {
             None
         }
@@ -659,11 +661,11 @@ impl<'a> Bundler<'a> {
             if name.contains('.') {
                 if let Some(root) = name.split('.').next()
                     && !root.is_empty()
-                    && root != "__init__"
+                    && root != crate::python::constants::INIT_STEM
                 {
                     return Some(root.to_string());
                 }
-            } else if name != "__init__" {
+            } else if name != crate::python::constants::INIT_STEM {
                 // Single-name module that's not __init__ can serve as the root
                 return Some(name.clone());
             }
@@ -1608,7 +1610,7 @@ impl<'a> Bundler<'a> {
             {
                 path.file_name()
                     .and_then(|name| name.to_str())
-                    .is_some_and(|name| name == "__main__.py")
+                    .is_some_and(|name| name == crate::python::constants::MAIN_FILE)
             } else {
                 false
             }
@@ -2108,9 +2110,11 @@ impl<'a> Bundler<'a> {
                     }
 
                     // Determine if this is a package (ends with __init__.py)
-                    let is_package = modules
-                        .get(mid)
-                        .is_some_and(|(_, p, _)| p.ends_with("__init__.py"));
+                    let is_package = modules.get(mid).is_some_and(|(_, p, _)| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(crate::python::module_path::is_init_file_name)
+                    });
 
                     // Create namespace only (no init yet)
                     let sanitized = sanitize_module_name_for_identifier(mname);
@@ -2423,7 +2427,10 @@ impl<'a> Bundler<'a> {
                 };
 
                 // Check if this is a package (ends with __init__.py)
-                let is_package = path.ends_with("__init__.py");
+                let is_package = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(crate::python::module_path::is_init_file_name);
 
                 // Check if namespace already exists (might have been created by child module)
                 let module_var = sanitize_module_name_for_identifier(&module_name);
@@ -2783,7 +2790,7 @@ impl<'a> Bundler<'a> {
                 let package_name = if crate::util::is_init_module(&module_name) {
                     // Try to strip suffix; if it fails (bare "__init__"), infer the root package
                     module_name
-                        .strip_suffix(".__init__")
+                        .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
                         .map(std::string::ToString::to_string)
                         .or_else(|| self.infer_entry_root_package())
                         .unwrap_or_else(|| module_name.clone())
@@ -2910,7 +2917,7 @@ impl<'a> Bundler<'a> {
             let entry_pkg = self
                 .infer_entry_root_package()
                 .unwrap_or_else(|| self.entry_module_name.clone());
-            if !entry_pkg.is_empty() && entry_pkg != "__init__" {
+            if !entry_pkg.is_empty() && entry_pkg != INIT_STEM {
                 // Collect simple names already defined
                 let existing_variables: FxIndexSet<String> = final_body
                     .iter()

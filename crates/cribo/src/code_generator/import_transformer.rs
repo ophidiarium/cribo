@@ -2180,18 +2180,19 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if let Some(module_id) = wrapper_module_id {
                         // Do not emit init calls for the entry package (__init__).
                         // Initializing the entry package from submodules can create circular init.
-                        let is_entry_pkg = if self.bundler.entry_is_package_init_or_main {
-                            // Derive entry package name from entry_module_name
-                            if let Some(pkg) =
-                                self.bundler.entry_module_name.strip_suffix(".__init__")
-                            {
-                                pkg == resolved
+                        let is_entry_pkg =
+                            if self.bundler.entry_is_package_init_or_main {
+                                // Derive entry package name from entry_module_name
+                                if let Some(pkg) = self.bundler.entry_module_name.strip_suffix(
+                                    &format!(".{}", crate::python::constants::INIT_STEM),
+                                ) {
+                                    pkg == resolved
+                                } else {
+                                    false
+                                }
                             } else {
                                 false
-                            }
-                        } else {
-                            false
-                        };
+                            };
                         if is_entry_pkg {
                             log::debug!(
                                 "  Skipping init call for entry package '{resolved}' to avoid \
