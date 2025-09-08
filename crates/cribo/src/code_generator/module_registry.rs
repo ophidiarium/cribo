@@ -273,7 +273,7 @@ pub fn create_assignments_for_inlined_imports(
                 );
 
                 // Record that we need a namespace for this module
-                let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
+                let sanitized_name = get_module_var_identifier(module_id, params.resolver);
 
                 namespace_requirements.push(NamespaceRequirement {
                     path: full_module_path.clone(),
