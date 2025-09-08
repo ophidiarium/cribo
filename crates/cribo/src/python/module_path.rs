@@ -3,11 +3,40 @@ use std::path::Path;
 use super::constants::{INIT_FILE, INIT_STEM, MAIN_FILE, MAIN_STEM};
 
 /// Classification of a Python path/module
+///
+/// This enum distinguishes between different types of Python modules and packages,
+/// which is crucial for proper import resolution and bundling behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
+    /// A normal Python module file (e.g., `foo.py`, `bar/baz.py`)
+    ///
+    /// This represents a regular `.py` file that is imported as a module.
+    /// The file's parent directory is not considered a package unless it
+    /// contains an `__init__.py` file.
     RegularModule,
+
+    /// A package initializer file (`__init__.py`)
+    ///
+    /// This file makes its containing directory a regular Python package.
+    /// When importing the package, this file's code is executed, and its
+    /// namespace becomes the package's namespace. The directory path should
+    /// be treated as the package root.
     PackageInit,
+
+    /// A namespace package directory (PEP 420)
+    ///
+    /// A directory that forms a namespace package - it has no `__init__.py` file
+    /// but can still be imported as a package. Unlike `PackageInit`, there's no
+    /// initialization code to run. Multiple directories with the same name can
+    /// contribute to the same namespace package. The directory path should be
+    /// treated as a package root for import resolution.
     NamespacePackageDir,
+
+    /// A package entry-point module (`__main__.py`)
+    ///
+    /// This special module is executed when a package is run directly
+    /// (e.g., `python -m package`). It typically resides inside a package
+    /// directory alongside or instead of `__init__.py`.
     Main,
 }
 
