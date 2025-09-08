@@ -2624,7 +2624,7 @@ impl<'a> Bundler<'a> {
             // Transform imports in the entry module
             {
                 let mut transformer = RecursiveImportTransformer::new(
-                    RecursiveImportTransformerParams {
+                    &RecursiveImportTransformerParams {
                         bundler: self,
                         module_id: crate::resolver::ModuleId::ENTRY,
                         symbol_renames: &symbol_renames,

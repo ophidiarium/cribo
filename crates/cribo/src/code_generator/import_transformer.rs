@@ -523,8 +523,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Create a new transformer from parameters
-    #[allow(clippy::needless_pass_by_value)] // params contains mutable references
-    pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
+    pub fn new(params: &RecursiveImportTransformerParams<'a>) -> Self {
         Self {
             bundler: params.bundler,
             module_id: params.module_id,
@@ -3607,20 +3606,23 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             "Module '{module_name}' was inlined, creating assignments for imported symbols"
         );
 
+        let params = crate::code_generator::module_registry::InlinedImportParams {
+            symbol_renames,
+            module_registry: bundler.module_info_registry,
+            inlined_modules: &bundler.inlined_modules,
+            bundled_modules: &bundler.bundled_modules,
+            resolver: bundler.resolver,
+            python_version,
+            is_wrapper_init: inside_wrapper_init,
+            tree_shaking_check: Some(&|module_id, symbol| {
+                bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+            }),
+        };
         let (assignments, namespace_requirements) =
             crate::code_generator::module_registry::create_assignments_for_inlined_imports(
                 &import_from,
                 &module_name,
-                symbol_renames,
-                bundler.module_info_registry,
-                &bundler.inlined_modules,
-                &bundler.bundled_modules,
-                bundler.resolver,
-                python_version,
-                inside_wrapper_init,
-                Some(&|module_id, symbol| {
-                    bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
-                }),
+                params,
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection

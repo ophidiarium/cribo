@@ -69,7 +69,7 @@ impl Bundler<'_> {
         let mut module_renames = FxIndexMap::default();
 
         // Then apply recursive import transformation to the module
-        let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+        let mut transformer = RecursiveImportTransformer::new(&RecursiveImportTransformerParams {
             bundler: self,
             module_id,
             symbol_renames: ctx.module_renames,

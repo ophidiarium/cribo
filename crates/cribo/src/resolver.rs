@@ -78,7 +78,6 @@ impl From<ModuleId> for u32 {
 
 /// Module metadata tracked by resolver
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Part of public API, will be used in future
 pub struct ModuleMetadata {
     pub id: ModuleId,
     pub name: String,
