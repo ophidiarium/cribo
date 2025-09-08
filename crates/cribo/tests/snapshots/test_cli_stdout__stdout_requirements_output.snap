@@ -77,3 +77,4 @@ def main():
     print(f"User: {user.name}, Age: {user.age}")
 if __name__ == "__main__":
     main()
+user = models.user

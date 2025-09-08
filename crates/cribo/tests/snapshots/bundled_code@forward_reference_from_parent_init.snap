@@ -146,3 +146,4 @@ print(f"Another value: {another.another_value}")
 print(f"My value: {my.value}")
 print(f"Subpkg value: {subpkg.subpkg_value}")
 print("SUCCESS: Forward reference from parent init handled correctly")
+child = parent.child

@@ -403,3 +403,7 @@ for attr in dir(__cribo_init_result):
 pkg_abc = _cribo_init___cribo_5f60be_pkg_abc(pkg_abc)
 RichRenderable = pkg.abc.RichRenderable
 print(f"RichRenderable class: {RichRenderable.__module__}.{RichRenderable.__name__}")
+abc = pkg.abc
+pretty = pkg.pretty
+color = pkg.color
+style = pkg.style

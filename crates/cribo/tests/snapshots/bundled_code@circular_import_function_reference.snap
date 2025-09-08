@@ -199,3 +199,7 @@ for attr in dir(__cribo_init_result):
 adapter = pkg.adapters.Adapter()
 adapter.use_auth("user", "pass")
 print("SUCCESS: Function was properly available")
+auth = pkg.auth
+utils = pkg.utils
+models = pkg.models
+adapters = pkg.adapters

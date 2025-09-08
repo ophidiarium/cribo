@@ -90,3 +90,4 @@ mypackage_utils = _cribo_init___cribo_254d99_mypackage_utils(mypackage_utils)
 get_user_agent = mypackage.utils.get_user_agent
 print(f"User agent: {get_user_agent()}")
 print(f"Package version: {mypackage.__version__}")
+utils = mypackage.utils

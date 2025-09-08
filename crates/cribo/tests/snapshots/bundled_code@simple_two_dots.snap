@@ -80,3 +80,5 @@ for attr in dir(__cribo_init_result):
 tada = foo.tada
 if __name__ == "__main__":
     print(tada())
+boo = foo.boo
+zoo = foo.zoo

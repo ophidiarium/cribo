@@ -85,3 +85,4 @@ MyObject = pkg.MyObject
 obj = create_object()
 print(f"Object created: {obj}")
 print(f"Object tag: {obj.tag}")
+submodule = pkg.submodule

@@ -74,3 +74,5 @@ for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
 print(f"Version: {mypackage.get_version()}")
+utils = mypackage.utils
+constants = mypackage.constants

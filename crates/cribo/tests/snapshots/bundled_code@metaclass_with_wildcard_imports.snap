@@ -141,3 +141,5 @@ print(f"Created custom object with value: {obj.value}")
 print(f"Custom object class name: {obj.__class__.__name__}")
 print(f"yaml_loader types: {[type(loader).__name__ for loader in CustomYAMLObject.yaml_loader]}")
 print(f"yaml_dumper type: {type(CustomYAMLObject.yaml_dumper).__name__}")
+dumper = yaml_pkg.dumper
+loader = yaml_pkg.loader

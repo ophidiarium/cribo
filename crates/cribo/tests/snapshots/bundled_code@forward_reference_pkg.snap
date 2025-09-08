@@ -99,3 +99,5 @@ for attr in dir(__cribo_init_result):
         setattr(pkg, attr, getattr(__cribo_init_result, attr))
 print(f"Value: {pkg.get_value()}")
 print("Test completed")
+core = pkg.core
+compat = pkg.compat

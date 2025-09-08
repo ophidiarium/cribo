@@ -85,3 +85,5 @@ for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
 print("Test completed")
+utils = mypackage.utils
+exceptions = mypackage.exceptions

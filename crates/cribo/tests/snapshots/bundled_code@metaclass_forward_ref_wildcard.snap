@@ -90,3 +90,5 @@ obj = wildcard_pkg.WildcardObject()
 print(f"WildcardObject: {obj}")
 print(f"Tag: {obj.yaml_tag}")
 print(f"Metaclass: {wildcard_pkg.WildcardMetaclass}")
+base = wildcard_pkg.base
+meta = wildcard_pkg.meta

@@ -44,3 +44,4 @@ print(f"From import: {app_utils.get_name()}")
 print(f"Importlib: {get_name()}")
 assert app.utils.helper() == app_utils.helper() == helper()
 print("SUCCESS: All imports reference the same module!")
+utils = app.utils

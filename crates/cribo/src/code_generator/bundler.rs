@@ -656,9 +656,11 @@ impl<'a> Bundler<'a> {
         {
             if name.contains('.') {
                 if let Some(root) = name.split('.').next()
-                    && !root.is_empty() && root != "__init__" {
-                        return Some(root.to_string());
-                    }
+                    && !root.is_empty()
+                    && root != "__init__"
+                {
+                    return Some(root.to_string());
+                }
             } else if name != "__init__" {
                 // Single-name module that's not __init__ can serve as the root
                 return Some(name.clone());
@@ -2465,31 +2467,8 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        // Generate module-level exports for all submodules of the entry module
-        // This ensures that imports like `requests.exceptions` work in the bundled module.
-        // Determine the package name correctly: if the entry module is a package __init__,
-        // use its package root (e.g., "requests" for "requests.__init__"); otherwise use
-        // the entry module name as-is.
-        let package_name = if let Some(pkg) = self.entry_package_name() {
-            pkg.to_string()
-        } else {
-            // Try to infer a proper root if the entry name is insufficient (e.g., "__init__")
-            self.infer_entry_root_package()
-                .unwrap_or_else(|| self.entry_module_name.clone())
-        };
-
-        // Collect already-defined symbols to avoid overwriting them
-        // We scan the final_body for assignments to detect what symbols exist
-        let mut already_defined_symbols = FxIndexSet::default();
-        for stmt in &final_body {
-            if let Stmt::Assign(assign) = stmt {
-                for target in &assign.targets {
-                    if let Expr::Name(name) = target {
-                        already_defined_symbols.insert(name.id.to_string());
-                    }
-                }
-            }
-        }
+        // Earlier we emitted module-level aliases here. This logic moved to a post-pass after
+        // namespaces are created to avoid early NameError. No work is needed at this point.
 
         // Note: module-level export aliases for package submodules are added later, after
         // namespaces have been created, to avoid NameError on early references.

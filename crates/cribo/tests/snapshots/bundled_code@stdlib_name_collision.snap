@@ -52,3 +52,5 @@ mypackage_pretty.format_object = format_object
 """Test case for modules with same name as stdlib modules."""
 result = format_object(MyClass())
 print(f"Result: {result}")
+pretty = mypackage.pretty
+abc = mypackage.abc

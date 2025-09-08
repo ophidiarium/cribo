@@ -92,3 +92,4 @@ def main():
     print(f"Relative import cycle result: {result}")
 if __name__ == "__main__":
     main()
+database = services.database

@@ -54,3 +54,4 @@ print(f"Package B result: {result_b}")
 assert result_a == "TOP_LEVEL_UTILS"
 assert result_b == "TOP_LEVEL_UTILS"
 print("Both packages used the top-level utils module (as Python does).")
+processor = package_b.processor

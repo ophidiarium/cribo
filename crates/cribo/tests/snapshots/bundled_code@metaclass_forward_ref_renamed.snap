@@ -135,3 +135,5 @@ print("Created subclass successfully")
 print(f"Loader: {yaml_module.Loader.__name__}")
 print(f"Dumper: {yaml_module.Dumper.__name__}")
 print("All tests passed!")
+other = yaml_module.other
+loader = yaml_module.loader

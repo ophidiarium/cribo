@@ -92,3 +92,5 @@ obj = yaml_pkg.YAMLObject()
 print(f"YAMLObject: {obj}")
 print(f"Tag: {obj.yaml_tag}")
 print(f"Metaclass type: {type(yaml_pkg.YAMLObject)}")
+meta = yaml_pkg.meta
+base = yaml_pkg.base

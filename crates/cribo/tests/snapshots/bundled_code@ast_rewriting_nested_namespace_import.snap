@@ -39,3 +39,4 @@ greetings_greeting.get_greeting = get_greeting
 """Test nested namespace imports"""
 message = greetings.greeting.get_greeting("Python")
 print(message)
+greeting = greetings.greeting

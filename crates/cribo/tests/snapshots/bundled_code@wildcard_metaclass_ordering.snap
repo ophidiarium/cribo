@@ -169,3 +169,5 @@ class CustomYAML(yaml_module.YAMLObject):
     yaml_tag = "!custom"
 print("CustomYAML class created successfully")
 print("All tests passed!")
+dumper = yaml_module.dumper
+loader = yaml_module.loader

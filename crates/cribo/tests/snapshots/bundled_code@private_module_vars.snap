@@ -92,3 +92,4 @@ assert str in validators
 assert len(validators[bytes]) == 2
 assert len(validators[str]) == 2
 print("✓ All tests passed!")
+consumer = pkg.consumer

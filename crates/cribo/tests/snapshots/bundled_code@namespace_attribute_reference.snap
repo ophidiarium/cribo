@@ -116,3 +116,5 @@ try:
 except MyJSONError as e:
     print(f"Caught error: {e}")
     print("SUCCESS")
+compat = mypkg.compat
+exceptions = mypkg.exceptions

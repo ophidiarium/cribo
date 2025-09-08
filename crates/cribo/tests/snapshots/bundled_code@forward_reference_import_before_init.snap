@@ -112,3 +112,5 @@ try:
 except mypkg.CustomJSONError as e:
     print(f"Caught error: {e}")
     print("SUCCESS")
+exceptions = mypkg.exceptions
+compat = mypkg.compat

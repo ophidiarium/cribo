@@ -268,3 +268,7 @@ jar.set("test", "value")
 print(f"Cookie: {jar.get('test')}")
 print(f"JSONDecodeError MRO: {[c.__name__ for c in myrequests.JSONDecodeError.__mro__]}")
 print("Test completed")
+utils = myrequests.utils
+exceptions = myrequests.exceptions
+cookies = myrequests.cookies
+compat = myrequests.compat

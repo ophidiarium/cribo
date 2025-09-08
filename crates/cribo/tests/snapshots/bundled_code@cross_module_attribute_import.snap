@@ -114,3 +114,5 @@ for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
 print(mypackage.get_full_info())
+core = mypackage.core
+utils = mypackage.utils

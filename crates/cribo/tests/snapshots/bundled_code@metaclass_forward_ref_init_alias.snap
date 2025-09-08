@@ -91,3 +91,5 @@ for attr in dir(__cribo_init_result):
 obj = yaml_pkg.YO()
 print(f"YO object: {obj}")
 print(f"Tag: {obj.yaml_tag}")
+meta = yaml_pkg.meta
+base = yaml_pkg.base

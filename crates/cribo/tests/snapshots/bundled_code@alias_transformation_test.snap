@@ -88,3 +88,6 @@ def main():
     debug_a(f"Helper result: {helper_result}")
 if __name__ == "__main__":
     main()
+helpers = utils.helpers
+config_manager = utils.config_manager
+data_processor = utils.data_processor

@@ -44,3 +44,4 @@ def process_data():
     print(f"Calculator description: {calculator.description}")
 if __name__ == "__main__":
     process_data()
+calculator = utils.calculator

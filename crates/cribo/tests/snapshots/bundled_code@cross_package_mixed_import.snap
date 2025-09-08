@@ -405,3 +405,5 @@ if __name__ == "__main__":
     result = main()
     print(f"\n=== Final Result ===")
     print(f"Successfully demonstrated cross-package mixed import patterns")
+user = models.user
+base = models.base

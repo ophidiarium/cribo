@@ -118,3 +118,5 @@ print(f"Result: {result}")
 obj = mypkg.abc.create_object()
 print(f"Object type: {type(obj).__name__}")
 print("Test completed successfully")
+console = mypkg.console
+abc = mypkg.abc

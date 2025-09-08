@@ -134,3 +134,7 @@ for attr in dir(__cribo_init_result):
         setattr(my_package, attr, getattr(__cribo_init_result, attr))
 TOP_LEVEL_VAL = my_package.TOP_LEVEL_VAL
 print(f"Result: {TOP_LEVEL_VAL}")
+mod_a = my_package.mod_a
+mod_b = my_package.mod_b
+mod_l = my_package.mod_l
+mod_c = my_package.mod_c

@@ -34,3 +34,4 @@ greetings.irrelevant = greetings_irrelevant
 message = "Hello"
 greetings.message = message
 print(greetings.message)
+irrelevant = greetings.irrelevant

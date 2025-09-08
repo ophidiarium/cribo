@@ -122,3 +122,5 @@ for attr in dir(__cribo_init_result):
         setattr(complex_pkg, attr, getattr(__cribo_init_result, attr))
 main = complex_pkg.main
 main()
+console = complex_pkg.console
+abc = complex_pkg.abc

@@ -171,3 +171,6 @@ def main():
         print(result)
 if __name__ == "__main__":
     main()
+utils = mypackage.utils
+formatter = mypackage.formatter
+data_processor = mypackage.data_processor

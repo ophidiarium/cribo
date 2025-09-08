@@ -95,3 +95,5 @@ try:
 except CustomError as e:
     print(f"Caught CustomError: {e}")
     print("SUCCESS")
+compat = mymodule.compat
+exceptions = mymodule.exceptions

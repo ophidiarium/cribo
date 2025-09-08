@@ -106,3 +106,5 @@ for attr in dir(__cribo_init_result):
         setattr(mypkg, attr, getattr(__cribo_init_result, attr))
 response = mypkg.api.request("GET", "https://example.com")
 print(f"Response: {response}")
+sessions = mypkg.sessions
+api = mypkg.api

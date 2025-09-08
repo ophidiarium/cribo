@@ -98,3 +98,4 @@ for attr in dir(__cribo_init_result):
 print(f"Package version: {package.__version__}")
 print(f"Package title: {package.__title__}")
 print("Success!")
+module_a = package.module_a

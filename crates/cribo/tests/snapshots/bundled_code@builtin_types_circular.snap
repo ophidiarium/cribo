@@ -297,3 +297,8 @@ for attr in dir(__cribo_init_result):
 result = pkg.process_data(b"test")
 print(f"Result: {result}")
 print("Success!")
+sessions = pkg.sessions
+models = pkg.models
+compat = pkg.compat
+utils = pkg.utils
+certs = pkg.certs

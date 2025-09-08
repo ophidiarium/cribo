@@ -39,3 +39,4 @@ messages = greetings_messages
 message_1 = messages.message
 greetings_greeting.message = message_1
 print(greetings.greeting.message)
+greeting = greetings.greeting

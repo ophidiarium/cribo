@@ -123,3 +123,5 @@ foo_boo = _cribo_init___cribo_f2ecbb_foo_boo(foo_boo)
 process_data = foo.boo.process_data
 result = process_data("test input")
 print(f"Result: {result}")
+boo = foo.boo
+zoo = foo.zoo

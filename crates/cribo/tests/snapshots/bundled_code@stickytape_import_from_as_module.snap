@@ -35,3 +35,4 @@ message = "Hello"
 greetings_greeting.message = message
 g = greetings_greeting
 print(g.message)
+greeting = greetings.greeting
