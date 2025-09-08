@@ -398,9 +398,13 @@ impl ModuleResolver {
     /// Check if the entry module is a package
     pub fn is_entry_package(&self) -> bool {
         let registry = self.registry.lock().expect("Module registry lock poisoned");
-        registry
-            .get_metadata(ModuleId::ENTRY)
-            .is_some_and(|m| m.is_package)
+        registry.get_metadata(ModuleId::ENTRY).is_some_and(|m| {
+            matches!(
+                m.kind,
+                crate::python::module_path::ModuleKind::PackageInit
+                    | crate::python::module_path::ModuleKind::NamespacePackageDir
+            )
+        })
     }
 
     /// Get module metadata by ID
