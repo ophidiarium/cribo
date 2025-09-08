@@ -916,9 +916,15 @@ impl GlobalsLifter {
             global_info.global_declarations.keys().collect::<Vec<_>>()
         );
 
-        // Generate lifted names and declarations for all module-level variables
-        // that are referenced with global statements
-        for var_name in &global_info.module_level_vars {
+        // Generate lifted names and declarations for all variables that are referenced with
+        // global statements. Use the broader set that includes imports and functions too.
+        let candidates = if global_info.liftable_vars.is_empty() {
+            &global_info.module_level_vars
+        } else {
+            &global_info.liftable_vars
+        };
+
+        for var_name in candidates {
             // Only lift variables that are actually used with global statements
             if global_info.global_declarations.contains_key(var_name) {
                 let module_name_sanitized =

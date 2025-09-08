@@ -422,6 +422,11 @@ pub struct ModuleGlobalInfo {
     /// Variables that exist at module level
     pub module_level_vars: FxIndexSet<String>,
 
+    /// Variables that are eligible for lifting when referenced via `global` statements.
+    /// Includes module-level assignments/classes plus names introduced by imports and
+    /// function definitions at module scope.
+    pub liftable_vars: FxIndexSet<String>,
+
     /// Variables declared with 'global' keyword in functions
     pub global_declarations: FxIndexMap<String, Vec<TextRange>>,
 

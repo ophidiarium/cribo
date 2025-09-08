@@ -24,6 +24,9 @@ pub struct GlobalAnalyzer {
     /// Module-level variables collected during first pass
     module_level_vars: FxIndexSet<String>,
 
+    /// Names eligible for lifting via `global` (module assigns/classes + imports + functions)
+    liftable_vars: FxIndexSet<String>,
+
     /// Global declarations found in functions
     global_declarations: FxIndexMap<String, Vec<TextRange>>,
 
@@ -45,6 +48,7 @@ impl GlobalAnalyzer {
     pub fn new(module_name: impl Into<String>) -> Self {
         Self {
             module_level_vars: FxIndexSet::default(),
+            liftable_vars: FxIndexSet::default(),
             global_declarations: FxIndexMap::default(),
             functions_using_globals: FxIndexSet::default(),
             module_name: module_name.into(),
@@ -67,6 +71,7 @@ impl GlobalAnalyzer {
         } else {
             Some(ModuleGlobalInfo {
                 module_level_vars: self.module_level_vars,
+                liftable_vars: self.liftable_vars,
                 global_declarations: self.global_declarations,
                 functions_using_globals: self.functions_using_globals,
                 module_name: self.module_name,
@@ -80,6 +85,7 @@ impl GlobalAnalyzer {
             Expr::Name(name) => {
                 if self.at_module_level {
                     self.module_level_vars.insert(name.id.to_string());
+                    self.liftable_vars.insert(name.id.to_string());
                 }
             }
             Expr::Tuple(tuple) => {
@@ -160,10 +166,49 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
                 source_order::walk_stmt(self, stmt);
             }
 
+            // Track module-level imports as defining names in the module namespace
+            Stmt::Import(import_stmt) if self.at_module_level => {
+                for alias in &import_stmt.names {
+                    // Local binding is `asname` if present, otherwise top-level package segment
+                    let name = if let Some(asname) = &alias.asname {
+                        asname.to_string()
+                    } else {
+                        let full = alias.name.to_string();
+                        full.split('.').next().unwrap_or(&full).to_string()
+                    };
+                    // Imports are liftable for globals handling but shouldn't affect
+                    // module-level var rewriting behavior
+                    self.liftable_vars.insert(name);
+                }
+                // Continue default traversal
+                source_order::walk_stmt(self, stmt);
+            }
+            Stmt::ImportFrom(from_stmt) if self.at_module_level => {
+                for alias in &from_stmt.names {
+                    // Skip wildcard imports (from m import *)
+                    if alias.name.as_str() == "*" {
+                        continue;
+                    }
+                    let binding = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| alias.name.to_string(), ToString::to_string);
+                    // From-import bindings are liftable but not regular module vars
+                    self.liftable_vars.insert(binding);
+                }
+                // Continue default traversal
+                source_order::walk_stmt(self, stmt);
+            }
+
             // Process function definitions (includes async functions)
             // Note: In ruff's AST, async functions are represented as FunctionDef with is_async
             // flag
             Stmt::FunctionDef(func_def) => {
+                // Functions are liftable for globals handling but don't participate in
+                // module-level var rewriting which can cause premature self-references
+                if self.at_module_level {
+                    self.liftable_vars.insert(func_def.name.id.to_string());
+                }
                 self.process_function(func_def);
                 // Don't use walk_stmt here as we already visited the body
             }
@@ -181,6 +226,7 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
                 // The class name itself is a module-level variable
                 if self.at_module_level {
                     self.module_level_vars.insert(class_def.name.id.to_string());
+                    self.liftable_vars.insert(class_def.name.id.to_string());
                 }
             }
 
@@ -315,5 +361,54 @@ async def nested_async():
         // Check module-level vars
         assert!(info.module_level_vars.contains("x"));
         assert!(info.module_level_vars.contains("y"));
+    }
+
+    #[test]
+    fn test_module_level_function_and_imports_tracked() {
+        let source = r"
+import logging
+
+def reconfigure():
+    global logging
+    logging = custom
+";
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let info = GlobalAnalyzer::analyze("test_module", parsed.syntax())
+            .expect("Expected global info due to global in function");
+
+        // Liftable vars include imported name and function name
+        assert!(info.liftable_vars.contains("logging"));
+        assert!(info.liftable_vars.contains("reconfigure"));
+
+        // Global declarations should include the imported name
+        assert!(info.global_declarations.contains_key("logging"));
+        assert!(info.functions_using_globals.contains("reconfigure"));
+    }
+
+    #[test]
+    fn test_from_import_and_dotted_import_binding_names() {
+        let source = r"
+import a.b.c
+from pkg import mod as m, other
+
+def f():
+    global m
+    m = 1
+";
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let info = GlobalAnalyzer::analyze("test_module", parsed.syntax())
+            .expect("Expected global info due to global in function");
+
+        // 'import a.b.c' makes top-level name available; treat as liftable
+        assert!(info.liftable_vars.contains("a"));
+        // From-import binds alias or name as liftable vars
+        assert!(info.liftable_vars.contains("m"));
+        assert!(info.liftable_vars.contains("other"));
+
+        // Globals tracked
+        assert!(info.global_declarations.contains_key("m"));
+        assert!(info.functions_using_globals.contains("f"));
     }
 }
