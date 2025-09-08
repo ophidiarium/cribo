@@ -98,10 +98,10 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
+        && let Some(stem) = Path::new(last_part).file_stem().and_then(|s| s.to_str())
     {
-        // Safe because last_part is UTF-8 via to_string_lossy above and ext is 2-4 chars
-        let new_len = last_part.len().saturating_sub(3);
-        last_part.truncate(new_len);
+        // Replace with stem to avoid any off-by-one issues
+        *last_part = stem.to_string();
     }
 
     // Handle __init__.py and __main__.py files
