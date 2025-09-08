@@ -97,7 +97,10 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
 /// Accepts both bare "__init__" and dotted forms like "pkg.__init__".
 #[inline]
 pub fn is_init_module_name(module_name: &str) -> bool {
-    module_name == INIT_STEM || module_name.ends_with(&format!(".{INIT_STEM}"))
+    module_name == INIT_STEM
+        || module_name
+            .strip_suffix(INIT_STEM)
+            .is_some_and(|p| p.ends_with('.'))
 }
 
 #[cfg(test)]
