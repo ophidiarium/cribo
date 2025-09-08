@@ -104,7 +104,7 @@ impl<'a> TreeShaker<'a> {
         }
 
         // Then, mark symbols used from the entry module
-        self.mark_used_symbols();
+        self.mark_used_symbols(entry_id.unwrap_or(ModuleId::ENTRY));
 
         info!(
             "Tree-shaking complete. Keeping {} symbols",
@@ -335,7 +335,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Mark all symbols transitively used from entry module
-    pub fn mark_used_symbols(&mut self) {
+    pub fn mark_used_symbols(&mut self, entry_id: ModuleId) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
 
         // First pass: find all direct module imports across all modules
@@ -464,7 +464,7 @@ impl<'a> TreeShaker<'a> {
         }
 
         // Start with all symbols referenced by the entry module
-        if let Some(items) = self.module_items.get(&ModuleId::ENTRY) {
+        if let Some(items) = self.module_items.get(&entry_id) {
             for item in items {
                 // Mark classes and functions defined in the entry module as used
                 // This ensures that classes/functions defined in the entry module
@@ -472,23 +472,18 @@ impl<'a> TreeShaker<'a> {
                 match &item.item_type {
                     ItemType::ClassDef { name } | ItemType::FunctionDef { name } => {
                         debug!("Marking entry module class/function '{name}' as used");
-                        worklist.push_back((ModuleId::ENTRY, name.clone()));
+                        worklist.push_back((entry_id, name.clone()));
                     }
                     _ => {}
                 }
 
                 // Add symbols from read_vars
-                self.add_vars_to_worklist(
-                    &item.read_vars,
-                    ModuleId::ENTRY,
-                    &mut worklist,
-                    "entry module",
-                );
+                self.add_vars_to_worklist(&item.read_vars, entry_id, &mut worklist, "entry module");
 
                 // Add symbols from eventual_read_vars
                 self.add_vars_to_worklist(
                     &item.eventual_read_vars,
-                    ModuleId::ENTRY,
+                    entry_id,
                     &mut worklist,
                     "entry module (eventual)",
                 );
@@ -496,7 +491,7 @@ impl<'a> TreeShaker<'a> {
                 // Mark all side-effect items as used
                 if item.has_side_effects {
                     for symbol in &item.defined_symbols {
-                        worklist.push_back((ModuleId::ENTRY, symbol.clone()));
+                        worklist.push_back((entry_id, symbol.clone()));
                     }
                 }
 
@@ -504,7 +499,7 @@ impl<'a> TreeShaker<'a> {
                 // we need the `message` symbol from the `greetings` module
                 self.add_attribute_accesses_to_worklist(
                     &item.attribute_accesses,
-                    ModuleId::ENTRY,
+                    entry_id,
                     &mut worklist,
                 );
             }
