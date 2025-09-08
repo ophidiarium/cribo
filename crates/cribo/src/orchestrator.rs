@@ -948,8 +948,10 @@ impl BundleOrchestrator {
 
         // Special case: If the entry is __init__.py, always use __init__ as the module name
         // to avoid conflicts with wrapper modules that might have the same name as the package
-        if let Some(file_name) = entry_path.file_name()
-            && file_name == crate::python::constants::INIT_FILE
+        if entry_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(crate::python::module_path::is_init_file_name)
         {
             log::debug!(
                 "Entry is {}, using '{}' as module name",
