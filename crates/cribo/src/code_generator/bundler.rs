@@ -1046,7 +1046,11 @@ impl<'a> Bundler<'a> {
 
                     // For wrapper modules, we need at least one import to trigger initialization
                     // Check if this module has already been initialized in this scope
-                    if is_wrapper && !locally_initialized.contains(&module_id.unwrap()) {
+                    if is_wrapper
+                        && !locally_initialized.contains(
+                            &module_id.expect("module_id should exist when is_wrapper is true"),
+                        )
+                    {
                         log::debug!(
                             "Preserving import for '{target_name}' from wrapper module \
                              '{module_name}' - needs initialization for side effects"
@@ -1114,12 +1118,6 @@ impl<'a> Bundler<'a> {
                         if let Some(module_id) = self.get_module_id(module_name) {
                             let current_module_id =
                                 current_module.and_then(|m| self.get_module_id(m));
-
-                            // Get the canonical module name for the module we're initializing
-                            let _canonical_module_name = self
-                                .resolver
-                                .get_module_name(module_id)
-                                .unwrap_or_else(|| module_name.to_string());
 
                             // If we're inside a function (not at module level), we should NOT add
                             // global declarations or module assignments. Instead, we'll inline the

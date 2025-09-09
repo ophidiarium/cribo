@@ -41,7 +41,7 @@ def add_plugin(name):
 state.add_plugin = add_plugin
 state.get_state = get_state
 external_plugin = _cribo.types.SimpleNamespace(__name__='external_plugin', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_0bbd3b_external_plugin(self):
+def _cribo_init___cribo_f23a44_external_plugin(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
@@ -59,7 +59,7 @@ def _cribo_init___cribo_0bbd3b_external_plugin(self):
     self.__initialized__ = True
     self.__initializing__ = False
     return self
-external_plugin.__init__ = _cribo_init___cribo_0bbd3b_external_plugin
+external_plugin.__init__ = _cribo_init___cribo_f23a44_external_plugin
 utils = _cribo.types.SimpleNamespace(__name__='utils')
 """Utility module with unused functions."""
 def unused_function():
@@ -70,7 +70,7 @@ utils.unused_function = unused_function
 registered_plugins = []
 def test_side_effects():
     """Test function that imports modules for side effects only."""
-    register_plugin = _cribo_init___cribo_0bbd3b_external_plugin(globals()['external_plugin']).register_plugin
+    register_plugin = _cribo_init___cribo_f23a44_external_plugin(globals()['external_plugin']).register_plugin
     return get_state()
 if __name__ == "__main__":
     print(f"Initial state: {get_state()}")
