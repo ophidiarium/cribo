@@ -2273,29 +2273,25 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 init_stmts.push(module_wrapper::create_wrapper_module_init_call(
                                     &module_var,
                                 ));
+                            } else if !self.local_variables.contains(&module_var) {
+                                // Only initialize if no conflict with local variable
+                                log::debug!(
+                                    "  Adding global declaration for '{module_var}' (inside local \
+                                     scope)"
+                                );
+                                init_stmts.push(crate::ast_builder::statements::global(vec![
+                                    module_var.as_str(),
+                                ]));
+                                init_stmts.push(module_wrapper::create_wrapper_module_init_call(
+                                    &module_var,
+                                ));
                             } else {
-                                // Check if this would conflict with a local variable
-                                if self.local_variables.contains(&module_var) {
-                                    log::debug!(
-                                        "  Skipping wrapper module initialization for \
-                                         '{module_var}' - conflicts with local variable/parameter"
-                                    );
-                                    // Skip initialization to avoid syntax error
-                                    // The import was likely for type annotations only
-                                } else {
-                                    log::debug!(
-                                        "  Adding global declaration for '{module_var}' (inside \
-                                         local scope)"
-                                    );
-                                    init_stmts.push(crate::ast_builder::statements::global(vec![
-                                        module_var.as_str(),
-                                    ]));
-                                    init_stmts.push(
-                                        module_wrapper::create_wrapper_module_init_call(
-                                            &module_var,
-                                        ),
-                                    );
-                                }
+                                log::debug!(
+                                    "  Skipping wrapper module initialization for '{module_var}' \
+                                     - conflicts with local variable/parameter"
+                                );
+                                // Skip initialization to avoid syntax error
+                                // The import was likely for type annotations only
                             }
                         }
                     } else if is_parent_import && !is_wildcard {
