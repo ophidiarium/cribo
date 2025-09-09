@@ -1074,6 +1074,11 @@ impl<'a> Bundler<'a> {
                                 use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
                                 let module_var =
                                     sanitize_module_name_for_identifier(&canonical_module_name);
+
+                                // Only add global declaration if the module variable name doesn't
+                                // conflict with function parameters
+                                // or local variables TODO: Check if
+                                // module_var is a function parameter before adding global
                                 assignments.push(crate::ast_builder::statements::global(vec![
                                     module_var.as_str(),
                                 ]));

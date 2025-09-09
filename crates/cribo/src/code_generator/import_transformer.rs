@@ -894,12 +894,53 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Track function parameters as local variables before transforming the body
                         // This prevents incorrect transformation of parameter names that shadow
                         // stdlib modules
+
+                        // Track positional-only parameters
+                        for param in &func_def.parameters.posonlyargs {
+                            self.local_variables
+                                .insert(param.parameter.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (posonly): {}",
+                                param.parameter.name.as_str()
+                            );
+                        }
+
+                        // Track regular parameters
                         for param in &func_def.parameters.args {
                             self.local_variables
                                 .insert(param.parameter.name.as_str().to_string());
                             log::debug!(
                                 "Tracking function parameter as local: {}",
                                 param.parameter.name.as_str()
+                            );
+                        }
+
+                        // Track *args if present
+                        if let Some(vararg) = &func_def.parameters.vararg {
+                            self.local_variables
+                                .insert(vararg.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (vararg): {}",
+                                vararg.name.as_str()
+                            );
+                        }
+
+                        // Track keyword-only parameters
+                        for param in &func_def.parameters.kwonlyargs {
+                            self.local_variables
+                                .insert(param.parameter.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (kwonly): {}",
+                                param.parameter.name.as_str()
+                            );
+                        }
+
+                        // Track **kwargs if present
+                        if let Some(kwarg) = &func_def.parameters.kwarg {
+                            self.local_variables.insert(kwarg.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (kwarg): {}",
+                                kwarg.name.as_str()
                             );
                         }
 
@@ -2215,20 +2256,37 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 get_module_var_identifier(module_id, self.bundler.resolver);
 
                             // If we're not at module level (i.e., inside any local scope), we need
-                            // to declare the module variable as global
-                            // to avoid UnboundLocalError.
-                            if !self.at_module_level {
-                                log::debug!(
-                                    "  Adding global declaration for '{module_var}' (inside local \
-                                     scope)"
-                                );
-                                init_stmts.push(crate::ast_builder::statements::global(vec![
-                                    module_var.as_str(),
-                                ]));
+                            // to declare the module variable as global to avoid UnboundLocalError.
+                            // However, skip if it conflicts with a local variable (like function
+                            // parameters).
+                            if self.at_module_level {
+                                init_stmts.push(module_wrapper::create_wrapper_module_init_call(
+                                    &module_var,
+                                ));
+                            } else {
+                                // Check if this would conflict with a local variable
+                                if self.local_variables.contains(&module_var) {
+                                    log::debug!(
+                                        "  Skipping wrapper module initialization for \
+                                         '{module_var}' - conflicts with local variable/parameter"
+                                    );
+                                    // Skip initialization to avoid syntax error
+                                    // The import was likely for type annotations only
+                                } else {
+                                    log::debug!(
+                                        "  Adding global declaration for '{module_var}' (inside \
+                                         local scope)"
+                                    );
+                                    init_stmts.push(crate::ast_builder::statements::global(vec![
+                                        module_var.as_str(),
+                                    ]));
+                                    init_stmts.push(
+                                        module_wrapper::create_wrapper_module_init_call(
+                                            &module_var,
+                                        ),
+                                    );
+                                }
                             }
-
-                            init_stmts
-                                .push(module_wrapper::create_wrapper_module_init_call(&module_var));
                         }
                     } else if is_parent_import && !is_wildcard {
                         log::debug!(
@@ -2274,6 +2332,24 @@ impl<'a> RecursiveImportTransformer<'a> {
                             "    Tracking import: {local_name} -> \
                              {module_name_for_tracking}.{imported_name}"
                         );
+                    }
+
+                    // If we skipped initialization due to a conflict, also skip the assignments
+                    if !self.at_module_level {
+                        use crate::code_generator::module_registry::get_module_var_identifier;
+                        let module_var = if let Some(module_id) = wrapper_module_id {
+                            get_module_var_identifier(module_id, self.bundler.resolver)
+                        } else {
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(resolved)
+                        };
+
+                        if self.local_variables.contains(&module_var) {
+                            log::debug!(
+                                "  Skipping wrapper module import assignments - module '{module_var}' \
+                                 conflicts with local variable"
+                            );
+                            return Vec::new();
+                        }
                     }
 
                     // Defer to the standard bundled-wrapper transformation to generate proper
