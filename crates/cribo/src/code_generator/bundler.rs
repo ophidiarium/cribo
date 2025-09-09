@@ -1089,7 +1089,7 @@ impl<'a> Bundler<'a> {
                                 current_module.and_then(|m| self.get_module_id(m));
 
                             // Get the canonical module name for the module we're initializing
-                            let canonical_module_name = self
+                            let _canonical_module_name = self
                                 .resolver
                                 .get_module_name(module_id)
                                 .unwrap_or_else(|| module_name.to_string());
@@ -1107,9 +1107,10 @@ impl<'a> Bundler<'a> {
                                         at_module_level,
                                     ),
                                 );
+                                // Only mark as initialized if we actually initialized it
+                                locally_initialized.insert(module_id);
                             }
-                            // Mark as locally initialized either way to track that we've handled it
-                            locally_initialized.insert(module_id);
+                            // Don't mark as initialized if we're deferring initialization
                         }
                     }
                 }
@@ -1189,6 +1190,11 @@ impl<'a> Bundler<'a> {
                     && current_module
                         .is_some_and(|curr| canonical_module_name.starts_with(&format!("{curr}.")));
 
+                log::debug!(
+                    "Creating module expression for '{canonical_module_name}': prefer_submodule_var={prefer_submodule_var}, \
+                     at_module_level={at_module_level}, inside_wrapper_init={inside_wrapper_init}"
+                );
+
                 let module_expr = if prefer_submodule_var {
                     let var =
                         crate::code_generator::module_registry::sanitize_module_name_for_identifier(
@@ -1198,46 +1204,188 @@ impl<'a> Bundler<'a> {
                 } else if canonical_module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = canonical_module_name.split('.').collect();
-                    expressions::dotted_name(&parts, ExprContext::Load)
+
+                    // In a function context (including inside wrapper inits), the base module might
+                    // need initialization
+                    if !at_module_level && !parts.is_empty() {
+                        let base_module = parts[0];
+                        // Check if base module is a wrapper that needs initialization
+                        if self.has_synthetic_name(base_module) {
+                            if let Some(base_module_id) = self.get_module_id(base_module) {
+                                if locally_initialized.contains(&base_module_id) {
+                                    expressions::dotted_name(&parts, ExprContext::Load)
+                                } else {
+                                    // Need to initialize the base module first
+                                    if let Some(init_func_name) =
+                                        self.module_init_functions.get(&base_module_id)
+                                    {
+                                        // Create: _cribo_init_xxx(globals()['base_module'])
+                                        let globals_call = expressions::call(
+                                            expressions::name("globals", ExprContext::Load),
+                                            vec![],
+                                            vec![],
+                                        );
+                                        let base_ref = expressions::subscript(
+                                            globals_call,
+                                            expressions::string_literal(base_module),
+                                            ExprContext::Load,
+                                        );
+                                        let initialized_base = expressions::call(
+                                            expressions::name(init_func_name, ExprContext::Load),
+                                            vec![base_ref],
+                                            vec![],
+                                        );
+
+                                        // Now create the dotted name with the initialized base
+                                        if parts.len() == 1 {
+                                            initialized_base
+                                        } else {
+                                            // Create initialized_base.attr1.attr2...
+                                            let mut result = initialized_base;
+                                            for part in &parts[1..] {
+                                                result = expressions::attribute(
+                                                    result,
+                                                    part,
+                                                    ExprContext::Load,
+                                                );
+                                            }
+                                            result
+                                        }
+                                    } else {
+                                        expressions::dotted_name(&parts, ExprContext::Load)
+                                    }
+                                }
+                            } else {
+                                expressions::dotted_name(&parts, ExprContext::Load)
+                            }
+                        } else {
+                            expressions::dotted_name(&parts, ExprContext::Load)
+                        }
+                    } else {
+                        expressions::dotted_name(&parts, ExprContext::Load)
+                    }
                 } else {
                     // Top-level module
-                    if at_module_level || inside_wrapper_init {
+                    log::debug!(
+                        "Top-level module '{canonical_module_name}', at_module_level={at_module_level}, inside_wrapper_init={inside_wrapper_init}"
+                    );
+
+                    if at_module_level {
                         expressions::name(&canonical_module_name, ExprContext::Load)
-                    } else {
-                        // Inside a function: always use globals() to avoid conflicts with local
-                        // variables that might shadow the module name
-                        let globals_call = expressions::call(
-                            expressions::name("globals", ExprContext::Load),
-                            vec![],
-                            vec![],
-                        );
-                        let module_ref = expressions::subscript(
-                            globals_call.clone(),
-                            expressions::string_literal(&canonical_module_name),
-                            ExprContext::Load,
+                    } else if inside_wrapper_init {
+                        // Inside a wrapper init function: check if we're accessing a different
+                        // module If so, we need special handling because
+                        // globals() would be transformed to self.__dict__
+                        let current_module_name = current_module.unwrap_or("");
+                        log::debug!(
+                            "Inside wrapper init: current_module={current_module_name}, accessing={canonical_module_name}"
                         );
 
-                        // If this is a wrapper module that needs initialization, call init inline
-                        if self.has_synthetic_name(&canonical_module_name)
-                            && !locally_initialized
-                                .contains(&self.get_module_id(&canonical_module_name).unwrap())
+                        // Check if we're accessing a module that's NOT a child of the current
+                        // module
+                        if !canonical_module_name.starts_with(&format!("{current_module_name}."))
+                            && canonical_module_name != current_module_name
                         {
-                            if let Some(init_func_name) = self
-                                .module_init_functions
-                                .get(&self.get_module_id(&canonical_module_name).unwrap())
-                            {
-                                expressions::call(
-                                    expressions::name(init_func_name, ExprContext::Load),
-                                    vec![module_ref],
-                                    vec![],
-                                )
+                            log::debug!(
+                                "Accessing different module, checking if synthetic: {}",
+                                self.has_synthetic_name(&canonical_module_name)
+                            );
+                            // Accessing a different module from within a wrapper init
+                            // We need to initialize it if it's a wrapper module
+                            if self.has_synthetic_name(&canonical_module_name) {
+                                if let Some(module_id) = self.get_module_id(&canonical_module_name)
+                                {
+                                    log::debug!(
+                                        "Module {} has id {:?}, locally_initialized: {}",
+                                        canonical_module_name,
+                                        module_id,
+                                        locally_initialized.contains(&module_id)
+                                    );
+                                    if locally_initialized.contains(&module_id) {
+                                        expressions::name(&canonical_module_name, ExprContext::Load)
+                                    } else {
+                                        log::debug!(
+                                            "Module {canonical_module_name} needs init, checking for init function"
+                                        );
+                                        if let Some(init_func_name) =
+                                            self.module_init_functions.get(&module_id)
+                                        {
+                                            log::debug!(
+                                                "Found init function {init_func_name} for module {canonical_module_name}"
+                                            );
+                                            // Call the init function with the module
+                                            // Since we're in a wrapper init context and globals()
+                                            // will be transformed
+                                            // to self.__dict__, we need to be careful
+                                            // Just use the module name directly - it should be
+                                            // available as a global
+                                            expressions::call(
+                                                expressions::name(
+                                                    init_func_name,
+                                                    ExprContext::Load,
+                                                ),
+                                                vec![expressions::name(
+                                                    &canonical_module_name,
+                                                    ExprContext::Load,
+                                                )],
+                                                vec![],
+                                            )
+                                        } else {
+                                            expressions::name(
+                                                &canonical_module_name,
+                                                ExprContext::Load,
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    expressions::name(&canonical_module_name, ExprContext::Load)
+                                }
                             } else {
-                                // Fallback if no init function found
-                                module_ref
+                                expressions::name(&canonical_module_name, ExprContext::Load)
+                            }
+                        } else {
+                            // Accessing current module or its submodule - use the module name
+                            // directly
+                            expressions::name(&canonical_module_name, ExprContext::Load)
+                        }
+                    } else {
+                        // Inside a regular function: need to handle potential local variable
+                        // conflicts If it's a wrapper module that needs
+                        // initialization, handle it
+                        if self.has_synthetic_name(&canonical_module_name) {
+                            if let Some(module_id) = self.get_module_id(&canonical_module_name) {
+                                if locally_initialized.contains(&module_id) {
+                                    expressions::name(&canonical_module_name, ExprContext::Load)
+                                } else if let Some(init_func_name) =
+                                    self.module_init_functions.get(&module_id)
+                                {
+                                    // Call the init function with the module accessed via
+                                    // globals()
+                                    // to avoid conflicts with local variables
+                                    let globals_call = expressions::call(
+                                        expressions::name("globals", ExprContext::Load),
+                                        vec![],
+                                        vec![],
+                                    );
+                                    let module_ref = expressions::subscript(
+                                        globals_call,
+                                        expressions::string_literal(&canonical_module_name),
+                                        ExprContext::Load,
+                                    );
+                                    expressions::call(
+                                        expressions::name(init_func_name, ExprContext::Load),
+                                        vec![module_ref],
+                                        vec![],
+                                    )
+                                } else {
+                                    expressions::name(&canonical_module_name, ExprContext::Load)
+                                }
+                            } else {
+                                expressions::name(&canonical_module_name, ExprContext::Load)
                             }
                         } else {
                             // Non-wrapper module or already initialized
-                            module_ref
+                            expressions::name(&canonical_module_name, ExprContext::Load)
                         }
                     }
                 };

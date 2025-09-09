@@ -108,7 +108,6 @@ def _cribo_init___cribo_0639af_logger(self):
         return self
     self.__initializing__ = True
     global _cribo_logger__logger
-    global config
     """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""
     format_message = utils.format_message
     logger.format_message = format_message
@@ -123,9 +122,7 @@ def _cribo_init___cribo_0639af_logger(self):
 
         def configure(self):
             """Configure logger with settings from config module"""
-            global config
-            config = _cribo_init___cribo_f96d2c_config(config)
-            get_log_level = config.get_log_level
+            get_log_level = _cribo_init___cribo_f96d2c_config(config).get_log_level
             self.log_level = get_log_level()
             self.log(f"Logger configured with level: {self.log_level}")
 
@@ -176,8 +173,7 @@ class Application:
         self.logger.log("Using module-level logger import", "DEBUG")
         print(format_message("Mixed import patterns working correctly!"))
         logger = logger.__init__(logger)
-        globals()['logger'] = _cribo_init___cribo_0639af_logger(globals()['logger'])
-        get_logger = globals()['logger'].get_logger
+        get_logger = _cribo_init___cribo_0639af_logger(globals()['logger']).get_logger
         local_logger = logger.get_logger()
         local_logger.log("Function-level import gives same logger instance", "DEBUG")
 Application.__module__ = 'app'
@@ -185,8 +181,7 @@ app.Application = Application
 """\nSimulates a software architecture with:\n- A logger that needs configuration\n- A configuration system that logs its initialization\n- An application that uses both\n- Utilities that are used everywhere (no circular deps)\n"""
 def main():
     print(format_message("=== Application Starting ==="))
-    globals()['config'] = _cribo_init___cribo_f96d2c_config(globals()['config'])
-    Config = globals()['config'].Config
+    Config = _cribo_init___cribo_f96d2c_config(globals()['config']).Config
     config = Config()
     config.ensure_logger_configured()
     print(format_message(f"Configuration loaded: debug={config.debug_mode}"))

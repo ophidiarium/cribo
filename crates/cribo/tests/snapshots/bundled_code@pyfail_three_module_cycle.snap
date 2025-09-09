@@ -37,13 +37,10 @@ def _cribo_init___cribo_ae45fc_module_a(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_b
 
     def process_a():
         """Process A that depends on B"""
-        global module_b
-        module_b = _cribo_init___cribo_afa23a_module_b(module_b)
-        process_b = module_b.process_b
+        process_b = _cribo_init___cribo_afa23a_module_b(module_b).process_b
         return process_b() + "->A"
     self.process_a = process_a
 
@@ -60,13 +57,10 @@ def _cribo_init___cribo_afa23a_module_b(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_c
 
     def process_b():
         """Process B that depends on C"""
-        global module_c
-        module_c = _cribo_init___cribo_b6d812_module_c(module_c)
-        process_c = module_c.process_c
+        process_c = _cribo_init___cribo_b6d812_module_c(module_c).process_c
         return process_c() + "->B"
     self.process_b = process_b
 
@@ -83,13 +77,10 @@ def _cribo_init___cribo_b6d812_module_c(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_a
 
     def process_c():
         """Process C that depends back on A - creates the cycle"""
-        global module_a
-        module_a = _cribo_init___cribo_ae45fc_module_a(module_a)
-        get_value_a = module_a.get_value_a
+        get_value_a = _cribo_init___cribo_ae45fc_module_a(module_a).get_value_a
         value = get_value_a()
         return f"C(using_{value})"
     self.process_c = process_c

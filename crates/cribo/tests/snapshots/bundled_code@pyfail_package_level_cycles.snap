@@ -36,13 +36,10 @@ def _cribo_init___cribo_176078_pkg1(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global pkg2
 
     def main_function():
         """Main function that uses helper from pkg2"""
-        global pkg2
-        pkg2 = _cribo_init___cribo_a6e036_pkg2(pkg2)
-        helper_function = pkg2.helper_function
+        helper_function = _cribo_init___cribo_a6e036_pkg2(pkg2).helper_function
         return f"pkg1.main({helper_function()})"
     self.main_function = main_function
 
@@ -60,13 +57,10 @@ def _cribo_init___cribo_a6e036_pkg2(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global pkg1
 
     def helper_function():
         """Helper function that depends on pkg1"""
-        global pkg1
-        pkg1 = _cribo_init___cribo_176078_pkg1(pkg1)
-        utility_function = pkg1.utility_function
+        utility_function = _cribo_init___cribo_176078_pkg1(pkg1).utility_function
         util_result = utility_function()
         return f"pkg2.helper(using_{util_result})"
     self.helper_function = helper_function
