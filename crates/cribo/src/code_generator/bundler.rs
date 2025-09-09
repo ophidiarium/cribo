@@ -1031,14 +1031,41 @@ impl<'a> Bundler<'a> {
                     }
                 }
 
-                // Skip initialization if symbol not used in function body
+                // Only skip imports for bundled modules where we can be confident about side
+                // effects For external/non-bundled imports, always preserve them to
+                // maintain side effects
                 if let Some(ref used) = used_symbols
                     && !used.contains(target_name.as_str())
                 {
-                    log::debug!(
-                        "Skipping initialization for '{target_name}' - not used in function body"
-                    );
-                    continue;
+                    // Check if this is a bundled module where we control the behavior
+                    let module_id = self.get_module_id(module_name);
+                    let is_bundled_or_inlined = module_id.is_some_and(|id| {
+                        self.bundled_modules.contains(&id) || self.inlined_modules.contains(&id)
+                    });
+                    let is_wrapper = module_id.is_some_and(|id| self.wrapper_modules.contains(&id));
+
+                    // For wrapper modules, we need at least one import to trigger initialization
+                    // Check if this module has already been initialized in this scope
+                    if is_wrapper && !locally_initialized.contains(&module_id.unwrap()) {
+                        log::debug!(
+                            "Preserving import for '{target_name}' from wrapper module \
+                             '{module_name}' - needs initialization for side effects"
+                        );
+                        // Continue with normal processing to trigger initialization
+                        // The module will be added to locally_initialized after processing
+                    } else if is_bundled_or_inlined {
+                        log::debug!(
+                            "Skipping initialization for unused symbol '{target_name}' from \
+                             bundled module '{module_name}'"
+                        );
+                        continue;
+                    } else {
+                        log::debug!(
+                            "Preserving import for '{target_name}' from external module \
+                             '{module_name}' - may have side effects even if unused"
+                        );
+                        // Continue with normal processing to preserve potential side effects
+                    }
                 }
 
                 // Ensure the module is initialized first if it's a wrapper module
@@ -4356,19 +4383,17 @@ impl<'a> Bundler<'a> {
         let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_id, symbol_name);
 
         // Check if module has explicit __all__
-        let has_explicit_all = module_exports_map
-            .get(&module_id)
-            .and_then(|exports| exports.as_ref())
-            .is_some();
+        let has_explicit_all = self.modules_with_explicit_all.contains(&module_id);
 
-        // If module has __all__ and symbol is not in it, don't inline it
+        // If module has explicit __all__ and symbol is not in it, don't inline it
         // even if tree-shaking kept it (it might be referenced but shouldn't be accessible)
         if has_explicit_all
             && let Some(Some(export_list)) = module_exports_map.get(&module_id)
             && !export_list.contains(&symbol_name.to_string())
         {
             log::debug!(
-                "Not inlining symbol '{symbol_name}' from module with __all__ - not in export list"
+                "Not inlining symbol '{symbol_name}' from module with explicit __all__ - not in \
+                 export list"
             );
             return false;
         }
@@ -4912,17 +4937,13 @@ impl Bundler<'_> {
             return expressions::name(canonical_module_name, ExprContext::Load);
         }
 
-        log::debug!(
-            "Module {canonical_module_name} needs init, checking for init function"
-        );
+        log::debug!("Module {canonical_module_name} needs init, checking for init function");
 
         let Some(init_func_name) = self.module_init_functions.get(&module_id) else {
             return expressions::name(canonical_module_name, ExprContext::Load);
         };
 
-        log::debug!(
-            "Found init function {init_func_name} for module {canonical_module_name}"
-        );
+        log::debug!("Found init function {init_func_name} for module {canonical_module_name}");
 
         // Call the init function with the module
         expressions::call(

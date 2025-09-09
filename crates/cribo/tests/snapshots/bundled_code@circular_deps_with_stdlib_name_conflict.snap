@@ -146,6 +146,7 @@ def _cribo_init___cribo_02808e_pkg_color(self):
 
     def color_from_style(style) -> "Color":
         """Create a color from a style."""
+        Style = _cribo_init___cribo_6b1af6_pkg(pkg_color.__dict__['pkg']).style.Style
         if style.color == "red":
             return Color(255, 0, 0)
         elif style.color == "green":
@@ -157,6 +158,7 @@ def _cribo_init___cribo_02808e_pkg_color(self):
 
     def apply_color_to_console(console, color: Color) -> None:
         """Apply color to console."""
+        ConsoleBase = _cribo_init___cribo_6b1af6_pkg(pkg_color.__dict__['pkg']).console.ConsoleBase
         pass
     self.apply_color_to_console = apply_color_to_console
     self.Optional = _cribo.typing.Optional
@@ -318,6 +320,7 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
 
     def apply_style_to_console(console, style: Style) -> None:
         """Apply a style to console output."""
+        ConsoleBase = _cribo_init___cribo_6b1af6_pkg(pkg_style.__dict__['pkg']).console.ConsoleBase
         pass
     self.apply_style_to_console = apply_style_to_console
     self.Optional = _cribo.typing.Optional

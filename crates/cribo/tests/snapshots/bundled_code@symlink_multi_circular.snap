@@ -98,6 +98,7 @@ def _cribo_init___cribo_85e139_real_b(self):
     self.unused_function_b = unused_function_b
 
     def unused_with_symlink():
+        unused_function_a = _cribo_init___cribo_5676b5_real_a(real_a).unused_function_a
         from_a = _cribo_init___cribo_5676b5_real_a(real_a).from_a
         return f"Unused symlink -> {from_a()}"
     self.unused_with_symlink = unused_with_symlink

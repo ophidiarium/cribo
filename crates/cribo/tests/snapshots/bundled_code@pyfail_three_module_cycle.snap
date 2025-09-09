@@ -45,6 +45,7 @@ def _cribo_init___cribo_ae45fc_module_a(self):
     self.process_a = process_a
 
     def get_value_a():
+        process_b = _cribo_init___cribo_afa23a_module_b(module_b).process_b
         return "value_from_A"
     self.get_value_a = get_value_a
     self.__initialized__ = True
@@ -65,6 +66,7 @@ def _cribo_init___cribo_afa23a_module_b(self):
     self.process_b = process_b
 
     def get_value_b():
+        process_c = _cribo_init___cribo_b6d812_module_c(module_c).process_c
         return "value_from_B"
     self.get_value_b = get_value_b
     self.__initialized__ = True
@@ -86,6 +88,7 @@ def _cribo_init___cribo_b6d812_module_c(self):
     self.process_c = process_c
 
     def get_value_c():
+        get_value_a = _cribo_init___cribo_ae45fc_module_a(module_a).get_value_a
         return "value_from_C"
     self.get_value_c = get_value_c
     self.__initialized__ = True
