@@ -1088,12 +1088,6 @@ impl<'a> Bundler<'a> {
                             let current_module_id =
                                 current_module.and_then(|m| self.get_module_id(m));
 
-                            // Get the canonical module name for the module we're initializing
-                            let _canonical_module_name = self
-                                .resolver
-                                .get_module_name(module_id)
-                                .unwrap_or_else(|| module_name.to_string());
-
                             // If we're inside a function (not at module level), we should NOT add
                             // global declarations or module assignments. Instead, we'll inline the
                             // init call when creating the symbol assignment below.
@@ -4912,17 +4906,13 @@ impl Bundler<'_> {
             return expressions::name(canonical_module_name, ExprContext::Load);
         }
 
-        log::debug!(
-            "Module {canonical_module_name} needs init, checking for init function"
-        );
+        log::debug!("Module {canonical_module_name} needs init, checking for init function");
 
         let Some(init_func_name) = self.module_init_functions.get(&module_id) else {
             return expressions::name(canonical_module_name, ExprContext::Load);
         };
 
-        log::debug!(
-            "Found init function {init_func_name} for module {canonical_module_name}"
-        );
+        log::debug!("Found init function {init_func_name} for module {canonical_module_name}");
 
         // Call the init function with the module
         expressions::call(
