@@ -90,6 +90,8 @@ pub struct RecursiveImportTransformer<'a> {
     at_module_level: bool,
     /// Track names on the LHS of the current assignment while transforming its RHS.
     current_assignment_targets: Option<FxIndexSet<String>>,
+    /// Current function body being transformed (for symbol usage analysis)
+    current_function_body: Option<Vec<Stmt>>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -541,6 +543,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             python_version: params.python_version,
             at_module_level: true,
             current_assignment_targets: None,
+            current_function_body: None,
         }
     }
 
@@ -948,6 +951,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let saved_at_module_level = self.at_module_level;
                         self.at_module_level = false;
 
+                        // Save current function body and set the new one for symbol analysis
+                        let saved_function_body = self.current_function_body.clone();
+                        self.current_function_body = Some(func_def.body.clone());
+
                         // Transform the function body
                         self.transform_statements(&mut func_def.body);
 
@@ -958,6 +965,9 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Restore the previous scope level
                         self.at_module_level = saved_at_module_level;
+
+                        // Restore the previous function body context
+                        self.current_function_body = saved_function_body;
 
                         // Restore the wrapper module imports to prevent function-level imports from
                         // affecting other functions
@@ -2345,8 +2355,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         if self.local_variables.contains(&module_var) {
                             log::debug!(
-                                "  Skipping wrapper module import assignments - module '{module_var}' \
-                                 conflicts with local variable"
+                                "  Skipping wrapper module import assignments - module \
+                                 '{module_var}' conflicts with local variable"
                             );
                             return Vec::new();
                         }
@@ -2366,6 +2376,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         inside_wrapper_init: self.is_wrapper_init,
                         at_module_level: self.at_module_level,
                         python_version: self.python_version,
+                        function_body: self.current_function_body.as_deref(),
                     });
 
                     // Prepend the init statements to ensure wrapper is initialized before use
@@ -2387,6 +2398,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             inside_wrapper_init: self.is_wrapper_init,
             at_module_level: self.at_module_level,
             python_version: self.python_version,
+            function_body: self.current_function_body.as_deref(),
         })
     }
 
@@ -3471,6 +3483,7 @@ struct RewriteImportFromParams<'a> {
     inside_wrapper_init: bool,
     at_module_level: bool,
     python_version: u8,
+    function_body: Option<&'a [Stmt]>,
 }
 
 /// Rewrite import from statement with proper handling for bundled modules
@@ -3484,6 +3497,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         inside_wrapper_init,
         at_module_level,
         python_version,
+        function_body,
     } = params;
     // Resolve relative imports to absolute module names
     log::debug!(
@@ -3614,6 +3628,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &module_name,
                 context,
                 symbol_renames,
+                function_body,
             );
         }
 
@@ -3689,6 +3704,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             &module_name,
             context,
             symbol_renames,
+            function_body,
         )
     } else {
         // Module was inlined - but first check if we're importing bundled submodules

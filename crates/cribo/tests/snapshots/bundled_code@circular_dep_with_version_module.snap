@@ -74,7 +74,6 @@ def _cribo_init___cribo_cc4906_package_module_a(self):
     """Module A that creates circular dependency"""
 
     def func_a():
-        package_func = package.package_func
         return "func_a"
     self.func_a = func_a
 

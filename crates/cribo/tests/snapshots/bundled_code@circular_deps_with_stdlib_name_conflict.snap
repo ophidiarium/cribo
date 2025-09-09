@@ -117,7 +117,6 @@ def _cribo_init___cribo_02808e_pkg_color(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global pkg_console, pkg_style
     """Color module that participates in circular dependencies."""
     typing = _cribo.typing
     self.typing = typing
@@ -147,9 +146,6 @@ def _cribo_init___cribo_02808e_pkg_color(self):
 
     def color_from_style(style) -> "Color":
         """Create a color from a style."""
-        global pkg_style
-        pkg_style = _cribo_init___cribo_4c91ba_pkg_style(pkg_style)
-        Style = pkg.style.Style
         if style.color == "red":
             return Color(255, 0, 0)
         elif style.color == "green":
@@ -161,9 +157,6 @@ def _cribo_init___cribo_02808e_pkg_color(self):
 
     def apply_color_to_console(console, color: Color) -> None:
         """Apply color to console."""
-        global pkg_console
-        pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
-        ConsoleBase = pkg.console.ConsoleBase
         pass
     self.apply_color_to_console = apply_color_to_console
     self.Optional = _cribo.typing.Optional
@@ -297,7 +290,7 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global pkg_color, pkg_console
+    global pkg_color
     """Style module that participates in circular dependencies."""
     Optional = _cribo.typing.Optional
     self.Optional = Optional
@@ -325,9 +318,6 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
 
     def apply_style_to_console(console, style: Style) -> None:
         """Apply a style to console output."""
-        global pkg_console
-        pkg_console = _cribo_init___cribo_f0224b_pkg_console(pkg_console)
-        ConsoleBase = pkg.console.ConsoleBase
         pass
     self.apply_style_to_console = apply_style_to_console
     self.Optional = _cribo.typing.Optional

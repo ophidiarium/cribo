@@ -730,6 +730,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
         context: BundledImportContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+        function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {
         let inside_wrapper_init = context.inside_wrapper_init;
         let at_module_level = context.at_module_level;
@@ -768,6 +769,7 @@ impl<'a> Bundler<'a> {
             module_name,
             new_context,
             symbol_renames,
+            function_body,
         )
     }
 
@@ -778,6 +780,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
         context: BundledImportContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+        function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {
         let inside_wrapper_init = context.inside_wrapper_init;
         let at_module_level = context.at_module_level;
@@ -785,6 +788,20 @@ impl<'a> Bundler<'a> {
         let mut assignments = Vec::new();
         let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
         let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
+
+        // Collect actually used symbols if we're in a function context
+        let used_symbols = if let Some(body) = function_body {
+            if at_module_level {
+                None
+            } else {
+                // Use the SymbolUsageVisitor to find which symbols are actually used
+                Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
+                    body,
+                ))
+            }
+        } else {
+            None
+        };
 
         // For wrapper modules, we always need to ensure they're initialized before accessing
         // attributes Don't create the temporary variable approach - it causes issues with
@@ -1012,6 +1029,16 @@ impl<'a> Bundler<'a> {
                         ));
                         continue; // Skip the rest
                     }
+                }
+
+                // Skip initialization if symbol not used in function body
+                if let Some(ref used) = used_symbols
+                    && !used.contains(target_name.as_str())
+                {
+                    log::debug!(
+                        "Skipping initialization for '{target_name}' - not used in function body"
+                    );
+                    continue;
                 }
 
                 // Ensure the module is initialized first if it's a wrapper module

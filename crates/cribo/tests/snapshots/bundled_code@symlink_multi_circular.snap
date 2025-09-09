@@ -111,7 +111,6 @@ def _cribo_init___cribo_85e139_real_b(self):
     def unused_with_symlink():
         global real_a
         real_a = _cribo_init___cribo_5676b5_real_a(real_a)
-        unused_function_a = real_a.unused_function_a
         from_a = real_a.from_a
         return f"Unused symlink -> {from_a()}"
     self.unused_with_symlink = unused_with_symlink
