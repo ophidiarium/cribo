@@ -1030,12 +1030,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                     Stmt::For(for_stmt) => {
                         // Track loop variable as local before transforming to prevent incorrect
                         // stdlib transformations
-                        if let Expr::Name(name) = for_stmt.target.as_ref() {
-                            self.local_variables.insert(name.id.as_str().to_string());
-                            log::debug!(
-                                "Tracking for loop variable as local: {}",
-                                name.id.as_str()
-                            );
+                        {
+                            let mut loop_names = FxIndexSet::default();
+                            collect_assigned_names(&for_stmt.target, &mut loop_names);
+                            for n in loop_names {
+                                self.local_variables.insert(n.clone());
+                                log::debug!("Tracking for loop variable as local: {n}");
+                            }
                         }
 
                         self.transform_expr(&mut for_stmt.target);
