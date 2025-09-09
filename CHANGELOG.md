@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/ophidiarium/cribo/compare/v0.5.19...v0.6.0) (2025-09-09)
+
+
+### Features
+
+* centralize __init__ and __main__ handling via python module ([#349](https://github.com/ophidiarium/cribo/issues/349)) ([b6640a2](https://github.com/ophidiarium/cribo/commit/b6640a2cca6cbc30abdd373fa2069312575632b7))
+
+
+### Miscellaneous Chores
+
+* release 0.6.0 ([45f863b](https://github.com/ophidiarium/cribo/commit/45f863b9cce372979fbf86ec0b8da9b18842c6e4))
+
 ## [0.5.19](https://github.com/ophidiarium/cribo/compare/v0.5.18...v0.5.19) (2025-08-28)
 
 
