@@ -3544,6 +3544,20 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         // No bundled submodules, keep original import
         // For relative imports from non-bundled modules, convert to absolute import
         if import_from.level > 0 {
+            // If module_name is empty, keep the relative import as-is
+            // This happens when importing from the root package
+            if module_name.is_empty() {
+                log::warn!(
+                    "Keeping relative import with empty resolved module name: from {} import {:?}",
+                    ".".repeat(import_from.level as usize),
+                    import_from
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
+                return vec![Stmt::ImportFrom(import_from)];
+            }
             let mut absolute_import = import_from.clone();
             absolute_import.level = 0;
             absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
@@ -3569,9 +3583,25 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         // For relative imports, we need to create an absolute import
         let mut absolute_import = import_from.clone();
         if import_from.level > 0 {
-            // Convert relative import to absolute
-            absolute_import.level = 0;
-            absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+            // If module_name is empty, keep the relative import as-is
+            if module_name.is_empty() {
+                log::warn!(
+                    "Keeping wrapper relative import with empty resolved module name: from {} \
+                     import {:?}",
+                    ".".repeat(import_from.level as usize),
+                    import_from
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
+                // Keep the original relative import
+                absolute_import = import_from.clone();
+            } else {
+                // Convert relative import to absolute
+                absolute_import.level = 0;
+                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+            }
         }
         let context = crate::code_generator::bundler::BundledImportContext {
             inside_wrapper_init,
