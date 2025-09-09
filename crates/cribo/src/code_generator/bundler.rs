@@ -1094,34 +1094,21 @@ impl<'a> Bundler<'a> {
                                 .get_module_name(module_id)
                                 .unwrap_or_else(|| module_name.to_string());
 
-                            // If we're inside a wrapper init AND not at module level (i.e., inside
-                            // a function), we need to add a global
-                            // declaration for the module variable
-                            if inside_wrapper_init && !at_module_level {
-                                use crate::code_generator::module_registry::sanitize_module_name_for_identifier;
-                                let module_var =
-                                    sanitize_module_name_for_identifier(&canonical_module_name);
-
-                                // Only add global declaration if the module variable name doesn't
-                                // conflict with function parameters
-                                // or local variables TODO: Check if
-                                // module_var is a function parameter before adding global
-                                assignments.push(crate::ast_builder::statements::global(vec![
-                                    module_var.as_str(),
-                                ]));
+                            // If we're inside a function (not at module level), we should NOT add
+                            // global declarations or module assignments. Instead, we'll inline the
+                            // init call when creating the symbol assignment below.
+                            if at_module_level || (inside_wrapper_init && at_module_level) {
+                                // Only at module level do we need to initialize and assign the
+                                // module
+                                assignments.extend(
+                                    self.create_module_initialization_for_import_with_current_module(
+                                        module_id,
+                                        current_module_id,
+                                        at_module_level,
+                                    ),
+                                );
                             }
-
-                            assignments.extend(
-                                self.create_module_initialization_for_import_with_current_module(
-                                    module_id,
-                                    current_module_id,
-                                    if inside_wrapper_init {
-                                        true
-                                    } else {
-                                        at_module_level
-                                    },
-                                ),
-                            );
+                            // Mark as locally initialized either way to track that we've handled it
                             locally_initialized.insert(module_id);
                         }
                     }
@@ -1217,17 +1204,41 @@ impl<'a> Bundler<'a> {
                     if at_module_level || inside_wrapper_init {
                         expressions::name(&canonical_module_name, ExprContext::Load)
                     } else {
-                        // Inside a function: reference the global module via globals()[name]
+                        // Inside a function: always use globals() to avoid conflicts with local
+                        // variables that might shadow the module name
                         let globals_call = expressions::call(
                             expressions::name("globals", ExprContext::Load),
                             vec![],
                             vec![],
                         );
-                        expressions::subscript(
-                            globals_call,
+                        let module_ref = expressions::subscript(
+                            globals_call.clone(),
                             expressions::string_literal(&canonical_module_name),
                             ExprContext::Load,
-                        )
+                        );
+
+                        // If this is a wrapper module that needs initialization, call init inline
+                        if self.has_synthetic_name(&canonical_module_name)
+                            && !locally_initialized
+                                .contains(&self.get_module_id(&canonical_module_name).unwrap())
+                        {
+                            if let Some(init_func_name) = self
+                                .module_init_functions
+                                .get(&self.get_module_id(&canonical_module_name).unwrap())
+                            {
+                                expressions::call(
+                                    expressions::name(init_func_name, ExprContext::Load),
+                                    vec![module_ref],
+                                    vec![],
+                                )
+                            } else {
+                                // Fallback if no init function found
+                                module_ref
+                            }
+                        } else {
+                            // Non-wrapper module or already initialized
+                            module_ref
+                        }
                     }
                 };
 
