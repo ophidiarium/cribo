@@ -11,6 +11,34 @@ use ruff_python_ast::{
 
 use crate::types::FxIndexSet;
 
+/// Common type hint identifiers that are typically used in subscript expressions
+/// like List[str], Dict[str, int], etc. These are often not runtime values.
+///
+/// Using a const array for better performance and deterministic ordering.
+const TYPE_HINT_IDENTIFIERS: &[&str] = &[
+    // Built-in generic types
+    "List",
+    "Dict",
+    "Set",
+    "Tuple",
+    // Optional and Union types
+    "Optional",
+    "Union",
+    // Callable and function types
+    "Callable",
+    "Type",
+    // Generic type system
+    "Any",
+    "TypeVar",
+    "Generic",
+    // Literal and final types
+    "Literal",
+    "Final",
+    "ClassVar",
+    // Metadata and annotations
+    "Annotated",
+];
+
 /// Visitor that collects symbols that are actually used in a function body
 #[derive(Default)]
 pub struct SymbolUsageVisitor {
@@ -204,35 +232,21 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
 
 impl SymbolUsageVisitor {
     /// Check if an expression could be a type hint base (like List, Dict, Optional, etc.)
+    ///
+    /// This uses pattern matching on the AST structure to detect common type hint patterns:
+    /// - Direct names like `List`, `Dict`, `Optional`
+    /// - Qualified names like `typing.List`, `typing.Dict`
     fn could_be_type_hint(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Name(name) => {
-                // Common type hint bases
-                matches!(
-                    name.id.as_str(),
-                    "List"
-                        | "Dict"
-                        | "Set"
-                        | "Tuple"
-                        | "Optional"
-                        | "Union"
-                        | "Callable"
-                        | "Type"
-                        | "Any"
-                        | "TypeVar"
-                        | "Generic"
-                        | "Literal"
-                        | "Final"
-                        | "ClassVar"
-                        | "Annotated"
-                )
+                // Check against our const array of known type hint identifiers
+                TYPE_HINT_IDENTIFIERS.contains(&name.id.as_str())
             }
             Expr::Attribute(attr) => {
-                // Handle typing.List, typing.Dict, etc.
-                if let Expr::Name(name) = &*attr.value {
-                    name.id == "typing"
-                } else {
-                    false
+                // Handle qualified names like typing.List, typing.Dict, etc.
+                match attr.value.as_ref() {
+                    Expr::Name(module_name) => module_name.id == "typing",
+                    _ => false,
                 }
             }
             _ => false,
