@@ -2288,11 +2288,37 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 ));
                             } else {
                                 log::debug!(
-                                    "  Skipping wrapper module initialization for '{module_var}' \
-                                     - conflicts with local variable/parameter"
+                                    "  Initializing wrapper via globals() to avoid local shadow: \
+                                     {module_var}"
                                 );
-                                // Skip initialization to avoid syntax error
-                                // The import was likely for type annotations only
+                                // globals()[module_var] =
+                                // globals()[module_var].__init__(globals()[module_var])
+                                let g_call = expressions::call(
+                                    expressions::name("globals", ExprContext::Load),
+                                    vec![],
+                                    vec![],
+                                );
+                                let key = expressions::string_literal(&module_var);
+                                let lhs = expressions::subscript(
+                                    g_call.clone(),
+                                    key.clone(),
+                                    ExprContext::Store,
+                                );
+                                let rhs_self = expressions::subscript(
+                                    g_call.clone(),
+                                    key.clone(),
+                                    ExprContext::Load,
+                                );
+                                let rhs_call = expressions::call(
+                                    expressions::attribute(
+                                        rhs_self.clone(),
+                                        crate::python::constants::INIT_STEM,
+                                        ExprContext::Load,
+                                    ),
+                                    vec![rhs_self],
+                                    vec![],
+                                );
+                                init_stmts.push(statements::assign(vec![lhs], rhs_call));
                             }
                         }
                     } else if is_parent_import && !is_wildcard {
