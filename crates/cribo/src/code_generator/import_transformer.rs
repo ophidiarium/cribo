@@ -141,6 +141,20 @@ impl<'a> RecursiveImportTransformer<'a> {
         Some((module_id, filtered))
     }
 
+    /// Check if wrapper import assignments should be skipped due to type-only usage
+    fn should_skip_assignments_for_type_only_imports(&self, import_from: &StmtImportFrom) -> bool {
+        if let Some(body) = self.current_function_body.as_deref() {
+            let used = crate::visitors::SymbolUsageVisitor::collect_used_symbols(body);
+            let uses_alias = import_from.names.iter().any(|a| {
+                let local = a.asname.as_ref().unwrap_or(&a.name).as_str();
+                used.contains(local)
+            });
+            !uses_alias
+        } else {
+            false
+        }
+    }
+
     /// Should emit __all__ for a local namespace binding
     fn should_emit_all_for_local(
         &self,
@@ -2377,11 +2391,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                         };
 
                         if self.local_variables.contains(&module_var) {
+                            // Only skip if alias isn't used at runtime
+                            if self.should_skip_assignments_for_type_only_imports(import_from) {
+                                log::debug!(
+                                    "  Skipping wrapper import assignments (type-only use) for \
+                                     '{module_var}'"
+                                );
+                                return Vec::new();
+                            }
                             log::debug!(
-                                "  Skipping wrapper module import assignments - module \
-                                 '{module_var}' conflicts with local variable"
+                                "  Conflict with local variable but alias is used at runtime; \
+                                 keeping assignments"
                             );
-                            return Vec::new();
                         }
                     }
 
