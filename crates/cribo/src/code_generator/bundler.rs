@@ -4736,6 +4736,64 @@ impl Bundler<'_> {
         false
     }
 
+    /// Find the source module ID for a symbol that comes from an inlined submodule
+    /// This handles wildcard re-exports where a wrapper module imports symbols from inlined modules
+    fn find_symbol_source_in_inlined_submodules(
+        &self,
+        wrapper_id: &ModuleId,
+        symbol_name: &str,
+    ) -> Option<ModuleId> {
+        let Some(module_asts) = &self.module_asts else {
+            return None;
+        };
+
+        let (ast, _, _) = module_asts.get(wrapper_id)?;
+
+        // Look for wildcard imports in the wrapper module
+        for stmt in &ast.body {
+            if let Stmt::ImportFrom(import_from) = stmt {
+                // Check if this is a wildcard import
+                for alias in &import_from.names {
+                    if alias.name.as_str() == "*" {
+                        // Resolve the imported module
+                        let Some(_module_name) = &import_from.module else {
+                            continue;
+                        };
+
+                        use crate::code_generator::symbol_source::resolve_import_module;
+
+                        let Some(wrapper_path) = self.resolver.get_module_path(*wrapper_id) else {
+                            continue;
+                        };
+
+                        let Some(resolved_module) =
+                            resolve_import_module(self.resolver, import_from, &wrapper_path)
+                        else {
+                            continue;
+                        };
+
+                        let Some(source_id) = self.get_module_id(&resolved_module) else {
+                            continue;
+                        };
+
+                        // Check if this module is inlined and exports the symbol we're looking for
+                        if self.inlined_modules.contains(&source_id)
+                            && let Some(Some(exports)) = self.module_exports.get(&source_id)
+                            && exports.contains(&symbol_name.to_string())
+                        {
+                            log::debug!(
+                                "Found symbol '{symbol_name}' in inlined module '{resolved_module}' via wildcard import"
+                            );
+                            return Some(source_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Resolve the value expression for an import, handling special cases for circular dependencies
     fn resolve_import_value_expr(&self, params: ImportResolveParams) -> Expr {
         // Not at module level or inside wrapper init, use normal attribute access
@@ -4794,22 +4852,34 @@ impl Bundler<'_> {
             return expressions::name(renamed, ExprContext::Load);
         }
 
-        // Check for specific known cases (pkg._models importing from pkg)
-        if params.module_name == "pkg"
-            && (params.imported_name == "AsyncStream" || params.imported_name == "SyncStream")
+        // Check if this symbol comes from an inlined submodule that was imported via wildcard
+        // This handles cases where a wrapper module re-exports symbols from inlined modules
+        if let Some(source_module_id) =
+            self.find_symbol_source_in_inlined_submodules(&target_id, params.imported_name)
         {
-            // These are known to come from pkg._types
-            if let Some(types_id) = self.get_module_id("pkg._types")
-                && self.inlined_modules.contains(&types_id)
-                && let Some(renames) = params.symbol_renames.get(&types_id)
+            // Check if the source module has a renamed version of this symbol
+            if let Some(renames) = params.symbol_renames.get(&source_module_id)
                 && let Some(renamed) = renames.get(params.imported_name)
             {
                 log::debug!(
-                    "Using global '{renamed}' for '{}' from pkg._types",
-                    params.imported_name
+                    "Using global symbol '{renamed}' for '{}' from inlined submodule (source: {})",
+                    params.imported_name,
+                    self.resolver
+                        .get_module_name(source_module_id)
+                        .unwrap_or("unknown".to_string())
                 );
                 return expressions::name(renamed, ExprContext::Load);
             }
+
+            // Use the symbol name directly if no rename is needed
+            log::debug!(
+                "Using global symbol '{}' directly from inlined submodule (source: {})",
+                params.imported_name,
+                self.resolver
+                    .get_module_name(source_module_id)
+                    .unwrap_or("unknown".to_string())
+            );
+            return expressions::name(params.imported_name, ExprContext::Load);
         }
 
         // Symbol not found as a global, use normal attribute access
