@@ -4915,59 +4915,53 @@ impl Bundler<'_> {
         at_module_level: bool,
         locally_initialized: &FxIndexSet<ModuleId>,
     ) -> Expr {
-        // Quick return for module-level or empty parts
+        // Module-level or empty: plain dotted expr
         if at_module_level || parts.is_empty() {
             return expressions::dotted_name(parts, ExprContext::Load);
         }
 
-        let base_module = parts[0];
+        // Prefer initializing the LEAF module if it's a wrapper and not yet initialized
+        // Scan from longest to shortest prefix to find the deepest module that needs init
+        for prefix_len in (1..=parts.len()).rev() {
+            let prefix_parts = &parts[0..prefix_len];
+            let prefix_module = prefix_parts.join(".");
 
-        // Check if base module needs initialization
-        if !self.has_synthetic_name(base_module) {
-            return expressions::dotted_name(parts, ExprContext::Load);
-        }
+            if let Some(prefix_id) = self.get_module_id(&prefix_module)
+                && self.has_synthetic_name(&prefix_module)
+                && !locally_initialized.contains(&prefix_id)
+                && let Some(init_func_name) = self.module_init_functions.get(&prefix_id)
+            {
+                // Found a module that needs initialization
+                use crate::code_generator::module_registry::get_module_var_identifier;
+                let module_var = get_module_var_identifier(prefix_id, self.resolver);
 
-        let Some(base_module_id) = self.get_module_id(base_module) else {
-            return expressions::dotted_name(parts, ExprContext::Load);
-        };
+                let globals_call = expressions::call(
+                    expressions::name("globals", ExprContext::Load),
+                    vec![],
+                    vec![],
+                );
+                let module_ref = expressions::subscript(
+                    globals_call,
+                    expressions::string_literal(&module_var),
+                    ExprContext::Load,
+                );
+                let mut result = expressions::call(
+                    expressions::name(init_func_name, ExprContext::Load),
+                    vec![module_ref],
+                    vec![],
+                );
 
-        if locally_initialized.contains(&base_module_id) {
-            return expressions::dotted_name(parts, ExprContext::Load);
-        }
+                // Add remaining attribute access for parts beyond the initialized prefix
+                for part in &parts[prefix_len..] {
+                    result = expressions::attribute(result, part, ExprContext::Load);
+                }
 
-        // Initialize the base module if it has an init function
-        let Some(init_func_name) = self.module_init_functions.get(&base_module_id) else {
-            return expressions::dotted_name(parts, ExprContext::Load);
-        };
-
-        // Create: _cribo_init_xxx(globals()['base_module'])
-        let globals_call = expressions::call(
-            expressions::name("globals", ExprContext::Load),
-            vec![],
-            vec![],
-        );
-        let base_ref = expressions::subscript(
-            globals_call,
-            expressions::string_literal(base_module),
-            ExprContext::Load,
-        );
-        let initialized_base = expressions::call(
-            expressions::name(init_func_name, ExprContext::Load),
-            vec![base_ref],
-            vec![],
-        );
-
-        // Build the complete dotted expression
-        if parts.len() == 1 {
-            initialized_base
-        } else {
-            // Create initialized_base.attr1.attr2...
-            let mut result = initialized_base;
-            for part in &parts[1..] {
-                result = expressions::attribute(result, part, ExprContext::Load);
+                return result;
             }
-            result
         }
+
+        // Fallback: plain dotted expr
+        expressions::dotted_name(parts, ExprContext::Load)
     }
 
     /// Helper method to create module expression for wrapper init context
