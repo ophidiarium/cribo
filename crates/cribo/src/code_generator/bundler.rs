@@ -724,6 +724,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Transform bundled import from statement with context and current module
+    ///
+    /// # Parameters
+    /// - `function_body`: Function body for symbol usage filtering. Pass `Some(body)` in function
+    ///   scopes to enable side-effect detection, or `None` at module level to preserve all imports.
     pub(super) fn transform_bundled_import_from_multiple_with_current_module(
         &self,
         import_from: &StmtImportFrom,
@@ -774,6 +778,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Handle non-wildcard from-imports from wrapper modules
+    ///
+    /// # Parameters
+    /// - `function_body`: Function body for symbol usage filtering. Pass `Some(body)` in function
+    ///   scopes to enable side-effect detection, or `None` at module level to preserve all imports.
     fn handle_symbol_imports_from_multiple(
         &self,
         import_from: &StmtImportFrom,
@@ -4782,7 +4790,8 @@ impl Bundler<'_> {
                             && exports.contains(&symbol_name.to_string())
                         {
                             log::debug!(
-                                "Found symbol '{symbol_name}' in inlined module '{resolved_module}' via wildcard import"
+                                "Found symbol '{symbol_name}' in inlined module \
+                                 '{resolved_module}' via wildcard import"
                             );
                             return Some(source_id);
                         }
