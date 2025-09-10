@@ -12,6 +12,7 @@ use ruff_python_ast::{
 use crate::types::FxIndexSet;
 
 /// Visitor that collects symbols that are actually used in a function body
+#[derive(Default)]
 pub struct SymbolUsageVisitor {
     /// Set of symbol names that are used in the body
     used_names: FxIndexSet<String>,
@@ -24,11 +25,7 @@ pub struct SymbolUsageVisitor {
 impl SymbolUsageVisitor {
     /// Create a new symbol usage visitor
     pub fn new() -> Self {
-        Self {
-            used_names: FxIndexSet::default(),
-            in_annotation: false,
-            annotation_depth: 0,
-        }
+        Self::default()
     }
 
     /// Collect all symbols used in a function body
