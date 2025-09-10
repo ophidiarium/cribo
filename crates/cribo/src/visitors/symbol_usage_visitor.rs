@@ -16,11 +16,16 @@ use crate::types::FxIndexSet;
 ///
 /// Using a const array for better performance and deterministic ordering.
 const TYPE_HINT_IDENTIFIERS: &[&str] = &[
-    // Built-in generic types
+    // Built-in generic types (typing module)
     "List",
     "Dict",
     "Set",
     "Tuple",
+    // PEP 585 built-in generic types (lowercase)
+    "list",
+    "dict",
+    "set",
+    "tuple",
     // Optional and Union types
     "Optional",
     "Union",
@@ -234,8 +239,9 @@ impl SymbolUsageVisitor {
     /// Check if an expression could be a type hint base (like List, Dict, Optional, etc.)
     ///
     /// This uses pattern matching on the AST structure to detect common type hint patterns:
-    /// - Direct names like `List`, `Dict`, `Optional`
-    /// - Qualified names like `typing.List`, `typing.Dict`
+    /// - Direct names like `List`, `Dict`, `Optional` (typing module)
+    /// - PEP 585 builtins like `list`, `dict`, `tuple` (lowercase)
+    /// - Qualified names like `typing.List`, `typing_extensions.Literal`
     fn could_be_type_hint(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Name(name) => {
@@ -243,9 +249,11 @@ impl SymbolUsageVisitor {
                 TYPE_HINT_IDENTIFIERS.contains(&name.id.as_str())
             }
             Expr::Attribute(attr) => {
-                // Handle qualified names like typing.List, typing.Dict, etc.
+                // Handle typing.* and typing_extensions.* qualified names
                 match attr.value.as_ref() {
-                    Expr::Name(module_name) => module_name.id == "typing",
+                    Expr::Name(module_name) => {
+                        module_name.id == "typing" || module_name.id == "typing_extensions"
+                    }
                     _ => false,
                 }
             }
