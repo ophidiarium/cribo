@@ -4239,38 +4239,85 @@ pub fn transform_relative_import_aliases(
 
         log::debug!("Checking if '{full_module_path}' is a bundled module");
 
-        // Check if this is a bundled module
-        if let Some(module_id) = bundler.get_module_id(&full_module_path)
-            && bundler.bundled_modules.contains(&module_id)
-        {
-            // This is a bundled module, create assignment to reference it
-            let module_var = sanitize_module_name_for_identifier(&full_module_path);
+        // Check if this is a bundled or inlined module
+        let module_id = bundler.get_module_id(&full_module_path);
 
-            log::debug!("Creating assignment: {local_name} = {module_var}");
+        // Debug assertion: relative imports should always resolve to registered modules
+        // Exception: if parent_package is empty, this indicates a module naming issue
+        if parent_package.is_empty() {
+            log::warn!(
+                "Module '{current_module}' appears to be missing its package prefix. Relative import 'from . \
+                 import {imported_name}' cannot be resolved without proper module naming. This module should \
+                 likely be named with its package prefix (e.g., 'pkg.{current_module}' instead of just '{current_module}')."
+            );
+        } else {
+            debug_assert!(
+                module_id.is_some(),
+                "Failed to find module ID for '{full_module_path}' when transforming relative import 'from {parent_package} \
+                 import {imported_name}' in module '{current_module}'. This indicates the module was not properly discovered \
+                 during import analysis."
+            );
+        }
 
-            result.push(statements::simple_assign(
-                local_name,
-                expressions::name(&module_var, ExprContext::Load),
-            ));
+        if let Some(module_id) = module_id {
+            log::debug!("Found module ID {module_id:?} for '{full_module_path}'");
+            let is_bundled = bundler.bundled_modules.contains(&module_id);
+            let is_inlined = bundler.inlined_modules.contains(&module_id);
 
-            // Add as module attribute
-            if add_module_attr {
-                let current_module_var = sanitize_module_name_for_identifier(current_module);
-                result.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment(
-                        &current_module_var,
-                        local_name,
-                    ),
-                );
+            if is_bundled || is_inlined {
+                // This is a bundled or inlined module, create assignment to reference it
+                let module_var = sanitize_module_name_for_identifier(&full_module_path);
+
+                // For inlined modules, we need to create a namespace object if it doesn't exist
+                if is_inlined && !bundler.created_namespaces.contains(&module_var) {
+                    log::debug!("Creating namespace for inlined module '{full_module_path}'");
+
+                    // Create a SimpleNamespace for the inlined module
+                    let namespace_stmt = statements::simple_assign(
+                        &module_var,
+                        expressions::call(
+                            expressions::attribute(
+                                expressions::name("_cribo", ExprContext::Load),
+                                "types.SimpleNamespace",
+                                ExprContext::Load,
+                            ),
+                            vec![],
+                            vec![expressions::keyword(
+                                Some("__name__"),
+                                expressions::string_literal(&full_module_path),
+                            )],
+                        ),
+                    );
+                    result.push(namespace_stmt);
+
+                    // Note: We can't modify bundler.created_namespaces here as it's borrowed
+                    // immutably The namespace will be tracked elsewhere
+                }
+
+                log::debug!("Creating assignment: {local_name} = {module_var}");
+
+                result.push(statements::simple_assign(
+                    local_name,
+                    expressions::name(&module_var, ExprContext::Load),
+                ));
+
+                // Add as module attribute
+                if add_module_attr {
+                    let current_module_var = sanitize_module_name_for_identifier(current_module);
+                    result.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment(
+                            &current_module_var,
+                            local_name,
+                        ),
+                    );
+                }
+                continue;
             }
-            continue;
         }
 
         // If not a bundled module, still create an assignment assuming the symbol exists
         // Only create assignment if names differ to avoid redundant "x = x"
-        if local_name == imported_name {
-            log::debug!("Skipping redundant self-assignment: {local_name} = {imported_name}");
-        } else {
+        if local_name != imported_name {
             log::debug!("Creating fallback assignment: {local_name} = {imported_name}");
             result.push(statements::simple_assign(
                 local_name,

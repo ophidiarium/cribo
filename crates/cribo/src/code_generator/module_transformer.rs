@@ -773,12 +773,10 @@ pub fn transform_module_to_init_function<'a>(
 
                         log::debug!("Resolved relative import to: {resolved_module:?}");
 
-                        // For wrapper modules in packages like rich.console, when doing `from .
-                        // import errors`, we're importing from the parent
-                        // package (rich), not from the module itself.
-                        // In wrapper modules, these imported symbols should be other wrapper
-                        // modules that are already initialized and
-                        // available.
+                        // For wrapper modules doing `from . import`, we need to determine the
+                        // correct base:
+                        // - Package __init__ files: resolved module gives the package itself
+                        // - Regular module files: resolved module is empty (""), use parent package
                         if import_from.level == 1 && import_from.module.is_none() {
                             log::debug!(
                                 "Handling 'from . import' in wrapper module '{}', converting to \
@@ -786,20 +784,41 @@ pub fn transform_module_to_init_function<'a>(
                                 ctx.module_name
                             );
 
-                            // Get the parent package name
-                            // For top-level packages (e.g., 'rich'), use the module name itself as
-                            // parent For submodules (e.g.,
-                            // 'rich.console'), use the parent part
-                            let parent_package = ctx
-                                .module_name
-                                .rsplit_once('.')
-                                .map_or(ctx.module_name, |(parent, _)| parent);
+                            // Determine the base module for imports:
+                            // If resolved_module is empty, it means we're in a regular module file
+                            // importing from its parent package, so extract the parent package
+                            // name. Otherwise use the resolved module.
+                            let base_module = match resolved_module.as_deref() {
+                                Some("") | None => {
+                                    // Regular module file: extract parent package
+                                    let parent = ctx
+                                        .module_name
+                                        .rsplit_once('.')
+                                        .map_or("", |(parent, _)| parent);
+                                    log::debug!(
+                                        "Using parent package '{}' as base for relative imports \
+                                         in '{}'",
+                                        parent,
+                                        ctx.module_name
+                                    );
+                                    parent
+                                }
+                                Some(resolved) => {
+                                    log::debug!(
+                                        "Using resolved module '{}' as base for relative imports \
+                                         in '{}'",
+                                        resolved,
+                                        ctx.module_name
+                                    );
+                                    resolved
+                                }
+                            };
 
                             // Use shared helper to transform relative import aliases
                             crate::code_generator::import_transformer::transform_relative_import_aliases(
                                 bundler,
                                 import_from,
-                                parent_package,
+                                base_module,
                                 ctx.module_name,
                                 &mut body,
                                 false, // use emit_module_attr_if_exportable instead
