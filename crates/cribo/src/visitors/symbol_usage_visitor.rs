@@ -250,6 +250,24 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                     visitor.visit_expr(&subscript.slice);
                 });
             }
+            // typing.cast[T](expr) — treat T as annotation-only
+            Expr::Call(call) if self.is_typing_cast(&call.func) => {
+                // Visit callee (runtime)
+                self.visit_expr(&call.func);
+                // First positional arg (type) as annotation-only, if present
+                if let Some(first) = call.arguments.args.first() {
+                    self.with_annotation(|visitor| {
+                        visitor.visit_expr(first);
+                    });
+                }
+                // Remaining args/keywords are runtime
+                for arg in call.arguments.args.iter().skip(1) {
+                    self.visit_expr(arg);
+                }
+                for kw in &call.arguments.keywords {
+                    self.visit_expr(&kw.value);
+                }
+            }
             _ => {
                 // For all other expressions, use default traversal
                 source_order::walk_expr(self, expr);
@@ -268,6 +286,19 @@ impl SymbolUsageVisitor {
         let result = f(self);
         self.exit_annotation();
         result
+    }
+
+    /// Check if a function call is typing.cast or `typing_extensions.cast`
+    ///
+    /// Recognizes both direct imports (cast) and qualified calls (typing.cast)
+    fn is_typing_cast(&self, func: &Expr) -> bool {
+        match func {
+            Expr::Name(name) => name.id.as_str() == "cast",
+            Expr::Attribute(attr) => {
+                self.is_attribute_from_known_typing_module(attr) && attr.attr.as_str() == "cast"
+            }
+            _ => false,
+        }
     }
 
     /// Check if an attribute expression comes from a known typing-related module
@@ -526,5 +557,30 @@ def regular_func(x: MyType, y: int = 42) -> MyReturnType:
         assert!(!used.contains("MyType")); // Type annotation - not runtime usage
         assert!(!used.contains("MyReturnType")); // Type annotation - not runtime usage
         assert!(!used.contains("int")); // Type annotation - not runtime usage
+    }
+
+    #[test]
+    fn test_typing_cast_first_argument_not_counted() {
+        // Test that typing.cast first argument is treated as annotation-only
+        let code = r"
+from typing import cast
+import typing
+value = cast(MyType, some_expression)
+value2 = typing.cast(AnotherType, another_expression)
+result = str(value) + str(value2)
+";
+        let used = parse_and_collect(code);
+        // Runtime usage
+        assert!(used.contains("cast")); // Runtime usage (function call)
+        assert!(used.contains("typing")); // Runtime usage (module access)
+        assert!(used.contains("some_expression")); // Runtime usage (second argument)
+        assert!(used.contains("another_expression")); // Runtime usage (second argument)
+        assert!(used.contains("value")); // Runtime usage (variable access)
+        assert!(used.contains("value2")); // Runtime usage (variable access)
+        assert!(used.contains("str")); // Runtime usage (function call)
+        assert!(used.contains("result")); // Runtime usage (variable assignment)
+        // Type annotations should not be counted
+        assert!(!used.contains("MyType")); // Type annotation (first arg to cast) - not runtime usage
+        assert!(!used.contains("AnotherType")); // Type annotation (first arg to cast) - not runtime usage
     }
 }
