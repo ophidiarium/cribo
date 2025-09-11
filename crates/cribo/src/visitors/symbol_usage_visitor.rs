@@ -202,6 +202,13 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                     self.visit_expr(&keyword.value);
                 }
 
+                // Visit PEP 695 type parameters (annotation-only)
+                if let Some(type_params) = &class.type_params {
+                    self.with_annotation(|visitor| {
+                        visitor.visit_type_params(type_params);
+                    });
+                }
+
                 // Visit class body
                 self.visit_body(&class.body);
             }
@@ -453,5 +460,25 @@ def func(
         assert!(!visitor.used_names.contains("List"));
         assert!(!visitor.used_names.contains("Optional"));
         assert!(!visitor.used_names.contains("int"));
+    }
+
+    #[test]
+    fn test_class_type_parameters_not_counted() {
+        // Test PEP 695 class type parameters (Python 3.12+)
+        let code = r"
+from typing import TypeVar
+class Container[T: TypeVar]:
+    def __init__(self, value: T):
+        self.value = value
+    def get(self) -> T:
+        return self.value
+x = Container('hello')
+";
+        let used = parse_and_collect(code);
+        assert!(used.contains("Container")); // Runtime usage
+        assert!(used.contains("x")); // Runtime usage
+        assert!(used.contains("self")); // Runtime usage
+        assert!(!used.contains("T")); // Type parameter - not runtime usage
+        assert!(!used.contains("TypeVar")); // Type annotation - not runtime usage
     }
 }
