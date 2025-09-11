@@ -252,12 +252,43 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
 }
 
 impl SymbolUsageVisitor {
+    /// Check if an attribute expression comes from a known typing-related module
+    ///
+    /// This walks the attribute chain to find the root module name and checks if it's
+    /// from a known typing-related module like `typing`, `typing_extensions`, or `collections`.
+    fn is_attribute_from_known_typing_module(&self, attr: &ruff_python_ast::ExprAttribute) -> bool {
+        // Walk the attribute chain to find the root module name
+        let root_name = Self::get_root_module_name(&attr.value);
+
+        match root_name.as_deref() {
+            Some("typing" | "typing_extensions") => true,
+            // Handle collections.abc.* patterns common in real-world code
+            Some("collections") => true,
+            _ => false,
+        }
+    }
+
+    /// Get the root module name from a potentially nested attribute expression
+    ///
+    /// For example:
+    /// - `collections.abc.Callable` -> Some("collections")
+    /// - `typing.List` -> Some("typing")
+    /// - `SomeClass.method` -> Some("SomeClass")
+    fn get_root_module_name(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Name(name) => Some(name.id.to_string()),
+            Expr::Attribute(attr) => Self::get_root_module_name(&attr.value),
+            _ => None,
+        }
+    }
+
     /// Check if an expression could be a type hint base (like List, Dict, Optional, etc.)
     ///
     /// This uses pattern matching on the AST structure to detect common type hint patterns:
     /// - Direct names like `List`, `Dict`, `Optional` (typing module)
     /// - PEP 585 builtins like `list`, `dict`, `tuple` (lowercase)
-    /// - Qualified names like `typing.List`, `typing_extensions.Literal`
+    /// - Qualified names like `typing.List`, `typing_extensions.Literal`,
+    ///   `collections.abc.Callable`
     fn could_be_type_hint(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Name(name) => {
@@ -265,13 +296,10 @@ impl SymbolUsageVisitor {
                 TYPE_HINT_IDENTIFIERS.contains(&name.id.as_str())
             }
             Expr::Attribute(attr) => {
-                // Handle typing.* and typing_extensions.* qualified names
-                match attr.value.as_ref() {
-                    Expr::Name(module_name) => {
-                        module_name.id == "typing" || module_name.id == "typing_extensions"
-                    }
-                    _ => false,
-                }
+                // Handle qualified names from known typing modules or with type hint attribute
+                // names
+                self.is_attribute_from_known_typing_module(attr)
+                    || TYPE_HINT_IDENTIFIERS.contains(&attr.attr.as_str())
             }
             _ => false,
         }
@@ -362,6 +390,23 @@ x = MyAlias()
         let used = parse_and_collect(code);
         assert!(used.contains("MyAlias")); // Runtime usage
         assert!(!used.contains("list")); // Type annotation - not runtime usage 
+        assert!(!used.contains("str")); // Type annotation - not runtime usage
+    }
+
+    #[test]
+    fn test_collections_abc_type_hints_not_counted() {
+        let code = r"
+from collections.abc import Callable
+from typing import List
+x: List[Callable[[int], str]] = []
+y = x
+";
+        let used = parse_and_collect(code);
+        assert!(used.contains("x")); // Runtime usage
+        assert!(used.contains("y")); // Runtime usage  
+        assert!(!used.contains("List")); // Type annotation - not runtime usage
+        assert!(!used.contains("Callable")); // Type annotation - not runtime usage
+        assert!(!used.contains("int")); // Type annotation - not runtime usage
         assert!(!used.contains("str")); // Type annotation - not runtime usage
     }
 }
