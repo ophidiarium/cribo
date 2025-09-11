@@ -787,10 +787,13 @@ pub fn transform_module_to_init_function<'a>(
                             );
 
                             // Get the parent package name
+                            // For top-level packages (e.g., 'rich'), use the module name itself as
+                            // parent For submodules (e.g.,
+                            // 'rich.console'), use the parent part
                             let parent_package = ctx
                                 .module_name
                                 .rsplit_once('.')
-                                .map_or("", |(parent, _)| parent);
+                                .map_or(ctx.module_name, |(parent, _)| parent);
 
                             // Create assignments for each imported symbol
                             for alias in &import_from.names {
@@ -803,11 +806,9 @@ pub fn transform_module_to_init_function<'a>(
                                     alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
                                 // Build the full module path for the imported module
-                                let full_module_path = if parent_package.is_empty() {
-                                    imported_name.to_string()
-                                } else {
-                                    format!("{parent_package}.{imported_name}")
-                                };
+                                // parent_package is never empty now (uses module_name for top-level
+                                // packages)
+                                let full_module_path = format!("{parent_package}.{imported_name}");
 
                                 log::debug!("Checking if '{full_module_path}' is a bundled module");
 
