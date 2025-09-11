@@ -60,8 +60,8 @@ impl IndexingVisitor {
             MODULE_INDEX_RANGE
         );
 
-        node_index.set(*current);
-        let index = AtomicNodeIndex::from(*current).load();
+        let index = ruff_python_ast::NodeIndex::from(*current);
+        node_index.set(index);
         *current += 1;
         index
     }

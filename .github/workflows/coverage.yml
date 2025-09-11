@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+  checks: write
 jobs:
   coverage:
     runs-on: ubuntu-latest
@@ -54,16 +58,15 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           files: target/nextest/ci/junit.xml
+          use_oidc: true
           verbose: true
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: target/llvm-cov/lcov-branch.info
-          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+          use_oidc: true
           verbose: true
 
       - name: Upload coverage artifacts

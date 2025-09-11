@@ -2,7 +2,7 @@
 //!
 //! This module provides factory functions for creating auxiliary AST nodes such as
 //! aliases, keywords, arguments, and exception handlers. All nodes are created with
-//! `TextRange::default()` and `AtomicNodeIndex::dummy()` to indicate their synthetic nature.
+//! `TextRange::default()` and `AtomicNodeIndex::NONE` to indicate their synthetic nature.
 
 use ruff_python_ast::{Alias, AtomicNodeIndex, Identifier};
 use ruff_text_size::TextRange;
@@ -40,7 +40,7 @@ pub fn alias(name: &str, asname: Option<&str>) -> Alias {
         name: identifier(name),
         asname: asname.map(identifier),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     }
 }
 
