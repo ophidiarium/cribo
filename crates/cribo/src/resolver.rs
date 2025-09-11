@@ -433,6 +433,13 @@ impl ModuleResolver {
         registry.get_id_by_name(name).copied()
     }
 
+    /// Get module ID by path (reverse lookup)
+    pub fn get_module_id_by_path(&self, path: &Path) -> Option<ModuleId> {
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.by_path.get(&canonical_path).copied()
+    }
+
     /// Get all directories to search for modules
     /// Per docs/resolution.md: Entry file's directory is always first
     pub fn get_search_directories(&self) -> Vec<PathBuf> {

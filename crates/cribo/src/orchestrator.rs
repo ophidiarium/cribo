@@ -1432,17 +1432,42 @@ impl BundleOrchestrator {
         import_path: PathBuf,
         discovery_params: &mut DiscoveryParams,
     ) {
+        // For first-party modules, derive the actual module name from the path
+        // This is critical for relative imports where the import string might be incomplete
+        // For example, "jupyter" might actually be "rich.jupyter"
+        let actual_module_name =
+            if let Some(module_name) = self.find_module_in_src_dirs(&import_path) {
+                log::debug!(
+                    "Derived module name '{}' from path {} (import was '{}')",
+                    module_name,
+                    import_path.display(),
+                    import
+                );
+                module_name
+            } else {
+                log::debug!(
+                    "Could not derive module name from path: {}, using import string: {}",
+                    import_path.display(),
+                    import
+                );
+                import.to_string()
+            };
+
         // Register the module with resolver to get its ID
+        // Note: register_module is idempotent - if the path is already registered,
+        // it returns the existing ID
         let module_id = discovery_params
             .resolver
-            .register_module(import.to_string(), &import_path);
+            .register_module(actual_module_name.clone(), &import_path);
 
         if !discovery_params.processed_modules.contains(&module_id)
             && !discovery_params.queued_modules.contains(&module_id)
         {
             debug!(
-                "Adding '{import}' (ID: {}) to discovery queue",
-                module_id.as_u32()
+                "Adding '{}' (ID: {}) to discovery queue (from import '{}')",
+                actual_module_name,
+                module_id.as_u32(),
+                import
             );
             discovery_params
                 .modules_to_process
@@ -1450,8 +1475,10 @@ impl BundleOrchestrator {
             discovery_params.queued_modules.insert(module_id);
         } else {
             debug!(
-                "Module '{import}' (ID: {}) already processed or queued, skipping",
-                module_id.as_u32()
+                "Module '{}' (ID: {}) already processed or queued, skipping (from import '{}')",
+                actual_module_name,
+                module_id.as_u32(),
+                import
             );
         }
     }

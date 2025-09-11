@@ -4234,85 +4234,129 @@ pub fn transform_relative_import_aliases(
 
         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-        // Build the full module path for the imported module
-        let full_module_path = format!("{parent_package}.{imported_name}");
-
-        log::debug!("Checking if '{full_module_path}' is a bundled module");
-
-        // Check if this is a bundled or inlined module
-        let module_id = bundler.get_module_id(&full_module_path);
-
-        // Debug assertion: relative imports should always resolve to registered modules
-        // Exception: if parent_package is empty, this indicates a module naming issue
-        if parent_package.is_empty() {
-            log::warn!(
-                "Module '{current_module}' appears to be missing its package prefix. Relative import 'from . \
-                 import {imported_name}' cannot be resolved without proper module naming. This module should \
-                 likely be named with its package prefix (e.g., 'pkg.{current_module}' instead of just '{current_module}')."
-            );
+        // Try to resolve the import to an actual file path
+        // First, construct the expected module name for resolution
+        let full_module_name = if parent_package.is_empty() {
+            imported_name.to_string()
         } else {
-            debug_assert!(
-                module_id.is_some(),
-                "Failed to find module ID for '{full_module_path}' when transforming relative import 'from {parent_package} \
-                 import {imported_name}' in module '{current_module}'. This indicates the module was not properly discovered \
-                 during import analysis."
+            format!("{parent_package}.{imported_name}")
+        };
+
+        log::debug!("Attempting to resolve module '{full_module_name}' to a path");
+
+        // Try to resolve the module to a path and then to a ModuleId
+        let module_id = if let Ok(Some(module_path)) =
+            bundler.resolver.resolve_module_path(&full_module_name)
+        {
+            log::debug!(
+                "Resolved '{full_module_name}' to path: {}",
+                module_path.display()
             );
-        }
+            bundler.resolver.get_module_id_by_path(&module_path)
+        } else {
+            log::debug!(
+                "Could not resolve '{full_module_name}' to a path - might be a symbol import, not \
+                 a module"
+            );
+            None
+        };
 
-        if let Some(module_id) = module_id {
-            log::debug!("Found module ID {module_id:?} for '{full_module_path}'");
-            let is_bundled = bundler.bundled_modules.contains(&module_id);
-            let is_inlined = bundler.inlined_modules.contains(&module_id);
+        // For relative imports in bundled code, we need to distinguish between:
+        // 1. Importing a submodule (e.g., from . import errors where errors.py exists)
+        // 2. Importing a symbol from parent package (e.g., from . import get_console where
+        //    get_console is a function)
 
-            if is_bundled || is_inlined {
-                // This is a bundled or inlined module, create assignment to reference it
-                let module_var = sanitize_module_name_for_identifier(&full_module_path);
+        // This is a critical error - the module was registered without its package prefix
+assert!(!parent_package.is_empty(), 
+                "CRITICAL: Module '{current_module}' is missing its package prefix. Relative import 'from . \
+                 import {imported_name}' cannot be resolved. This is a bug in module discovery - the module \
+                 should have been registered with its full package name."
+            );
 
-                // For inlined modules, we need to create a namespace object if it doesn't exist
-                if is_inlined && !bundler.created_namespaces.contains(&module_var) {
-                    log::debug!("Creating namespace for inlined module '{full_module_path}'");
+        // If we couldn't find a module, this might be a symbol import from the parent package
+        // In that case, we should just create a simple assignment
+        let Some(module_id) = module_id else {
+            log::debug!(
+                "Import '{imported_name}' in module '{current_module}' is likely a symbol from parent package, not a \
+                 submodule"
+            );
 
-                    // Create a SimpleNamespace for the inlined module
-                    let namespace_stmt = statements::simple_assign(
-                        &module_var,
-                        expressions::call(
-                            expressions::attribute(
-                                expressions::name("_cribo", ExprContext::Load),
-                                "types.SimpleNamespace",
-                                ExprContext::Load,
-                            ),
-                            vec![],
-                            vec![expressions::keyword(
-                                Some("__name__"),
-                                expressions::string_literal(&full_module_path),
-                            )],
-                        ),
-                    );
-                    result.push(namespace_stmt);
-
-                    // Note: We can't modify bundler.created_namespaces here as it's borrowed
-                    // immutably The namespace will be tracked elsewhere
-                }
-
-                log::debug!("Creating assignment: {local_name} = {module_var}");
-
+            // For symbol imports from parent package, create a simple assignment
+            // The symbol should already be available in the bundled code
+            if local_name != imported_name {
                 result.push(statements::simple_assign(
                     local_name,
-                    expressions::name(&module_var, ExprContext::Load),
+                    expressions::name(imported_name, ExprContext::Load),
                 ));
-
-                // Add as module attribute
-                if add_module_attr {
-                    let current_module_var = sanitize_module_name_for_identifier(current_module);
-                    result.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment(
-                            &current_module_var,
-                            local_name,
-                        ),
-                    );
-                }
-                continue;
             }
+
+            // Add as module attribute if exportable
+            if add_module_attr && !local_name.starts_with('_') {
+                let current_module_var = sanitize_module_name_for_identifier(current_module);
+                result.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        &current_module_var,
+                        local_name,
+                    ),
+                );
+            }
+            continue;
+        };
+
+        log::debug!("Found module ID {module_id:?} for '{full_module_name}'");
+        let is_bundled = bundler.bundled_modules.contains(&module_id);
+        let is_inlined = bundler.inlined_modules.contains(&module_id);
+
+        if is_bundled || is_inlined {
+            // This is a bundled or inlined module, create assignment to reference it
+            let module_var = sanitize_module_name_for_identifier(&full_module_name);
+
+            // For inlined modules, we need to create a namespace object if it doesn't exist
+            if is_inlined && !bundler.created_namespaces.contains(&module_var) {
+                log::debug!(
+                    "Creating namespace for inlined module '{full_module_name}'"
+                );
+
+                // Create a SimpleNamespace for the inlined module
+                let namespace_stmt = statements::simple_assign(
+                    &module_var,
+                    expressions::call(
+                        expressions::attribute(
+                            expressions::name("_cribo", ExprContext::Load),
+                            "types.SimpleNamespace",
+                            ExprContext::Load,
+                        ),
+                        vec![],
+                        vec![expressions::keyword(
+                            Some("__name__"),
+                            expressions::string_literal(&full_module_name),
+                        )],
+                    ),
+                );
+                result.push(namespace_stmt);
+
+                // Note: We can't modify bundler.created_namespaces here as it's borrowed
+                // immutably The namespace will be tracked elsewhere
+            }
+
+            log::debug!("Creating assignment: {local_name} = {module_var}");
+
+            result.push(statements::simple_assign(
+                local_name,
+                expressions::name(&module_var, ExprContext::Load),
+            ));
+
+            // Add as module attribute
+            if add_module_attr {
+                let current_module_var = sanitize_module_name_for_identifier(current_module);
+                result.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        &current_module_var,
+                        local_name,
+                    ),
+                );
+            }
+            continue;
         }
 
         // If not a bundled module, still create an assignment assuming the symbol exists
