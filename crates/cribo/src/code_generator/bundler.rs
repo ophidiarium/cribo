@@ -1321,6 +1321,64 @@ impl<'a> Bundler<'a> {
         assignments
     }
 
+    /// Handle relative import aliases in init functions
+    fn handle_relative_import_aliases(
+        &self,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        result: &mut Vec<Stmt>,
+    ) {
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            if imported_name == "*" {
+                continue;
+            }
+
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // Check if this is a submodule that needs to be initialized
+            let full_submodule_path = format!("{module_name}.{imported_name}");
+            if let Some(submodule_id) = self.get_module_id(&full_submodule_path)
+                && self.bundled_modules.contains(&submodule_id)
+            {
+                // This is a bundled submodule, create assignment to reference it
+                let submodule_var = sanitize_module_name_for_identifier(&full_submodule_path);
+                result.push(statements::simple_assign(
+                    local_name,
+                    expressions::name(&submodule_var, ExprContext::Load),
+                ));
+
+                // Also add as module attribute
+                let module_var = sanitize_module_name_for_identifier(module_name);
+                result.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        &module_var,
+                        local_name,
+                    ),
+                );
+                continue;
+            }
+
+            // Otherwise, just create the assignment for the local symbol
+            // The symbol should already be defined in the init function
+            result.push(statements::simple_assign(
+                local_name,
+                expressions::name(imported_name, ExprContext::Load),
+            ));
+
+            // Add as module attribute if not private
+            if !local_name.starts_with('_') {
+                let module_var = sanitize_module_name_for_identifier(module_name);
+                result.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        &module_var,
+                        local_name,
+                    ),
+                );
+            }
+        }
+    }
+
     /// Check if a symbol is re-exported from an inlined submodule
     pub(crate) fn is_symbol_from_inlined_submodule(
         &self,
@@ -3571,7 +3629,52 @@ impl<'a> Bundler<'a> {
                         .map(ruff_python_ast::Identifier::as_str)
                         != Some("__future__")
                     {
-                        result.push(stmt.clone());
+                        // For relative imports in wrapper init functions, we need to transform them
+                        // to use the already-available symbols instead of keeping the relative
+                        // import
+                        if import_from.level > 0 {
+                            // Get the module path for the current module
+                            let module_id = self.resolver.get_module_id_by_name(module_name);
+                            let module_path =
+                                module_id.and_then(|id| self.resolver.get_module_path(id));
+
+                            // Resolve the relative import to absolute module name
+                            let resolved_module = module_path.and_then(|path| {
+                                self.resolver.resolve_relative_to_absolute_module_name(
+                                    import_from.level,
+                                    import_from
+                                        .module
+                                        .as_ref()
+                                        .map(ruff_python_ast::Identifier::as_str),
+                                    &path,
+                                )
+                            });
+
+                            if let Some(resolved) = resolved_module {
+                                // Check if we're importing from the same module (e.g., from .
+                                // import errors) In this case, the
+                                // symbols should already be available in the init function
+                                if resolved == module_name {
+                                    // Create assignments for each imported symbol using helper
+                                    // method
+                                    self.handle_relative_import_aliases(
+                                        import_from,
+                                        module_name,
+                                        &mut result,
+                                    );
+                                    // Skip the rest - we've handled this relative import
+                                } else {
+                                    // Different module - add the original import
+                                    result.push(stmt.clone());
+                                }
+                            } else {
+                                // Couldn't resolve - add the original import
+                                result.push(stmt.clone());
+                            }
+                        } else {
+                            // Non-relative import - add the original import
+                            result.push(stmt.clone());
+                        }
 
                         // Add module attribute assignments for imported symbols when in conditional
                         // context

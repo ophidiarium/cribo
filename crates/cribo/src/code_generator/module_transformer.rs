@@ -736,7 +736,150 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Skip imports that are already hoisted
                 if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
-                    body.push(stmt.clone());
+                    // Handle relative imports that reference the same module (e.g., from . import
+                    // errors) These should be converted to simple assignments
+                    // since the symbols are already available
+                    if import_from.level > 0 {
+                        log::debug!(
+                            "Found relative import in init function for module '{}': from {} \
+                             import {:?}",
+                            ctx.module_name,
+                            ".".repeat(import_from.level as usize),
+                            import_from
+                                .names
+                                .iter()
+                                .map(|a| a.name.as_str())
+                                .collect::<Vec<_>>()
+                        );
+
+                        // Get the module path for the current module
+                        let module_id = bundler.resolver.get_module_id_by_name(ctx.module_name);
+                        let module_path =
+                            module_id.and_then(|id| bundler.resolver.get_module_path(id));
+
+                        log::debug!("Module '{}' has path: {:?}", ctx.module_name, module_path);
+
+                        // Resolve the relative import to absolute module name
+                        let resolved_module = module_path.and_then(|path| {
+                            bundler.resolver.resolve_relative_to_absolute_module_name(
+                                import_from.level,
+                                import_from
+                                    .module
+                                    .as_ref()
+                                    .map(ruff_python_ast::Identifier::as_str),
+                                &path,
+                            )
+                        });
+
+                        log::debug!("Resolved relative import to: {resolved_module:?}");
+
+                        // For wrapper modules in packages like rich.console, when doing `from .
+                        // import errors`, we're importing from the parent
+                        // package (rich), not from the module itself.
+                        // In wrapper modules, these imported symbols should be other wrapper
+                        // modules that are already initialized and
+                        // available.
+                        if import_from.level == 1 && import_from.module.is_none() {
+                            log::debug!(
+                                "Handling 'from . import' in wrapper module '{}', converting to \
+                                 assignments",
+                                ctx.module_name
+                            );
+
+                            // Get the parent package name
+                            let parent_package = ctx
+                                .module_name
+                                .rsplit_once('.')
+                                .map_or("", |(parent, _)| parent);
+
+                            // Create assignments for each imported symbol
+                            for alias in &import_from.names {
+                                let imported_name = alias.name.as_str();
+                                if imported_name == "*" {
+                                    continue;
+                                }
+
+                                let local_name =
+                                    alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                                // Build the full module path for the imported module
+                                let full_module_path = if parent_package.is_empty() {
+                                    imported_name.to_string()
+                                } else {
+                                    format!("{parent_package}.{imported_name}")
+                                };
+
+                                log::debug!(
+                                    "Checking if '{full_module_path}' is a bundled module"
+                                );
+
+                                // Check if this is a bundled module
+                                if let Some(module_id) = bundler.get_module_id(&full_module_path)
+                                    && bundler.bundled_modules.contains(&module_id)
+                                {
+                                    // This is a bundled module, create assignment to reference it
+                                    let module_var =
+                                        sanitize_module_name_for_identifier(&full_module_path);
+
+                                    log::debug!(
+                                        "Creating assignment: {local_name} = {module_var}"
+                                    );
+
+                                    body.push(ast_builder::statements::simple_assign(
+                                        local_name,
+                                        ast_builder::expressions::name(
+                                            &module_var,
+                                            ExprContext::Load,
+                                        ),
+                                    ));
+
+                                    // Also add as module attribute
+                                    emit_module_attr_if_exportable(
+                                        bundler,
+                                        local_name,
+                                        ctx.module_name,
+                                        &mut body,
+                                        module_scope_symbols,
+                                        None, // not a lifted var
+                                    );
+                                    continue;
+                                }
+
+                                // If not a bundled module, still create an assignment assuming the
+                                // symbol exists
+                                log::debug!(
+                                    "Creating fallback assignment: {local_name} = {imported_name}"
+                                );
+
+                                body.push(ast_builder::statements::simple_assign(
+                                    local_name,
+                                    ast_builder::expressions::name(
+                                        imported_name,
+                                        ExprContext::Load,
+                                    ),
+                                ));
+
+                                // Add as module attribute if exportable
+                                emit_module_attr_if_exportable(
+                                    bundler,
+                                    local_name,
+                                    ctx.module_name,
+                                    &mut body,
+                                    module_scope_symbols,
+                                    None, // not a lifted var
+                                );
+                            }
+                            // Skip adding the original import statement
+                            continue;
+                        }
+
+                        // For other relative imports that don't match our pattern, keep the
+                        // original
+                        body.push(stmt.clone());
+                    } else {
+                        // For non-relative imports, keep the original
+                        body.push(stmt.clone());
+                    }
                 }
 
                 // Module attribute assignments for imported names are already handled by
