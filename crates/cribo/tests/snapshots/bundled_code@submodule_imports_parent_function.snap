@@ -57,8 +57,7 @@ def get_base():
 def get_result():
     global pkg_submodule
     pkg_submodule = pkg_submodule.__init__(pkg_submodule)
-    globals()['pkg_submodule'] = _cribo_init___cribo_dca395_pkg_submodule(globals()['pkg_submodule'])
-    process = pkg.submodule.process
+    process = _cribo_init___cribo_dca395_pkg_submodule(globals()['pkg_submodule']).process
     return pkg.submodule.process()
 pkg.base_value = base_value
 pkg.get_base = get_base
