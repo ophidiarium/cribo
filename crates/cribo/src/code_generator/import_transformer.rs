@@ -90,8 +90,10 @@ pub struct RecursiveImportTransformer<'a> {
     at_module_level: bool,
     /// Track names on the LHS of the current assignment while transforming its RHS.
     current_assignment_targets: Option<FxIndexSet<String>>,
-    /// Current function body being transformed (for symbol usage analysis)
+    /// Current function body being transformed (for compatibility with existing APIs)
     current_function_body: Option<Vec<Stmt>>,
+    /// Cached set of symbols used at runtime in the current function (for performance)
+    current_function_used_symbols: Option<FxIndexSet<String>>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -143,11 +145,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if wrapper import assignments should be skipped due to type-only usage
     fn should_skip_assignments_for_type_only_imports(&self, import_from: &StmtImportFrom) -> bool {
-        if let Some(body) = self.current_function_body.as_deref() {
-            let used = crate::visitors::SymbolUsageVisitor::collect_used_symbols(body);
+        if let Some(used_symbols) = &self.current_function_used_symbols {
             let uses_alias = import_from.names.iter().any(|a| {
                 let local = a.asname.as_ref().unwrap_or(&a.name).as_str();
-                used.contains(local)
+                used_symbols.contains(local)
             });
             !uses_alias
         } else {
@@ -558,6 +559,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             at_module_level: true,
             current_assignment_targets: None,
             current_function_body: None,
+            current_function_used_symbols: None,
         }
     }
 
@@ -965,8 +967,17 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let saved_at_module_level = self.at_module_level;
                         self.at_module_level = false;
 
-                        // Save current function body and set the new one for symbol analysis
-                        let saved_function_body = self.current_function_body.clone();
+                        // Save current function context and compute symbol analysis once
+                        let saved_function_body = self.current_function_body.take();
+                        let saved_used_symbols = self.current_function_used_symbols.take();
+
+                        // Compute used symbols once from the original body (before transformation)
+                        self.current_function_used_symbols =
+                            Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
+                                &func_def.body,
+                            ));
+
+                        // Set function body for compatibility with existing APIs
                         self.current_function_body = Some(func_def.body.clone());
 
                         // Transform the function body
@@ -980,8 +991,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Restore the previous scope level
                         self.at_module_level = saved_at_module_level;
 
-                        // Restore the previous function body context
+                        // Restore the previous function context
                         self.current_function_body = saved_function_body;
+                        self.current_function_used_symbols = saved_used_symbols;
 
                         // Restore the wrapper module imports to prevent function-level imports from
                         // affecting other functions
