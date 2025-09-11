@@ -1321,64 +1321,6 @@ impl<'a> Bundler<'a> {
         assignments
     }
 
-    /// Handle relative import aliases in init functions
-    fn handle_relative_import_aliases(
-        &self,
-        import_from: &StmtImportFrom,
-        module_name: &str,
-        result: &mut Vec<Stmt>,
-    ) {
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            if imported_name == "*" {
-                continue;
-            }
-
-            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-            // Check if this is a submodule that needs to be initialized
-            let full_submodule_path = format!("{module_name}.{imported_name}");
-            if let Some(submodule_id) = self.get_module_id(&full_submodule_path)
-                && self.bundled_modules.contains(&submodule_id)
-            {
-                // This is a bundled submodule, create assignment to reference it
-                let submodule_var = sanitize_module_name_for_identifier(&full_submodule_path);
-                result.push(statements::simple_assign(
-                    local_name,
-                    expressions::name(&submodule_var, ExprContext::Load),
-                ));
-
-                // Also add as module attribute
-                let module_var = sanitize_module_name_for_identifier(module_name);
-                result.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment(
-                        &module_var,
-                        local_name,
-                    ),
-                );
-                continue;
-            }
-
-            // Otherwise, just create the assignment for the local symbol
-            // The symbol should already be defined in the init function
-            result.push(statements::simple_assign(
-                local_name,
-                expressions::name(imported_name, ExprContext::Load),
-            ));
-
-            // Add as module attribute if not private
-            if !local_name.starts_with('_') {
-                let module_var = sanitize_module_name_for_identifier(module_name);
-                result.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment(
-                        &module_var,
-                        local_name,
-                    ),
-                );
-            }
-        }
-    }
-
     /// Check if a symbol is re-exported from an inlined submodule
     pub(crate) fn is_symbol_from_inlined_submodule(
         &self,
@@ -3655,12 +3597,15 @@ impl<'a> Bundler<'a> {
                                 // import errors) In this case, the
                                 // symbols should already be available in the init function
                                 if resolved == module_name {
-                                    // Create assignments for each imported symbol using helper
-                                    // method
-                                    self.handle_relative_import_aliases(
+                                    // Create assignments for each imported symbol using shared
+                                    // helper
+                                    crate::code_generator::import_transformer::transform_relative_import_aliases(
+                                        self,
                                         import_from,
                                         module_name,
+                                        module_name,
                                         &mut result,
+                                        true, // add module attributes
                                     );
                                     // Skip the rest - we've handled this relative import
                                 } else {

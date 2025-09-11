@@ -4205,3 +4205,84 @@ fn is_package_init_reexport(bundler: &Bundler, module_name: &str) -> bool {
     }
     false
 }
+
+/// Transform relative import aliases into direct assignments for wrapper init functions
+///
+/// This handles the common pattern `from . import errors, themes` by converting it to
+/// direct assignments to already-available wrapper module variables.
+///
+/// # Arguments
+/// * `bundler` - The bundler instance for module lookups
+/// * `import_from` - The import statement to process
+/// * `parent_package` - The parent package name to use for building full module paths
+/// * `current_module` - The current module name for module attribute assignments
+/// * `result` - Vector to append generated statements to
+/// * `add_module_attr` - Whether to add module attributes for non-private symbols
+pub fn transform_relative_import_aliases(
+    bundler: &Bundler,
+    import_from: &StmtImportFrom,
+    parent_package: &str,
+    current_module: &str,
+    result: &mut Vec<Stmt>,
+    add_module_attr: bool,
+) {
+    for alias in &import_from.names {
+        let imported_name = alias.name.as_str();
+        if imported_name == "*" {
+            continue;
+        }
+
+        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+        // Build the full module path for the imported module
+        let full_module_path = format!("{parent_package}.{imported_name}");
+
+        log::debug!("Checking if '{full_module_path}' is a bundled module");
+
+        // Check if this is a bundled module
+        if let Some(module_id) = bundler.get_module_id(&full_module_path)
+            && bundler.bundled_modules.contains(&module_id)
+        {
+            // This is a bundled module, create assignment to reference it
+            let module_var = sanitize_module_name_for_identifier(&full_module_path);
+
+            log::debug!("Creating assignment: {local_name} = {module_var}");
+
+            result.push(statements::simple_assign(
+                local_name,
+                expressions::name(&module_var, ExprContext::Load),
+            ));
+
+            // Add as module attribute
+            if add_module_attr {
+                let current_module_var = sanitize_module_name_for_identifier(current_module);
+                result.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        &current_module_var,
+                        local_name,
+                    ),
+                );
+            }
+            continue;
+        }
+
+        // If not a bundled module, still create an assignment assuming the symbol exists
+        log::debug!("Creating fallback assignment: {local_name} = {imported_name}");
+
+        result.push(statements::simple_assign(
+            local_name,
+            expressions::name(imported_name, ExprContext::Load),
+        ));
+
+        // Add as module attribute if exportable and not private
+        if add_module_attr && !local_name.starts_with('_') {
+            let current_module_var = sanitize_module_name_for_identifier(current_module);
+            result.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    &current_module_var,
+                    local_name,
+                ),
+            );
+        }
+    }
+}

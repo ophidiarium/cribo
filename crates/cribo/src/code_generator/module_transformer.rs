@@ -795,42 +795,22 @@ pub fn transform_module_to_init_function<'a>(
                                 .rsplit_once('.')
                                 .map_or(ctx.module_name, |(parent, _)| parent);
 
-                            // Create assignments for each imported symbol
+                            // Use shared helper to transform relative import aliases
+                            crate::code_generator::import_transformer::transform_relative_import_aliases(
+                                bundler,
+                                import_from,
+                                parent_package,
+                                ctx.module_name,
+                                &mut body,
+                                false, // use emit_module_attr_if_exportable instead
+                            );
+
+                            // Handle module attributes with proper exportability checks
                             for alias in &import_from.names {
                                 let imported_name = alias.name.as_str();
-                                if imported_name == "*" {
-                                    continue;
-                                }
-
-                                let local_name =
-                                    alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                                // Build the full module path for the imported module
-                                // parent_package is never empty now (uses module_name for top-level
-                                // packages)
-                                let full_module_path = format!("{parent_package}.{imported_name}");
-
-                                log::debug!("Checking if '{full_module_path}' is a bundled module");
-
-                                // Check if this is a bundled module
-                                if let Some(module_id) = bundler.get_module_id(&full_module_path)
-                                    && bundler.bundled_modules.contains(&module_id)
-                                {
-                                    // This is a bundled module, create assignment to reference it
-                                    let module_var =
-                                        sanitize_module_name_for_identifier(&full_module_path);
-
-                                    log::debug!("Creating assignment: {local_name} = {module_var}");
-
-                                    body.push(ast_builder::statements::simple_assign(
-                                        local_name,
-                                        ast_builder::expressions::name(
-                                            &module_var,
-                                            ExprContext::Load,
-                                        ),
-                                    ));
-
-                                    // Also add as module attribute
+                                if imported_name != "*" {
+                                    let local_name =
+                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
                                     emit_module_attr_if_exportable(
                                         bundler,
                                         local_name,
@@ -839,32 +819,7 @@ pub fn transform_module_to_init_function<'a>(
                                         module_scope_symbols,
                                         None, // not a lifted var
                                     );
-                                    continue;
                                 }
-
-                                // If not a bundled module, still create an assignment assuming the
-                                // symbol exists
-                                log::debug!(
-                                    "Creating fallback assignment: {local_name} = {imported_name}"
-                                );
-
-                                body.push(ast_builder::statements::simple_assign(
-                                    local_name,
-                                    ast_builder::expressions::name(
-                                        imported_name,
-                                        ExprContext::Load,
-                                    ),
-                                ));
-
-                                // Add as module attribute if exportable
-                                emit_module_attr_if_exportable(
-                                    bundler,
-                                    local_name,
-                                    ctx.module_name,
-                                    &mut body,
-                                    module_scope_symbols,
-                                    None, // not a lifted var
-                                );
                             }
                             // Skip adding the original import statement
                             continue;
