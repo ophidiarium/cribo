@@ -4744,6 +4744,22 @@ impl Bundler<'_> {
         false
     }
 
+    /// Check if a symbol is exported by a module, considering both explicit __all__ and semantic
+    /// exports
+    fn is_symbol_exported(&self, module_id: &ModuleId, symbol_name: &str) -> bool {
+        if self.modules_with_explicit_all.contains(module_id) {
+            self.module_exports
+                .get(module_id)
+                .and_then(|e| e.as_ref())
+                .is_some_and(|exports| exports.contains(&symbol_name.to_string()))
+        } else {
+            // Fallback to semantic exports when __all__ is not defined
+            self.semantic_exports
+                .get(module_id)
+                .is_some_and(|set| set.contains(symbol_name))
+        }
+    }
+
     /// Find the source module ID for a symbol that comes from an inlined submodule
     /// This handles wildcard re-exports where a wrapper module imports symbols from inlined modules
     fn find_symbol_source_in_inlined_submodules(
@@ -4786,19 +4802,7 @@ impl Bundler<'_> {
 
                         // Check if this module is inlined and exports the symbol we're looking for
                         if self.inlined_modules.contains(&source_id) {
-                            let exported = if self.modules_with_explicit_all.contains(&source_id) {
-                                self.module_exports
-                                    .get(&source_id)
-                                    .and_then(|e| e.as_ref())
-                                    .is_some_and(|exports| {
-                                        exports.contains(&symbol_name.to_string())
-                                    })
-                            } else {
-                                // Fallback to semantic exports when __all__ is not defined
-                                self.semantic_exports
-                                    .get(&source_id)
-                                    .is_some_and(|set| set.contains(symbol_name))
-                            };
+                            let exported = self.is_symbol_exported(&source_id, symbol_name);
                             if exported {
                                 log::debug!(
                                     "Found symbol '{symbol_name}' in inlined module \

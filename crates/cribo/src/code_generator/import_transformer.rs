@@ -2326,7 +2326,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 let rhs_call = expressions::call(
                                     expressions::attribute(
                                         rhs_self.clone(),
-                                        crate::python::constants::INIT_STEM,
+                                        crate::ast_builder::module_wrapper::MODULE_INIT_ATTR,
                                         ExprContext::Load,
                                     ),
                                     vec![rhs_self],
