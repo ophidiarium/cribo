@@ -5055,9 +5055,14 @@ impl Bundler<'_> {
             vec![],
             vec![],
         );
+        let key_name = if canonical_module_name.contains('.') {
+            sanitize_module_name_for_identifier(canonical_module_name)
+        } else {
+            canonical_module_name.to_string()
+        };
         let module_ref = expressions::subscript(
             globals_call,
-            expressions::string_literal(canonical_module_name),
+            expressions::string_literal(&key_name),
             ExprContext::Load,
         );
         expressions::call(
