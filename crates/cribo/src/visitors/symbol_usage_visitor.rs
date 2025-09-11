@@ -42,6 +42,7 @@ const TYPE_HINT_IDENTIFIERS: &[&str] = &[
     "ClassVar",
     // Metadata and annotations
     "Annotated",
+    "Self",
 ];
 
 /// Visitor that collects symbols that are actually used in a function body
