@@ -809,9 +809,7 @@ pub fn transform_module_to_init_function<'a>(
                                     format!("{parent_package}.{imported_name}")
                                 };
 
-                                log::debug!(
-                                    "Checking if '{full_module_path}' is a bundled module"
-                                );
+                                log::debug!("Checking if '{full_module_path}' is a bundled module");
 
                                 // Check if this is a bundled module
                                 if let Some(module_id) = bundler.get_module_id(&full_module_path)
@@ -821,9 +819,7 @@ pub fn transform_module_to_init_function<'a>(
                                     let module_var =
                                         sanitize_module_name_for_identifier(&full_module_path);
 
-                                    log::debug!(
-                                        "Creating assignment: {local_name} = {module_var}"
-                                    );
+                                    log::debug!("Creating assignment: {local_name} = {module_var}");
 
                                     body.push(ast_builder::statements::simple_assign(
                                         local_name,
