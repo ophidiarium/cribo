@@ -5400,7 +5400,7 @@ impl Bundler<'_> {
                     );
                     // Create: parent_path = types.SimpleNamespace(__name__='parent_path')
                     let keywords = vec![Keyword {
-                        node_index: AtomicNodeIndex::dummy(),
+                        node_index: AtomicNodeIndex::NONE,
                         arg: Some(other::identifier("__name__")),
                         value: expressions::string_literal(&parent_path),
                         range: TextRange::default(),

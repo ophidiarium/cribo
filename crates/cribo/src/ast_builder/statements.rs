@@ -1,7 +1,7 @@
 //! Statement AST node factory functions
 //!
 //! This module provides factory functions for creating various types of statement AST nodes.
-//! All statements are created with `TextRange::default()` and `AtomicNodeIndex::dummy()`
+//! All statements are created with `TextRange::default()` and `AtomicNodeIndex::NONE`
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
@@ -31,7 +31,7 @@ pub fn assign(targets: Vec<Expr>, value: Expr) -> Stmt {
         targets,
         value: Box::new(value),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -117,7 +117,7 @@ pub fn expr(expr: Expr) -> Stmt {
     Stmt::Expr(StmtExpr {
         value: Box::new(expr),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -140,7 +140,7 @@ pub fn import(names: Vec<Alias>) -> Stmt {
     Stmt::Import(StmtImport {
         names,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -160,7 +160,7 @@ pub fn import(names: Vec<Alias>) -> Stmt {
 /// ```
 pub fn import_aliased(module_name: &str, alias_name: &str) -> Stmt {
     Stmt::Import(StmtImport {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         names: vec![super::other::alias(module_name, Some(alias_name))],
         range: TextRange::default(),
     })
@@ -191,7 +191,7 @@ pub fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -> Stmt 
         names,
         level,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -205,7 +205,7 @@ pub fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -> Stmt 
 pub fn pass() -> Stmt {
     Stmt::Pass(StmtPass {
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -226,7 +226,7 @@ pub fn return_stmt(value: Option<Expr>) -> Stmt {
     Stmt::Return(StmtReturn {
         value: value.map(Box::new),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -254,7 +254,7 @@ pub fn raise(exc: Option<Expr>, cause: Option<Expr>) -> Stmt {
         exc: exc.map(Box::new),
         cause: cause.map(Box::new),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -275,7 +275,7 @@ pub fn global(names: Vec<&str>) -> Stmt {
             .map(|s| Identifier::new(s, TextRange::default()))
             .collect(),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -293,7 +293,7 @@ pub fn global(names: Vec<&str>) -> Stmt {
 /// ```rust
 /// // Creates: `def my_func(): pass`
 /// let params = Parameters {
-///     node_index: AtomicNodeIndex::dummy(),
+///     node_index: AtomicNodeIndex::NONE,
 ///     posonlyargs: vec![],
 ///     args: vec![],
 ///     vararg: None,
@@ -312,7 +312,7 @@ pub fn function_def(
     is_async: bool,
 ) -> Stmt {
     Stmt::FunctionDef(StmtFunctionDef {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         name: Identifier::new(name, TextRange::default()),
         type_params: None,
         parameters: Box::new(parameters),
@@ -357,7 +357,7 @@ pub fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> S
 /// Create a for loop statement
 pub fn for_loop(target: &str, iter: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
     Stmt::For(ruff_python_ast::StmtFor {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         target: Box::new(expressions::name(target, ExprContext::Store)),
         iter: Box::new(iter),
         body,
@@ -370,14 +370,14 @@ pub fn for_loop(target: &str, iter: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) ->
 /// Create an if statement
 pub fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
     Stmt::If(ruff_python_ast::StmtIf {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         test: Box::new(condition),
         body,
         elif_else_clauses: if orelse.is_empty() {
             vec![]
         } else {
             vec![ruff_python_ast::ElifElseClause {
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
                 test: None,
                 body: orelse,
                 range: TextRange::default(),
@@ -390,7 +390,7 @@ pub fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
 /// Create a subscript assignment statement: target[key] = value
 pub fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
     Stmt::Assign(ruff_python_ast::StmtAssign {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         targets: vec![expressions::subscript(target, key, ExprContext::Store)],
         value: Box::new(value),
         range: TextRange::default(),
@@ -425,6 +425,6 @@ pub fn try_stmt(
         finalbody,
         is_star: false,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }

@@ -368,7 +368,7 @@ pub fn transform_module_to_init_function<'a>(
                  {unique_imports:?}"
             );
             body.push(Stmt::Global(StmtGlobal {
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
                 names: unique_imports
                     .iter()
                     .map(|name| Identifier::new(name, TextRange::default()))
@@ -1270,14 +1270,14 @@ pub fn transform_module_to_init_function<'a>(
             range: TextRange::default(),
             name: Identifier::new(SELF_PARAM, TextRange::default()),
             annotation: None,
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
         },
         default: None,
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     };
 
     let parameters = ruff_python_ast::Parameters {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         posonlyargs: vec![],
         args: vec![self_param],
         vararg: None,
