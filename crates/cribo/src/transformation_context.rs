@@ -47,7 +47,9 @@ impl TransformationContext {
     /// Create a new node with a fresh index
     pub fn create_node_index(&self) -> AtomicNodeIndex {
         let index = self.next_node_index();
-        AtomicNodeIndex::from(index)
+        let node_index = AtomicNodeIndex::default();
+        node_index.set(ruff_python_ast::NodeIndex::from(index));
+        node_index
     }
 
     /// Create a completely new node

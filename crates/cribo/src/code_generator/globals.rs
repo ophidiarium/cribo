@@ -461,7 +461,7 @@ fn transform_introspection_in_expr(
                         }
 
                         let new_element = InterpolatedElement {
-                            node_index: AtomicNodeIndex::dummy(),
+                            node_index: AtomicNodeIndex::NONE,
                             expression: new_expr,
                             debug_text: expr_elem.debug_text.clone(),
                             conversion: expr_elem.conversion,
@@ -480,7 +480,7 @@ fn transform_introspection_in_expr(
                     crate::ast_builder::expressions::get_fstring_flags(&fstring_expr.value);
 
                 let new_fstring = FString {
-                    node_index: AtomicNodeIndex::dummy(),
+                    node_index: AtomicNodeIndex::NONE,
                     elements: InterpolatedStringElements::from(transformed_elements),
                     range: fstring_expr.range,
                     flags: original_flags,
@@ -489,7 +489,7 @@ fn transform_introspection_in_expr(
                 let new_value = FStringValue::single(new_fstring);
 
                 *expr = Expr::FString(ExprFString {
-                    node_index: AtomicNodeIndex::dummy(),
+                    node_index: AtomicNodeIndex::NONE,
                     value: new_value,
                     range: fstring_expr.range,
                 });

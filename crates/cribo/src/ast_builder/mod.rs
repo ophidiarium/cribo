@@ -16,7 +16,7 @@
 //!
 //! All synthetic nodes created by this module use:
 //! - `TextRange::default()` to signify their generated nature
-//! - `AtomicNodeIndex::dummy()` for node indexing
+//! - `AtomicNodeIndex::NONE` for node indexing
 //!
 //! These factory functions assume valid inputs from callers and perform no runtime validation,
 //! consistent with the underlying `ruff_python_ast` library design.

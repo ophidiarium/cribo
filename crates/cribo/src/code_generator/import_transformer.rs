@@ -304,7 +304,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 let renamed_str = renamed.clone();
                 log::debug!("Rewrote {base}.{attr_name} to {renamed_str} (renamed)");
                 return Some(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
+                    node_index: AtomicNodeIndex::NONE,
                     id: renamed_str.into(),
                     ctx,
                     range,
@@ -321,7 +321,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             }
             log::debug!("Rewrote {base}.{attr_name} to {attr_name} (not renamed)");
             return Some(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
                 id: attr_name.into(),
                 ctx,
                 range,
@@ -346,7 +346,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             }
             log::debug!("Rewrote {base}.{attr_name} to {attr_name} (exported by module)");
             return Some(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
                 id: attr_name.into(),
                 ctx,
                 range,
@@ -471,7 +471,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                  inlined module)"
             );
             return Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
                 id: renamed_str.into(),
                 ctx: attr_ctx,
                 range: attr_range,
@@ -482,7 +482,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             "Rewrote {base}.{attr_name} to {attr_name} (symbol from importlib inlined module)"
         );
         Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
             id: attr_name.into(),
             ctx: attr_ctx,
             range: attr_range,
@@ -513,7 +513,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             {
                 log::debug!("Rewrote {base}.{}.{final_attr} to {renamed}", attr_path[0]);
                 return Some(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
+                    node_index: AtomicNodeIndex::NONE,
                     id: renamed.clone().into(),
                     ctx: attr_ctx,
                     range: attr_range,
@@ -530,7 +530,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 attr_path[0]
             );
             return Some(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
                 id: direct_name.into(),
                 ctx: attr_ctx,
                 range: attr_range,
@@ -1195,7 +1195,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 .map(|s| Identifier::new(s, TextRange::default()))
                 .collect(),
             range: TextRange::default(),
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
         });
 
         new_body.insert(insert_at, global_stmt);
@@ -2880,7 +2880,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
 
                             let new_element = InterpolatedElement {
-                                node_index: AtomicNodeIndex::dummy(),
+                                node_index: AtomicNodeIndex::NONE,
                                 expression: new_expr,
                                 debug_text: expr_elem.debug_text.clone(),
                                 conversion: expr_elem.conversion,
@@ -2895,7 +2895,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                 if any_transformed {
                     let new_fstring = FString {
-                        node_index: AtomicNodeIndex::dummy(),
+                        node_index: AtomicNodeIndex::NONE,
                         elements: InterpolatedStringElements::from(transformed_elements),
                         range: fstring_range,
                         flags: original_flags, // Preserve the original flags including quote style
@@ -2904,7 +2904,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let new_value = FStringValue::single(new_fstring);
 
                     *expr = Expr::FString(ExprFString {
-                        node_index: AtomicNodeIndex::dummy(),
+                        node_index: AtomicNodeIndex::NONE,
                         value: new_value,
                         range: fstring_range,
                     });

@@ -1,7 +1,7 @@
 //! Expression AST node factory functions
 //!
 //! This module provides factory functions for creating various types of expression AST nodes.
-//! All expressions are created with `TextRange::default()` and `AtomicNodeIndex::dummy()`
+//! All expressions are created with `TextRange::default()` and `AtomicNodeIndex::NONE`
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
@@ -29,7 +29,7 @@ pub fn name(name: &str, ctx: ExprContext) -> Expr {
         id: name.to_string().into(),
         ctx,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -52,7 +52,7 @@ pub fn attribute(value: Expr, attr: &str, ctx: ExprContext) -> Expr {
         attr: ruff_python_ast::Identifier::new(attr, TextRange::default()),
         ctx,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -95,10 +95,10 @@ pub fn string_literal(value: &str) -> Expr {
             range: TextRange::default(),
             value: value.into(),
             flags: StringLiteralFlags::empty(),
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
         }),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -112,7 +112,7 @@ pub fn string_literal(value: &str) -> Expr {
 pub fn none_literal() -> Expr {
     Expr::NoneLiteral(ExprNoneLiteral {
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -131,7 +131,7 @@ pub fn bool_literal(value: bool) -> Expr {
     Expr::BooleanLiteral(ExprBooleanLiteral {
         value,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -157,10 +157,10 @@ pub fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
             args: args.into_boxed_slice(),
             keywords: keywords.into_boxed_slice(),
             range: TextRange::default(),
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
         },
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -248,7 +248,7 @@ pub fn list(elts: Vec<Expr>, ctx: ExprContext) -> Expr {
         elts,
         ctx,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -269,7 +269,7 @@ pub fn unary_op(op: UnaryOp, operand: Expr) -> Expr {
         op,
         operand: Box::new(operand),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -321,7 +321,7 @@ pub fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
 /// Create a subscript expression: obj[key]
 pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
     Expr::Subscript(ExprSubscript {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         value: Box::new(value),
         slice: Box::new(slice),
         ctx,
@@ -349,7 +349,7 @@ pub fn tuple(elts: Vec<Expr>) -> Expr {
         elts,
         ctx: ExprContext::Load,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         parenthesized: true,
     })
 }
@@ -374,7 +374,7 @@ pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
         op,
         right: Box::new(right),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -395,7 +395,7 @@ pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
         op,
         values,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -420,7 +420,7 @@ pub fn if_exp(condition: Expr, body: Expr, orelse: Expr) -> Expr {
         body: Box::new(body),
         orelse: Box::new(orelse),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -443,7 +443,7 @@ pub fn in_op(left: Expr, right: Expr) -> Expr {
         ops: Box::new([CmpOp::In]),
         comparators: Box::new([right]),
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     })
 }
 
@@ -461,7 +461,7 @@ pub fn in_op(left: Expr, right: Expr) -> Expr {
 /// ```
 pub fn keyword(arg: Option<&str>, value: Expr) -> Keyword {
     Keyword {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         arg: arg.map(|s| ruff_python_ast::Identifier::new(s, TextRange::default())),
         value,
         range: TextRange::default(),

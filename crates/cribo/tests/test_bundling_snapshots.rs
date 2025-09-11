@@ -175,14 +175,18 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
     let mut other_violations = Vec::new();
 
     for message in &result.diagnostics {
-        let location = message.expect_ruff_start_location();
+        let location = message.ruff_start_location();
         let rule_name = message.name();
-        let violation_info = format!(
-            "Line {}: {} - {}",
-            location.line.get(),
-            rule_name,
-            message.body()
-        );
+        let violation_info = if let Some(loc) = location {
+            format!(
+                "Line {}: {} - {}",
+                loc.line.get(),
+                rule_name,
+                message.body()
+            )
+        } else {
+            format!("{} - {}", rule_name, message.body())
+        };
 
         // Check if it's a lint rule by looking at the diagnostic id
         if message.id().is_lint_named("F401") {

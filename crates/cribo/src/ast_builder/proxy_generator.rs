@@ -69,21 +69,21 @@ fn make_params(names: &[&str]) -> Parameters {
             .iter()
             .map(|name| ParameterWithDefault {
                 parameter: Parameter {
-                    node_index: AtomicNodeIndex::dummy(),
+                    node_index: AtomicNodeIndex::NONE,
                     name: Identifier::new(*name, TextRange::default()),
                     annotation: None,
                     range: TextRange::default(),
                 },
                 default: None,
                 range: TextRange::default(),
-                node_index: AtomicNodeIndex::dummy(),
+                node_index: AtomicNodeIndex::NONE,
             })
             .collect(),
         vararg: None,
         kwonlyargs: vec![],
         kwarg: None,
         range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
     }
 }
 
@@ -152,13 +152,13 @@ fn create_cribo_module_class() -> Stmt {
     body.push(getattribute_method);
 
     Stmt::ClassDef(StmtClassDef {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         name: Identifier::new(CRIBO_MODULE_CLASS, TextRange::default()),
         arguments: Some(Box::new(Arguments {
             args: Box::new([]),
             keywords: Box::new([]),
             range: TextRange::default(),
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
         })),
         body,
         decorator_list: vec![],
@@ -261,7 +261,7 @@ fn create_cribo_module_getattr() -> Stmt {
     // ImportError handler
     let except_handler =
         ExceptHandler::ExceptHandler(ruff_python_ast::ExceptHandlerExceptHandler {
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
             type_: Some(Box::new(expressions::name(
                 "ImportError",
                 ExprContext::Load,
@@ -359,13 +359,13 @@ fn create_cribo_class() -> Stmt {
     let getattr_method = create_cribo_getattr();
 
     Stmt::ClassDef(StmtClassDef {
-        node_index: AtomicNodeIndex::dummy(),
+        node_index: AtomicNodeIndex::NONE,
         name: Identifier::new(CRIBO_CLASS, TextRange::default()),
         arguments: Some(Box::new(Arguments {
             args: Box::new([]),
             keywords: Box::new([]),
             range: TextRange::default(),
-            node_index: AtomicNodeIndex::dummy(),
+            node_index: AtomicNodeIndex::NONE,
         })),
         body: vec![getattr_method],
         decorator_list: vec![],

@@ -10,7 +10,7 @@ By providing a consistent set of factory functions, this module will:
 - **Enhance Readability**: Replace verbose, manual node construction with concise, intention-revealing function calls.
 - **Simplify Maintenance**: Allow future changes to AST construction to be made in a single, centralized location.
 
-All synthetic nodes created by this module will use `TextRange::default()` and `AtomicNodeIndex::dummy()` to signify their generated nature.
+All synthetic nodes created by this module will use `TextRange::default()` and `AtomicNodeIndex::NONE` to signify their generated nature.
 
 ## 2. Module Organization and Naming Conventions
 
