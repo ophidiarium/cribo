@@ -4267,12 +4267,16 @@ pub fn transform_relative_import_aliases(
         }
 
         // If not a bundled module, still create an assignment assuming the symbol exists
-        log::debug!("Creating fallback assignment: {local_name} = {imported_name}");
-
-        result.push(statements::simple_assign(
-            local_name,
-            expressions::name(imported_name, ExprContext::Load),
-        ));
+        // Only create assignment if names differ to avoid redundant "x = x"
+        if local_name == imported_name {
+            log::debug!("Skipping redundant self-assignment: {local_name} = {imported_name}");
+        } else {
+            log::debug!("Creating fallback assignment: {local_name} = {imported_name}");
+            result.push(statements::simple_assign(
+                local_name,
+                expressions::name(imported_name, ExprContext::Load),
+            ));
+        }
 
         // Add as module attribute if exportable and not private
         if add_module_attr && !local_name.starts_with('_') {
