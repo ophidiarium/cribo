@@ -211,7 +211,7 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global myrequests_compat, myrequests_exceptions
+    global myrequests_compat
     """Utils module that also uses compat."""
     myrequests_compat = _cribo_init___cribo_5ad29b_myrequests_compat(myrequests_compat)
     json = myrequests.compat.json
@@ -233,9 +233,7 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
         try:
             return _cribo.json.loads(content)
         except (ValueError, TypeError) as e:
-            global myrequests_exceptions
-            myrequests_exceptions = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_exceptions)
-            OurJSONDecodeError = myrequests.exceptions.JSONDecodeError
+            OurJSONDecodeError = _cribo_init___cribo_530a30_myrequests_exceptions(myrequests_utils.__dict__['myrequests_exceptions']).JSONDecodeError
             raise OurJSONDecodeError(str(e))
     self.decode_json = decode_json
     self.__initialized__ = True

@@ -8,6 +8,7 @@ mod import_discovery;
 mod local_var_collector;
 mod side_effect_detector;
 pub mod symbol_collector;
+mod symbol_usage_visitor;
 pub mod utils;
 mod variable_collector;
 
@@ -17,4 +18,5 @@ pub use import_discovery::{
 };
 pub use local_var_collector::LocalVarCollector;
 pub use side_effect_detector::{ExpressionSideEffectDetector, SideEffectDetector};
+pub use symbol_usage_visitor::SymbolUsageVisitor;
 pub use variable_collector::VariableCollector;

@@ -46,6 +46,7 @@ core_version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
 core_utils_config = _cribo.types.SimpleNamespace(__name__='core.utils.config')
 core_utils.config = core_utils_config
 """Configuration utilities for the core package."""
+_module_config = None
 def set_config_reference(config):
     """Set the configuration reference - called by parent package."""
     global _module_config
@@ -311,7 +312,7 @@ def _cribo_init___cribo_782908_core_database(self):
 
     def safe_connect(database_name: str) -> str:
         """Connect only if core is initialized."""
-        is_initialized = core.is_initialized
+        is_initialized = _cribo_init___cribo_f00e4b_core(core).is_initialized
         if not is_initialized():
             raise RuntimeError("Core package must be initialized before connecting")
         return connect(database_name)

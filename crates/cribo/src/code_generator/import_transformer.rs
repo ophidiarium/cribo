@@ -90,6 +90,10 @@ pub struct RecursiveImportTransformer<'a> {
     at_module_level: bool,
     /// Track names on the LHS of the current assignment while transforming its RHS.
     current_assignment_targets: Option<FxIndexSet<String>>,
+    /// Current function body being transformed (for compatibility with existing APIs)
+    current_function_body: Option<Vec<Stmt>>,
+    /// Cached set of symbols used at runtime in the current function (for performance)
+    current_function_used_symbols: Option<FxIndexSet<String>>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -137,6 +141,19 @@ impl<'a> RecursiveImportTransformer<'a> {
         .cloned()
         .collect();
         Some((module_id, filtered))
+    }
+
+    /// Check if wrapper import assignments should be skipped due to type-only usage
+    fn should_skip_assignments_for_type_only_imports(&self, import_from: &StmtImportFrom) -> bool {
+        if let Some(used_symbols) = &self.current_function_used_symbols {
+            let uses_alias = import_from.names.iter().any(|a| {
+                let local = a.asname.as_ref().unwrap_or(&a.name).as_str();
+                used_symbols.contains(local)
+            });
+            !uses_alias
+        } else {
+            false
+        }
     }
 
     /// Should emit __all__ for a local namespace binding
@@ -541,6 +558,8 @@ impl<'a> RecursiveImportTransformer<'a> {
             python_version: params.python_version,
             at_module_level: true,
             current_assignment_targets: None,
+            current_function_body: None,
+            current_function_used_symbols: None,
         }
     }
 
@@ -894,6 +913,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Track function parameters as local variables before transforming the body
                         // This prevents incorrect transformation of parameter names that shadow
                         // stdlib modules
+
+                        // Track positional-only parameters
+                        for param in &func_def.parameters.posonlyargs {
+                            self.local_variables
+                                .insert(param.parameter.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (posonly): {}",
+                                param.parameter.name.as_str()
+                            );
+                        }
+
+                        // Track regular parameters
                         for param in &func_def.parameters.args {
                             self.local_variables
                                 .insert(param.parameter.name.as_str().to_string());
@@ -903,9 +934,51 @@ impl<'a> RecursiveImportTransformer<'a> {
                             );
                         }
 
+                        // Track *args if present
+                        if let Some(vararg) = &func_def.parameters.vararg {
+                            self.local_variables
+                                .insert(vararg.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (vararg): {}",
+                                vararg.name.as_str()
+                            );
+                        }
+
+                        // Track keyword-only parameters
+                        for param in &func_def.parameters.kwonlyargs {
+                            self.local_variables
+                                .insert(param.parameter.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (kwonly): {}",
+                                param.parameter.name.as_str()
+                            );
+                        }
+
+                        // Track **kwargs if present
+                        if let Some(kwarg) = &func_def.parameters.kwarg {
+                            self.local_variables.insert(kwarg.name.as_str().to_string());
+                            log::debug!(
+                                "Tracking function parameter as local (kwarg): {}",
+                                kwarg.name.as_str()
+                            );
+                        }
+
                         // Save the current scope level and mark that we're entering a local scope
                         let saved_at_module_level = self.at_module_level;
                         self.at_module_level = false;
+
+                        // Save current function context and compute symbol analysis once
+                        let saved_function_body = self.current_function_body.take();
+                        let saved_used_symbols = self.current_function_used_symbols.take();
+
+                        // Compute used symbols once from the original body (before transformation)
+                        self.current_function_used_symbols =
+                            Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
+                                &func_def.body,
+                            ));
+
+                        // Set function body for compatibility with existing APIs
+                        self.current_function_body = Some(func_def.body.clone());
 
                         // Transform the function body
                         self.transform_statements(&mut func_def.body);
@@ -917,6 +990,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Restore the previous scope level
                         self.at_module_level = saved_at_module_level;
+
+                        // Restore the previous function context
+                        self.current_function_body = saved_function_body;
+                        self.current_function_used_symbols = saved_used_symbols;
 
                         // Restore the wrapper module imports to prevent function-level imports from
                         // affecting other functions
@@ -979,12 +1056,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                     Stmt::For(for_stmt) => {
                         // Track loop variable as local before transforming to prevent incorrect
                         // stdlib transformations
-                        if let Expr::Name(name) = for_stmt.target.as_ref() {
-                            self.local_variables.insert(name.id.as_str().to_string());
-                            log::debug!(
-                                "Tracking for loop variable as local: {}",
-                                name.id.as_str()
-                            );
+                        {
+                            let mut loop_names = FxIndexSet::default();
+                            collect_assigned_names(&for_stmt.target, &mut loop_names);
+                            for n in loop_names {
+                                self.local_variables.insert(n.clone());
+                                log::debug!("Tracking for loop variable as local: {n}");
+                            }
                         }
 
                         self.transform_expr(&mut for_stmt.target);
@@ -2215,9 +2293,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 get_module_var_identifier(module_id, self.bundler.resolver);
 
                             // If we're not at module level (i.e., inside any local scope), we need
-                            // to declare the module variable as global
-                            // to avoid UnboundLocalError.
-                            if !self.at_module_level {
+                            // to declare the module variable as global to avoid UnboundLocalError.
+                            // However, skip if it conflicts with a local variable (like function
+                            // parameters).
+                            if self.at_module_level {
+                                init_stmts.push(module_wrapper::create_wrapper_module_init_call(
+                                    &module_var,
+                                ));
+                            } else if !self.local_variables.contains(&module_var) {
+                                // Only initialize if no conflict with local variable
                                 log::debug!(
                                     "  Adding global declaration for '{module_var}' (inside local \
                                      scope)"
@@ -2225,10 +2309,43 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 init_stmts.push(crate::ast_builder::statements::global(vec![
                                     module_var.as_str(),
                                 ]));
+                                init_stmts.push(module_wrapper::create_wrapper_module_init_call(
+                                    &module_var,
+                                ));
+                            } else {
+                                log::debug!(
+                                    "  Initializing wrapper via globals() to avoid local shadow: \
+                                     {module_var}"
+                                );
+                                // globals()[module_var] =
+                                // globals()[module_var].__init__(globals()[module_var])
+                                let g_call = expressions::call(
+                                    expressions::name("globals", ExprContext::Load),
+                                    vec![],
+                                    vec![],
+                                );
+                                let key = expressions::string_literal(&module_var);
+                                let lhs = expressions::subscript(
+                                    g_call.clone(),
+                                    key.clone(),
+                                    ExprContext::Store,
+                                );
+                                let rhs_self = expressions::subscript(
+                                    g_call.clone(),
+                                    key.clone(),
+                                    ExprContext::Load,
+                                );
+                                let rhs_call = expressions::call(
+                                    expressions::attribute(
+                                        rhs_self.clone(),
+                                        crate::ast_builder::module_wrapper::MODULE_INIT_ATTR,
+                                        ExprContext::Load,
+                                    ),
+                                    vec![rhs_self],
+                                    vec![],
+                                );
+                                init_stmts.push(statements::assign(vec![lhs], rhs_call));
                             }
-
-                            init_stmts
-                                .push(module_wrapper::create_wrapper_module_init_call(&module_var));
                         }
                     } else if is_parent_import && !is_wildcard {
                         log::debug!(
@@ -2276,6 +2393,31 @@ impl<'a> RecursiveImportTransformer<'a> {
                         );
                     }
 
+                    // If we skipped initialization due to a conflict, also skip the assignments
+                    if !self.at_module_level {
+                        use crate::code_generator::module_registry::get_module_var_identifier;
+                        let module_var = if let Some(module_id) = wrapper_module_id {
+                            get_module_var_identifier(module_id, self.bundler.resolver)
+                        } else {
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(resolved)
+                        };
+
+                        if self.local_variables.contains(&module_var) {
+                            // Only skip if alias isn't used at runtime
+                            if self.should_skip_assignments_for_type_only_imports(import_from) {
+                                log::debug!(
+                                    "  Skipping wrapper import assignments (type-only use) for \
+                                     '{module_var}'"
+                                );
+                                return Vec::new();
+                            }
+                            log::debug!(
+                                "  Conflict with local variable but alias is used at runtime; \
+                                 keeping assignments"
+                            );
+                        }
+                    }
+
                     // Defer to the standard bundled-wrapper transformation to generate proper
                     // alias assignments and ensure initialization ordering. This keeps behavior
                     // consistent and avoids missing local aliases needed for class bases.
@@ -2290,6 +2432,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         inside_wrapper_init: self.is_wrapper_init,
                         at_module_level: self.at_module_level,
                         python_version: self.python_version,
+                        function_body: self.current_function_body.as_deref(),
                     });
 
                     // Prepend the init statements to ensure wrapper is initialized before use
@@ -2311,6 +2454,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             inside_wrapper_init: self.is_wrapper_init,
             at_module_level: self.at_module_level,
             python_version: self.python_version,
+            function_body: self.current_function_body.as_deref(),
         })
     }
 
@@ -3395,6 +3539,7 @@ struct RewriteImportFromParams<'a> {
     inside_wrapper_init: bool,
     at_module_level: bool,
     python_version: u8,
+    function_body: Option<&'a [Stmt]>,
 }
 
 /// Rewrite import from statement with proper handling for bundled modules
@@ -3408,6 +3553,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         inside_wrapper_init,
         at_module_level,
         python_version,
+        function_body,
     } = params;
     // Resolve relative imports to absolute module names
     log::debug!(
@@ -3538,12 +3684,27 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &module_name,
                 context,
                 symbol_renames,
+                function_body,
             );
         }
 
         // No bundled submodules, keep original import
         // For relative imports from non-bundled modules, convert to absolute import
         if import_from.level > 0 {
+            // If module_name is empty, keep the relative import as-is
+            // This happens when importing from the root package
+            if module_name.is_empty() {
+                log::warn!(
+                    "Keeping relative import with empty resolved module name: from {} import {:?}",
+                    ".".repeat(import_from.level as usize),
+                    import_from
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
+                return vec![Stmt::ImportFrom(import_from)];
+            }
             let mut absolute_import = import_from.clone();
             absolute_import.level = 0;
             absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
@@ -3569,9 +3730,25 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         // For relative imports, we need to create an absolute import
         let mut absolute_import = import_from.clone();
         if import_from.level > 0 {
-            // Convert relative import to absolute
-            absolute_import.level = 0;
-            absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+            // If module_name is empty, keep the relative import as-is
+            if module_name.is_empty() {
+                log::warn!(
+                    "Keeping wrapper relative import with empty resolved module name: from {} \
+                     import {:?}",
+                    ".".repeat(import_from.level as usize),
+                    import_from
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
+                // Keep the original relative import
+                absolute_import = import_from.clone();
+            } else {
+                // Convert relative import to absolute
+                absolute_import.level = 0;
+                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+            }
         }
         let context = crate::code_generator::bundler::BundledImportContext {
             inside_wrapper_init,
@@ -3583,6 +3760,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             &module_name,
             context,
             symbol_renames,
+            function_body,
         )
     } else {
         // Module was inlined - but first check if we're importing bundled submodules

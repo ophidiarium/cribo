@@ -38,21 +38,16 @@ def _cribo_init___cribo_1444c2_module_a(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_b
 
     def start_process():
         """Start the processing chain A -> B -> C -> D -> A"""
-        global module_b
-        module_b = _cribo_init___cribo_277dcc_module_b(module_b)
-        process_in_b = module_b.process_in_b
+        process_in_b = _cribo_init___cribo_277dcc_module_b(module_b).process_in_b
         return f"A({process_in_b()})"
     self.start_process = start_process
 
     def final_step():
         """Final step called by module_d to complete the cycle"""
-        global module_b
-        module_b = _cribo_init___cribo_277dcc_module_b(module_b)
-        process_in_b = module_b.process_in_b
+        process_in_b = _cribo_init___cribo_277dcc_module_b(module_b).process_in_b
         return "A_final"
     self.final_step = final_step
     self.__initialized__ = True
@@ -65,20 +60,15 @@ def _cribo_init___cribo_277dcc_module_b(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_c
 
     def process_in_b():
         """Process in B, depends on C"""
-        global module_c
-        module_c = _cribo_init___cribo_21fc08_module_c(module_c)
-        process_in_c = module_c.process_in_c
+        process_in_c = _cribo_init___cribo_21fc08_module_c(module_c).process_in_c
         return f"B({process_in_c()})"
     self.process_in_b = process_in_b
 
     def step_b():
-        global module_c
-        module_c = _cribo_init___cribo_21fc08_module_c(module_c)
-        process_in_c = module_c.process_in_c
+        process_in_c = _cribo_init___cribo_21fc08_module_c(module_c).process_in_c
         return "B_step"
     self.step_b = step_b
     self.__initialized__ = True
@@ -91,20 +81,15 @@ def _cribo_init___cribo_21fc08_module_c(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_d
 
     def process_in_c():
         """Process in C, depends on D"""
-        global module_d
-        module_d = _cribo_init___cribo_f1543a_module_d(module_d)
-        process_in_d = module_d.process_in_d
+        process_in_d = _cribo_init___cribo_f1543a_module_d(module_d).process_in_d
         return f"C({process_in_d()})"
     self.process_in_c = process_in_c
 
     def step_c():
-        global module_d
-        module_d = _cribo_init___cribo_f1543a_module_d(module_d)
-        process_in_d = module_d.process_in_d
+        process_in_d = _cribo_init___cribo_f1543a_module_d(module_d).process_in_d
         return "C_step"
     self.step_c = step_c
     self.__initialized__ = True
@@ -117,20 +102,15 @@ def _cribo_init___cribo_f1543a_module_d(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    global module_a
 
     def process_in_d():
         """Process in D, depends back on A - completes the 4-module cycle"""
-        global module_a
-        module_a = _cribo_init___cribo_1444c2_module_a(module_a)
-        final_step = module_a.final_step
+        final_step = _cribo_init___cribo_1444c2_module_a(module_a).final_step
         return f"D({final_step()})"
     self.process_in_d = process_in_d
 
     def step_d():
-        global module_a
-        module_a = _cribo_init___cribo_1444c2_module_a(module_a)
-        final_step = module_a.final_step
+        final_step = _cribo_init___cribo_1444c2_module_a(module_a).final_step
         return "D_step"
     self.step_d = step_d
     self.__initialized__ = True
