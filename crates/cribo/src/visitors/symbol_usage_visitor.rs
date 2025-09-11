@@ -280,8 +280,13 @@ impl SymbolUsageVisitor {
 
         match root_name.as_deref() {
             Some("typing" | "typing_extensions") => true,
-            // Handle collections.abc.* patterns common in real-world code
-            Some("collections") => true,
+            // Only collections.abc.* are typing-related
+            Some("collections") => matches!(
+                &*attr.value,
+                Expr::Attribute(inner)
+                    if matches!(&*inner.value, Expr::Name(root) if root.id == "collections")
+                    && inner.attr.as_str() == "abc"
+            ),
             _ => false,
         }
     }
@@ -480,5 +485,25 @@ x = Container('hello')
         assert!(used.contains("self")); // Runtime usage
         assert!(!used.contains("T")); // Type parameter - not runtime usage
         assert!(!used.contains("TypeVar")); // Type annotation - not runtime usage
+    }
+
+    #[test]
+    fn test_collections_abc_vs_collections_distinction() {
+        // Test that collections.abc.* is treated as type hint but collections.* is not
+        let code = r"
+from collections.abc import Callable
+from collections import deque
+x: Callable[[int], str] = lambda n: str(n)
+y = deque([1, 2, 3])
+print(x, y)
+";
+        let used = parse_and_collect(code);
+        assert!(used.contains("str")); // Runtime usage (function call in lambda)
+        assert!(used.contains("deque")); // Runtime usage
+        assert!(used.contains("x")); // Runtime usage (variable access in print)
+        assert!(used.contains("y")); // Runtime usage (variable access in print)
+        assert!(used.contains("print")); // Runtime usage
+        assert!(!used.contains("Callable")); // Type annotation - not runtime usage
+        assert!(!used.contains("int")); // Type annotation - not runtime usage
     }
 }
