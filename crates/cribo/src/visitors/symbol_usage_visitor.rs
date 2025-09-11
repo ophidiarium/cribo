@@ -177,6 +177,13 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                     });
                 }
 
+                // Visit PEP 695 type parameters (annotation-only)
+                if let Some(type_params) = &func.type_params {
+                    self.with_annotation(|visitor| {
+                        visitor.visit_type_params(type_params);
+                    });
+                }
+
                 // Visit decorators normally (they're runtime code)
                 for decorator in &func.decorator_list {
                     self.visit_expr(&decorator.expression);
@@ -582,5 +589,26 @@ result = str(value) + str(value2)
         // Type annotations should not be counted
         assert!(!used.contains("MyType")); // Type annotation (first arg to cast) - not runtime usage
         assert!(!used.contains("AnotherType")); // Type annotation (first arg to cast) - not runtime usage
+    }
+
+    #[test]
+    fn test_function_type_parameters_not_counted() {
+        // Test PEP 695 function type parameters (Python 3.12+)
+        let code = r"
+def generic_func[T, U: Bound](x: T, y: U) -> tuple[T, U]:
+    return (x, y)
+result = generic_func(42, 'hello')
+";
+        let used = parse_and_collect(code);
+        // Runtime usage
+        assert!(used.contains("x")); // Runtime usage (parameter access)
+        assert!(used.contains("y")); // Runtime usage (parameter access)
+        assert!(used.contains("generic_func")); // Runtime usage (function call)
+        assert!(used.contains("result")); // Runtime usage (variable assignment)
+        // Type parameters should not be counted
+        assert!(!used.contains("T")); // Type parameter - not runtime usage
+        assert!(!used.contains("U")); // Type parameter - not runtime usage
+        assert!(!used.contains("Bound")); // Type parameter bound - not runtime usage
+        assert!(!used.contains("tuple")); // Type annotation - not runtime usage
     }
 }
