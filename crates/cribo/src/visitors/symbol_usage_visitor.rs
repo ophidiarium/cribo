@@ -113,7 +113,7 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                     self.visit_expr(value);
                 }
             }
-            // Handle function definitions - annotations are not runtime
+            // Handle function definitions (both sync and async) - annotations are not runtime
             Stmt::FunctionDef(func) => {
                 // Don't track the function name itself as "used"
                 // (it's being defined, not used)
@@ -504,6 +504,27 @@ print(x, y)
         assert!(used.contains("y")); // Runtime usage (variable access in print)
         assert!(used.contains("print")); // Runtime usage
         assert!(!used.contains("Callable")); // Type annotation - not runtime usage
+        assert!(!used.contains("int")); // Type annotation - not runtime usage
+    }
+
+    #[test]
+    fn test_async_function_annotations_not_counted() {
+        // Test that async function annotations are treated the same as regular function annotations
+        let code = r"
+async def async_func(x: MyType, y: int = 42) -> MyReturnType:
+    return str(x) + str(y)
+
+def regular_func(x: MyType, y: int = 42) -> MyReturnType:
+    return str(x) + str(y)
+";
+        let used = parse_and_collect(code);
+        // Runtime usage in both functions
+        assert!(used.contains("str")); // Runtime usage (function calls)
+        assert!(used.contains("x")); // Runtime usage (parameter access)
+        assert!(used.contains("y")); // Runtime usage (parameter access)
+        // Type annotations should not be counted for either function
+        assert!(!used.contains("MyType")); // Type annotation - not runtime usage
+        assert!(!used.contains("MyReturnType")); // Type annotation - not runtime usage
         assert!(!used.contains("int")); // Type annotation - not runtime usage
     }
 }
