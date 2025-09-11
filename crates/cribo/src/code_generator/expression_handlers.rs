@@ -475,7 +475,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
                 let new_fstring = ruff_python_ast::FString {
                     node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                     elements: ruff_python_ast::InterpolatedStringElements::from(new_elements),
-                    range: ruff_text_size::TextRange::default(),
+                    range: fstring.range,
                     flags: original_flags, // Preserve the original flags including quote style
                 };
 
@@ -711,7 +711,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
             let new_fstring = ruff_python_ast::FString {
                 node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                 elements: ruff_python_ast::InterpolatedStringElements::from(transformed_elements),
-                range: ruff_text_size::TextRange::default(),
+                range: fstring_range,
                 flags: original_flags, // Preserve the original flags including quote style
             };
 
