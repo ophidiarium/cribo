@@ -205,6 +205,21 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                 // Visit class body
                 self.visit_body(&class.body);
             }
+            // Handle type alias statements (PEP 695) - available in Python 3.12+
+            Stmt::TypeAlias(type_alias) => {
+                // The alias name itself is not "used" (it's being defined)
+                // The RHS expression is annotation-only and should not count as runtime usage
+                self.enter_annotation();
+                self.visit_expr(&type_alias.value);
+                self.exit_annotation();
+
+                // Visit type parameters if present (also annotation-only)
+                if let Some(type_params) = &type_alias.type_params {
+                    self.enter_annotation();
+                    self.visit_type_params(type_params);
+                    self.exit_annotation();
+                }
+            }
             _ => {
                 // For all other statements, use default traversal
                 source_order::walk_stmt(self, stmt);
@@ -335,5 +350,18 @@ class MyClass(BaseClass, metaclass=MetaClass):
         let used = parse_and_collect(code);
         assert!(used.contains("BaseClass"));
         assert!(used.contains("MetaClass"));
+    }
+
+    #[test]
+    fn test_type_alias_annotation_not_counted() {
+        // Note: type aliases are PEP 695 (Python 3.12+)
+        let code = r"
+type MyAlias = list[str]
+x = MyAlias()
+";
+        let used = parse_and_collect(code);
+        assert!(used.contains("MyAlias")); // Runtime usage
+        assert!(!used.contains("list")); // Type annotation - not runtime usage 
+        assert!(!used.contains("str")); // Type annotation - not runtime usage
     }
 }
