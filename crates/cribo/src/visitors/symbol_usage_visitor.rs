@@ -101,9 +101,9 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
             // Handle annotated assignments - annotation is not runtime code
             Stmt::AnnAssign(ann_assign) => {
                 // Visit annotation in annotation context
-                self.enter_annotation();
-                self.visit_expr(&ann_assign.annotation);
-                self.exit_annotation();
+                self.with_annotation(|visitor| {
+                    visitor.visit_expr(&ann_assign.annotation);
+                });
 
                 // Visit target normally (it's a runtime assignment target)
                 self.visit_expr(&ann_assign.target);
@@ -121,9 +121,9 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                 // Visit parameter annotations in annotation context
                 for param in &func.parameters.args {
                     if let Some(annotation) = &param.parameter.annotation {
-                        self.enter_annotation();
-                        self.visit_expr(annotation);
-                        self.exit_annotation();
+                        self.with_annotation(|visitor| {
+                            visitor.visit_expr(annotation);
+                        });
                     }
                     // Visit default value normally (it's runtime code)
                     if let Some(default) = &param.default {
@@ -172,9 +172,9 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
 
                 // Visit return annotation in annotation context
                 if let Some(returns) = &func.returns {
-                    self.enter_annotation();
-                    self.visit_expr(returns);
-                    self.exit_annotation();
+                    self.with_annotation(|visitor| {
+                        visitor.visit_expr(returns);
+                    });
                 }
 
                 // Visit decorators normally (they're runtime code)
@@ -209,15 +209,15 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
             Stmt::TypeAlias(type_alias) => {
                 // The alias name itself is not "used" (it's being defined)
                 // The RHS expression is annotation-only and should not count as runtime usage
-                self.enter_annotation();
-                self.visit_expr(&type_alias.value);
-                self.exit_annotation();
+                self.with_annotation(|visitor| {
+                    visitor.visit_expr(&type_alias.value);
+                });
 
                 // Visit type parameters if present (also annotation-only)
                 if let Some(type_params) = &type_alias.type_params {
-                    self.enter_annotation();
-                    self.visit_type_params(type_params);
-                    self.exit_annotation();
+                    self.with_annotation(|visitor| {
+                        visitor.visit_type_params(type_params);
+                    });
                 }
             }
             _ => {
@@ -239,9 +239,9 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                 self.visit_expr(&subscript.value);
 
                 // Visit the slice in annotation context if this looks like a type hint
-                self.enter_annotation();
-                self.visit_expr(&subscript.slice);
-                self.exit_annotation();
+                self.with_annotation(|visitor| {
+                    visitor.visit_expr(&subscript.slice);
+                });
             }
             _ => {
                 // For all other expressions, use default traversal
@@ -252,6 +252,17 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
 }
 
 impl SymbolUsageVisitor {
+    /// Helper to safely execute code within an annotation context
+    ///
+    /// This ensures proper pairing of `enter_annotation/exit_annotation` calls
+    /// and prevents imbalances that could occur with early returns during AST traversal.
+    fn with_annotation<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.enter_annotation();
+        let result = f(self);
+        self.exit_annotation();
+        result
+    }
+
     /// Check if an attribute expression comes from a known typing-related module
     ///
     /// This walks the attribute chain to find the root module name and checks if it's
@@ -408,5 +419,39 @@ y = x
         assert!(!used.contains("Callable")); // Type annotation - not runtime usage
         assert!(!used.contains("int")); // Type annotation - not runtime usage
         assert!(!used.contains("str")); // Type annotation - not runtime usage
+    }
+
+    #[test]
+    fn test_annotation_context_balance() {
+        // This test ensures that annotation context depth is properly balanced
+        // even with complex nested annotation patterns
+        let code = r"
+from typing import Dict, List, Optional
+def func(
+    x: Dict[str, List[Optional[int]]], 
+    y: Optional[Dict[str, int]] = None
+) -> List[str]:
+    return [str(x), str(y)]
+";
+        let mut visitor = SymbolUsageVisitor::new();
+        let parsed = parse(code, Mode::Module.into()).expect("Failed to parse");
+        match parsed.into_syntax() {
+            ruff_python_ast::Mod::Module(module) => {
+                visitor.visit_body(&module.body);
+            }
+            _ => panic!("Expected module"),
+        }
+
+        // Verify annotation context is balanced (should be at depth 0)
+        assert_eq!(visitor.annotation_depth, 0);
+        assert!(!visitor.in_annotation);
+
+        // Verify runtime symbols are tracked correctly
+        assert!(visitor.used_names.contains("str"));
+        // Verify type annotations are not tracked
+        assert!(!visitor.used_names.contains("Dict"));
+        assert!(!visitor.used_names.contains("List"));
+        assert!(!visitor.used_names.contains("Optional"));
+        assert!(!visitor.used_names.contains("int"));
     }
 }
