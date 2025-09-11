@@ -134,9 +134,9 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                 // Handle other parameter types similarly
                 for param in &func.parameters.posonlyargs {
                     if let Some(annotation) = &param.parameter.annotation {
-                        self.enter_annotation();
-                        self.visit_expr(annotation);
-                        self.exit_annotation();
+                        self.with_annotation(|visitor| {
+                            visitor.visit_expr(annotation);
+                        });
                     }
                     if let Some(default) = &param.default {
                         self.visit_expr(default);
@@ -145,9 +145,9 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
 
                 for param in &func.parameters.kwonlyargs {
                     if let Some(annotation) = &param.parameter.annotation {
-                        self.enter_annotation();
-                        self.visit_expr(annotation);
-                        self.exit_annotation();
+                        self.with_annotation(|visitor| {
+                            visitor.visit_expr(annotation);
+                        });
                     }
                     if let Some(default) = &param.default {
                         self.visit_expr(default);
@@ -157,17 +157,17 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
                 if let Some(param) = &func.parameters.vararg
                     && let Some(annotation) = &param.annotation
                 {
-                    self.enter_annotation();
-                    self.visit_expr(annotation);
-                    self.exit_annotation();
+                    self.with_annotation(|visitor| {
+                        visitor.visit_expr(annotation);
+                    });
                 }
 
                 if let Some(param) = &func.parameters.kwarg
                     && let Some(annotation) = &param.annotation
                 {
-                    self.enter_annotation();
-                    self.visit_expr(annotation);
-                    self.exit_annotation();
+                    self.with_annotation(|visitor| {
+                        visitor.visit_expr(annotation);
+                    });
                 }
 
                 // Visit return annotation in annotation context
