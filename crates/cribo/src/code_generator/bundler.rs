@@ -3571,53 +3571,45 @@ impl<'a> Bundler<'a> {
                         .map(ruff_python_ast::Identifier::as_str)
                         != Some("__future__")
                     {
-                        // For relative imports in wrapper init functions, we need to transform them
-                        // to use the already-available symbols instead of keeping the relative
-                        // import
-                        if import_from.level > 0 {
-                            // Get the module path for the current module
-                            let module_id = self.resolver.get_module_id_by_name(module_name);
-                            let module_path =
-                                module_id.and_then(|id| self.resolver.get_module_path(id));
-
-                            // Resolve the relative import to absolute module name
-                            let resolved_module = module_path.and_then(|path| {
-                                self.resolver.resolve_relative_to_absolute_module_name(
-                                    import_from.level,
-                                    import_from
-                                        .module
-                                        .as_ref()
-                                        .map(ruff_python_ast::Identifier::as_str),
-                                    &path,
-                                )
-                            });
-
-                            if let Some(resolved) = resolved_module {
-                                // Check if we're importing from the same module (e.g., from .
-                                // import errors) In this case, the
-                                // symbols should already be available in the init function
-                                if resolved == module_name {
-                                    // Create assignments for each imported symbol using shared
-                                    // helper
-                                    crate::code_generator::import_transformer::transform_relative_import_aliases(
-                                        self,
-                                        import_from,
-                                        module_name,
-                                        module_name,
-                                        &mut result,
-                                        true, // add module attributes
-                                    );
-                                    // Skip the rest - we've handled this relative import
-                                } else {
-                                    // Different module - add the original import
-                                    result.push(stmt.clone());
-                                }
-                            } else {
-                                // Couldn't resolve - add the original import
-                                result.push(stmt.clone());
-                            }
+                        // Check if this is a relative import that needs special handling
+                        let handled = if import_from.level > 0 {
+                            // For relative imports in wrapper init functions, we may need to
+                            // transform them to use the
+                            // already-available symbols instead of keeping the relative import
+                            self.resolver
+                                .get_module_id_by_name(module_name)
+                                .and_then(|id| self.resolver.get_module_path(id))
+                                .and_then(|module_path| {
+                                    self.resolver.resolve_relative_to_absolute_module_name(
+                                        import_from.level,
+                                        import_from
+                                            .module
+                                            .as_ref()
+                                            .map(ruff_python_ast::Identifier::as_str),
+                                        &module_path,
+                                    )
+                                })
+                                .is_some_and(|resolved| {
+                                    if resolved == module_name {
+                                        // Import from same module - transform to assignments
+                                        crate::code_generator::import_transformer::transform_relative_import_aliases(
+                                            self,
+                                            import_from,
+                                            module_name,
+                                            module_name,
+                                            &mut result,
+                                            true, // add module attributes
+                                        );
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                })
                         } else {
-                            // Non-relative import - add the original import
+                            false
+                        };
+
+                        if !handled {
                             result.push(stmt.clone());
                         }
 
