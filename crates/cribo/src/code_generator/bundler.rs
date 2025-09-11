@@ -4785,15 +4785,27 @@ impl Bundler<'_> {
                         };
 
                         // Check if this module is inlined and exports the symbol we're looking for
-                        if self.inlined_modules.contains(&source_id)
-                            && let Some(Some(exports)) = self.module_exports.get(&source_id)
-                            && exports.contains(&symbol_name.to_string())
-                        {
-                            log::debug!(
-                                "Found symbol '{symbol_name}' in inlined module \
-                                 '{resolved_module}' via wildcard import"
-                            );
-                            return Some(source_id);
+                        if self.inlined_modules.contains(&source_id) {
+                            let exported = if self.modules_with_explicit_all.contains(&source_id) {
+                                self.module_exports
+                                    .get(&source_id)
+                                    .and_then(|e| e.as_ref())
+                                    .is_some_and(|exports| {
+                                        exports.contains(&symbol_name.to_string())
+                                    })
+                            } else {
+                                // Fallback to semantic exports when __all__ is not defined
+                                self.semantic_exports
+                                    .get(&source_id)
+                                    .is_some_and(|set| set.contains(symbol_name))
+                            };
+                            if exported {
+                                log::debug!(
+                                    "Found symbol '{symbol_name}' in inlined module \
+                                     '{resolved_module}' via wildcard import"
+                                );
+                                return Some(source_id);
+                            }
                         }
                     }
                 }
