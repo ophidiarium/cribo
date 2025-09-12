@@ -18,6 +18,10 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
+mod handlers;
+
+use handlers::stdlib::StdlibHandler;
+
 /// Collect assigned variable names from an assignment target expression.
 /// Supports simple names and destructuring via tuples/lists.
 fn collect_assigned_names(target: &Expr, out: &mut FxIndexSet<String>) {
@@ -698,29 +702,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         None
     }
 
-    /// Check if this is a stdlib import that should be normalized
-    fn should_normalize_stdlib_import(&self, module_name: &str) -> bool {
-        // Recognize full stdlib module paths and submodules for the current Python version
-        crate::resolver::is_stdlib_module(module_name, self.python_version)
-    }
-
-    /// Build a mapping of stdlib imports to their rewritten paths
-    /// This mapping is used during expression rewriting
-    fn build_stdlib_rename_map(
-        &self,
-        imports: &[(String, Option<String>)],
-    ) -> FxIndexMap<String, String> {
-        let mut rename_map = FxIndexMap::default();
-
-        for (module_name, alias) in imports {
-            let local_name = alias.as_ref().unwrap_or(module_name);
-            let rewritten_path = Bundler::get_rewritten_stdlib_path(module_name);
-            rename_map.insert(local_name.clone(), rewritten_path);
-        }
-
-        rename_map
-    }
-
     /// Transform a module recursively, handling all imports at any depth
     pub(crate) fn transform_module(&mut self, module: &mut ModModule) {
         log::debug!(
@@ -1286,126 +1267,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
-    /// Handle stdlib from-imports
-    fn handle_stdlib_from_import(
-        &mut self,
-        import_from: &StmtImportFrom,
-        module_str: &str,
-    ) -> Option<Vec<Stmt>> {
-        if import_from.level != 0 || !self.should_normalize_stdlib_import(module_str) {
-            return None;
-        }
-
-        // Track that this stdlib module was imported
-        self.imported_stdlib_modules.insert(module_str.to_string());
-        // Also track parent modules for dotted imports
-        if let Some(dot_pos) = module_str.find('.') {
-            let parent = &module_str[..dot_pos];
-            self.imported_stdlib_modules.insert(parent.to_string());
-        }
-
-        let mut assignments = Vec::new();
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            if imported_name == "*" {
-                // Preserve wildcard imports from stdlib to avoid incorrect symbol drops
-                return Some(vec![Stmt::ImportFrom(import_from.clone())]);
-            }
-
-            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-            let full_path = format!(
-                "{}.{module_str}.{imported_name}",
-                crate::ast_builder::CRIBO_PREFIX
-            );
-
-            // Track this renaming for expression rewriting
-            if module_str == "importlib" && imported_name == "import_module" {
-                self.import_aliases.insert(
-                    local_name.to_string(),
-                    format!("{module_str}.{imported_name}"),
-                );
-            } else {
-                self.import_aliases
-                    .insert(local_name.to_string(), full_path.clone());
-            }
-
-            // Create local assignment: local_name = _cribo.module.symbol
-            let proxy_parts: Vec<&str> = full_path.split('.').collect();
-            let value_expr =
-                crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
-            let target = crate::ast_builder::expressions::name(local_name, ExprContext::Store);
-            let assign_stmt = crate::ast_builder::statements::assign(vec![target], value_expr);
-            assignments.push(assign_stmt);
-        }
-
-        Some(assignments)
-    }
-
-    /// Handle stdlib imports in wrapper modules
-    fn handle_wrapper_stdlib_imports(
-        &mut self,
-        stdlib_imports: &[(String, Option<String>)],
-    ) -> Vec<Stmt> {
-        let mut assignments = Vec::new();
-
-        for (module_name, alias) in stdlib_imports {
-            // Determine the local name that the import creates
-            let local_name = if let Some(alias_name) = alias {
-                // Aliased import: "import json as j" creates local "j"
-                alias_name.clone()
-            } else if module_name.contains('.') {
-                // Dotted import without alias doesn't create a binding
-                continue;
-            } else {
-                // Simple import: "import json" creates local "json"
-                module_name.clone()
-            };
-
-            // 1) Create local alias: local = _cribo.<stdlib_module>
-            let proxy_path = format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
-            let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
-            let value_expr =
-                crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
-            let target =
-                crate::ast_builder::expressions::name(local_name.as_str(), ExprContext::Store);
-            assignments.push(crate::ast_builder::statements::assign(
-                vec![target],
-                value_expr,
-            ));
-
-            // 2) Set module attribute: <current_module>.<local> = <local>
-            // In wrapper init functions, use "self" instead of the module name
-            let module_var = if self.is_wrapper_init {
-                "self".to_string()
-            } else {
-                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                    &self.get_module_name(),
-                )
-            };
-            assignments.push(
-                crate::code_generator::module_registry::create_module_attr_assignment(
-                    &module_var,
-                    local_name.as_str(),
-                ),
-            );
-
-            // 3) Optionally expose on self if part of exports (__all__) for this module
-            // Skip this for wrapper init since we already added it above
-            if !self.is_wrapper_init
-                && let Some(Some(exports)) = self.bundler.module_exports.get(&self.module_id)
-                && exports.contains(&local_name)
-            {
-                assignments.push(crate::ast_builder::statements::assign_attribute(
-                    "self",
-                    local_name.as_str(),
-                    crate::ast_builder::expressions::name(local_name.as_str(), ExprContext::Load),
-                ));
-            }
-        }
-
-        assignments
-    }
-
     /// Transform a statement, potentially returning multiple statements
     fn transform_statement(&mut self, stmt: &mut Stmt) -> Vec<Stmt> {
         // Check if it's a hoisted import before matching
@@ -1427,7 +1288,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let module_name = alias.name.as_str();
 
                         // Normalize ALL stdlib imports, including those with aliases
-                        if self.should_normalize_stdlib_import(module_name) {
+                        if StdlibHandler::should_normalize_stdlib_import(
+                            module_name,
+                            self.python_version,
+                        ) {
                             // Track that this stdlib module was imported
                             self.imported_stdlib_modules.insert(module_name.to_string());
                             // Also track parent modules for dotted imports (e.g., collections.abc
@@ -1448,7 +1312,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // Handle stdlib imports
                     if !stdlib_imports.is_empty() {
                         // Build rename map for expression rewriting
-                        let rename_map = self.build_stdlib_rename_map(&stdlib_imports);
+                        let rename_map = StdlibHandler::build_stdlib_rename_map(&stdlib_imports);
 
                         // Track these renames for expression rewriting
                         for (local_name, rewritten_path) in rename_map {
@@ -1457,8 +1321,13 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // If we're in a wrapper module, create local assignments for stdlib imports
                         if self.is_wrapper_init {
-                            let mut assignments =
-                                self.handle_wrapper_stdlib_imports(&stdlib_imports);
+                            let mut assignments = StdlibHandler::handle_wrapper_stdlib_imports(
+                                &stdlib_imports,
+                                self.is_wrapper_init,
+                                self.module_id,
+                                &self.get_module_name(),
+                                self.bundler,
+                            );
 
                             // If there are non-stdlib imports, keep them and add assignments
                             if !non_stdlib_imports.is_empty() {
@@ -1678,7 +1547,13 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Check if this is a stdlib module that should be normalized
         if let Some(module) = &import_from.module {
             let module_str = module.as_str();
-            if let Some(result) = self.handle_stdlib_from_import(import_from, module_str) {
+            if let Some(result) = StdlibHandler::handle_stdlib_from_import(
+                import_from,
+                module_str,
+                self.python_version,
+                &mut self.imported_stdlib_modules,
+                &mut self.import_aliases,
+            ) {
                 return result;
             }
         }
