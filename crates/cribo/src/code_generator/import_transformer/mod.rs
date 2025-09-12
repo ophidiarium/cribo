@@ -434,11 +434,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         &mut self.state.import_aliases
     }
 
-    /// Get whether importlib transformations occurred
-    pub fn importlib_transformed(&self) -> bool {
-        self.state.importlib_transformed
-    }
-
     /// Get the module name from the resolver
     fn get_module_name(&self) -> String {
         self.state

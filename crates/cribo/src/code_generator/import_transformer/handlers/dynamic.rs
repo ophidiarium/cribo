@@ -44,7 +44,6 @@ impl DynamicHandler {
     pub(in crate::code_generator::import_transformer) fn transform_importlib_import_module(
         call: &ExprCall,
         bundler: &Bundler,
-        importlib_transformed: &mut bool,
         created_namespace_objects: &mut bool,
         create_module_access_expr: impl Fn(&str) -> Expr,
     ) -> Option<Expr> {
@@ -108,8 +107,6 @@ impl DynamicHandler {
                     "Transforming importlib.import_module('{module_name}') to module access \
                      '{resolved_name}'"
                 );
-
-                *importlib_transformed = true;
 
                 // Check if this creates a namespace object
                 if bundler

@@ -298,25 +298,21 @@ impl ExpressionRewriter {
                     &transformer.state.import_aliases,
                 ) {
                     // Extract the state values we need to avoid borrow checker conflicts
-                    let mut importlib_transformed = transformer.state.importlib_transformed;
                     let mut created_namespace_objects = transformer.state.created_namespace_objects;
 
                     if let Some(transformed) = DynamicHandler::transform_importlib_import_module(
                         call_expr,
                         transformer.state.bundler,
-                        &mut importlib_transformed,
                         &mut created_namespace_objects,
                         |resolved_name| transformer.create_module_access_expr(resolved_name),
                     ) {
                         // Update the original fields
-                        transformer.state.importlib_transformed = importlib_transformed;
                         transformer.state.created_namespace_objects = created_namespace_objects;
                         *expr = transformed;
                         return;
                     }
 
                     // Update the original fields even if no transformation occurred
-                    transformer.state.importlib_transformed = importlib_transformed;
                     transformer.state.created_namespace_objects = created_namespace_objects;
                 }
 

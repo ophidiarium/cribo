@@ -33,8 +33,6 @@ pub(super) struct TransformerState<'a> {
         Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
     /// Track local variable assignments to avoid treating them as module aliases
     pub(super) local_variables: FxIndexSet<String>,
-    /// Track if any `importlib.import_module` calls were transformed
-    pub(super) importlib_transformed: bool,
     /// Track variables that were assigned from `importlib.import_module()` of inlined modules
     /// Maps variable name to the inlined module name
     pub(super) importlib_inlined_modules: FxIndexMap<String, String>,
@@ -73,7 +71,6 @@ impl<'a> TransformerState<'a> {
             is_wrapper_init: params.is_wrapper_init,
             global_deferred_imports: params.global_deferred_imports,
             local_variables: FxIndexSet::default(),
-            importlib_transformed: false,
             importlib_inlined_modules: FxIndexMap::default(),
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
