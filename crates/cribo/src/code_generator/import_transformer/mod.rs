@@ -262,7 +262,6 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Create `local = namespace_var` if names differ
     fn alias_local_to_namespace_if_needed(
-        &mut self,
         local_name: &str,
         namespace_var: &str,
         result_stmts: &mut Vec<Stmt>,
@@ -1613,7 +1612,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // import messages` in greetings.greeting,
                                 // we need `messages = greetings_messages` to be available
                                 // immediately
-                                self.alias_local_to_namespace_if_needed(
+                                Self::alias_local_to_namespace_if_needed(
                                     local_name,
                                     &namespace_var,
                                     &mut result_stmts,
