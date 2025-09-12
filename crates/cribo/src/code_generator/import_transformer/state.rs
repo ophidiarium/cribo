@@ -86,4 +86,17 @@ impl<'a> TransformerState<'a> {
             current_function_used_symbols: None,
         }
     }
+
+    /// Get the module name from the resolver
+    pub(super) fn get_module_name(&self) -> String {
+        self.bundler
+            .resolver
+            .get_module_name(self.module_id)
+            .unwrap_or_else(|| format!("module#{}", self.module_id))
+    }
+
+    /// Check if this is the entry module
+    pub(super) fn is_entry_module(&self) -> bool {
+        self.module_id.is_entry()
+    }
 }
