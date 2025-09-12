@@ -194,8 +194,8 @@ impl ModuleRegistry {
             }
             Some(existing) if *existing != id => {
                 log::warn!(
-                    "register(): name '{name}' already mapped to {existing:?}, but newly registered id is \
-                     {id:?}; keeping existing name mapping"
+                    "register(): name '{name}' already mapped to {existing:?}, but newly \
+                     registered id is {id:?}; keeping existing name mapping"
                 );
             }
             _ => {}
@@ -382,11 +382,12 @@ impl ModuleResolver {
             original_entry_path.is_dir()
         );
 
-        // Check if the entry is a package init or main file
-        let is_package_file = entry_path.file_name()
-            == Some(std::ffi::OsStr::new(crate::python::constants::INIT_FILE))
-            || entry_path.file_name()
-                == Some(std::ffi::OsStr::new(crate::python::constants::MAIN_FILE));
+        // Check if the entry is a special entry file (__init__.py or __main__.py)
+        // Use shared helper to keep behavior in sync with orchestrator
+        let is_package_file = entry_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(crate::python::module_path::is_special_entry_file_name);
 
         if is_package_file {
             // For __init__.py or __main__.py, use the parent's parent as search root
