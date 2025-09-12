@@ -3,7 +3,7 @@ use std::path::Path;
 use cow_utils::CowUtils;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, Identifier, ModModule, Stmt,
-    StmtClassDef, StmtFunctionDef, StmtGlobal, StmtImport, StmtImportFrom,
+    StmtClassDef, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -19,6 +19,7 @@ use crate::{
 mod expr_rewriter;
 mod handlers;
 mod state;
+mod statement;
 
 use expr_rewriter::ExpressionRewriter;
 use handlers::{
@@ -28,6 +29,7 @@ use handlers::{
 // Re-export the params struct for external use
 pub use state::RecursiveImportTransformerParams;
 use state::TransformerState;
+use statement::StatementProcessor;
 
 /// Collect assigned variable names from an assignment target expression.
 /// Supports simple names and destructuring via tuples/lists.
@@ -56,27 +58,6 @@ pub struct RecursiveImportTransformer<'a> {
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
-    /// Check if a condition is a `TYPE_CHECKING` check
-    fn is_type_checking_condition(expr: &Expr) -> bool {
-        match expr {
-            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
-            Expr::Attribute(attr) => {
-                attr.attr.as_str() == "TYPE_CHECKING"
-                    && match &*attr.value {
-                        // Check for both typing.TYPE_CHECKING and _cribo.typing.TYPE_CHECKING
-                        Expr::Name(name) => name.id.as_str() == "typing",
-                        Expr::Attribute(inner_attr) => {
-                            // Handle _cribo.typing.TYPE_CHECKING
-                            inner_attr.attr.as_str() == "typing"
-                                && matches!(&*inner_attr.value, Expr::Name(name) if name.id.as_str() == crate::ast_builder::CRIBO_PREFIX)
-                        }
-                        _ => false,
-                    }
-            }
-            _ => false,
-        }
-    }
-
     /// Get filtered exports for a full module path, if available
     fn get_filtered_exports_for_path(
         &self,
@@ -761,7 +742,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // After all transformations, hoist and deduplicate any inserted
                         // `global` statements to the start of the function body (after a
                         // docstring if present) to ensure correct Python semantics.
-                        Self::hoist_function_globals(func_def);
+                        StatementProcessor::hoist_function_globals(func_def);
 
                         // Restore the previous scope level
                         self.state.at_module_level = saved_at_module_level;
@@ -798,7 +779,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Check if this is a TYPE_CHECKING block and ensure it has a body
                         if if_stmt.body.is_empty()
-                            && Self::is_type_checking_condition(&if_stmt.test)
+                            && StatementProcessor::is_type_checking_condition(&if_stmt.test)
                         {
                             log::debug!(
                                 "Adding pass statement to empty TYPE_CHECKING block in import \
@@ -921,60 +902,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                 i += 1;
             }
         }
-    }
-
-    /// Move all `global` statements in a function to the start of the function body
-    /// (after a leading docstring, if present) and deduplicate their names.
-    fn hoist_function_globals(func_def: &mut StmtFunctionDef) {
-        use ruff_python_ast::helpers::is_docstring_stmt;
-        use ruff_text_size::TextRange;
-
-        use crate::types::FxIndexSet;
-
-        let mut names: FxIndexSet<String> = FxIndexSet::default();
-        let mut has_global = false;
-
-        for stmt in &func_def.body {
-            if let Stmt::Global(g) = stmt {
-                has_global = true;
-                for ident in &g.names {
-                    names.insert(ident.as_str().to_string());
-                }
-            }
-        }
-
-        if !has_global {
-            return;
-        }
-
-        log::debug!(
-            "Hoisting {} global name(s) to function start (import transformer)",
-            names.len()
-        );
-
-        // Remove existing global statements
-        let mut new_body: Vec<Stmt> = Vec::with_capacity(func_def.body.len());
-        for stmt in func_def.body.drain(..) {
-            if !matches!(stmt, Stmt::Global(_)) {
-                new_body.push(stmt);
-            }
-        }
-
-        // Insert after docstring if present
-        let insert_at = usize::from(new_body.first().is_some_and(is_docstring_stmt));
-
-        // Build combined global
-        let global_stmt = Stmt::Global(StmtGlobal {
-            names: names
-                .into_iter()
-                .map(|s| Identifier::new(s, TextRange::default()))
-                .collect(),
-            range: TextRange::default(),
-            node_index: AtomicNodeIndex::NONE,
-        });
-
-        new_body.insert(insert_at, global_stmt);
-        func_def.body = new_body;
     }
 
     /// Transform a class definition's base classes
