@@ -4402,6 +4402,19 @@ pub fn transform_relative_import_aliases(
             // is inlined and if the symbol needs to be accessed through the parent's namespace
             let parent_module_id = bundler.get_module_id(parent_package);
 
+            // Common helper to add module attribute if exportable
+            let add_module_attribute_if_needed = |result: &mut Vec<Stmt>| {
+                if add_module_attr && !local_name.starts_with('_') {
+                    let current_module_var = sanitize_module_name_for_identifier(current_module);
+                    result.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment(
+                            &current_module_var,
+                            local_name,
+                        ),
+                    );
+                }
+            };
+
             // Check if parent is inlined and if we're in a wrapper context
             // In wrapper init functions, symbols from inlined parent modules need special handling
             if let Some(parent_id) = parent_module_id
@@ -4426,16 +4439,7 @@ pub fn transform_relative_import_aliases(
                     ),
                 ));
 
-                // Add as module attribute if exportable
-                if add_module_attr && !local_name.starts_with('_') {
-                    let current_module_var = sanitize_module_name_for_identifier(current_module);
-                    result.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment(
-                            &current_module_var,
-                            local_name,
-                        ),
-                    );
-                }
+                add_module_attribute_if_needed(result);
                 continue;
             }
 
@@ -4448,16 +4452,7 @@ pub fn transform_relative_import_aliases(
                 ));
             }
 
-            // Add as module attribute if exportable
-            if add_module_attr && !local_name.starts_with('_') {
-                let current_module_var = sanitize_module_name_for_identifier(current_module);
-                result.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment(
-                        &current_module_var,
-                        local_name,
-                    ),
-                );
-            }
+            add_module_attribute_if_needed(result);
             continue;
         };
 
