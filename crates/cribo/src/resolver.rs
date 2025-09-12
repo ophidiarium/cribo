@@ -1256,11 +1256,9 @@ impl ModuleResolver {
         let mut current_parts = module_parts;
 
         // Check if this is a package __init__ file
-        let is_init = current_module_path
-            .file_stem()
-            .is_some_and(|s| {
-                s == crate::python::constants::INIT_STEM || s == crate::python::constants::MAIN_STEM
-            });
+        let is_init = current_module_path.file_stem().is_some_and(|s| {
+            s == crate::python::constants::INIT_STEM || s == crate::python::constants::MAIN_STEM
+        });
 
         // For __init__.py, level=1 means the current package (don't pop)
         // For regular modules, level=1 means the parent package (pop once)
@@ -1390,13 +1388,14 @@ impl ModuleResolver {
 
         // Add directory components
         if let Some(parent) = relative_path.parent()
-            && parent != Path::new("") {
-                parts.extend(
-                    parent
-                        .components()
-                        .map(|c| c.as_os_str().to_string_lossy().into_owned()),
-                );
-            }
+            && parent != Path::new("")
+        {
+            parts.extend(
+                parent
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+            );
+        }
 
         // Add the file name (without extension) if it's not __init__ or __main__
         if let Some(file_stem) = relative_path.file_stem() {

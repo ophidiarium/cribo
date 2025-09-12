@@ -974,14 +974,15 @@ impl BundleOrchestrator {
         if file_name.is_some_and(crate::python::module_path::is_main_file_name) {
             // Try to get the package name from the parent directory
             if let Some(parent) = entry_path.parent()
-                && let Some(package_name) = self.find_module_in_src_dirs(parent) {
-                    log::debug!(
-                        "Entry is {} in package '{}', using package name as module name",
-                        crate::python::constants::MAIN_FILE,
-                        package_name
-                    );
-                    return Ok(package_name);
-                }
+                && let Some(package_name) = self.find_module_in_src_dirs(parent)
+            {
+                log::debug!(
+                    "Entry is {} in package '{}', using package name as module name",
+                    crate::python::constants::MAIN_FILE,
+                    package_name
+                );
+                return Ok(package_name);
+            }
             // Fall through to normal logic if we can't determine the package name
         }
 
