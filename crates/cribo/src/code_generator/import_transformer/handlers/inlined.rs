@@ -1,4 +1,4 @@
-use ruff_python_ast::{Expr, ExprContext, Stmt};
+use ruff_python_ast::{Expr, ExprContext, Stmt, StmtImportFrom};
 
 use crate::{
     ast_builder::{expressions, statements},
@@ -111,4 +111,383 @@ impl InlinedHandler {
             expressions::name(namespace_var, ExprContext::Load),
         ));
     }
+
+    /// Handle imports from inlined modules
+    ///
+    /// This function handles import statements that import from modules that have been inlined
+    /// into the bundle. It generates appropriate assignment statements to make the inlined
+    /// symbols available under their expected names.
+    pub(in crate::code_generator::import_transformer) fn handle_imports_from_inlined_module_with_context(
+        bundler: &Bundler,
+        import_from: &StmtImportFrom,
+        source_module_id: crate::resolver::ModuleId,
+        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+        is_wrapper_init: bool,
+        importing_module_id: Option<crate::resolver::ModuleId>,
+    ) -> Vec<Stmt> {
+        let module_name = bundler
+            .resolver
+            .get_module_name(source_module_id)
+            .unwrap_or_else(|| format!("module#{source_module_id}"));
+        log::debug!(
+            "handle_imports_from_inlined_module_with_context: source_module={}, \
+             available_renames={:?}",
+            module_name,
+            symbol_renames.get(&source_module_id)
+        );
+        let mut result_stmts = Vec::new();
+
+        // Check if this is a wildcard import
+        if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
+            // Handle wildcard import from inlined module
+            log::debug!("Handling wildcard import from inlined module '{module_name}'");
+
+            // Get the module's exports (either from __all__ or all non-private symbols)
+            let module_exports = if let Some(Some(export_list)) =
+                bundler.module_exports.get(&source_module_id)
+            {
+                // Module has __all__ defined, use it
+                export_list.clone()
+            } else if let Some(semantic_exports) = bundler.semantic_exports.get(&source_module_id) {
+                // Use semantic exports from analysis
+                semantic_exports.iter().cloned().collect()
+            } else {
+                // No export information available
+                log::warn!(
+                    "No export information available for inlined module '{module_name}' with \
+                     wildcard import"
+                );
+                return result_stmts;
+            };
+
+            log::debug!(
+                "Generating wildcard import assignments for {} symbols from inlined module '{}'",
+                module_exports.len(),
+                module_name
+            );
+
+            // Get symbol renames for this module
+            let module_renames = symbol_renames.get(&source_module_id);
+
+            // Cache explicit __all__ (if any) to avoid repeated lookups
+            let explicit_all = bundler
+                .module_exports
+                .get(&source_module_id)
+                .and_then(|exports| exports.as_ref());
+
+            for symbol_name in &module_exports {
+                // Skip private symbols unless explicitly in __all__
+                if symbol_name.starts_with('_')
+                    && !explicit_all.is_some_and(|all| all.contains(symbol_name))
+                {
+                    continue;
+                }
+
+                // Check if the source symbol was tree-shaken
+                if !bundler.is_symbol_kept_by_tree_shaking(source_module_id, symbol_name) {
+                    log::debug!(
+                        "Skipping wildcard import for tree-shaken symbol '{symbol_name}' from \
+                         module '{module_name}'"
+                    );
+                    continue;
+                }
+
+                // Get the renamed symbol name if it was renamed
+                let renamed_symbol = if let Some(renames) = module_renames {
+                    renames
+                        .get(symbol_name)
+                        .cloned()
+                        .unwrap_or_else(|| symbol_name.clone())
+                } else {
+                    symbol_name.clone()
+                };
+
+                // For wildcard imports, we always need to create assignments for renamed symbols
+                // For non-renamed symbols, we only skip assignment if they're actually available
+                // in the current scope (i.e., they are in the module_exports list which respects
+                // __all__)
+                if renamed_symbol == *symbol_name {
+                    // Symbol wasn't renamed - it's already accessible in scope for symbols
+                    // that are in module_exports (which respects __all__)
+                    log::debug!(
+                        "Symbol '{symbol_name}' is accessible directly from inlined module"
+                    );
+                } else {
+                    // Symbol was renamed, create an alias assignment
+                    result_stmts.push(statements::simple_assign(
+                        symbol_name,
+                        expressions::name(&renamed_symbol, ExprContext::Load),
+                    ));
+                    log::debug!(
+                        "Created wildcard import alias for renamed symbol: {symbol_name} = \
+                         {renamed_symbol}"
+                    );
+                }
+            }
+
+            return result_stmts;
+        }
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // First check if we're importing a submodule (e.g., from package import submodule)
+            let full_module_path = format!("{module_name}.{imported_name}");
+            if let Some(submodule_id) = bundler.get_module_id(&full_module_path)
+                && bundler.bundled_modules.contains(&submodule_id)
+            {
+                // This is importing a submodule, not a symbol
+                // When the current module is inlined, we need to create a local alias
+                // to the submodule's namespace variable
+                if bundler.inlined_modules.contains(&submodule_id) {
+                    // The submodule is inlined, create alias: local_name = module_var
+                    use crate::code_generator::module_registry::get_module_var_identifier;
+                    let module_var = get_module_var_identifier(submodule_id, bundler.resolver);
+
+                    log::debug!(
+                        "Creating submodule alias in inlined module: {local_name} = {module_var}"
+                    );
+
+                    // Create the assignment
+                    result_stmts.push(statements::simple_assign(
+                        local_name,
+                        expressions::name(&module_var, ExprContext::Load),
+                    ));
+                } else {
+                    log::debug!(
+                        "Skipping submodule import '{imported_name}' from '{module_name}' - \
+                         wrapper module import should be handled elsewhere"
+                    );
+                }
+                continue;
+            }
+
+            // Prefer precise re-export detection from inlined submodules
+            let renamed_symbol = if let Some((source_module, source_symbol)) =
+                bundler.is_symbol_from_inlined_submodule(&module_name, imported_name)
+            {
+                // Apply symbol renames from the source module if they exist
+                let source_module_id = bundler
+                    .get_module_id(&source_module)
+                    .expect("Source module should exist");
+                let global_name = symbol_renames
+                    .get(&source_module_id)
+                    .and_then(|renames| renames.get(&source_symbol))
+                    .cloned()
+                    .unwrap_or(source_symbol);
+
+                log::debug!(
+                    "Resolved re-exported symbol via inlined submodule: \
+                     {module_name}.{imported_name} -> {global_name}"
+                );
+                global_name
+            } else {
+                // Fallback: package re-export heuristic only if there is no explicit rename
+                let is_package_reexport = is_package_init_reexport(bundler, &module_name);
+                let has_rename = symbol_renames
+                    .get(&source_module_id)
+                    .and_then(|renames| renames.get(imported_name))
+                    .is_some();
+
+                log::debug!(
+                    "  is_package_reexport for module '{module_name}': {is_package_reexport}, \
+                     has_rename: {has_rename}"
+                );
+
+                if is_package_reexport && !has_rename {
+                    log::debug!(
+                        "Using original name '{imported_name}' for symbol imported from package \
+                         '{module_name}' (no rename found)"
+                    );
+                    imported_name.to_string()
+                } else {
+                    symbol_renames
+                        .get(&source_module_id)
+                        .and_then(|renames| renames.get(imported_name))
+                        .cloned()
+                        .unwrap_or_else(|| imported_name.to_string())
+                }
+            };
+
+            log::debug!(
+                "Processing import: module={}, imported_name={}, local_name={}, \
+                 renamed_symbol={}, available_renames={:?}",
+                module_name,
+                imported_name,
+                local_name,
+                renamed_symbol,
+                symbol_renames.get(&source_module_id)
+            );
+
+            // Check if the source symbol was tree-shaken.
+            // IMPORTANT: Do not skip symbols in wrapper init functions (__init__.py).
+            // Re-exports from package __init__ must be preserved even if not used by entry.
+            if !is_wrapper_init
+                && !bundler.is_symbol_kept_by_tree_shaking(source_module_id, imported_name)
+            {
+                log::debug!(
+                    "Skipping import assignment for tree-shaken symbol '{imported_name}' from \
+                     module '{module_name}' (non-wrapper context)"
+                );
+                continue;
+            }
+
+            // Handle wrapper init functions specially
+            if is_wrapper_init {
+                // When importing from an inlined module, we need to create the local alias FIRST
+                // before setting the module attribute, because the module attribute assignment
+                // uses the local name which won't exist until we create the alias
+                let is_from_inlined = bundler.inlined_modules.contains(&source_module_id);
+
+                // Create a local alias when:
+                // 1. The names are different (aliased import), OR
+                // 2. We're importing from an inlined module (need to access through namespace)
+                if local_name != renamed_symbol || is_from_inlined {
+                    // When importing from an inlined module inside a wrapper init,
+                    // prefer qualifying with the module's namespace when the names are identical
+                    // to avoid creating a self-referential assignment like `x = x`.
+                    let source_expr = if is_from_inlined {
+                        if local_name == renamed_symbol {
+                            let module_namespace =
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                &module_name,
+                            );
+                            log::debug!(
+                                "Creating local alias from namespace: {local_name} = \
+                                 {module_namespace}.{imported_name}"
+                            );
+                            expressions::attribute(
+                                expressions::name(&module_namespace, ExprContext::Load),
+                                imported_name,
+                                ExprContext::Load,
+                            )
+                        } else {
+                            log::debug!(
+                                "Creating local alias from global symbol: {local_name} = \
+                                 {renamed_symbol} (imported from inlined module {module_name})"
+                            );
+                            expressions::name(&renamed_symbol, ExprContext::Load)
+                        }
+                    } else {
+                        log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
+                        expressions::name(&renamed_symbol, ExprContext::Load)
+                    };
+                    result_stmts.push(statements::simple_assign(local_name, source_expr));
+                }
+
+                // Now set the module attribute using the local name (which now exists)
+                if let Some(current_mod_id) = importing_module_id {
+                    let current_mod_name = bundler
+                        .resolver
+                        .get_module_name(current_mod_id)
+                        .unwrap_or_else(|| format!("module#{current_mod_id}"));
+                    let module_var =
+                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                            &current_mod_name,
+                        );
+                    // When importing from an inlined module, use the local name we just created
+                    // Otherwise use the renamed symbol directly
+                    let attr_value = if is_from_inlined {
+                        local_name
+                    } else {
+                        &renamed_symbol
+                    };
+                    log::debug!(
+                        "Creating module attribute assignment in wrapper init: \
+                         {module_var}.{local_name} = {attr_value}"
+                    );
+                    result_stmts.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                        &module_var,
+                        local_name,
+                        attr_value,
+                    ),
+                );
+
+                    // Also expose on the namespace (self.<name> = <name>) so that
+                    // dir(__cribo_init_result) copies include it. Skip for imports coming from
+                    // inlined modules to avoid redundant assignments inside inlined init functions.
+                    if !is_from_inlined {
+                        result_stmts.push(statements::assign_attribute(
+                            "self",
+                            local_name,
+                            expressions::name(local_name, ExprContext::Load),
+                        ));
+                    }
+                } else {
+                    log::warn!(
+                        "is_wrapper_init is true but current_module is None, skipping module \
+                         attribute assignment"
+                    );
+                }
+            } else if local_name != renamed_symbol {
+                // For non-wrapper contexts, only create assignment if names differ
+                // For inlined modules, reference the namespace attribute instead of the renamed
+                // symbol directly This avoids ordering issues where the renamed
+                // symbol might not be defined yet
+                let module_namespace =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        &module_name,
+                    );
+                log::debug!(
+                    "Creating assignment: {local_name} = {module_namespace}.{imported_name}"
+                );
+                result_stmts.push(statements::simple_assign(
+                    local_name,
+                    expressions::attribute(
+                        expressions::name(&module_namespace, ExprContext::Load),
+                        imported_name,
+                        ExprContext::Load,
+                    ),
+                ));
+            } else if local_name == renamed_symbol && local_name != imported_name {
+                // Even when local_name == renamed_symbol, if it differs from imported_name,
+                // we need to create an assignment to the namespace attribute
+                let module_namespace =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        &module_name,
+                    );
+                log::debug!(
+                    "Creating assignment: {local_name} = {module_namespace}.{imported_name}"
+                );
+                result_stmts.push(statements::simple_assign(
+                    local_name,
+                    expressions::attribute(
+                        expressions::name(&module_namespace, ExprContext::Load),
+                        imported_name,
+                        ExprContext::Load,
+                    ),
+                ));
+            }
+        }
+
+        result_stmts
+    }
+}
+
+/// Check if a module is a package __init__.py that re-exports from submodules
+fn is_package_init_reexport(bundler: &Bundler, module_name: &str) -> bool {
+    // Special handling for package __init__.py files
+    // If we're importing from "greetings" and there's a "greetings.X" module
+    // that could be the source of the symbol
+
+    // For now, check if this looks like a package (no dots) and if there are
+    // any inlined submodules
+    if !module_name.contains('.') {
+        // Check if any inlined module starts with module_name.
+        if bundler.inlined_modules.iter().any(|inlined_id| {
+            bundler
+                .resolver
+                .get_module_name(*inlined_id)
+                .is_some_and(|name| name.starts_with(&format!("{module_name}.")))
+        }) {
+            log::debug!("Module '{module_name}' appears to be a package with inlined submodules");
+            // For the specific case of greetings/__init__.py importing from
+            // greetings.english, we assume the symbol should use its
+            // original name
+            return true;
+        }
+    }
+    false
 }
