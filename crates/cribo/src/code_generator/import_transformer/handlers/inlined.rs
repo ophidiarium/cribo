@@ -1,7 +1,7 @@
-use ruff_python_ast::{Expr, ExprContext};
+use ruff_python_ast::{Expr, ExprContext, Stmt};
 
 use crate::{
-    ast_builder::expressions,
+    ast_builder::{expressions, statements},
     code_generator::bundler::Bundler,
     types::{FxIndexMap, FxIndexSet},
 };
@@ -94,5 +94,21 @@ impl InlinedHandler {
 
         // Create types.SimpleNamespace(**kwargs) call
         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords)
+    }
+
+    /// Create `local = namespace_var` if names differ
+    pub(in crate::code_generator::import_transformer) fn alias_local_to_namespace_if_needed(
+        local_name: &str,
+        namespace_var: &str,
+        result_stmts: &mut Vec<Stmt>,
+    ) {
+        if local_name == namespace_var {
+            return;
+        }
+        log::debug!("  Creating immediate local alias: {local_name} = {namespace_var}");
+        result_stmts.push(statements::simple_assign(
+            local_name,
+            expressions::name(namespace_var, ExprContext::Load),
+        ));
     }
 }

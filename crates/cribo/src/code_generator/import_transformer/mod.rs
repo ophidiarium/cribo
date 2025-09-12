@@ -260,22 +260,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         None
     }
 
-    /// Create `local = namespace_var` if names differ
-    fn alias_local_to_namespace_if_needed(
-        local_name: &str,
-        namespace_var: &str,
-        result_stmts: &mut Vec<Stmt>,
-    ) {
-        if local_name == namespace_var {
-            return;
-        }
-        log::debug!("  Creating immediate local alias: {local_name} = {namespace_var}");
-        result_stmts.push(statements::simple_assign(
-            local_name,
-            expressions::name(namespace_var, ExprContext::Load),
-        ));
-    }
-
     /// Handle parent.child alias when importing from the same parent module, with early exits
     fn maybe_log_parent_child_assignment(
         &self,
@@ -1612,7 +1596,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // import messages` in greetings.greeting,
                                 // we need `messages = greetings_messages` to be available
                                 // immediately
-                                Self::alias_local_to_namespace_if_needed(
+                                handlers::inlined::InlinedHandler::alias_local_to_namespace_if_needed(
                                     local_name,
                                     &namespace_var,
                                     &mut result_stmts,
