@@ -4,10 +4,31 @@ use ruff_text_size::TextRange;
 
 use crate::{ast_builder::CRIBO_PREFIX, types::FxIndexSet};
 
-/// Statement processing utilities
+/// Statement processing utilities and traversal logic
 pub(super) struct StatementProcessor;
 
 impl StatementProcessor {
+    /// Collect all names assigned in a target expression.
+    /// Supports simple names and destructuring via tuples/lists.
+    pub(super) fn collect_assigned_names(target: &Expr, out: &mut FxIndexSet<String>) {
+        match target {
+            Expr::Name(name) => {
+                out.insert(name.id.as_str().to_string());
+            }
+            Expr::Tuple(t) => {
+                for elt in &t.elts {
+                    Self::collect_assigned_names(elt, out);
+                }
+            }
+            Expr::List(l) => {
+                for elt in &l.elts {
+                    Self::collect_assigned_names(elt, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Check if a condition is a `TYPE_CHECKING` check
     pub(super) fn is_type_checking_condition(expr: &Expr) -> bool {
         match expr {

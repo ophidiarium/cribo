@@ -31,27 +31,6 @@ pub use state::RecursiveImportTransformerParams;
 use state::TransformerState;
 use statement::StatementProcessor;
 
-/// Collect assigned variable names from an assignment target expression.
-/// Supports simple names and destructuring via tuples/lists.
-fn collect_assigned_names(target: &Expr, out: &mut FxIndexSet<String>) {
-    match target {
-        Expr::Name(name) => {
-            out.insert(name.id.as_str().to_string());
-        }
-        Expr::Tuple(t) => {
-            for elt in &t.elts {
-                collect_assigned_names(elt, out);
-            }
-        }
-        Expr::List(l) => {
-            for elt in &l.elts {
-                collect_assigned_names(elt, out);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Transformer that recursively handles import statements and module references
 pub struct RecursiveImportTransformer<'a> {
     state: TransformerState<'a>,
@@ -548,7 +527,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Track assignment LHS names to prevent collapsing RHS to self
                         let mut lhs_names: FxIndexSet<String> = FxIndexSet::default();
                         for target in &assign_stmt.targets {
-                            collect_assigned_names(target, &mut lhs_names);
+                            StatementProcessor::collect_assigned_names(target, &mut lhs_names);
                         }
 
                         let saved_targets = self.state.current_assignment_targets.clone();
@@ -568,7 +547,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                             // Get assigned names to pass to the handler
                             let mut assigned_names = FxIndexSet::default();
                             for target in &assign_stmt.targets {
-                                collect_assigned_names(target, &mut assigned_names);
+                                StatementProcessor::collect_assigned_names(
+                                    target,
+                                    &mut assigned_names,
+                                );
                             }
 
                             DynamicHandler::handle_importlib_assignment(
@@ -814,7 +796,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // stdlib transformations
                         {
                             let mut loop_names = FxIndexSet::default();
-                            collect_assigned_names(&for_stmt.target, &mut loop_names);
+                            StatementProcessor::collect_assigned_names(
+                                &for_stmt.target,
+                                &mut loop_names,
+                            );
                             for n in loop_names {
                                 self.state.local_variables.insert(n.clone());
                                 log::debug!("Tracking for loop variable as local: {n}");
