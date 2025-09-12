@@ -20,7 +20,7 @@ use crate::{
 
 mod handlers;
 
-use handlers::{dynamic::DynamicHandler, stdlib::StdlibHandler};
+use handlers::{dynamic::DynamicHandler, stdlib::StdlibHandler, wrapper::WrapperHandler};
 
 /// Collect assigned variable names from an assignment target expression.
 /// Supports simple names and destructuring via tuples/lists.
@@ -235,37 +235,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         self.bundler
             .get_module_id(module_name)
             .is_some_and(|id| self.bundler.namespace_imported_modules.contains_key(&id))
-    }
-
-    /// Log information about wrapper wildcard exports (keeps previous behavior without generating
-    /// code)
-    fn log_wrapper_wildcard_info(&self, resolved: &str) {
-        log::debug!("  Handling wildcard import from wrapper module '{resolved}'");
-        if let Some(exports) = self
-            .bundler
-            .get_module_id(resolved)
-            .and_then(|id| self.bundler.module_exports.get(&id))
-        {
-            if let Some(export_list) = exports {
-                log::debug!("  Wrapper module '{resolved}' exports: {export_list:?}");
-                for export in export_list {
-                    if export == "*" {
-                        continue;
-                    }
-                }
-            } else {
-                log::debug!(
-                    "  Wrapper module '{resolved}' has no explicit exports; importing all public \
-                     symbols"
-                );
-                log::warn!(
-                    "  Warning: Wildcard import from wrapper module without explicit __all__ may \
-                     not import all symbols correctly"
-                );
-            }
-        } else {
-            log::warn!("  Warning: Could not find exports for wrapper module '{resolved}'");
-        }
     }
 
     /// Try to rewrite `base.attr_name` where base aliases an inlined module
@@ -2072,7 +2041,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // Handle wildcard import export assignments
                     if is_wildcard {
-                        self.log_wrapper_wildcard_info(resolved);
+                        WrapperHandler::log_wrapper_wildcard_info(resolved, self.bundler);
                         log::debug!(
                             "  Returning {} parent-init statements for wildcard import; wrapper \
                              init + assignments were deferred",
