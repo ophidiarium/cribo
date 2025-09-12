@@ -1469,17 +1469,88 @@ impl<'a> RecursiveImportTransformer<'a> {
                 );
 
                 // Check if this is importing a submodule (like from . import config)
-                // Handle wrapper submodule imports
-                if let Some(wrapper_stmts) = WrapperHandler::handle_wrapper_submodule_import(
-                    &full_module_path,
-                    local_name,
-                    self.state.bundler,
-                    self.state.is_wrapper_init,
-                    &self.get_module_name(),
-                    &mut self.state.local_variables,
-                ) {
-                    result_stmts.extend(wrapper_stmts);
-                    handled_any = true;
+                // First check if it's a wrapper submodule, then check if it's inlined
+                let is_wrapper_submodule = if let Some(submodule_id) =
+                    self.state.bundler.get_module_id(&full_module_path)
+                {
+                    crate::code_generator::module_registry::is_wrapper_submodule(
+                        submodule_id,
+                        self.state.bundler.module_info_registry,
+                        &self.state.bundler.inlined_modules,
+                    )
+                } else {
+                    false
+                };
+
+                if is_wrapper_submodule {
+                    // This is a wrapper submodule
+                    log::debug!("  '{full_module_path}' is a wrapper submodule");
+
+                    // For wrapper modules importing wrapper submodules from the same package
+                    if self.state.is_wrapper_init {
+                        // Initialize the wrapper submodule if needed
+                        // Pass the current module context to avoid recursive initialization
+                        if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path)
+                        {
+                            let current_module_id =
+                                self.state.bundler.get_module_id(&self.get_module_name());
+                            result_stmts.extend(
+                                self.state
+                                    .bundler
+                                    .create_module_initialization_for_import_with_current_module(
+                                        module_id,
+                                        current_module_id,
+                                        /* at_module_level */ true,
+                                    ),
+                            );
+                        }
+
+                        // Create assignment: local_name = parent.submodule
+                        let module_expr =
+                            expressions::module_reference(&full_module_path, ExprContext::Load);
+
+                        result_stmts.push(statements::simple_assign(local_name, module_expr));
+
+                        // Track as local to avoid any accidental rewrites later in this transform
+                        // pass
+                        self.state.local_variables.insert(local_name.to_string());
+
+                        log::debug!(
+                            "  Created assignment for wrapper submodule: {local_name} = \
+                             {full_module_path}"
+                        );
+
+                        // Note: The module attribute assignment (_cribo_module.<local_name> = ...)
+                        // is handled later in create_assignments_for_inlined_imports to avoid
+                        // duplication
+
+                        handled_any = true;
+                    } else if !self.is_entry_module()
+                        && self
+                            .state
+                            .bundler
+                            .inlined_modules
+                            .contains(&self.state.module_id)
+                    {
+                        // This is an inlined module importing a wrapper submodule
+                        // We need to defer this import because the wrapper module may not be
+                        // initialized yet
+                        log::debug!(
+                            "  Inlined module '{}' importing wrapper submodule '{}' - deferring",
+                            self.get_module_name(),
+                            full_module_path
+                        );
+
+                        // Note: deferred imports functionality has been removed
+                        // The wrapper module assignment was previously deferred but is no longer
+                        // needed
+
+                        // Track as local to avoid any accidental rewrites later in this transform
+                        // pass
+                        self.state.local_variables.insert(local_name.to_string());
+
+                        handled_any = true;
+                    }
                 } else if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path)
                 {
                     if self.state.bundler.inlined_modules.contains(&module_id) {
@@ -2214,13 +2285,33 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    // Check if this attribute access is on a wrapper module import
-                    if let Some(rewritten_expr) = WrapperHandler::try_rewrite_wrapper_attribute(
-                        name,
-                        attr_expr,
-                        &self.state.wrapper_module_imports,
-                    ) {
-                        *expr = rewritten_expr;
+                    if let Some((wrapper_module, imported_name)) =
+                        self.state.wrapper_module_imports.get(name)
+                    {
+                        // The base is a wrapper module import, rewrite the entire attribute access
+                        // e.g., cookielib.CookieJar -> myrequests.compat.cookielib.CookieJar
+                        log::debug!(
+                            "Rewriting attribute '{}.{}' to '{}.{}.{}'",
+                            name,
+                            attr_expr.attr.as_str(),
+                            wrapper_module,
+                            imported_name,
+                            attr_expr.attr.as_str()
+                        );
+
+                        // Create wrapper_module.imported_name.attr
+                        let base = expressions::name_attribute(
+                            wrapper_module,
+                            imported_name,
+                            ExprContext::Load,
+                        );
+                        let mut new_expr =
+                            expressions::attribute(base, attr_expr.attr.as_str(), attr_expr.ctx);
+                        // Preserve the original range
+                        if let Expr::Attribute(attr) = &mut new_expr {
+                            attr.range = attr_expr.range;
+                        }
+                        *expr = new_expr;
                         return; // Don't process further
                     }
                 }
@@ -2625,12 +2716,20 @@ impl<'a> RecursiveImportTransformer<'a> {
                 }
 
                 // Check if this name was imported from a wrapper module and needs rewriting
-                if let Some(rewritten_expr) = WrapperHandler::try_rewrite_wrapper_name(
-                    name,
-                    name_expr,
-                    &self.state.wrapper_module_imports,
-                ) {
-                    *expr = rewritten_expr;
+                if let Some((wrapper_module, imported_name)) =
+                    self.state.wrapper_module_imports.get(name)
+                {
+                    log::debug!("Rewriting name '{name}' to '{wrapper_module}.{imported_name}'");
+
+                    // Create wrapper_module.imported_name attribute access
+                    // Create wrapper_module.imported_name attribute access
+                    let mut new_expr =
+                        expressions::name_attribute(wrapper_module, imported_name, name_expr.ctx);
+                    // Preserve the original range
+                    if let Expr::Attribute(attr) = &mut new_expr {
+                        attr.range = name_expr.range;
+                    }
+                    *expr = new_expr;
                 }
             }
             // Constants, etc. don't need transformation
