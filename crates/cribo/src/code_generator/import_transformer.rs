@@ -3630,7 +3630,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         // If we can't resolve a relative import, this is a critical error
         // Relative imports are ALWAYS first-party and must be resolvable
         assert!(
-            import_from.level <= 0,
+            import_from.level == 0,
             "Failed to resolve relative import 'from {} import {:?}' in module '{}'. Relative \
              imports are always first-party and must be resolvable.",
             ".".repeat(import_from.level as usize),
@@ -3747,7 +3747,9 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 }
             } else if module_name.ends_with(".__main__") {
                 // Check if this is <entry>.__main__ where <entry> is the entry module
-                let base_module = module_name.strip_suffix(".__main__").unwrap();
+                let base_module = module_name
+                    .strip_suffix(".__main__")
+                    .expect("checked with ends_with above");
                 log::debug!("  Checking if base module '{base_module}' is entry");
                 let base_id = bundler.get_module_id(base_module);
                 log::debug!("  Base module ID: {base_id:?}");
@@ -4465,7 +4467,10 @@ pub fn transform_relative_import_aliases(
 
         if is_bundled || is_inlined {
             // This is a bundled or inlined module, create assignment to reference it
-            let module_var = sanitize_module_name_for_identifier(&full_module_name);
+            let module_var = crate::code_generator::module_registry::get_module_var_identifier(
+                module_id,
+                bundler.resolver,
+            );
 
             // For inlined modules, we need to create a namespace object if it doesn't exist
             if is_inlined && !bundler.created_namespaces.contains(&module_var) {
