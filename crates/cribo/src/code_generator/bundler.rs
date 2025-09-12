@@ -3676,46 +3676,43 @@ impl<'a> Bundler<'a> {
                         != Some("__future__")
                     {
                         // Check if this is a relative import that needs special handling
-                        let handled = if import_from.level > 0 {
-                            // For relative imports in wrapper init functions, we may need to
-                            // transform them to use the
-                            // already-available symbols instead of keeping the relative import
-                            self.resolver
-                                .get_module_id_by_name(module_name)
-                                .and_then(|id| self.resolver.get_module_path(id))
-                                .and_then(|module_path| {
-                                    self.resolver.resolve_relative_to_absolute_module_name(
-                                        import_from.level,
-                                        import_from
-                                            .module
-                                            .as_ref()
-                                            .map(ruff_python_ast::Identifier::as_str),
-                                        &module_path,
-                                    )
-                                })
-                                .is_some_and(|resolved| {
-                                    if resolved == module_name {
-                                        // Import from same module - transform to assignments
-                                        crate::code_generator::import_transformer::transform_relative_import_aliases(
-                                            self,
-                                            import_from,
-                                            module_name,
-                                            module_name,
-                                            &mut result,
-                                            true, // add module attributes
-                                        );
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                })
+                        // Skip wildcard cases to preserve semantics
+                        let has_wildcard = import_from.names.iter().any(|a| a.name.as_str() == "*");
+                        let handled = if import_from.level > 0 && !has_wildcard {
+                            // For relative imports, transform same-module case to explicit
+                            // assignments
+                            let from_mod = import_from
+                                .module
+                                .as_ref()
+                                .map_or("", ruff_python_ast::Identifier::as_str);
+                            let resolved = self.resolve_from_import_target(
+                                module_name,
+                                from_mod,
+                                import_from.level,
+                            );
+                            if resolved == module_name {
+                                crate::code_generator::import_transformer::transform_relative_import_aliases(
+                                    self,
+                                    import_from,
+                                    module_name, // parent_package
+                                    module_name, // current_module
+                                    &mut result,
+                                    true,        // add module attributes
+                                );
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         };
 
-                        if !handled {
-                            result.push(stmt.clone());
+                        if handled {
+                            // Helper emitted the local bindings and module attrs; skip fall-through
+                            // to avoid duplicates
+                            continue;
                         }
+                        result.push(stmt.clone());
 
                         // Add module attribute assignments for imported symbols when in conditional
                         // context
