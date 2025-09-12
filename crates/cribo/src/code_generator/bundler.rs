@@ -1587,7 +1587,8 @@ impl<'a> Bundler<'a> {
                 );
             if original == entry_var {
                 log::debug!(
-                    "Skipping alias reassignment '{original}' = '{renamed}' to avoid shadowing entry namespace"
+                    "Skipping alias reassignment '{original}' = '{renamed}' to avoid shadowing \
+                     entry namespace"
                 );
                 return;
             }

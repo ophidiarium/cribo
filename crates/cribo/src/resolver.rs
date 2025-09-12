@@ -1355,13 +1355,11 @@ impl ModuleResolver {
     fn path_to_module_parts(&self, file_path: &Path) -> Option<Vec<String>> {
         // Convert file_path to absolute path if it's relative and canonicalize it
         let absolute_file_path = if file_path.is_absolute() {
-            file_path
-                .canonicalize()
-                .unwrap_or_else(|_| file_path.to_path_buf())
+            self.canonicalize_path(file_path.to_path_buf())
         } else {
             let current_working_dir = std::env::current_dir().ok()?;
             let joined = current_working_dir.join(file_path);
-            joined.canonicalize().unwrap_or(joined)
+            self.canonicalize_path(joined)
         };
 
         // Find which search directory (entry dir, PYTHONPATH, or src) contains this file
