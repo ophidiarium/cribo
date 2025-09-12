@@ -1869,12 +1869,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             // Check if this is a wrapper module (in module_registry)
             // This check must be after the inlined module check to avoid double-handling
             // A module is a wrapper module if it has an init function
-            if self
-                .state
-                .bundler
-                .get_module_id(resolved)
-                .is_some_and(|id| self.state.bundler.module_init_functions.contains_key(&id))
-            {
+            if WrapperHandler::is_wrapper_module(resolved, self.state.bundler) {
                 log::debug!("  Module '{resolved}' is a wrapper module");
 
                 // For modules importing from wrapper modules, we may need to defer
@@ -2093,21 +2088,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         resolved.clone()
                     };
 
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str();
-                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                        // Store mapping: local_name -> (wrapper_module, imported_name)
-                        self.state.wrapper_module_imports.insert(
-                            local_name.to_string(),
-                            (module_name_for_tracking.clone(), imported_name.to_string()),
-                        );
-
-                        log::debug!(
-                            "    Tracking import: {local_name} -> \
-                             {module_name_for_tracking}.{imported_name}"
-                        );
-                    }
+                    WrapperHandler::track_wrapper_imports(
+                        import_from,
+                        &module_name_for_tracking,
+                        &mut self.state.wrapper_module_imports,
+                    );
 
                     // If we skipped initialization due to a conflict, also skip the assignments
                     if !self.state.at_module_level {
