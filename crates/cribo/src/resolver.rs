@@ -106,7 +106,8 @@ impl ModuleRegistry {
     }
 
     fn register(&mut self, name: String, path: &Path) -> ModuleId {
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        // `path` is expected to be canonicalized by the caller
+        let canonical_path = path.to_owned();
 
         // Check for duplicates
         if let Some(&id) = self.by_name.get(&name)
@@ -116,7 +117,20 @@ impl ModuleRegistry {
         }
 
         if let Some(&id) = self.by_path.get(&canonical_path) {
-            self.by_name.insert(name, id);
+            // Only update by_name if the name isn't already taken
+            // This prevents overwriting the entry module's name when __init__.py is found later
+            match self.by_name.get(&name) {
+                None => {
+                    self.by_name.insert(name, id);
+                }
+                Some(existing) if *existing != id => {
+                    log::warn!(
+                        "register(): name '{name}' already mapped to {existing:?}, but path maps \
+                         to {id:?}; keeping existing name mapping"
+                    );
+                }
+                _ => {}
+            }
             return id;
         }
 
@@ -172,7 +186,20 @@ impl ModuleRegistry {
         };
 
         self.by_id.insert(id, metadata);
-        self.by_name.insert(name, id);
+        // Only insert the name if it's not already taken
+        // This prevents __init__.py from overwriting __main__.py's name when both exist
+        match self.by_name.get(&name) {
+            None => {
+                self.by_name.insert(name, id);
+            }
+            Some(existing) if *existing != id => {
+                log::warn!(
+                    "register(): name '{name}' already mapped to {existing:?}, but newly \
+                     registered id is {id:?}; keeping existing name mapping"
+                );
+            }
+            _ => {}
+        }
         self.by_path.insert(canonical_path, id);
 
         id
@@ -348,28 +375,38 @@ impl ModuleResolver {
     /// Set the entry file for the resolver
     /// This establishes the first search path directory
     pub fn set_entry_file(&mut self, entry_path: &Path, original_entry_path: &Path) {
-        // If the original entry was a directory that became __init__.py,
-        // use the parent of the directory as the search root
-        if original_entry_path.is_dir()
-            && entry_path.file_name()
-                == Some(std::ffi::OsStr::new(crate::python::constants::INIT_FILE))
-        {
-            // For package directories, use the parent of the package dir as search root
-            if let Some(package_parent) = original_entry_path.parent() {
-                self.entry_dir = Some(package_parent.to_path_buf());
-                debug!(
-                    "Set entry directory to package parent: {}",
-                    package_parent.display()
-                );
-            } else {
-                // Fallback to the package directory itself if no parent
-                self.entry_dir = Some(original_entry_path.to_path_buf());
-                debug!(
-                    "Set entry directory to package dir: {}",
-                    original_entry_path.display()
-                );
+        debug!(
+            "set_entry_file: entry_path={}, original_entry_path={}, is_dir={}",
+            entry_path.display(),
+            original_entry_path.display(),
+            original_entry_path.is_dir()
+        );
+
+        // Check if the entry is a special entry file (__init__.py or __main__.py)
+        // Use shared helper to keep behavior in sync with orchestrator
+        let is_package_file = entry_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(crate::python::module_path::is_special_entry_file_name);
+
+        if is_package_file {
+            // For __init__.py or __main__.py, use the parent's parent as search root
+            // e.g., for path/to/pkg/__init__.py, use path/to/ as search root
+            if let Some(pkg_dir) = entry_path.parent() {
+                if let Some(parent_of_pkg) = pkg_dir.parent() {
+                    self.entry_dir = Some(parent_of_pkg.to_path_buf());
+                    debug!(
+                        "Set entry directory to parent of package: {}",
+                        parent_of_pkg.display()
+                    );
+                } else {
+                    // Package is at root, use root
+                    self.entry_dir = Some(PathBuf::from("."));
+                    debug!("Set entry directory to current directory (package at root)");
+                }
             }
         } else if let Some(parent) = entry_path.parent() {
+            // For regular module files, use the parent directory
             self.entry_dir = Some(parent.to_path_buf());
             debug!("Set entry directory to: {}", parent.display());
         }
@@ -431,6 +468,13 @@ impl ModuleResolver {
     pub fn get_module_id_by_name(&self, name: &str) -> Option<ModuleId> {
         let registry = self.registry.lock().expect("Module registry lock poisoned");
         registry.get_id_by_name(name).copied()
+    }
+
+    /// Get module ID by path (reverse lookup)
+    pub fn get_module_id_by_path(&self, path: &Path) -> Option<ModuleId> {
+        let canonical_path = self.canonicalize_path(path.to_path_buf());
+        let registry = self.registry.lock().expect("Module registry lock poisoned");
+        registry.by_path.get(&canonical_path).copied()
     }
 
     /// Get all directories to search for modules
@@ -1219,18 +1263,49 @@ impl ModuleResolver {
         // Get the absolute module path parts for the current file
         let module_parts = self.path_to_module_parts(current_module_path)?;
 
+        log::debug!(
+            "resolve_relative_to_absolute_module_name: path={}, module_parts={:?}, level={}, \
+             name={:?}",
+            current_module_path.display(),
+            module_parts,
+            level,
+            name
+        );
+
         // Apply relative import logic
         let mut current_parts = module_parts;
 
-        // Remove 'level - 1' components since level=1 means current package
+        // Check if this is a package __init__ file
+        let is_init = current_module_path.file_stem().is_some_and(|s| {
+            s == crate::python::constants::INIT_STEM || s == crate::python::constants::MAIN_STEM
+        });
+
+        // For __init__.py, level=1 means the current package (don't pop)
+        // For regular modules, level=1 means the parent package (pop once)
+        let components_to_remove = if is_init {
+            level.saturating_sub(1) as usize
+        } else {
+            level as usize
+        };
+
+        log::debug!(
+            "  is_init={}, components_to_remove={}, current_parts.len()={}",
+            is_init,
+            components_to_remove,
+            current_parts.len()
+        );
+
         // Cannot go beyond the root of the project
-        if level as usize > current_parts.len() + 1 {
+        if components_to_remove > current_parts.len() {
+            log::debug!("  Cannot go beyond root - returning None");
             return None;
         }
 
-        for _ in 0..(level.saturating_sub(1)) {
+        for _ in 0..components_to_remove {
             current_parts.pop();
         }
+
+        log::debug!("  After popping: current_parts={current_parts:?}");
 
         // If name is provided, split it and append. Trim any leading dots to avoid
         // accidental empty components (e.g., "._types").
@@ -1297,51 +1372,68 @@ impl ModuleResolver {
 
     /// Convert a filesystem path to module path components
     fn path_to_module_parts(&self, file_path: &Path) -> Option<Vec<String>> {
-        // Get the directory containing the current file
-        let current_dir = if file_path.is_file() {
-            file_path.parent()?
-        } else {
-            // If it's a directory (e.g., namespace package), use it directly
-            file_path
-        };
-
-        // Convert current_dir to absolute path if it's relative and canonicalize it
-        let absolute_current_dir = if current_dir.is_absolute() {
-            current_dir
-                .canonicalize()
-                .unwrap_or_else(|_| current_dir.to_path_buf())
+        // Convert file_path to absolute path if it's relative and canonicalize it
+        let absolute_file_path = if file_path.is_absolute() {
+            self.canonicalize_path(file_path.to_path_buf())
         } else {
             let current_working_dir = std::env::current_dir().ok()?;
-            let joined = current_working_dir.join(current_dir);
-            joined.canonicalize().unwrap_or(joined)
+            let joined = current_working_dir.join(file_path);
+            self.canonicalize_path(joined)
         };
 
         // Find which search directory (entry dir, PYTHONPATH, or src) contains this file
         let search_dirs = self.get_search_directories();
-        let relative_dir = search_dirs.iter().find_map(|dir| {
+        log::trace!(
+            "path_to_module_parts: absolute_file_path={}, search_dirs={:?}",
+            absolute_file_path.display(),
+            search_dirs
+        );
+        let relative_path = search_dirs.iter().find_map(|dir| {
             // The search directories are already canonicalized/absolute from get_search_directories
-            absolute_current_dir.strip_prefix(dir).ok()
+            let result = absolute_file_path.strip_prefix(dir).ok();
+            if result.is_some() {
+                log::trace!(
+                    "  Found in search dir: {}, relative_path={:?}",
+                    dir.display(),
+                    result
+                );
+            }
+            result
         })?;
 
-        // Convert directory path to module path components
-        if relative_dir == Path::new("") {
-            // If relative_dir is empty, we're at the root of the source directory
-            Some(Vec::new())
-        } else {
-            Some(
-                relative_dir
+        // Convert path to module path components
+        let mut parts = Vec::new();
+
+        // Add directory components
+        if let Some(parent) = relative_path.parent()
+            && parent != Path::new("")
+        {
+            parts.extend(
+                parent
                     .components()
-                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                    .collect(),
-            )
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+            );
         }
+
+        // Add the file name (without extension) if it's not __init__ or __main__
+        if let Some(file_stem) = relative_path.file_stem() {
+            let stem = file_stem.to_string_lossy();
+            if stem != crate::python::constants::INIT_STEM
+                && stem != crate::python::constants::MAIN_STEM
+            {
+                parts.push(stem.into_owned());
+            }
+        }
+
+        Some(parts)
     }
 
     /// Register a module - entry gets 0, others get sequential IDs
     pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
         let mut registry = self.registry.lock().expect("Module registry lock poisoned");
 
-        let id = registry.register(name.clone(), path);
+        let canonical = self.canonicalize_path(path.to_path_buf());
+        let id = registry.register(name.clone(), &canonical);
 
         if id.is_entry() {
             info!("Registered ENTRY module '{name}' at the origin (ID 0)");
