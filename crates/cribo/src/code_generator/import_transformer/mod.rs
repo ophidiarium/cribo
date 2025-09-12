@@ -2,7 +2,7 @@ use std::path::Path;
 
 use cow_utils::CowUtils;
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprCall, ExprContext, ExprFString, ExprName, FString,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprFString, ExprName, FString,
     FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
     InterpolatedStringElements, ModModule, Stmt, StmtClassDef, StmtFunctionDef, StmtGlobal,
     StmtImport, StmtImportFrom,
@@ -20,7 +20,7 @@ use crate::{
 
 mod handlers;
 
-use handlers::stdlib::StdlibHandler;
+use handlers::{dynamic::DynamicHandler, stdlib::StdlibHandler};
 
 /// Collect assigned variable names from an assignment target expression.
 /// Supports simple names and destructuring via tuples/lists.
@@ -456,43 +456,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         );
     }
 
-    /// For importlib-imported module variables, rewrite `base.attr` to the inlined symbol
-    fn rewrite_attr_for_importlib_var(
-        &self,
-        base: &str,
-        attr_name: &str,
-        module_name: &str,
-        attr_ctx: ExprContext,
-        attr_range: TextRange,
-    ) -> Expr {
-        if let Some(module_id) = self.bundler.get_module_id(module_name)
-            && let Some(module_renames) = self.symbol_renames.get(&module_id)
-            && let Some(renamed) = module_renames.get(attr_name)
-        {
-            let renamed_str = renamed.clone();
-            log::debug!(
-                "Rewrote {base}.{attr_name} to {renamed_str} (renamed symbol from importlib \
-                 inlined module)"
-            );
-            return Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::NONE,
-                id: renamed_str.into(),
-                ctx: attr_ctx,
-                range: attr_range,
-            });
-        }
-        // no rename: fallthrough below
-        log::debug!(
-            "Rewrote {base}.{attr_name} to {attr_name} (symbol from importlib inlined module)"
-        );
-        Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::NONE,
-            id: attr_name.into(),
-            ctx: attr_ctx,
-            range: attr_range,
-        })
-    }
-
     /// If accessing attribute on an inlined submodule, rewrite to direct access symbol name
     fn maybe_rewrite_attr_for_inlined_submodule(
         &self,
@@ -590,118 +553,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         self.module_id.is_entry()
     }
 
-    /// Check if this is an `importlib.import_module()` call
-    fn is_importlib_import_module_call(&self, call: &ExprCall) -> bool {
-        match &call.func.as_ref() {
-            // Direct call: importlib.import_module()
-            Expr::Attribute(attr) if attr.attr.as_str() == "import_module" => {
-                match &attr.value.as_ref() {
-                    Expr::Name(name) => {
-                        let name_str = name.id.as_str();
-                        // Check if it's 'importlib' directly or an alias that maps to 'importlib'
-                        name_str == "importlib"
-                            || self.import_aliases.get(name_str) == Some(&"importlib".to_string())
-                    }
-                    _ => false,
-                }
-            }
-            // Function call: im() where im is import_module
-            Expr::Name(name) => {
-                // Check if this name is an alias for importlib.import_module
-                self.import_aliases
-                    .get(name.id.as_str())
-                    .is_some_and(|module| module == "importlib.import_module")
-            }
-            _ => false,
-        }
-    }
-
-    /// Transform importlib.import_module("module-name") to direct module reference
-    fn transform_importlib_import_module(&mut self, call: &ExprCall) -> Option<Expr> {
-        // Get the first argument which should be the module name
-        if let Some(arg) = call.arguments.args.first()
-            && let Expr::StringLiteral(lit) = arg
-        {
-            let module_name = lit.value.to_str();
-
-            // Handle relative imports with package context
-            let resolved_name = if module_name.starts_with('.') && call.arguments.args.len() >= 2 {
-                // Get the package context from the second argument
-                if let Expr::StringLiteral(package_lit) = &call.arguments.args[1] {
-                    let package = package_lit.value.to_str();
-
-                    // Resolve package to path, then use resolver
-                    if let Ok(Some(package_path)) =
-                        self.bundler.resolver.resolve_module_path(package)
-                    {
-                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
-                        let name_part = module_name.trim_start_matches('.');
-
-                        self.bundler
-                            .resolver
-                            .resolve_relative_to_absolute_module_name(
-                                level,
-                                if name_part.is_empty() {
-                                    None
-                                } else {
-                                    Some(name_part)
-                                },
-                                &package_path,
-                            )
-                            .unwrap_or_else(|| module_name.to_string())
-                    } else {
-                        // Use resolver's method for package name resolution when path not found
-                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
-                        let name_part = module_name.trim_start_matches('.');
-
-                        self.bundler
-                            .resolver
-                            .resolve_relative_import_from_package_name(
-                                level,
-                                if name_part.is_empty() {
-                                    None
-                                } else {
-                                    Some(name_part)
-                                },
-                                package,
-                            )
-                    }
-                } else {
-                    module_name.to_string()
-                }
-            } else {
-                module_name.to_string()
-            };
-
-            // Check if this module was bundled
-            if self
-                .bundler
-                .get_module_id(&resolved_name)
-                .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
-            {
-                log::debug!(
-                    "Transforming importlib.import_module('{module_name}') to module access \
-                     '{resolved_name}'"
-                );
-
-                self.importlib_transformed = true;
-
-                // Check if this creates a namespace object
-                if self
-                    .bundler
-                    .get_module_id(&resolved_name)
-                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                {
-                    self.created_namespace_objects = true;
-                }
-
-                // Use common logic for module access
-                return Some(self.create_module_access_expr(&resolved_name));
-            }
-        }
-        None
-    }
-
     /// Transform a module recursively, handling all imports at any depth
     pub(crate) fn transform_module(&mut self, module: &mut ModModule) {
         log::debug!(
@@ -778,43 +629,32 @@ impl<'a> RecursiveImportTransformer<'a> {
                             Some(lhs_names)
                         };
 
-                        // First check if this is an assignment from importlib.import_module()
-                        let mut importlib_module = None;
+                        // Handle importlib.import_module() assignment tracking
                         if let Expr::Call(call) = &assign_stmt.value.as_ref()
-                            && self.is_importlib_import_module_call(call)
+                            && DynamicHandler::is_importlib_import_module_call(
+                                call,
+                                &self.import_aliases,
+                            )
                         {
-                            // Get the module name from the call
-                            if let Some(arg) = call.arguments.args.first()
-                                && let Expr::StringLiteral(lit) = arg
-                            {
-                                let module_name = lit.value.to_str();
-                                // Only track if it's an inlined module (not a wrapper module)
-                                if self
-                                    .bundler
-                                    .get_module_id(module_name)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                                {
-                                    importlib_module = Some(module_name.to_string());
-                                }
+                            // Get assigned names to pass to the handler
+                            let mut assigned_names = FxIndexSet::default();
+                            for target in &assign_stmt.targets {
+                                collect_assigned_names(target, &mut assigned_names);
                             }
+
+                            DynamicHandler::handle_importlib_assignment(
+                                &assigned_names,
+                                call,
+                                self.bundler,
+                                &mut self.importlib_inlined_modules,
+                            );
                         }
 
-                        // Track local variable assignments and importlib modules
+                        // Track local variable assignments
                         for target in &assign_stmt.targets {
                             if let Expr::Name(name) = target {
                                 let var_name = name.id.to_string();
                                 self.local_variables.insert(var_name.clone());
-
-                                // If this was an importlib.import_module assignment, add to
-                                // tracking
-                                if let Some(module_name) = &importlib_module {
-                                    self.importlib_inlined_modules
-                                        .insert(var_name.clone(), module_name.clone());
-                                    log::debug!(
-                                        "Tracking importlib module assignment: {var_name} = \
-                                         importlib.import_module('{module_name}')"
-                                    );
-                                }
                             }
                         }
 
@@ -2495,12 +2335,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     "Transforming {base}.{attr_name} - {base} was assigned from \
                                      importlib.import_module('{module_name}') [inlined module]"
                                 );
-                                *expr = self.rewrite_attr_for_importlib_var(
+                                *expr = DynamicHandler::rewrite_attr_for_importlib_var(
                                     &base,
                                     attr_name,
                                     module_name,
                                     attr_expr.ctx,
                                     attr_expr.range,
+                                    self.bundler,
+                                    self.symbol_renames,
                                 );
                                 return;
                             }
@@ -2601,11 +2443,29 @@ impl<'a> RecursiveImportTransformer<'a> {
             }
             Expr::Call(call_expr) => {
                 // Check if this is importlib.import_module() with a static string literal
-                if self.is_importlib_import_module_call(call_expr)
-                    && let Some(transformed) = self.transform_importlib_import_module(call_expr)
+                if DynamicHandler::is_importlib_import_module_call(call_expr, &self.import_aliases)
                 {
-                    *expr = transformed;
-                    return;
+                    // Extract the state values we need to avoid borrow checker conflicts
+                    let mut importlib_transformed = self.importlib_transformed;
+                    let mut created_namespace_objects = self.created_namespace_objects;
+
+                    if let Some(transformed) = DynamicHandler::transform_importlib_import_module(
+                        call_expr,
+                        self.bundler,
+                        &mut importlib_transformed,
+                        &mut created_namespace_objects,
+                        |resolved_name| self.create_module_access_expr(resolved_name),
+                    ) {
+                        // Update the original fields
+                        self.importlib_transformed = importlib_transformed;
+                        self.created_namespace_objects = created_namespace_objects;
+                        *expr = transformed;
+                        return;
+                    }
+
+                    // Update the original fields even if no transformation occurred
+                    self.importlib_transformed = importlib_transformed;
+                    self.created_namespace_objects = created_namespace_objects;
                 }
 
                 self.transform_expr(&mut call_expr.func);
