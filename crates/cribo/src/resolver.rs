@@ -125,8 +125,8 @@ impl ModuleRegistry {
                 }
                 Some(existing) if *existing != id => {
                     log::warn!(
-                        "register(): name '{name}' already mapped to {existing:?}, but path maps to {id:?}; \
-                         keeping existing name mapping"
+                        "register(): name '{name}' already mapped to {existing:?}, but path maps \
+                         to {id:?}; keeping existing name mapping"
                     );
                 }
                 _ => {}
@@ -188,8 +188,17 @@ impl ModuleRegistry {
         self.by_id.insert(id, metadata);
         // Only insert the name if it's not already taken
         // This prevents __init__.py from overwriting __main__.py's name when both exist
-        if !self.by_name.contains_key(&name) {
-            self.by_name.insert(name, id);
+        match self.by_name.get(&name) {
+            None => {
+                self.by_name.insert(name, id);
+            }
+            Some(existing) if *existing != id => {
+                log::warn!(
+                    "register(): name '{name}' already mapped to {existing:?}, but newly registered id is \
+                     {id:?}; keeping existing name mapping"
+                );
+            }
+            _ => {}
         }
         self.by_path.insert(canonical_path, id);
 
