@@ -119,8 +119,17 @@ impl ModuleRegistry {
         if let Some(&id) = self.by_path.get(&canonical_path) {
             // Only update by_name if the name isn't already taken
             // This prevents overwriting the entry module's name when __init__.py is found later
-            if !self.by_name.contains_key(&name) {
-                self.by_name.insert(name, id);
+            match self.by_name.get(&name) {
+                None => {
+                    self.by_name.insert(name, id);
+                }
+                Some(existing) if *existing != id => {
+                    log::warn!(
+                        "register(): name '{name}' already mapped to {existing:?}, but path maps to {id:?}; \
+                         keeping existing name mapping"
+                    );
+                }
+                _ => {}
             }
             return id;
         }
