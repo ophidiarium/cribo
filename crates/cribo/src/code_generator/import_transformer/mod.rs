@@ -21,7 +21,10 @@ mod handlers;
 mod state;
 
 use expr_rewriter::ExpressionRewriter;
-use handlers::{dynamic::DynamicHandler, stdlib::StdlibHandler, wrapper::WrapperHandler};
+use handlers::{
+    dynamic::DynamicHandler, inlined::InlinedHandler, stdlib::StdlibHandler,
+    wrapper::WrapperHandler,
+};
 // Re-export the params struct for external use
 pub use state::RecursiveImportTransformerParams;
 use state::TransformerState;
@@ -1011,21 +1014,16 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Check if we're importing a submodule
         if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path) {
             self.handle_submodule_import(module_id, local_name, &full_module_path);
-        } else if self.is_importing_from_inlined_module(resolved_module) {
+        } else if InlinedHandler::is_importing_from_inlined_module(
+            resolved_module,
+            self.state.bundler,
+        ) {
             // Importing from an inlined module - don't track as module alias
             log::debug!(
                 "Not tracking symbol import as module alias: {local_name} is a symbol from \
                  {resolved_module}, not a module alias"
             );
         }
-    }
-
-    /// Check if importing from an inlined module
-    fn is_importing_from_inlined_module(&self, module_name: &str) -> bool {
-        self.state
-            .bundler
-            .get_module_id(module_name)
-            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
     }
 
     /// Handle submodule import tracking
@@ -2234,98 +2232,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                 .bundler
                 .get_module_id(module_name)
                 .and_then(|id| self.state.symbol_renames.get(&id));
-            self.create_namespace_call_for_inlined_module(module_name, module_renames)
+            InlinedHandler::create_namespace_call_for_inlined_module(
+                module_name,
+                module_renames,
+                self.state.bundler,
+            )
         } else {
             // This module wasn't bundled - shouldn't happen for static imports
             log::warn!("Module '{module_name}' referenced in static import but not bundled");
             expressions::none_literal()
         }
-    }
-
-    /// Create a namespace call expression for an inlined module
-    fn create_namespace_call_for_inlined_module(
-        &self,
-        module_name: &str,
-        module_renames: Option<&FxIndexMap<String, String>>,
-    ) -> Expr {
-        // Create a types.SimpleNamespace with all the module's symbols
-        let mut keywords = Vec::new();
-        let mut seen_args = FxIndexSet::default();
-
-        // Add all renamed symbols as keyword arguments, avoiding duplicates
-        if let Some(renames) = module_renames {
-            for (original_name, renamed_name) in renames {
-                // Check if the renamed name was already added
-                if seen_args.contains(renamed_name) {
-                    log::debug!(
-                        "Skipping duplicate namespace argument '{renamed_name}' (from \
-                         '{original_name}') for module '{module_name}'"
-                    );
-                    continue;
-                }
-
-                // Check if this symbol survived tree-shaking
-                let module_id = self
-                    .state
-                    .bundler
-                    .get_module_id(module_name)
-                    .expect("Module should exist");
-                if !self
-                    .state
-                    .bundler
-                    .is_symbol_kept_by_tree_shaking(module_id, original_name)
-                {
-                    log::debug!(
-                        "Skipping tree-shaken symbol '{original_name}' from namespace for module \
-                         '{module_name}'"
-                    );
-                    continue;
-                }
-
-                seen_args.insert(renamed_name.clone());
-
-                keywords.push(expressions::keyword(
-                    Some(original_name),
-                    expressions::name(renamed_name, ExprContext::Load),
-                ));
-            }
-        }
-
-        // Also check if module has module-level variables that weren't renamed
-        if let Some(module_id) = self.state.bundler.get_module_id(module_name)
-            && let Some(exports) = self.state.bundler.module_exports.get(&module_id)
-            && let Some(export_list) = exports
-        {
-            for export in export_list {
-                // Check if this export was already added as a renamed symbol
-                let was_renamed =
-                    module_renames.is_some_and(|renames| renames.contains_key(export));
-                if !was_renamed && !seen_args.contains(export) {
-                    // Check if this symbol survived tree-shaking
-                    if !self
-                        .state
-                        .bundler
-                        .is_symbol_kept_by_tree_shaking(module_id, export)
-                    {
-                        log::debug!(
-                            "Skipping tree-shaken export '{export}' from namespace for module \
-                             '{module_name}'"
-                        );
-                        continue;
-                    }
-
-                    // This export wasn't renamed and wasn't already added, add it directly
-                    seen_args.insert(export.clone());
-                    keywords.push(expressions::keyword(
-                        Some(export),
-                        expressions::name(export, ExprContext::Load),
-                    ));
-                }
-            }
-        }
-
-        // Create types.SimpleNamespace(**kwargs) call
-        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords)
     }
 }
 
