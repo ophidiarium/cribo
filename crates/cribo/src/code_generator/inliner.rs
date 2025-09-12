@@ -69,7 +69,7 @@ impl Bundler<'_> {
         let mut module_renames = FxIndexMap::default();
 
         // Then apply recursive import transformation to the module
-        let mut transformer = RecursiveImportTransformer::new(&RecursiveImportTransformerParams {
+        let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
             bundler: self,
             module_id,
             symbol_renames: ctx.module_renames,
@@ -80,7 +80,7 @@ impl Bundler<'_> {
         transformer.transform_module(&mut ast);
 
         // Copy import aliases from the transformer to the inline context
-        ctx.import_aliases = transformer.import_aliases;
+        ctx.import_aliases = transformer.import_aliases().clone();
 
         // Reorder statements to ensure proper declaration order
         let statements = if self.circular_modules.contains(&module_id) {

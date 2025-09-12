@@ -19,8 +19,12 @@ use crate::{
 };
 
 mod handlers;
+mod state;
 
 use handlers::{dynamic::DynamicHandler, stdlib::StdlibHandler, wrapper::WrapperHandler};
+// Re-export the params struct for external use
+pub use state::RecursiveImportTransformerParams;
+use state::TransformerState;
 
 /// Collect assigned variable names from an assignment target expression.
 /// Supports simple names and destructuring via tuples/lists.
@@ -43,61 +47,9 @@ fn collect_assigned_names(target: &Expr, out: &mut FxIndexSet<String>) {
     }
 }
 
-/// Parameters for creating a `RecursiveImportTransformer`
-#[derive(Debug)]
-pub struct RecursiveImportTransformerParams<'a> {
-    pub bundler: &'a Bundler<'a>,
-    pub module_id: crate::resolver::ModuleId,
-    pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-    pub is_wrapper_init: bool,
-    pub global_deferred_imports:
-        Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
-    pub python_version: u8,
-}
-
 /// Transformer that recursively handles import statements and module references
 pub struct RecursiveImportTransformer<'a> {
-    bundler: &'a Bundler<'a>,
-    module_id: crate::resolver::ModuleId,
-    symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-    /// Maps import aliases to their actual module names
-    /// e.g., "`helper_utils`" -> "utils.helpers"
-    pub(crate) import_aliases: FxIndexMap<String, String>,
-    /// Flag indicating if we're inside a wrapper module's init function
-    is_wrapper_init: bool,
-    /// Reference to global deferred imports registry
-    global_deferred_imports:
-        Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
-    /// Track local variable assignments to avoid treating them as module aliases
-    local_variables: FxIndexSet<String>,
-    /// Track if any `importlib.import_module` calls were transformed
-    pub(crate) importlib_transformed: bool,
-    /// Track variables that were assigned from `importlib.import_module()` of inlined modules
-    /// Maps variable name to the inlined module name
-    importlib_inlined_modules: FxIndexMap<String, String>,
-    /// Track if we created any types.SimpleNamespace calls
-    pub(crate) created_namespace_objects: bool,
-    /// Track imports from wrapper modules that need to be rewritten
-    /// Maps local name to (`wrapper_module`, `original_name`)
-    wrapper_module_imports: FxIndexMap<String, (String, String)>,
-    /// Track which modules have already been populated with symbols in this transformation session
-    /// This prevents duplicate namespace assignments when multiple imports reference the same
-    /// module
-    populated_modules: FxIndexSet<crate::resolver::ModuleId>,
-    /// Track which stdlib modules were actually imported in this module
-    /// This prevents transforming references to stdlib modules that weren't imported
-    imported_stdlib_modules: FxIndexSet<String>,
-    /// Python version for compatibility checks
-    python_version: u8,
-    /// Track whether we're at module level (false when inside any local scope like function,
-    /// class, etc.)
-    at_module_level: bool,
-    /// Track names on the LHS of the current assignment while transforming its RHS.
-    current_assignment_targets: Option<FxIndexSet<String>>,
-    /// Current function body being transformed (for compatibility with existing APIs)
-    current_function_body: Option<Vec<Stmt>>,
-    /// Cached set of symbols used at runtime in the current function (for performance)
-    current_function_used_symbols: Option<FxIndexSet<String>>,
+    state: TransformerState<'a>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -127,8 +79,9 @@ impl<'a> RecursiveImportTransformer<'a> {
         &self,
         full_module_path: &str,
     ) -> Option<(crate::resolver::ModuleId, Vec<String>)> {
-        let module_id = self.bundler.get_module_id(full_module_path)?;
+        let module_id = self.state.bundler.get_module_id(full_module_path)?;
         let exports = self
+            .state
             .bundler
             .module_exports
             .get(&module_id)
@@ -137,9 +90,9 @@ impl<'a> RecursiveImportTransformer<'a> {
         let filtered: Vec<String> = SymbolAnalyzer::filter_exports_by_tree_shaking(
             &exports,
             &module_id,
-            self.bundler.tree_shaking_keep_symbols.as_ref(),
+            self.state.bundler.tree_shaking_keep_symbols.as_ref(),
             false,
-            self.bundler.resolver,
+            self.state.bundler.resolver,
         )
         .into_iter()
         .cloned()
@@ -149,7 +102,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if wrapper import assignments should be skipped due to type-only usage
     fn should_skip_assignments_for_type_only_imports(&self, import_from: &StmtImportFrom) -> bool {
-        if let Some(used_symbols) = &self.current_function_used_symbols {
+        if let Some(used_symbols) = &self.state.current_function_used_symbols {
             let uses_alias = import_from.names.iter().any(|a| {
                 let local = a.asname.as_ref().unwrap_or(&a.name).as_str();
                 used_symbols.contains(local)
@@ -168,26 +121,31 @@ impl<'a> RecursiveImportTransformer<'a> {
         filtered_exports: &[String],
     ) -> bool {
         !filtered_exports.is_empty()
-            && self.bundler.modules_with_explicit_all.contains(&module_id)
             && self
+                .state
+                .bundler
+                .modules_with_explicit_all
+                .contains(&module_id)
+            && self
+                .state
                 .bundler
                 .modules_with_accessed_all
                 .iter()
-                .any(|(module, alias)| module == &self.module_id && alias == local_name)
+                .any(|(module, alias)| module == &self.state.module_id && alias == local_name)
     }
 
     /// Mark namespace as populated for a module path if needed (non-bundled, not yet marked)
     fn mark_namespace_populated_if_needed(&mut self, full_module_path: &str) {
-        let full_module_id = self.bundler.get_module_id(full_module_path);
+        let full_module_id = self.state.bundler.get_module_id(full_module_path);
         let namespace_already_populated =
-            full_module_id.is_some_and(|id| self.populated_modules.contains(&id));
+            full_module_id.is_some_and(|id| self.state.populated_modules.contains(&id));
         let is_bundled_module =
-            full_module_id.is_some_and(|id| self.bundler.bundled_modules.contains(&id));
+            full_module_id.is_some_and(|id| self.state.bundler.bundled_modules.contains(&id));
         if !is_bundled_module
             && !namespace_already_populated
             && let Some(id) = full_module_id
         {
-            self.populated_modules.insert(id);
+            self.state.populated_modules.insert(id);
         }
     }
 
@@ -218,9 +176,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                     ExprContext::Store,
                 );
                 let symbol_name = self
+                    .state
                     .bundler
                     .get_module_id(full_module_path)
-                    .and_then(|id| self.symbol_renames.get(&id))
+                    .and_then(|id| self.state.symbol_renames.get(&id))
                     .and_then(|renames| renames.get(&symbol))
                     .cloned()
                     .unwrap_or_else(|| symbol.clone());
@@ -232,9 +191,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if a module is used as a namespace object (imported as namespace)
     fn is_namespace_object(&self, module_name: &str) -> bool {
-        self.bundler
+        self.state
+            .bundler
             .get_module_id(module_name)
-            .is_some_and(|id| self.bundler.namespace_imported_modules.contains_key(&id))
+            .is_some_and(|id| {
+                self.state
+                    .bundler
+                    .namespace_imported_modules
+                    .contains_key(&id)
+            })
     }
 
     /// Try to rewrite `base.attr_name` where base aliases an inlined module
@@ -249,13 +214,15 @@ impl<'a> RecursiveImportTransformer<'a> {
         let potential_submodule = format!("{actual_module}.{attr_name}");
         // If this points to a wrapper module, don't transform
         if self
+            .state
             .bundler
             .get_module_id(&potential_submodule)
-            .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
+            .is_some_and(|id| self.state.bundler.bundled_modules.contains(&id))
             && !self
+                .state
                 .bundler
                 .get_module_id(&potential_submodule)
-                .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
         {
             log::debug!("Not transforming {base}.{attr_name} - it's a wrapper module access");
             return None;
@@ -270,8 +237,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Prefer semantic rename map if available
-        if let Some(module_id) = self.bundler.get_module_id(actual_module)
-            && let Some(module_renames) = self.symbol_renames.get(&module_id)
+        if let Some(module_id) = self.state.bundler.get_module_id(actual_module)
+            && let Some(module_renames) = self.state.symbol_renames.get(&module_id)
         {
             if let Some(renamed) = module_renames.get(attr_name) {
                 let renamed_str = renamed.clone();
@@ -284,7 +251,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 }));
             }
             // Avoid collapsing to bare name if it would create self-referential assignment
-            if let Some(lhs) = &self.current_assignment_targets
+            if let Some(lhs) = &self.state.current_assignment_targets
                 && lhs.contains(attr_name)
             {
                 log::debug!(
@@ -303,13 +270,14 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Fallback: if module exports include the name, use it directly
         if self
+            .state
             .bundler
             .get_module_id(actual_module)
-            .and_then(|id| self.bundler.module_exports.get(&id))
+            .and_then(|id| self.state.bundler.module_exports.get(&id))
             .and_then(|opt| opt.as_ref())
             .is_some_and(|exports| exports.contains(&attr_name.to_string()))
         {
-            if let Some(lhs) = &self.current_assignment_targets
+            if let Some(lhs) = &self.state.current_assignment_targets
                 && lhs.contains(attr_name)
             {
                 log::debug!(
@@ -359,9 +327,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Check if this submodule is in the parent's __all__ exports
         let parent_exports = self
+            .state
             .bundler
             .module_exports
-            .get(&self.module_id)
+            .get(&self.state.module_id)
             .and_then(|opt| opt.as_ref())
             .is_some_and(|exports| exports.contains(&imported_name.to_string()));
         if !parent_exports {
@@ -370,13 +339,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         let full_submodule_path = format!("{}.{}", self.get_module_name(), imported_name);
         let is_inlined_submodule = self
+            .state
             .bundler
             .get_module_id(&full_submodule_path)
-            .is_some_and(|id| self.bundler.inlined_modules.contains(&id));
+            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id));
         let uses_init_function = self
+            .state
             .bundler
             .get_module_id(&full_submodule_path)
-            .and_then(|id| self.bundler.module_init_functions.get(&id))
+            .and_then(|id| self.state.bundler.module_init_functions.get(&id))
             .is_some();
 
         log::debug!(
@@ -395,16 +366,18 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Double-check if this is actually a module
         let is_actually_a_module = self
+            .state
             .bundler
             .get_module_id(&full_submodule_path)
             .is_some_and(|id| {
-                self.bundler.bundled_modules.contains(&id)
+                self.state.bundler.bundled_modules.contains(&id)
                     || self
+                        .state
                         .bundler
                         .module_info_registry
                         .as_ref()
                         .is_some_and(|reg| reg.contains_module(&id))
-                    || self.bundler.inlined_modules.contains(&id)
+                    || self.state.bundler.inlined_modules.contains(&id)
             });
         if is_actually_a_module {
             log::debug!(
@@ -437,14 +410,15 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Check if base.attr_path[0] forms a complete module name
         let potential_module = format!("{}.{}", actual_module, attr_path[0]);
         if self
+            .state
             .bundler
             .get_module_id(&potential_module)
-            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
             && attr_path.len() == 2
         {
             let final_attr = &attr_path[1];
-            if let Some(module_id) = self.bundler.get_module_id(&potential_module)
-                && let Some(module_renames) = self.symbol_renames.get(&module_id)
+            if let Some(module_id) = self.state.bundler.get_module_id(&potential_module)
+                && let Some(module_renames) = self.state.symbol_renames.get(&module_id)
                 && let Some(renamed) = module_renames.get(final_attr)
             {
                 log::debug!("Rewrote {base}.{}.{final_attr} to {renamed}", attr_path[0]);
@@ -476,50 +450,52 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Create a new transformer from parameters
-    pub fn new(params: &RecursiveImportTransformerParams<'a>) -> Self {
+    pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
         Self {
-            bundler: params.bundler,
-            module_id: params.module_id,
-            symbol_renames: params.symbol_renames,
-            import_aliases: FxIndexMap::default(),
-            is_wrapper_init: params.is_wrapper_init,
-            global_deferred_imports: params.global_deferred_imports,
-            local_variables: FxIndexSet::default(),
-            importlib_transformed: false,
-            importlib_inlined_modules: FxIndexMap::default(),
-            created_namespace_objects: false,
-            wrapper_module_imports: FxIndexMap::default(),
-            populated_modules: FxIndexSet::default(),
-            imported_stdlib_modules: FxIndexSet::default(),
-            python_version: params.python_version,
-            at_module_level: true,
-            current_assignment_targets: None,
-            current_function_body: None,
-            current_function_used_symbols: None,
+            state: TransformerState::new(params),
         }
     }
 
     /// Get whether any types.SimpleNamespace objects were created
     pub fn created_namespace_objects(&self) -> bool {
-        self.created_namespace_objects
+        self.state.created_namespace_objects
+    }
+
+    /// Get the import aliases map
+    pub fn import_aliases(&self) -> &FxIndexMap<String, String> {
+        &self.state.import_aliases
+    }
+
+    /// Get mutable access to the import aliases map
+    pub fn import_aliases_mut(&mut self) -> &mut FxIndexMap<String, String> {
+        &mut self.state.import_aliases
+    }
+
+    /// Get whether importlib transformations occurred
+    pub fn importlib_transformed(&self) -> bool {
+        self.state.importlib_transformed
     }
 
     /// Get the module name from the resolver
     fn get_module_name(&self) -> String {
-        self.bundler
+        self.state
+            .bundler
             .resolver
-            .get_module_name(self.module_id)
-            .unwrap_or_else(|| format!("module#{}", self.module_id))
+            .get_module_name(self.state.module_id)
+            .unwrap_or_else(|| format!("module#{}", self.state.module_id))
     }
 
     /// Get the module path from the resolver
     fn get_module_path(&self) -> Option<std::path::PathBuf> {
-        self.bundler.resolver.get_module_path(self.module_id)
+        self.state
+            .bundler
+            .resolver
+            .get_module_path(self.state.module_id)
     }
 
     /// Check if this is the entry module
     fn is_entry_module(&self) -> bool {
-        self.module_id.is_entry()
+        self.state.module_id.is_entry()
     }
 
     /// Transform a module recursively, handling all imports at any depth
@@ -543,7 +519,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             // First check if this is an import statement that needs transformation
             let is_import = matches!(&stmts[i], Stmt::Import(_) | Stmt::ImportFrom(_));
             let is_hoisted = if is_import {
-                import_deduplicator::is_hoisted_import(self.bundler, &stmts[i])
+                import_deduplicator::is_hoisted_import(self.state.bundler, &stmts[i])
             } else {
                 false
             };
@@ -591,8 +567,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             collect_assigned_names(target, &mut lhs_names);
                         }
 
-                        let saved_targets = self.current_assignment_targets.clone();
-                        self.current_assignment_targets = if lhs_names.is_empty() {
+                        let saved_targets = self.state.current_assignment_targets.clone();
+                        self.state.current_assignment_targets = if lhs_names.is_empty() {
                             None
                         } else {
                             Some(lhs_names)
@@ -602,7 +578,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         if let Expr::Call(call) = &assign_stmt.value.as_ref()
                             && DynamicHandler::is_importlib_import_module_call(
                                 call,
-                                &self.import_aliases,
+                                &self.state.import_aliases,
                             )
                         {
                             // Get assigned names to pass to the handler
@@ -614,8 +590,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             DynamicHandler::handle_importlib_assignment(
                                 &assigned_names,
                                 call,
-                                self.bundler,
-                                &mut self.importlib_inlined_modules,
+                                self.state.bundler,
+                                &mut self.state.importlib_inlined_modules,
                             );
                         }
 
@@ -623,7 +599,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         for target in &assign_stmt.targets {
                             if let Expr::Name(name) = target {
                                 let var_name = name.id.to_string();
-                                self.local_variables.insert(var_name.clone());
+                                self.state.local_variables.insert(var_name.clone());
                             }
                         }
 
@@ -636,7 +612,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_expr(&mut assign_stmt.value);
 
                         // Restore previous context
-                        self.current_assignment_targets = saved_targets;
+                        self.state.current_assignment_targets = saved_targets;
 
                         i += 1;
                         continue;
@@ -694,11 +670,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
 
                         // Save current local variables and create a new scope for the function
-                        let saved_locals = self.local_variables.clone();
+                        let saved_locals = self.state.local_variables.clone();
 
                         // Save the wrapper module imports - these should be scoped to each function
                         // to prevent imports from one function affecting another
-                        let saved_wrapper_imports = self.wrapper_module_imports.clone();
+                        let saved_wrapper_imports = self.state.wrapper_module_imports.clone();
 
                         // Track function parameters as local variables before transforming the body
                         // This prevents incorrect transformation of parameter names that shadow
@@ -706,7 +682,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track positional-only parameters
                         for param in &func_def.parameters.posonlyargs {
-                            self.local_variables
+                            self.state
+                                .local_variables
                                 .insert(param.parameter.name.as_str().to_string());
                             log::debug!(
                                 "Tracking function parameter as local (posonly): {}",
@@ -716,7 +693,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track regular parameters
                         for param in &func_def.parameters.args {
-                            self.local_variables
+                            self.state
+                                .local_variables
                                 .insert(param.parameter.name.as_str().to_string());
                             log::debug!(
                                 "Tracking function parameter as local: {}",
@@ -726,7 +704,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track *args if present
                         if let Some(vararg) = &func_def.parameters.vararg {
-                            self.local_variables
+                            self.state
+                                .local_variables
                                 .insert(vararg.name.as_str().to_string());
                             log::debug!(
                                 "Tracking function parameter as local (vararg): {}",
@@ -736,7 +715,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track keyword-only parameters
                         for param in &func_def.parameters.kwonlyargs {
-                            self.local_variables
+                            self.state
+                                .local_variables
                                 .insert(param.parameter.name.as_str().to_string());
                             log::debug!(
                                 "Tracking function parameter as local (kwonly): {}",
@@ -746,7 +726,9 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track **kwargs if present
                         if let Some(kwarg) = &func_def.parameters.kwarg {
-                            self.local_variables.insert(kwarg.name.as_str().to_string());
+                            self.state
+                                .local_variables
+                                .insert(kwarg.name.as_str().to_string());
                             log::debug!(
                                 "Tracking function parameter as local (kwarg): {}",
                                 kwarg.name.as_str()
@@ -754,21 +736,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
 
                         // Save the current scope level and mark that we're entering a local scope
-                        let saved_at_module_level = self.at_module_level;
-                        self.at_module_level = false;
+                        let saved_at_module_level = self.state.at_module_level;
+                        self.state.at_module_level = false;
 
                         // Save current function context and compute symbol analysis once
-                        let saved_function_body = self.current_function_body.take();
-                        let saved_used_symbols = self.current_function_used_symbols.take();
+                        let saved_function_body = self.state.current_function_body.take();
+                        let saved_used_symbols = self.state.current_function_used_symbols.take();
 
                         // Compute used symbols once from the original body (before transformation)
-                        self.current_function_used_symbols =
+                        self.state.current_function_used_symbols =
                             Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
                                 &func_def.body,
                             ));
 
                         // Set function body for compatibility with existing APIs
-                        self.current_function_body = Some(func_def.body.clone());
+                        self.state.current_function_body = Some(func_def.body.clone());
 
                         // Transform the function body
                         self.transform_statements(&mut func_def.body);
@@ -779,18 +761,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                         Self::hoist_function_globals(func_def);
 
                         // Restore the previous scope level
-                        self.at_module_level = saved_at_module_level;
+                        self.state.at_module_level = saved_at_module_level;
 
                         // Restore the previous function context
-                        self.current_function_body = saved_function_body;
-                        self.current_function_used_symbols = saved_used_symbols;
+                        self.state.current_function_body = saved_function_body;
+                        self.state.current_function_used_symbols = saved_used_symbols;
 
                         // Restore the wrapper module imports to prevent function-level imports from
                         // affecting other functions
-                        self.wrapper_module_imports = saved_wrapper_imports;
+                        self.state.wrapper_module_imports = saved_wrapper_imports;
 
                         // Restore the previous scope's local variables
-                        self.local_variables = saved_locals;
+                        self.state.local_variables = saved_locals;
                     }
                     Stmt::ClassDef(class_def) => {
                         // Transform decorators
@@ -850,7 +832,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                             let mut loop_names = FxIndexSet::default();
                             collect_assigned_names(&for_stmt.target, &mut loop_names);
                             for n in loop_names {
-                                self.local_variables.insert(n.clone());
+                                self.state.local_variables.insert(n.clone());
                                 log::debug!("Tracking for loop variable as local: {n}");
                             }
                         }
@@ -1027,7 +1009,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         let full_module_path = format!("{resolved_module}.{imported_name}");
 
         // Check if we're importing a submodule
-        if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
+        if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path) {
             self.handle_submodule_import(module_id, local_name, &full_module_path);
         } else if self.is_importing_from_inlined_module(resolved_module) {
             // Importing from an inlined module - don't track as module alias
@@ -1040,9 +1022,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if importing from an inlined module
     fn is_importing_from_inlined_module(&self, module_name: &str) -> bool {
-        self.bundler
+        self.state
+            .bundler
             .get_module_id(module_name)
-            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
     }
 
     /// Handle submodule import tracking
@@ -1052,12 +1035,13 @@ impl<'a> RecursiveImportTransformer<'a> {
         local_name: &str,
         full_module_path: &str,
     ) {
-        if !self.bundler.inlined_modules.contains(&module_id) {
+        if !self.state.bundler.inlined_modules.contains(&module_id) {
             return;
         }
 
         // Check if this is a namespace-imported module
         if self
+            .state
             .bundler
             .namespace_imported_modules
             .contains_key(&module_id)
@@ -1066,7 +1050,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         } else if !self.is_entry_module() {
             // Track as alias in non-entry modules
             log::debug!("Tracking module import alias: {local_name} -> {full_module_path}");
-            self.import_aliases
+            self.state
+                .import_aliases
                 .insert(local_name.to_string(), full_module_path.to_string());
         } else {
             log::debug!(
@@ -1079,7 +1064,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Transform a statement, potentially returning multiple statements
     fn transform_statement(&mut self, stmt: &mut Stmt) -> Vec<Stmt> {
         // Check if it's a hoisted import before matching
-        let is_hoisted = import_deduplicator::is_hoisted_import(self.bundler, stmt);
+        let is_hoisted = import_deduplicator::is_hoisted_import(self.state.bundler, stmt);
 
         match stmt {
             Stmt::Import(import_stmt) => {
@@ -1099,15 +1084,19 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Normalize ALL stdlib imports, including those with aliases
                         if StdlibHandler::should_normalize_stdlib_import(
                             module_name,
-                            self.python_version,
+                            self.state.python_version,
                         ) {
                             // Track that this stdlib module was imported
-                            self.imported_stdlib_modules.insert(module_name.to_string());
+                            self.state
+                                .imported_stdlib_modules
+                                .insert(module_name.to_string());
                             // Also track parent modules for dotted imports (e.g., collections.abc
                             // imports collections too)
                             if let Some(dot_pos) = module_name.find('.') {
                                 let parent = &module_name[..dot_pos];
-                                self.imported_stdlib_modules.insert(parent.to_string());
+                                self.state
+                                    .imported_stdlib_modules
+                                    .insert(parent.to_string());
                             }
                             stdlib_imports.push((
                                 module_name.to_string(),
@@ -1125,17 +1114,17 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track these renames for expression rewriting
                         for (local_name, rewritten_path) in rename_map {
-                            self.import_aliases.insert(local_name, rewritten_path);
+                            self.state.import_aliases.insert(local_name, rewritten_path);
                         }
 
                         // If we're in a wrapper module, create local assignments for stdlib imports
-                        if self.is_wrapper_init {
+                        if self.state.is_wrapper_init {
                             let mut assignments = StdlibHandler::handle_wrapper_stdlib_imports(
                                 &stdlib_imports,
-                                self.is_wrapper_init,
-                                self.module_id,
+                                self.state.is_wrapper_init,
+                                self.state.module_id,
                                 &self.get_module_name(),
-                                self.bundler,
+                                self.state.bundler,
                             );
 
                             // If there are non-stdlib imports, keep them and add assignments
@@ -1180,7 +1169,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     log::debug!(
                                         "Tracking importlib alias: {alias_name} -> importlib"
                                     );
-                                    self.import_aliases
+                                    self.state
+                                        .import_aliases
                                         .insert(alias_name.clone(), "importlib".to_string());
                                 }
                             }
@@ -1204,27 +1194,30 @@ impl<'a> RecursiveImportTransformer<'a> {
                         if !self.is_entry_module()
                             && alias.asname.is_some()
                             && self
+                                .state
                                 .bundler
                                 .get_module_id(module_name)
-                                .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                                .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
                         {
                             log::debug!("Tracking import alias: {local_name} -> {module_name}");
-                            self.import_aliases
+                            self.state
+                                .import_aliases
                                 .insert(local_name.to_string(), module_name.to_string());
                         }
                         // Also track importlib aliases for static import resolution (in any module)
                         else if module_name == "importlib" && alias.asname.is_some() {
                             log::debug!("Tracking importlib alias: {local_name} -> importlib");
-                            self.import_aliases
+                            self.state
+                                .import_aliases
                                 .insert(local_name.to_string(), "importlib".to_string());
                         }
                     }
 
                     let result = rewrite_import_with_renames(
-                        self.bundler,
+                        self.state.bundler,
                         new_import.clone(),
-                        self.symbol_renames,
-                        &mut self.populated_modules,
+                        self.state.symbol_renames,
+                        &mut self.state.populated_modules,
                     );
 
                     // Track any aliases created by the import to prevent incorrect stdlib
@@ -1232,7 +1225,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     for alias in &new_import.names {
                         if let Some(asname) = &alias.asname {
                             let local_name = asname.as_str();
-                            self.local_variables.insert(local_name.to_string());
+                            self.state.local_variables.insert(local_name.to_string());
                             log::debug!(
                                 "Tracking import alias as local variable: {} (from {})",
                                 local_name,
@@ -1292,7 +1285,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     "Tracking importlib.import_module alias: {local_name} -> \
                                      importlib.import_module"
                                 );
-                                self.import_aliases.insert(
+                                self.state.import_aliases.insert(
                                     local_name.to_string(),
                                     "importlib.import_module".to_string(),
                                 );
@@ -1303,7 +1296,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // Resolve relative imports first
                     let resolved_module = if import_from.level > 0 {
                         self.get_module_path().as_deref().and_then(|path| {
-                            self.bundler
+                            self.state
+                                .bundler
                                 .resolver
                                 .resolve_relative_to_absolute_module_name(
                                     import_from.level,
@@ -1359,9 +1353,9 @@ impl<'a> RecursiveImportTransformer<'a> {
             if let Some(result) = StdlibHandler::handle_stdlib_from_import(
                 import_from,
                 module_str,
-                self.python_version,
-                &mut self.imported_stdlib_modules,
-                &mut self.import_aliases,
+                self.state.python_version,
+                &mut self.state.imported_stdlib_modules,
+                &mut self.state.import_aliases,
             ) {
                 return result;
             }
@@ -1370,7 +1364,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Resolve relative imports
         let resolved_module = if import_from.level > 0 {
             self.get_module_path().as_deref().and_then(|path| {
-                self.bundler
+                self.state
+                    .bundler
                     .resolver
                     .resolve_relative_to_absolute_module_name(
                         import_from.level,
@@ -1391,7 +1386,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         log::debug!(
             "handle_import_from: resolved_module={:?}, is_wrapper_init={}, current_module={}",
             resolved_module,
-            self.is_wrapper_init,
+            self.state.is_wrapper_init,
             self.get_module_name()
         );
 
@@ -1400,17 +1395,25 @@ impl<'a> RecursiveImportTransformer<'a> {
             && let Some(ref resolved) = resolved_module
         {
             // Check if this is a wrapper module
-            if self.bundler.get_module_id(resolved).is_some_and(|id| {
-                self.bundler
-                    .module_info_registry
-                    .as_ref()
-                    .is_some_and(|reg| reg.contains_module(&id))
-            }) {
+            if self
+                .state
+                .bundler
+                .get_module_id(resolved)
+                .is_some_and(|id| {
+                    self.state
+                        .bundler
+                        .module_info_registry
+                        .as_ref()
+                        .is_some_and(|reg| reg.contains_module(&id))
+                })
+            {
                 // Check if we have access to global deferred imports
-                if let Some(global_deferred) = self.global_deferred_imports {
+                if let Some(global_deferred) = self.state.global_deferred_imports {
                     // Check each symbol to see if it's already been deferred
                     let mut all_symbols_deferred = true;
-                    if let Some(module_id) = self.bundler.resolver.get_module_id_by_name(resolved) {
+                    if let Some(module_id) =
+                        self.state.bundler.resolver.get_module_id_by_name(resolved)
+                    {
                         for alias in &import_from.names {
                             let imported_name = alias.name.as_str(); // The actual name being imported
                             if !global_deferred
@@ -1459,37 +1462,41 @@ impl<'a> RecursiveImportTransformer<'a> {
                 log::debug!(
                     "  inlined_modules contains '{}': {}",
                     full_module_path,
-                    self.bundler
+                    self.state
+                        .bundler
                         .get_module_id(&full_module_path)
-                        .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                        .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
                 );
 
                 // Check if this is importing a submodule (like from . import config)
                 // First check if it's a wrapper submodule, then check if it's inlined
-                let is_wrapper_submodule =
-                    if let Some(submodule_id) = self.bundler.get_module_id(&full_module_path) {
-                        crate::code_generator::module_registry::is_wrapper_submodule(
-                            submodule_id,
-                            self.bundler.module_info_registry,
-                            &self.bundler.inlined_modules,
-                        )
-                    } else {
-                        false
-                    };
+                let is_wrapper_submodule = if let Some(submodule_id) =
+                    self.state.bundler.get_module_id(&full_module_path)
+                {
+                    crate::code_generator::module_registry::is_wrapper_submodule(
+                        submodule_id,
+                        self.state.bundler.module_info_registry,
+                        &self.state.bundler.inlined_modules,
+                    )
+                } else {
+                    false
+                };
 
                 if is_wrapper_submodule {
                     // This is a wrapper submodule
                     log::debug!("  '{full_module_path}' is a wrapper submodule");
 
                     // For wrapper modules importing wrapper submodules from the same package
-                    if self.is_wrapper_init {
+                    if self.state.is_wrapper_init {
                         // Initialize the wrapper submodule if needed
                         // Pass the current module context to avoid recursive initialization
-                        if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
+                        if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path)
+                        {
                             let current_module_id =
-                                self.bundler.get_module_id(&self.get_module_name());
+                                self.state.bundler.get_module_id(&self.get_module_name());
                             result_stmts.extend(
-                                self.bundler
+                                self.state
+                                    .bundler
                                     .create_module_initialization_for_import_with_current_module(
                                         module_id,
                                         current_module_id,
@@ -1506,7 +1513,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track as local to avoid any accidental rewrites later in this transform
                         // pass
-                        self.local_variables.insert(local_name.to_string());
+                        self.state.local_variables.insert(local_name.to_string());
 
                         log::debug!(
                             "  Created assignment for wrapper submodule: {local_name} = \
@@ -1519,7 +1526,11 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         handled_any = true;
                     } else if !self.is_entry_module()
-                        && self.bundler.inlined_modules.contains(&self.module_id)
+                        && self
+                            .state
+                            .bundler
+                            .inlined_modules
+                            .contains(&self.state.module_id)
                     {
                         // This is an inlined module importing a wrapper submodule
                         // We need to defer this import because the wrapper module may not be
@@ -1536,16 +1547,18 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track as local to avoid any accidental rewrites later in this transform
                         // pass
-                        self.local_variables.insert(local_name.to_string());
+                        self.state.local_variables.insert(local_name.to_string());
 
                         handled_any = true;
                     }
-                } else if let Some(module_id) = self.bundler.get_module_id(&full_module_path) {
-                    if self.bundler.inlined_modules.contains(&module_id) {
+                } else if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path)
+                {
+                    if self.state.bundler.inlined_modules.contains(&module_id) {
                         log::debug!("  '{full_module_path}' is an inlined module");
 
                         // Check if this module was namespace imported
                         if self
+                            .state
                             .bundler
                             .namespace_imported_modules
                             .contains_key(&module_id)
@@ -1556,11 +1569,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                             // Use get_module_var_identifier to handle symlinks properly
                             use crate::code_generator::module_registry::get_module_var_identifier;
                             let namespace_var =
-                                get_module_var_identifier(module_id, self.bundler.resolver);
+                                get_module_var_identifier(module_id, self.state.bundler.resolver);
 
                             // Check if this would shadow a stdlib module
-                            let shadows_stdlib =
-                                crate::resolver::is_stdlib_module(local_name, self.python_version);
+                            let shadows_stdlib = crate::resolver::is_stdlib_module(
+                                local_name,
+                                self.state.python_version,
+                            );
 
                             // Only create the assignment if:
                             // 1. We're in the entry module (where user expects the shadowing), OR
@@ -1577,7 +1592,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                 // Track this as a local variable to prevent it from being
                                 // transformed as a stdlib module
-                                self.local_variables.insert(local_name.to_string());
+                                self.state.local_variables.insert(local_name.to_string());
                                 log::debug!(
                                     "  Tracked '{local_name}' as local variable to prevent stdlib \
                                      transformation"
@@ -1594,8 +1609,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // This is importing an inlined submodule
                         // We need to handle this specially when the current module is being inlined
                         // (i.e., not the entry module and not a wrapper module)
-                        let current_module_is_inlined =
-                            self.bundler.inlined_modules.contains(&self.module_id);
+                        let current_module_is_inlined = self
+                            .state
+                            .bundler
+                            .inlined_modules
+                            .contains(&self.state.module_id);
                         let current_module_is_wrapper =
                             !current_module_is_inlined && !self.is_entry_module();
 
@@ -1621,8 +1639,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // instead of compat
                                 // Use get_module_var_identifier to handle symlinks properly
                                 use crate::code_generator::module_registry::get_module_var_identifier;
-                                let namespace_var =
-                                    get_module_var_identifier(module_id, self.bundler.resolver);
+                                let namespace_var = get_module_var_identifier(
+                                    module_id,
+                                    self.state.bundler.resolver,
+                                );
 
                                 // Deferred namespace creation removed; skip no-op branch
 
@@ -1637,7 +1657,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     &namespace_var,
                                     &mut result_stmts,
                                 );
-                                self.created_namespace_objects = true;
+                                self.state.created_namespace_objects = true;
 
                                 // If this is a submodule being imported (from . import compat),
                                 // and the parent module is also being used as a namespace
@@ -1667,7 +1687,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         vec![],
                                     ),
                                 ));
-                                self.created_namespace_objects = true;
+                                self.state.created_namespace_objects = true;
 
                                 self.emit_namespace_symbols_for_local_from_path(
                                     local_name,
@@ -1700,7 +1720,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                             ));
 
                             // Track this as a local variable, not an import alias
-                            self.local_variables.insert(local_name.to_string());
+                            self.state.local_variables.insert(local_name.to_string());
 
                             handled_any = true;
                         }
@@ -1726,23 +1746,37 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         if let Some(ref resolved) = resolved_module {
             // Check if this is an inlined module
-            if let Some(resolved_id) = self.bundler.get_module_id(resolved)
-                && self.bundler.inlined_modules.contains(&resolved_id)
+            if let Some(resolved_id) = self.state.bundler.get_module_id(resolved)
+                && self.state.bundler.inlined_modules.contains(&resolved_id)
             {
                 // Check if this is a circular module with pre-declarations
-                if self.bundler.circular_modules.contains(&resolved_id) {
+                if self.state.bundler.circular_modules.contains(&resolved_id) {
                     log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
                     log::debug!(
                         "  Current module '{}' is circular: {}, is inlined: {}",
                         self.get_module_name(),
-                        self.bundler.circular_modules.contains(&self.module_id),
-                        self.bundler.inlined_modules.contains(&self.module_id)
+                        self.state
+                            .bundler
+                            .circular_modules
+                            .contains(&self.state.module_id),
+                        self.state
+                            .bundler
+                            .inlined_modules
+                            .contains(&self.state.module_id)
                     );
                     // Special handling for imports between circular inlined modules
                     // If the current module is also a circular inlined module, we need to defer or
                     // transform differently
-                    if self.bundler.circular_modules.contains(&self.module_id)
-                        && self.bundler.inlined_modules.contains(&self.module_id)
+                    if self
+                        .state
+                        .bundler
+                        .circular_modules
+                        .contains(&self.state.module_id)
+                        && self
+                            .state
+                            .bundler
+                            .inlined_modules
+                            .contains(&self.state.module_id)
                     {
                         log::debug!(
                             "  Both modules are circular and inlined - transforming to direct \
@@ -1759,21 +1793,35 @@ impl<'a> RecursiveImportTransformer<'a> {
                             log::debug!(
                                 "  Checking if '{full_submodule_path}' is a submodule (bundled: \
                                  {}, inlined: {})",
-                                self.bundler
-                                    .get_module_id(&full_submodule_path)
-                                    .is_some_and(|id| self.bundler.bundled_modules.contains(&id)),
-                                self.bundler
-                                    .get_module_id(&full_submodule_path)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
-                            );
-                            if self
-                                .bundler
-                                .get_module_id(&full_submodule_path)
-                                .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
-                                || self
+                                self.state
                                     .bundler
                                     .get_module_id(&full_submodule_path)
-                                    .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                                    .is_some_and(|id| self
+                                        .state
+                                        .bundler
+                                        .bundled_modules
+                                        .contains(&id)),
+                                self.state
+                                    .bundler
+                                    .get_module_id(&full_submodule_path)
+                                    .is_some_and(|id| self
+                                        .state
+                                        .bundler
+                                        .inlined_modules
+                                        .contains(&id))
+                            );
+                            if self
+                                .state
+                                .bundler
+                                .get_module_id(&full_submodule_path)
+                                .is_some_and(|id| self.state.bundler.bundled_modules.contains(&id))
+                                || self
+                                    .state
+                                    .bundler
+                                    .get_module_id(&full_submodule_path)
+                                    .is_some_and(|id| {
+                                        self.state.bundler.inlined_modules.contains(&id)
+                                    })
                             {
                                 log::debug!(
                                     "  Skipping assignment for '{imported_name}' - it's a \
@@ -1787,8 +1835,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                             // Check if the symbol was renamed during bundling
                             let actual_name = if let Some(resolved_id) =
-                                self.bundler.get_module_id(resolved)
-                                && let Some(renames) = self.symbol_renames.get(&resolved_id)
+                                self.state.bundler.get_module_id(resolved)
+                                && let Some(renames) = self.state.symbol_renames.get(&resolved_id)
                             {
                                 renames
                                     .get(imported_name)
@@ -1810,28 +1858,28 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // Original behavior for non-circular modules importing from circular
                     // modules
                     return handle_imports_from_inlined_module_with_context(
-                        self.bundler,
+                        self.state.bundler,
                         import_from,
                         resolved_id,
-                        self.symbol_renames,
-                        self.is_wrapper_init,
-                        Some(self.module_id),
+                        self.state.symbol_renames,
+                        self.state.is_wrapper_init,
+                        Some(self.state.module_id),
                     );
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
                     // For the entry module, we should not defer these imports
                     // because they need to be available when the entry module's code runs
                     let import_stmts = handle_imports_from_inlined_module_with_context(
-                        self.bundler,
+                        self.state.bundler,
                         import_from,
                         resolved_id,
-                        self.symbol_renames,
-                        self.is_wrapper_init,
-                        Some(self.module_id),
+                        self.state.symbol_renames,
+                        self.state.is_wrapper_init,
+                        Some(self.state.module_id),
                     );
 
                     // Only defer if we're not in the entry module or wrapper init
-                    if self.is_entry_module() || self.is_wrapper_init {
+                    if self.is_entry_module() || self.state.is_wrapper_init {
                         // For entry module and wrapper init functions, return the imports
                         // immediately In wrapper init functions, module
                         // attributes need to be set where the import was
@@ -1857,16 +1905,20 @@ impl<'a> RecursiveImportTransformer<'a> {
             // This check must be after the inlined module check to avoid double-handling
             // A module is a wrapper module if it has an init function
             if self
+                .state
                 .bundler
                 .get_module_id(resolved)
-                .is_some_and(|id| self.bundler.module_init_functions.contains_key(&id))
+                .is_some_and(|id| self.state.bundler.module_init_functions.contains_key(&id))
             {
                 log::debug!("  Module '{resolved}' is a wrapper module");
 
                 // For modules importing from wrapper modules, we may need to defer
                 // the imports to ensure proper initialization order
-                let current_module_is_inlined =
-                    self.bundler.inlined_modules.contains(&self.module_id);
+                let current_module_is_inlined = self
+                    .state
+                    .bundler
+                    .inlined_modules
+                    .contains(&self.state.module_id);
 
                 // When an inlined module imports from a wrapper module, we need to
                 // track the imports and rewrite all usages within the module
@@ -1886,11 +1938,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if let Some((parent, child)) = resolved.rsplit_once('.') {
                         // If the parent is also a wrapper module, DO NOT initialize it here
                         // It will be initialized when accessed
-                        if self
-                            .bundler
-                            .get_module_id(parent)
-                            .is_some_and(|id| self.bundler.module_init_functions.contains_key(&id))
-                        {
+                        if self.state.bundler.get_module_id(parent).is_some_and(|id| {
+                            self.state.bundler.module_init_functions.contains_key(&id)
+                        }) {
                             log::debug!(
                                 "  Parent '{parent}' is a wrapper module - skipping immediate \
                                  initialization"
@@ -1901,9 +1951,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // If the parent is an inlined module, the submodule assignment is handled
                         // by its own initialization, so we only need to log
                         if self
+                            .state
                             .bundler
                             .get_module_id(parent)
-                            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
                         {
                             log::debug!(
                                 "Parent '{parent}' is inlined, submodule '{child}' assignment \
@@ -1931,9 +1982,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // Get module ID if it exists and has an init function
                     let wrapper_module_id = if !is_wildcard && !is_parent_import {
-                        self.bundler
+                        self.state
+                            .bundler
                             .get_module_id(resolved)
-                            .filter(|id| self.bundler.module_init_functions.contains_key(id))
+                            .filter(|id| self.state.bundler.module_init_functions.contains_key(id))
                     } else {
                         None
                     };
@@ -1941,14 +1993,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                     if let Some(module_id) = wrapper_module_id {
                         // Do not emit init calls for the entry package (__init__ or __main__).
                         // Initializing the entry package from submodules can create circular init.
-                        let is_entry_pkg = if self.bundler.entry_is_package_init_or_main {
+                        let is_entry_pkg = if self.state.bundler.entry_is_package_init_or_main {
                             let entry_pkg = [
                                 crate::python::constants::INIT_STEM,
                                 crate::python::constants::MAIN_STEM,
                             ]
                             .iter()
                             .find_map(|stem| {
-                                self.bundler
+                                self.state
+                                    .bundler
                                     .entry_module_name
                                     .strip_suffix(&format!(".{stem}"))
                             });
@@ -1974,17 +2027,17 @@ impl<'a> RecursiveImportTransformer<'a> {
                             };
 
                             let module_var =
-                                get_module_var_identifier(module_id, self.bundler.resolver);
+                                get_module_var_identifier(module_id, self.state.bundler.resolver);
 
                             // If we're not at module level (i.e., inside any local scope), we need
                             // to declare the module variable as global to avoid UnboundLocalError.
                             // However, skip if it conflicts with a local variable (like function
                             // parameters).
-                            if self.at_module_level {
+                            if self.state.at_module_level {
                                 init_stmts.push(module_wrapper::create_wrapper_module_init_call(
                                     &module_var,
                                 ));
-                            } else if !self.local_variables.contains(&module_var) {
+                            } else if !self.state.local_variables.contains(&module_var) {
                                 // Only initialize if no conflict with local variable
                                 log::debug!(
                                     "  Adding global declaration for '{module_var}' (inside local \
@@ -2041,7 +2094,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // Handle wildcard import export assignments
                     if is_wildcard {
-                        WrapperHandler::log_wrapper_wildcard_info(resolved, self.bundler);
+                        WrapperHandler::log_wrapper_wildcard_info(resolved, self.state.bundler);
                         log::debug!(
                             "  Returning {} parent-init statements for wildcard import; wrapper \
                              init + assignments were deferred",
@@ -2053,7 +2106,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // Track each imported symbol for rewriting
                     // Use the canonical module name if we have a wrapper module ID
                     let module_name_for_tracking = if let Some(module_id) = wrapper_module_id {
-                        self.bundler
+                        self.state
+                            .bundler
                             .resolver
                             .get_module_name(module_id)
                             .unwrap_or_else(|| resolved.clone())
@@ -2066,7 +2120,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
                         // Store mapping: local_name -> (wrapper_module, imported_name)
-                        self.wrapper_module_imports.insert(
+                        self.state.wrapper_module_imports.insert(
                             local_name.to_string(),
                             (module_name_for_tracking.clone(), imported_name.to_string()),
                         );
@@ -2078,15 +2132,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
 
                     // If we skipped initialization due to a conflict, also skip the assignments
-                    if !self.at_module_level {
+                    if !self.state.at_module_level {
                         use crate::code_generator::module_registry::get_module_var_identifier;
                         let module_var = if let Some(module_id) = wrapper_module_id {
-                            get_module_var_identifier(module_id, self.bundler.resolver)
+                            get_module_var_identifier(module_id, self.state.bundler.resolver)
                         } else {
                             crate::code_generator::module_registry::sanitize_module_name_for_identifier(resolved)
                         };
 
-                        if self.local_variables.contains(&module_var) {
+                        if self.state.local_variables.contains(&module_var) {
                             // Only skip if alias isn't used at runtime
                             if self.should_skip_assignments_for_type_only_imports(import_from) {
                                 log::debug!(
@@ -2108,15 +2162,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // The rewrite_import_from will handle creating the proper assignments
                     // after the wrapper module is initialized.
                     let mut result = rewrite_import_from(RewriteImportFromParams {
-                        bundler: self.bundler,
+                        bundler: self.state.bundler,
                         import_from: import_from.clone(),
                         current_module: &self.get_module_name(),
                         module_path: self.get_module_path().as_deref(),
-                        symbol_renames: self.symbol_renames,
-                        inside_wrapper_init: self.is_wrapper_init,
-                        at_module_level: self.at_module_level,
-                        python_version: self.python_version,
-                        function_body: self.current_function_body.as_deref(),
+                        symbol_renames: self.state.symbol_renames,
+                        inside_wrapper_init: self.state.is_wrapper_init,
+                        at_module_level: self.state.at_module_level,
+                        python_version: self.state.python_version,
+                        function_body: self.state.current_function_body.as_deref(),
                     });
 
                     // Prepend the init statements to ensure wrapper is initialized before use
@@ -2130,15 +2184,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Otherwise, use standard transformation
         rewrite_import_from(RewriteImportFromParams {
-            bundler: self.bundler,
+            bundler: self.state.bundler,
             import_from: import_from.clone(),
             current_module: &self.get_module_name(),
             module_path: self.get_module_path().as_deref(),
-            symbol_renames: self.symbol_renames,
-            inside_wrapper_init: self.is_wrapper_init,
-            at_module_level: self.at_module_level,
-            python_version: self.python_version,
-            function_body: self.current_function_body.as_deref(),
+            symbol_renames: self.state.symbol_renames,
+            inside_wrapper_init: self.state.is_wrapper_init,
+            at_module_level: self.state.at_module_level,
+            python_version: self.state.python_version,
+            function_body: self.state.current_function_body.as_deref(),
         })
     }
 
@@ -2166,7 +2220,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // to the current module accessed via the parent namespace (e.g.,
                 // rich.console.X inside rich.console __init__) to use `self` directly.
                 // Do this before any other handling to avoid re-entrancy issues.
-                if self.is_wrapper_init {
+                if self.state.is_wrapper_init {
                     let current = self.get_module_name();
                     if let Some((root, rel)) = current.split_once('.') {
                         // Try to find the inner attribute node where value is Name(root)
@@ -2192,12 +2246,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let name = base_name.id.as_str();
 
                     // Check if this is a stdlib module reference (e.g., collections.abc)
-                    if crate::resolver::is_stdlib_module(name, self.python_version) {
+                    if crate::resolver::is_stdlib_module(name, self.state.python_version) {
                         // Check if this stdlib name is shadowed by local variables or imports
                         // In wrapper modules, we only track local_variables which includes imported
                         // names
-                        let is_shadowed = self.local_variables.contains(name)
-                            || self.import_aliases.contains_key(name);
+                        let is_shadowed = self.state.local_variables.contains(name)
+                            || self.state.import_aliases.contains_key(name);
 
                         if !is_shadowed {
                             // Transform stdlib module attribute access to use _cribo proxy
@@ -2232,7 +2286,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
 
                     if let Some((wrapper_module, imported_name)) =
-                        self.wrapper_module_imports.get(name)
+                        self.state.wrapper_module_imports.get(name)
                     {
                         // The base is a wrapper module import, rewrite the entire attribute access
                         // e.g., cookielib.CookieJar -> myrequests.compat.cookielib.CookieJar
@@ -2275,9 +2329,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                             let namespace_path = format!("{}.{}", base, attr_path[0]);
 
                             if self
+                                .state
                                 .bundler
                                 .get_module_id(&namespace_path)
-                                .is_some_and(|id| self.bundler.bundled_modules.contains(&id))
+                                .is_some_and(|id| self.state.bundler.bundled_modules.contains(&id))
                             {
                                 // This is accessing a method/attribute on a namespace object
                                 // created by a dotted import
@@ -2295,7 +2350,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // First check if the base is a variable assigned from
                         // importlib.import_module()
-                        if let Some(module_name) = self.importlib_inlined_modules.get(&base) {
+                        if let Some(module_name) = self.state.importlib_inlined_modules.get(&base) {
                             // This is accessing attributes on a variable that was assigned from
                             // importlib.import_module() of an inlined module
                             if attr_path.len() == 1 {
@@ -2310,14 +2365,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     module_name,
                                     attr_expr.ctx,
                                     attr_expr.range,
-                                    self.bundler,
-                                    self.symbol_renames,
+                                    self.state.bundler,
+                                    self.state.symbol_renames,
                                 );
                                 return;
                             }
                         }
                         // Check if the base is a stdlib import alias (e.g., j for json)
-                        else if let Some(stdlib_path) = self.import_aliases.get(&base) {
+                        else if let Some(stdlib_path) = self.state.import_aliases.get(&base) {
                             // This is accessing an attribute on a stdlib module alias
                             // Transform j.dumps to _cribo.json.dumps
                             if attr_path.len() == 1 {
@@ -2361,9 +2416,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Check if the base refers to an inlined module
                         else if let Some(actual_module) = self.find_module_for_alias(&base)
                             && self
+                                .state
                                 .bundler
                                 .get_module_id(&actual_module)
-                                .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                                .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
                         {
                             log::debug!(
                                 "Found module alias: {base} -> {actual_module} (is_entry_module: \
@@ -2412,29 +2468,31 @@ impl<'a> RecursiveImportTransformer<'a> {
             }
             Expr::Call(call_expr) => {
                 // Check if this is importlib.import_module() with a static string literal
-                if DynamicHandler::is_importlib_import_module_call(call_expr, &self.import_aliases)
-                {
+                if DynamicHandler::is_importlib_import_module_call(
+                    call_expr,
+                    &self.state.import_aliases,
+                ) {
                     // Extract the state values we need to avoid borrow checker conflicts
-                    let mut importlib_transformed = self.importlib_transformed;
-                    let mut created_namespace_objects = self.created_namespace_objects;
+                    let mut importlib_transformed = self.state.importlib_transformed;
+                    let mut created_namespace_objects = self.state.created_namespace_objects;
 
                     if let Some(transformed) = DynamicHandler::transform_importlib_import_module(
                         call_expr,
-                        self.bundler,
+                        self.state.bundler,
                         &mut importlib_transformed,
                         &mut created_namespace_objects,
                         |resolved_name| self.create_module_access_expr(resolved_name),
                     ) {
                         // Update the original fields
-                        self.importlib_transformed = importlib_transformed;
-                        self.created_namespace_objects = created_namespace_objects;
+                        self.state.importlib_transformed = importlib_transformed;
+                        self.state.created_namespace_objects = created_namespace_objects;
                         *expr = transformed;
                         return;
                     }
 
                     // Update the original fields even if no transformation occurred
-                    self.importlib_transformed = importlib_transformed;
-                    self.created_namespace_objects = created_namespace_objects;
+                    self.state.importlib_transformed = importlib_transformed;
+                    self.state.created_namespace_objects = created_namespace_objects;
                 }
 
                 self.transform_expr(&mut call_expr.func);
@@ -2621,7 +2679,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                 // Check if this name is a stdlib import alias that needs rewriting
                 // Only rewrite if it's not shadowed by a local variable
-                if let Some(rewritten_path) = self.import_aliases.get(name) {
+                if let Some(rewritten_path) = self.state.import_aliases.get(name) {
                     // Check if this is a stdlib module reference (starts with _cribo.)
                     if rewritten_path.starts_with(crate::ast_builder::CRIBO_PREFIX)
                         && rewritten_path
@@ -2631,7 +2689,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     {
                         // Use semantic analysis to check if this is shadowed by a local variable
                         let is_shadowed =
-                            if let Some(_semantic_bundler) = self.bundler.semantic_bundler {
+                            if let Some(_semantic_bundler) = self.state.bundler.semantic_bundler {
                                 // Try to find the module in the semantic bundler
                                 // This is a simplified check - in reality we'd need to know the
                                 // exact scope For now, we'll skip
@@ -2658,7 +2716,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                 }
 
                 // Check if this name was imported from a wrapper module and needs rewriting
-                if let Some((wrapper_module, imported_name)) = self.wrapper_module_imports.get(name)
+                if let Some((wrapper_module, imported_name)) =
+                    self.state.wrapper_module_imports.get(name)
                 {
                     log::debug!("Rewriting name '{name}' to '{wrapper_module}.{imported_name}'");
 
@@ -2709,16 +2768,16 @@ impl<'a> RecursiveImportTransformer<'a> {
             "find_module_for_alias: alias={}, is_entry_module={}, local_vars={:?}",
             alias,
             self.is_entry_module(),
-            self.local_variables.contains(alias)
+            self.state.local_variables.contains(alias)
         );
 
         // Don't treat local variables as module aliases
-        if self.local_variables.contains(alias) {
+        if self.state.local_variables.contains(alias) {
             return None;
         }
 
         // First check our tracked import aliases
-        if let Some(module_name) = self.import_aliases.get(alias) {
+        if let Some(module_name) = self.state.import_aliases.get(alias) {
             return Some(module_name.clone());
         }
 
@@ -2727,9 +2786,10 @@ impl<'a> RecursiveImportTransformer<'a> {
         // are namespace objects, not aliases
         if !self.is_entry_module()
             && self
+                .state
                 .bundler
                 .get_module_id(alias)
-                .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+                .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
         {
             Some(alias.to_string())
         } else {
@@ -2741,9 +2801,10 @@ impl<'a> RecursiveImportTransformer<'a> {
     pub fn create_module_access_expr(&self, module_name: &str) -> Expr {
         // Check if this is a wrapper module
         if let Some(synthetic_name) = self
+            .state
             .bundler
             .get_module_id(module_name)
-            .and_then(|id| self.bundler.module_synthetic_names.get(&id))
+            .and_then(|id| self.state.bundler.module_synthetic_names.get(&id))
         {
             // This is a wrapper module - we need to call its init function
             // This handles modules with invalid Python identifiers like "my-module"
@@ -2758,15 +2819,17 @@ impl<'a> RecursiveImportTransformer<'a> {
                 vec![],
             )
         } else if self
+            .state
             .bundler
             .get_module_id(module_name)
-            .is_some_and(|id| self.bundler.inlined_modules.contains(&id))
+            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
         {
             // This is an inlined module - create namespace object
             let module_renames = self
+                .state
                 .bundler
                 .get_module_id(module_name)
-                .and_then(|id| self.symbol_renames.get(&id));
+                .and_then(|id| self.state.symbol_renames.get(&id));
             self.create_namespace_call_for_inlined_module(module_name, module_renames)
         } else {
             // This module wasn't bundled - shouldn't happen for static imports
@@ -2799,10 +2862,12 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                 // Check if this symbol survived tree-shaking
                 let module_id = self
+                    .state
                     .bundler
                     .get_module_id(module_name)
                     .expect("Module should exist");
                 if !self
+                    .state
                     .bundler
                     .is_symbol_kept_by_tree_shaking(module_id, original_name)
                 {
@@ -2823,8 +2888,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Also check if module has module-level variables that weren't renamed
-        if let Some(module_id) = self.bundler.get_module_id(module_name)
-            && let Some(exports) = self.bundler.module_exports.get(&module_id)
+        if let Some(module_id) = self.state.bundler.get_module_id(module_name)
+            && let Some(exports) = self.state.bundler.module_exports.get(&module_id)
             && let Some(export_list) = exports
         {
             for export in export_list {
@@ -2834,6 +2899,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 if !was_renamed && !seen_args.contains(export) {
                     // Check if this symbol survived tree-shaking
                     if !self
+                        .state
                         .bundler
                         .is_symbol_kept_by_tree_shaking(module_id, export)
                     {

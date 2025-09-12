@@ -87,29 +87,3 @@ impl<'a> TransformerState<'a> {
         }
     }
 }
-
-/// Transformer that recursively handles import statements and module references
-pub struct RecursiveImportTransformer<'a> {
-    state: TransformerState<'a>,
-}
-
-impl<'a> RecursiveImportTransformer<'a> {
-    pub(crate) fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
-        Self {
-            state: TransformerState::new(params),
-        }
-    }
-
-    /// Access to public fields that need to remain accessible
-    pub(crate) fn import_aliases(&self) -> &FxIndexMap<String, String> {
-        &self.state.import_aliases
-    }
-
-    pub(crate) fn importlib_transformed(&self) -> bool {
-        self.state.importlib_transformed
-    }
-
-    pub(crate) fn created_namespace_objects(&self) -> bool {
-        self.state.created_namespace_objects
-    }
-}

@@ -2801,7 +2801,7 @@ impl<'a> Bundler<'a> {
             // Transform imports in the entry module
             {
                 let mut transformer = RecursiveImportTransformer::new(
-                    &RecursiveImportTransformerParams {
+                    RecursiveImportTransformerParams {
                         bundler: self,
                         module_id: crate::resolver::ModuleId::ENTRY,
                         symbol_renames: &symbol_renames,
@@ -2847,7 +2847,7 @@ impl<'a> Bundler<'a> {
                     let rewritten_path = Self::get_rewritten_stdlib_path(&module_name);
                     log::debug!("Entry stdlib alias: {alias_name} -> {rewritten_path}");
                     transformer
-                        .import_aliases
+                        .import_aliases_mut()
                         .insert(alias_name, rewritten_path);
                 }
 

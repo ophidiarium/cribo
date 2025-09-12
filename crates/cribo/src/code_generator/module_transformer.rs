@@ -119,7 +119,7 @@ pub fn transform_module_to_init_function<'a>(
 
     // First, recursively transform all imports in the AST
     // For wrapper modules, we don't need to defer imports since they run in their own scope
-    let mut transformer = RecursiveImportTransformer::new(&RecursiveImportTransformerParams {
+    let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
         bundler,
         module_id,
         symbol_renames,
