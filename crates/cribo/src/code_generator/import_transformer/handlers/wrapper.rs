@@ -156,4 +156,131 @@ impl WrapperHandler {
             );
         }
     }
+
+    /// Check if a module path is a wrapper submodule and handle wrapper-to-wrapper imports
+    pub(in crate::code_generator::import_transformer) fn handle_wrapper_submodule_import(
+        full_module_path: &str,
+        local_name: &str,
+        bundler: &Bundler,
+        is_wrapper_init: bool,
+        get_module_name: &str,
+        local_variables: &mut FxIndexSet<String>,
+    ) -> Option<Vec<Stmt>> {
+        let is_wrapper_submodule =
+            if let Some(submodule_id) = bundler.get_module_id(full_module_path) {
+                crate::code_generator::module_registry::is_wrapper_submodule(
+                    submodule_id,
+                    bundler.module_info_registry,
+                    &bundler.inlined_modules,
+                )
+            } else {
+                false
+            };
+
+        if is_wrapper_submodule {
+            log::debug!("  '{full_module_path}' is a wrapper submodule");
+
+            if is_wrapper_init {
+                let mut result_stmts = Vec::new();
+
+                // Initialize the wrapper submodule if needed
+                if let Some(module_id) = bundler.get_module_id(full_module_path) {
+                    let current_module_id = bundler.get_module_id(get_module_name);
+                    result_stmts.extend(
+                        bundler.create_module_initialization_for_import_with_current_module(
+                            module_id,
+                            current_module_id,
+                            /* at_module_level */ true,
+                        ),
+                    );
+                }
+
+                // Create assignment: local_name = parent.submodule
+                use ruff_python_ast::ExprContext;
+
+                use crate::ast_builder::{expressions, statements};
+
+                let module_expr =
+                    expressions::module_reference(full_module_path, ExprContext::Load);
+                result_stmts.push(statements::simple_assign(local_name, module_expr));
+
+                // Track as local to avoid any accidental rewrites later
+                local_variables.insert(local_name.to_string());
+
+                log::debug!(
+                    "  Created assignment for wrapper submodule: {local_name} = {full_module_path}"
+                );
+
+                return Some(result_stmts);
+            }
+            // This is an inlined module importing a wrapper submodule
+            log::debug!(
+                "  Inlined module '{get_module_name}' importing wrapper submodule '{full_module_path}' - deferring"
+            );
+        }
+
+        None
+    }
+
+    /// Try to rewrite an attribute access where the base is a wrapper module import
+    /// Returns `Some(new_expr)` if the rewrite was performed, None otherwise
+    pub(in crate::code_generator::import_transformer) fn try_rewrite_wrapper_attribute(
+        name: &str,
+        attr_expr: &ruff_python_ast::ExprAttribute,
+        wrapper_module_imports: &FxIndexMap<String, (String, String)>,
+    ) -> Option<ruff_python_ast::Expr> {
+        if let Some((wrapper_module, imported_name)) = wrapper_module_imports.get(name) {
+            // The base is a wrapper module import, rewrite the entire attribute access
+            // e.g., cookielib.CookieJar -> myrequests.compat.cookielib.CookieJar
+            log::debug!(
+                "Rewriting attribute '{}.{}' to '{}.{}.{}'",
+                name,
+                attr_expr.attr.as_str(),
+                wrapper_module,
+                imported_name,
+                attr_expr.attr.as_str()
+            );
+
+            use ruff_python_ast::{Expr, ExprContext};
+
+            use crate::ast_builder::expressions;
+
+            // Create wrapper_module.imported_name.attr
+            let base =
+                expressions::name_attribute(wrapper_module, imported_name, ExprContext::Load);
+            let mut new_expr = expressions::attribute(base, attr_expr.attr.as_str(), attr_expr.ctx);
+            // Preserve the original range
+            if let Expr::Attribute(attr) = &mut new_expr {
+                attr.range = attr_expr.range;
+            }
+            return Some(new_expr);
+        }
+        None
+    }
+
+    /// Try to rewrite a name expression that was imported from a wrapper module
+    /// Returns `Some(new_expr)` if the rewrite was performed, None otherwise  
+    pub(in crate::code_generator::import_transformer) fn try_rewrite_wrapper_name(
+        name: &str,
+        name_expr: &ruff_python_ast::ExprName,
+        wrapper_module_imports: &FxIndexMap<String, (String, String)>,
+    ) -> Option<ruff_python_ast::Expr> {
+        if let Some((wrapper_module, imported_name)) = wrapper_module_imports.get(name) {
+            log::debug!("Rewriting name '{name}' to '{wrapper_module}.{imported_name}'");
+
+            use ruff_python_ast::Expr;
+
+            use crate::ast_builder::expressions;
+
+            // Create wrapper_module.imported_name attribute access
+            let mut new_expr =
+                expressions::name_attribute(wrapper_module, imported_name, name_expr.ctx);
+            // Preserve the original range
+            if let Expr::Attribute(attr) = &mut new_expr {
+                attr.range = name_expr.range;
+            }
+            return Some(new_expr);
+        }
+        None
+    }
 }
