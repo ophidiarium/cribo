@@ -926,9 +926,13 @@ impl BundleOrchestrator {
     /// Helper method to find module name in source directories
     fn find_module_in_src_dirs(&self, entry_path: &Path) -> Option<String> {
         log::debug!("find_module_in_src_dirs: src dirs = {:?}", self.config.src);
+        // Canonicalize the entry path to handle relative paths
+        let canonical_entry = entry_path
+            .canonicalize()
+            .unwrap_or_else(|_| entry_path.to_path_buf());
         for src_dir in &self.config.src {
-            log::debug!("Checking if {entry_path:?} starts with {src_dir:?}");
-            let Ok(relative_path) = entry_path.strip_prefix(src_dir) else {
+            log::debug!("Checking if {canonical_entry:?} starts with {src_dir:?}");
+            let Ok(relative_path) = canonical_entry.strip_prefix(src_dir) else {
                 continue;
             };
             log::debug!("Relative path: {relative_path:?}");
@@ -962,6 +966,24 @@ impl BundleOrchestrator {
                 crate::python::constants::INIT_STEM
             );
             return Ok(crate::python::constants::INIT_STEM.to_string());
+        }
+
+        // Special case: If the entry is __main__.py in a package, use the package name
+        let file_name = entry_path.file_name().and_then(|f| f.to_str());
+        log::debug!("Entry file name: {file_name:?}");
+        if file_name.is_some_and(crate::python::module_path::is_main_file_name) {
+            // Try to get the package name from the parent directory
+            if let Some(parent) = entry_path.parent()
+                && let Some(package_name) = self.find_module_in_src_dirs(parent)
+            {
+                log::debug!(
+                    "Entry is {} in package '{}', using package name as module name",
+                    crate::python::constants::MAIN_FILE,
+                    package_name
+                );
+                return Ok(package_name);
+            }
+            // Fall through to normal logic if we can't determine the package name
         }
 
         // Try to find which src directory contains the entry file
@@ -1432,17 +1454,110 @@ impl BundleOrchestrator {
         import_path: PathBuf,
         discovery_params: &mut DiscoveryParams,
     ) {
+        // For first-party modules, derive the actual module name from the path
+        // This is critical for relative imports where the import string might be incomplete
+        // For example, "jupyter" might actually be "rich.jupyter"
+
+        // Special handling for __main__ modules that aren't the entry point
+        // If the import explicitly includes __main__, and this isn't the entry module,
+        // we should preserve the __main__ suffix
+        let is_explicit_main_import = import.ends_with(".__main__");
+        let is_entry_module = discovery_params
+            .resolver
+            .get_module_path(ModuleId::ENTRY)
+            .is_some_and(|entry_path| {
+                entry_path.canonicalize().unwrap_or(entry_path)
+                    == import_path
+                        .canonicalize()
+                        .unwrap_or_else(|_| import_path.clone())
+            });
+
+        // For first-party modules, we need to be careful about module naming:
+        // 1. For __main__ modules that aren't the entry, preserve the __main__ suffix
+        // 2. For relative imports, derive the full module name from the path
+        // 3. For absolute imports, use the import string directly (preserves symlink names)
+        let actual_module_name = if is_explicit_main_import && !is_entry_module {
+            // For non-entry __main__ modules, use the import string directly
+            // to preserve the __main__ suffix
+            log::debug!(
+                "Preserving __main__ suffix for non-entry module: {} at {}",
+                import,
+                import_path.display()
+            );
+            import.to_string()
+        } else if import.starts_with('.') {
+            // This is a relative import that has already been resolved to an absolute path
+            // We should NOT see relative imports here, but if we do, try to derive the name
+            if let Some(module_name) = self.find_module_in_src_dirs(&import_path) {
+                log::debug!(
+                    "Derived module name '{}' from path {} (relative import was '{}')",
+                    module_name,
+                    import_path.display(),
+                    import
+                );
+                module_name
+            } else {
+                log::debug!(
+                    "Could not derive module name from path: {}, using import string: {}",
+                    import_path.display(),
+                    import
+                );
+                import.to_string()
+            }
+        } else {
+            // For absolute imports, check if we need to derive the full module name
+            // This is important for cases where the import might be incomplete (e.g., "jupyter"
+            // instead of "rich.jupyter") But we also need to preserve symlink names
+            if let Some(derived_name) = self.find_module_in_src_dirs(&import_path) {
+                // Check if the derived name is significantly different (has more parts)
+                let import_parts = import.split('.').count();
+                let derived_parts = derived_name.split('.').count();
+
+                if derived_parts > import_parts {
+                    // The derived name has more context (e.g., "rich.jupyter" vs "jupyter")
+                    log::debug!(
+                        "Using derived module name '{}' instead of '{}' for path {}",
+                        derived_name,
+                        import,
+                        import_path.display()
+                    );
+                    derived_name
+                } else {
+                    // Use the import string to preserve things like symlink names
+                    log::debug!(
+                        "Using import string '{}' as module name for path {} (derived would be \
+                         '{}')",
+                        import,
+                        import_path.display(),
+                        derived_name
+                    );
+                    import.to_string()
+                }
+            } else {
+                log::debug!(
+                    "Could not derive module name from path: {}, using import string: {}",
+                    import_path.display(),
+                    import
+                );
+                import.to_string()
+            }
+        };
+
         // Register the module with resolver to get its ID
+        // Note: register_module is idempotent - if the path is already registered,
+        // it returns the existing ID
         let module_id = discovery_params
             .resolver
-            .register_module(import.to_string(), &import_path);
+            .register_module(actual_module_name.clone(), &import_path);
 
         if !discovery_params.processed_modules.contains(&module_id)
             && !discovery_params.queued_modules.contains(&module_id)
         {
             debug!(
-                "Adding '{import}' (ID: {}) to discovery queue",
-                module_id.as_u32()
+                "Adding '{}' (ID: {}) to discovery queue (from import '{}')",
+                actual_module_name,
+                module_id.as_u32(),
+                import
             );
             discovery_params
                 .modules_to_process
@@ -1450,8 +1565,10 @@ impl BundleOrchestrator {
             discovery_params.queued_modules.insert(module_id);
         } else {
             debug!(
-                "Module '{import}' (ID: {}) already processed or queued, skipping",
-                module_id.as_u32()
+                "Module '{}' (ID: {}) already processed or queued, skipping (from import '{}')",
+                actual_module_name,
+                module_id.as_u32(),
+                import
             );
         }
     }

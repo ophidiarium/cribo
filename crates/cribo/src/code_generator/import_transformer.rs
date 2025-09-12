@@ -3172,6 +3172,26 @@ fn emit_dotted_assignment_if_needed_for(
         log::debug!("Skipping redundant self-assignment: {parent}.{attr} = {full_path}");
         return;
     }
+
+    // Avoid emitting duplicate parent.child assignments when the bundler has
+    // already created the namespace chain for this module.
+    // The Bundler tracks created parent->child links using a sanitized parent
+    // variable for multi-level parents and the raw name for top-level parents.
+    let parent_key = if parent.contains('.') {
+        sanitize_module_name_for_identifier(parent)
+    } else {
+        parent.to_string()
+    };
+    if bundler
+        .parent_child_assignments_made
+        .contains(&(parent_key.clone(), attr.to_string()))
+    {
+        log::debug!(
+            "Skipping duplicate dotted assignment: {parent}.{attr} (already created by bundler)"
+        );
+        return;
+    }
+
     result_stmts.push(
         crate::code_generator::namespace_manager::create_attribute_assignment(
             bundler, parent, attr, full_path,
@@ -3579,14 +3599,25 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
     log::trace!("  inlined_modules size: {}", bundler.inlined_modules.len());
     let resolved_module_name = if import_from.level > 0 {
         module_path.and_then(|path| {
-            bundler.resolver.resolve_relative_to_absolute_module_name(
+            log::debug!(
+                "Resolving relative import: level={}, module={:?}, current_path={}",
+                import_from.level,
+                import_from
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str),
+                path.display()
+            );
+            let resolved = bundler.resolver.resolve_relative_to_absolute_module_name(
                 import_from.level,
                 import_from
                     .module
                     .as_ref()
                     .map(ruff_python_ast::Identifier::as_str),
                 path,
-            )
+            );
+            log::debug!("  Resolved to: {resolved:?}");
+            resolved
         })
     } else {
         import_from
@@ -3596,7 +3627,21 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
     };
 
     let Some(module_name) = resolved_module_name else {
-        // If we can't resolve the module, return the original import
+        // If we can't resolve a relative import, this is a critical error
+        // Relative imports are ALWAYS first-party and must be resolvable
+        assert!(
+            import_from.level == 0,
+            "Failed to resolve relative import 'from {} import {:?}' in module '{}'. Relative \
+             imports are always first-party and must be resolvable.",
+            ".".repeat(import_from.level as usize),
+            import_from
+                .names
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>(),
+            current_module
+        );
+        // For absolute imports that can't be resolved, return the original import
         log::warn!(
             "Could not resolve module name for import {:?}, keeping original import",
             import_from
@@ -3688,28 +3733,100 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             );
         }
 
-        // No bundled submodules, keep original import
-        // For relative imports from non-bundled modules, convert to absolute import
+        // Relative imports are ALWAYS first-party and should never be preserved as import
+        // statements
         if import_from.level > 0 {
-            // If module_name is empty, keep the relative import as-is
-            // This happens when importing from the root package
-            if module_name.is_empty() {
+            // Special case: if this resolves to the entry module (ID 0), treat it as inlined
+            // The entry module is always part of the bundle but might not be in bundled_modules set
+            // Check if this is the entry module or entry.__main__
+            let entry_module_id = if let Some(module_id) = bundler.get_module_id(&module_name) {
+                if module_id.is_entry() {
+                    Some(module_id)
+                } else {
+                    None
+                }
+            } else if module_name.ends_with(".__main__") {
+                // Check if this is <entry>.__main__ where <entry> is the entry module
+                let base_module = module_name
+                    .strip_suffix(".__main__")
+                    .expect("checked with ends_with above");
+                log::debug!("  Checking if base module '{base_module}' is entry");
+                let base_id = bundler.get_module_id(base_module);
+                log::debug!("  Base module ID: {base_id:?}");
+                base_id.filter(|id| id.is_entry())
+            } else {
+                None
+            };
+
+            log::debug!(
+                "Checking if '{module_name}' is entry module: entry_module_id={entry_module_id:?}"
+            );
+
+            if let Some(module_id) = entry_module_id {
+                log::debug!(
+                    "Relative import resolves to entry module '{module_name}' (ID {module_id}), \
+                     treating as inlined"
+                );
+                // Get the importing module's ID
+                let importing_module_id = bundler.resolver.get_module_id_by_name(current_module);
+                // Handle imports from the entry module
+                return handle_imports_from_inlined_module_with_context(
+                    bundler,
+                    &import_from,
+                    module_id,
+                    symbol_renames,
+                    inside_wrapper_init,
+                    importing_module_id,
+                );
+            }
+
+            // Special case: imports from __main__ modules that aren't the entry
+            // These might not be discovered if the __main__.py wasn't explicitly imported
+            if module_name.ends_with(".__main__") {
                 log::warn!(
-                    "Keeping relative import with empty resolved module name: from {} import {:?}",
+                    "Relative import 'from {}{}import {:?}' in module '{}' resolves to '{}' which \
+                     is not bundled. This __main__ module may not have been discovered during \
+                     bundling.",
                     ".".repeat(import_from.level as usize),
+                    import_from
+                        .module
+                        .as_ref()
+                        .map(|m| format!("{} ", m.as_str()))
+                        .unwrap_or_default(),
                     import_from
                         .names
                         .iter()
                         .map(|a| a.name.as_str())
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<_>>(),
+                    current_module,
+                    module_name
                 );
+                // Return the original import and let it fail at runtime if the module doesn't exist
+                // This is better than panicking during bundling
                 return vec![Stmt::ImportFrom(import_from)];
             }
-            let mut absolute_import = import_from.clone();
-            absolute_import.level = 0;
-            absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
-            return vec![Stmt::ImportFrom(absolute_import)];
+
+            // Original panic for other non-entry relative imports
+            panic!(
+                "Relative import 'from {}{}import {:?}' in module '{}' resolves to '{}' which is \
+                 not bundled or inlined. This is a bug - relative imports are always first-party \
+                 and should be bundled.",
+                ".".repeat(import_from.level as usize),
+                import_from
+                    .module
+                    .as_ref()
+                    .map(|m| format!("{} ", m.as_str()))
+                    .unwrap_or_default(),
+                import_from
+                    .names
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<_>>(),
+                current_module,
+                module_name
+            );
         }
+        // For absolute imports from non-bundled modules, keep original import
         return vec![Stmt::ImportFrom(import_from)];
     }
 
@@ -3730,20 +3847,19 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         // For relative imports, we need to create an absolute import
         let mut absolute_import = import_from.clone();
         if import_from.level > 0 {
-            // If module_name is empty, keep the relative import as-is
+            // If module_name is empty, this is a critical error
             if module_name.is_empty() {
-                log::warn!(
-                    "Keeping wrapper relative import with empty resolved module name: from {} \
-                     import {:?}",
+                panic!(
+                    "Relative import 'from {} import {:?}' in module '{}' resolved to empty \
+                     module name. This is a bug - relative imports must resolve to a valid module.",
                     ".".repeat(import_from.level as usize),
                     import_from
                         .names
                         .iter()
                         .map(|a| a.name.as_str())
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<_>>(),
+                    current_module
                 );
-                // Keep the original relative import
-                absolute_import = import_from.clone();
             } else {
                 // Convert relative import to absolute
                 absolute_import.level = 0;
@@ -4204,4 +4320,218 @@ fn is_package_init_reexport(bundler: &Bundler, module_name: &str) -> bool {
         }
     }
     false
+}
+
+/// Transform relative import aliases into direct assignments for wrapper init functions
+///
+/// This handles the common pattern `from . import errors, themes` by converting it to
+/// direct assignments to already-available wrapper module variables.
+///
+/// # Arguments
+/// * `bundler` - The bundler instance for module lookups
+/// * `import_from` - The import statement to process
+/// * `parent_package` - The parent package name to use for building full module paths
+/// * `current_module` - The current module name for module attribute assignments
+/// * `result` - Vector to append generated statements to
+/// * `add_module_attr` - Whether to add module attributes for non-private symbols
+pub fn transform_relative_import_aliases(
+    bundler: &Bundler,
+    import_from: &StmtImportFrom,
+    parent_package: &str,
+    current_module: &str,
+    result: &mut Vec<Stmt>,
+    add_module_attr: bool,
+) {
+    for alias in &import_from.names {
+        let imported_name = alias.name.as_str();
+        if imported_name == "*" {
+            continue;
+        }
+
+        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+        // Try to resolve the import to an actual file path
+        // First, construct the expected module name for resolution
+        let full_module_name = if parent_package.is_empty() {
+            imported_name.to_string()
+        } else {
+            format!("{parent_package}.{imported_name}")
+        };
+
+        log::debug!("Attempting to resolve module '{full_module_name}' to a path");
+
+        // Try to resolve the module to a path and then to a ModuleId
+        let module_id = if let Ok(Some(module_path)) =
+            bundler.resolver.resolve_module_path(&full_module_name)
+        {
+            log::debug!(
+                "Resolved '{full_module_name}' to path: {}",
+                module_path.display()
+            );
+            bundler.resolver.get_module_id_by_path(&module_path)
+        } else {
+            log::debug!(
+                "Could not resolve '{full_module_name}' to a path - might be a symbol import, not \
+                 a module"
+            );
+            None
+        };
+
+        // For relative imports in bundled code, we need to distinguish between:
+        // 1. Importing a submodule (e.g., from . import errors where errors.py exists)
+        // 2. Importing a symbol from parent package (e.g., from . import get_console where
+        //    get_console is a function)
+
+        // This is a critical error - the module was registered without its package prefix
+        assert!(
+            !parent_package.is_empty(),
+            "CRITICAL: Module '{current_module}' is missing its package prefix. Relative import \
+             'from . import {imported_name}' cannot be resolved. This is a bug in module \
+             discovery - the module should have been registered with its full package name."
+        );
+
+        // If we couldn't find a module, this might be a symbol import from the parent package
+        // In that case, we should just create a simple assignment
+        let Some(module_id) = module_id else {
+            log::debug!(
+                "Import '{imported_name}' in module '{current_module}' is likely a symbol from \
+                 parent package, not a submodule"
+            );
+
+            // When importing a symbol from the parent package, we need to check if the parent
+            // is inlined and if the symbol needs to be accessed through the parent's namespace
+            let parent_module_id = bundler.get_module_id(parent_package);
+
+            // Common helper to add module attribute if exportable
+            let add_module_attribute_if_needed = |result: &mut Vec<Stmt>| {
+                if add_module_attr && !local_name.starts_with('_') {
+                    let current_module_var = sanitize_module_name_for_identifier(current_module);
+                    result.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment(
+                            &current_module_var,
+                            local_name,
+                        ),
+                    );
+                }
+            };
+
+            // Check if parent is inlined and if we're in a wrapper context
+            // In wrapper init functions, symbols from inlined parent modules need special handling
+            if let Some(parent_id) = parent_module_id
+                && bundler.inlined_modules.contains(&parent_id)
+            {
+                // The parent module is inlined, so its symbols are in the global scope
+                // We need to access them through the parent's namespace object
+                let parent_namespace = sanitize_module_name_for_identifier(parent_package);
+
+                log::debug!(
+                    "Parent package '{parent_package}' is inlined, accessing symbol \
+                     '{imported_name}' through namespace '{parent_namespace}'"
+                );
+
+                // Create: local_name = parent_namespace.imported_name
+                result.push(statements::simple_assign(
+                    local_name,
+                    expressions::attribute(
+                        expressions::name(&parent_namespace, ExprContext::Load),
+                        imported_name,
+                        ExprContext::Load,
+                    ),
+                ));
+
+                add_module_attribute_if_needed(result);
+                continue;
+            }
+
+            // For non-inlined parent or if parent not found, create a simple assignment
+            // The symbol should already be available in the bundled code
+            if local_name != imported_name {
+                result.push(statements::simple_assign(
+                    local_name,
+                    expressions::name(imported_name, ExprContext::Load),
+                ));
+            }
+
+            add_module_attribute_if_needed(result);
+            continue;
+        };
+
+        log::debug!("Found module ID {module_id:?} for '{full_module_name}'");
+        let is_bundled = bundler.bundled_modules.contains(&module_id);
+        let is_inlined = bundler.inlined_modules.contains(&module_id);
+
+        if is_bundled || is_inlined {
+            // This is a bundled or inlined module, create assignment to reference it
+            let module_var = crate::code_generator::module_registry::get_module_var_identifier(
+                module_id,
+                bundler.resolver,
+            );
+
+            // For inlined modules, we need to create a namespace object if it doesn't exist
+            if is_inlined && !bundler.created_namespaces.contains(&module_var) {
+                log::debug!("Creating namespace for inlined module '{full_module_name}'");
+
+                // Create a SimpleNamespace for the inlined module
+                let namespace_stmt = statements::simple_assign(
+                    &module_var,
+                    expressions::call(
+                        expressions::attribute(
+                            expressions::name("_cribo", ExprContext::Load),
+                            "types.SimpleNamespace",
+                            ExprContext::Load,
+                        ),
+                        vec![],
+                        vec![expressions::keyword(
+                            Some("__name__"),
+                            expressions::string_literal(&full_module_name),
+                        )],
+                    ),
+                );
+                result.push(namespace_stmt);
+
+                // Note: We can't modify bundler.created_namespaces here as it's borrowed
+                // immutably The namespace will be tracked elsewhere
+            }
+
+            log::debug!("Creating assignment: {local_name} = {module_var}");
+
+            result.push(statements::simple_assign(
+                local_name,
+                expressions::name(&module_var, ExprContext::Load),
+            ));
+
+            // Add as module attribute
+            if add_module_attr {
+                let current_module_var = sanitize_module_name_for_identifier(current_module);
+                result.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        &current_module_var,
+                        local_name,
+                    ),
+                );
+            }
+            continue;
+        }
+
+        // If not a bundled module, still create an assignment assuming the symbol exists
+        // Only create assignment if names differ to avoid redundant "x = x"
+        if local_name != imported_name {
+            log::debug!("Creating fallback assignment: {local_name} = {imported_name}");
+            result.push(statements::simple_assign(
+                local_name,
+                expressions::name(imported_name, ExprContext::Load),
+            ));
+        }
+
+        // Add as module attribute if exportable and not private
+        if add_module_attr && !local_name.starts_with('_') {
+            let current_module_var = sanitize_module_name_for_identifier(current_module);
+            result.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    &current_module_var,
+                    local_name,
+                ),
+            );
+        }
+    }
 }

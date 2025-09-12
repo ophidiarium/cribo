@@ -736,7 +736,121 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Skip imports that are already hoisted
                 if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
-                    body.push(stmt.clone());
+                    // Handle relative imports that reference the same module (e.g., from . import
+                    // errors) These should be converted to simple assignments
+                    // since the symbols are already available
+                    if import_from.level > 0 {
+                        log::debug!(
+                            "Found relative import in init function for module '{}': from {} \
+                             import {:?}",
+                            ctx.module_name,
+                            ".".repeat(import_from.level as usize),
+                            import_from
+                                .names
+                                .iter()
+                                .map(|a| a.name.as_str())
+                                .collect::<Vec<_>>()
+                        );
+
+                        // Get the module path for the current module
+                        let module_id = bundler.resolver.get_module_id_by_name(ctx.module_name);
+                        let module_path =
+                            module_id.and_then(|id| bundler.resolver.get_module_path(id));
+
+                        log::debug!("Module '{}' has path: {:?}", ctx.module_name, module_path);
+
+                        // Resolve the relative import to absolute module name
+                        let resolved_module = module_path.and_then(|path| {
+                            bundler.resolver.resolve_relative_to_absolute_module_name(
+                                import_from.level,
+                                import_from
+                                    .module
+                                    .as_ref()
+                                    .map(ruff_python_ast::Identifier::as_str),
+                                &path,
+                            )
+                        });
+
+                        log::debug!("Resolved relative import to: {resolved_module:?}");
+
+                        // For wrapper modules doing `from . import`, we need to determine the
+                        // correct base:
+                        // - Package __init__ files: resolved module gives the package itself
+                        // - Regular module files: resolved module is empty (""), use parent package
+                        if import_from.level == 1 && import_from.module.is_none() {
+                            log::debug!(
+                                "Handling 'from . import' in wrapper module '{}', converting to \
+                                 assignments",
+                                ctx.module_name
+                            );
+
+                            // Determine the base module for imports:
+                            // If resolved_module is empty, it means we're in a regular module file
+                            // importing from its parent package, so extract the parent package
+                            // name. Otherwise use the resolved module.
+                            let base_module = match resolved_module.as_deref() {
+                                Some("") | None => {
+                                    // Regular module file: extract parent package
+                                    let parent = ctx
+                                        .module_name
+                                        .rsplit_once('.')
+                                        .map_or("", |(parent, _)| parent);
+                                    log::debug!(
+                                        "Using parent package '{}' as base for relative imports \
+                                         in '{}'",
+                                        parent,
+                                        ctx.module_name
+                                    );
+                                    parent
+                                }
+                                Some(resolved) => {
+                                    log::debug!(
+                                        "Using resolved module '{}' as base for relative imports \
+                                         in '{}'",
+                                        resolved,
+                                        ctx.module_name
+                                    );
+                                    resolved
+                                }
+                            };
+
+                            // Use shared helper to transform relative import aliases
+                            crate::code_generator::import_transformer::transform_relative_import_aliases(
+                                bundler,
+                                import_from,
+                                base_module,
+                                ctx.module_name,
+                                &mut body,
+                                false, // use emit_module_attr_if_exportable instead
+                            );
+
+                            // Handle module attributes with proper exportability checks
+                            for alias in &import_from.names {
+                                let imported_name = alias.name.as_str();
+                                if imported_name != "*" {
+                                    let local_name =
+                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                                    emit_module_attr_if_exportable(
+                                        bundler,
+                                        local_name,
+                                        ctx.module_name,
+                                        &mut body,
+                                        module_scope_symbols,
+                                        None, // not a lifted var
+                                    );
+                                }
+                            }
+                            // Skip adding the original import statement
+                            continue;
+                        }
+
+                        // For other relative imports that don't match our pattern, keep the
+                        // original
+                        body.push(stmt.clone());
+                    } else {
+                        // For non-relative imports, keep the original
+                        body.push(stmt.clone());
+                    }
                 }
 
                 // Module attribute assignments for imported names are already handled by
