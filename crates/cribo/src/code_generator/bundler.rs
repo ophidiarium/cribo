@@ -1580,6 +1580,17 @@ impl<'a> Bundler<'a> {
         if let Some((original, renamed)) = pending_reassignment
             && original != renamed
         {
+            // Avoid reintroducing namespace shadowing for the entry module variable name
+            let entry_var =
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    &self.entry_module_name,
+                );
+            if original == entry_var {
+                log::debug!(
+                    "Skipping alias reassignment '{original}' = '{renamed}' to avoid shadowing entry namespace"
+                );
+                return;
+            }
             // Check if this reassignment already exists in final_body
             let assignment_exists = final_body.iter().any(|stmt| {
                 if let Stmt::Assign(assign) = stmt {
@@ -1989,6 +2000,81 @@ impl<'a> Bundler<'a> {
 
         // Get symbol renames from semantic analysis
         let mut symbol_renames = self.collect_symbol_renames(&modules, &semantic_ctx);
+
+        // Prevent entry-module symbol from shadowing its namespace variable.
+        // Example: entry module "main" defining `def main()` would shadow the
+        // module namespace `main` created for wrapper logic. Pre-register a
+        // rename so both wrapper init and entry body use the renamed symbol.
+        if let Some((entry_ast, _entry_path, _)) = modules.get(&crate::resolver::ModuleId::ENTRY) {
+            // Only perform this rename when the entry module itself is emitted as a wrapper
+            // (i.e., it has an init function). Otherwise, there is no namespace variable that
+            // could be shadowed and no rename is necessary.
+            // Determine if the entry will have a wrapper namespace.
+            // It can be registered as a wrapper either during initial classification or later
+            // when processing strongly connected components (cycles). The latter registers
+            // wrappers for all members of the cycle group, including ENTRY.
+            let entry_is_wrapper = self
+                .module_init_functions
+                .contains_key(&crate::resolver::ModuleId::ENTRY)
+                || self
+                    .circular_modules
+                    .contains(&crate::resolver::ModuleId::ENTRY);
+            if entry_is_wrapper {
+                let entry_mod_name = &self.entry_module_name;
+                let entry_var =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        entry_mod_name,
+                    );
+                let mut entry_map = symbol_renames
+                    .shift_remove(&crate::resolver::ModuleId::ENTRY)
+                    .unwrap_or_default();
+
+                for stmt in &entry_ast.body {
+                    match stmt {
+                        Stmt::FunctionDef(func) if func.name.as_str() == entry_var => {
+                            let renamed = self.get_unique_name_with_module_suffix(
+                                entry_var.as_str(),
+                                entry_mod_name,
+                            );
+                            log::debug!(
+                                "Registering entry-module rename to avoid namespace collision: \
+                                 '{entry_var}' -> '{renamed}'"
+                            );
+                            entry_map.insert(entry_var.clone(), renamed);
+                        }
+                        Stmt::ClassDef(class_def) if class_def.name.as_str() == entry_var => {
+                            let renamed = self.get_unique_name_with_module_suffix(
+                                entry_var.as_str(),
+                                entry_mod_name,
+                            );
+                            log::debug!(
+                                "Registering entry-module class rename to avoid namespace \
+                                 collision: '{entry_var}' -> '{renamed}'"
+                            );
+                            entry_map.insert(entry_var.clone(), renamed);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if !entry_map.is_empty() {
+                    symbol_renames.insert(crate::resolver::ModuleId::ENTRY, entry_map);
+                }
+            } else {
+                // No wrapper for entry module: skip collision rename entirely
+                // to preserve original entry symbols.
+                // This keeps Cribo changes minimal unless required for correctness.
+                //
+                // Rationale: without a wrapper, we do not create a top-level namespace
+                // object named after the entry module (e.g., `main`), so a function/class
+                // named `main` won't shadow anything.
+                //
+                // If future logic introduces an entry namespace in more cases, this guard
+                // ensures renaming remains narrowly scoped to actual conflicts.
+                //
+                // Intentionally do nothing here.
+            }
+        }
 
         // Collect global symbols from the entry module first (for compatibility)
         // Convert to Vec format temporarily for SymbolAnalyzer
