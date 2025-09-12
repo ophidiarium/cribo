@@ -284,7 +284,16 @@ impl<'a> RecursiveImportTransformer<'a> {
         imported_name: &str,
         local_name: &str,
     ) {
-        if import_base != Some(self.get_module_name().as_str()) {
+        if import_base
+            != Some(
+                self.state
+                    .bundler
+                    .resolver
+                    .get_module_name(self.state.module_id)
+                    .unwrap_or_else(|| format!("module#{}", self.state.module_id))
+                    .as_str(),
+            )
+        {
             return;
         }
 
@@ -300,7 +309,15 @@ impl<'a> RecursiveImportTransformer<'a> {
             return;
         }
 
-        let full_submodule_path = format!("{}.{}", self.get_module_name(), imported_name);
+        let full_submodule_path = format!(
+            "{}.{}",
+            self.state
+                .bundler
+                .resolver
+                .get_module_name(self.state.module_id)
+                .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
+            imported_name
+        );
         let is_inlined_submodule = self
             .state
             .bundler
@@ -321,7 +338,11 @@ impl<'a> RecursiveImportTransformer<'a> {
         if is_inlined_submodule || uses_init_function {
             log::debug!(
                 "  Skipping parent module assignment for {}.{} - already handled by init function",
-                self.get_module_name(),
+                self.state
+                    .bundler
+                    .resolver
+                    .get_module_name(self.state.module_id)
+                    .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                 local_name
             );
             return;
@@ -345,7 +366,11 @@ impl<'a> RecursiveImportTransformer<'a> {
         if is_actually_a_module {
             log::debug!(
                 "Skipping assignment for {}.{} - it's a module, not a symbol",
-                self.get_module_name(),
+                self.state
+                    .bundler
+                    .resolver
+                    .get_module_name(self.state.module_id)
+                    .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                 local_name
             );
             return;
@@ -355,7 +380,11 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Original code only logged due to deferred imports removal.
         log::debug!(
             "Creating parent module assignment: {}.{} = {} (symbol exported from parent)",
-            self.get_module_name(),
+            self.state
+                .bundler
+                .resolver
+                .get_module_name(self.state.module_id)
+                .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
             local_name,
             local_name
         );
@@ -434,33 +463,15 @@ impl<'a> RecursiveImportTransformer<'a> {
         &mut self.state.import_aliases
     }
 
-    /// Get the module name from the resolver
-    fn get_module_name(&self) -> String {
-        self.state
-            .bundler
-            .resolver
-            .get_module_name(self.state.module_id)
-            .unwrap_or_else(|| format!("module#{}", self.state.module_id))
-    }
-
-    /// Get the module path from the resolver
-    fn get_module_path(&self) -> Option<std::path::PathBuf> {
-        self.state
-            .bundler
-            .resolver
-            .get_module_path(self.state.module_id)
-    }
-
-    /// Check if this is the entry module
-    fn is_entry_module(&self) -> bool {
-        self.state.module_id.is_entry()
-    }
-
     /// Transform a module recursively, handling all imports at any depth
     pub(crate) fn transform_module(&mut self, module: &mut ModModule) {
         log::debug!(
             "RecursiveImportTransformer::transform_module for '{}'",
-            self.get_module_name()
+            self.state
+                .bundler
+                .resolver
+                .get_module_name(self.state.module_id)
+                .unwrap_or_else(|| format!("module#{}", self.state.module_id))
         );
         // Transform all statements recursively
         self.transform_statements(&mut module.body);
@@ -485,7 +496,11 @@ impl<'a> RecursiveImportTransformer<'a> {
             if is_import {
                 log::debug!(
                     "transform_statements: Found import in module '{}', is_hoisted={}",
-                    self.get_module_name(),
+                    self.state
+                        .bundler
+                        .resolver
+                        .get_module_name(self.state.module_id)
+                        .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                     is_hoisted
                 );
             }
@@ -499,7 +514,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                 log::debug!(
                     "transform_statements: Transforming import in module '{}', got {} statements \
                      back",
-                    self.get_module_name(),
+                    self.state
+                        .bundler
+                        .resolver
+                        .get_module_name(self.state.module_id)
+                        .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                     transformed.len()
                 );
 
@@ -952,7 +971,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             .contains_key(&module_id)
         {
             log::debug!("Not tracking namespace import as alias: {local_name} (namespace module)");
-        } else if !self.is_entry_module() {
+        } else if !self.state.module_id.is_entry() {
             // Track as alias in non-entry modules
             log::debug!("Tracking module import alias: {local_name} -> {full_module_path}");
             self.state
@@ -1028,7 +1047,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 &stdlib_imports,
                                 self.state.is_wrapper_init,
                                 self.state.module_id,
-                                &self.get_module_name(),
+                                &self
+                                    .state
+                                    .bundler
+                                    .resolver
+                                    .get_module_name(self.state.module_id)
+                                    .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                                 self.state.bundler,
                             );
 
@@ -1096,7 +1120,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         // Track if it's an aliased import of an inlined module (but not in entry
                         // module)
-                        if !self.is_entry_module()
+                        if !self.state.module_id.is_entry()
                             && alias.asname.is_some()
                             && self
                                 .state
@@ -1141,7 +1165,11 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
-                        self.get_module_name(),
+                        self.state
+                            .bundler
+                            .resolver
+                            .get_module_name(self.state.module_id)
+                            .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                         import_stmt
                             .names
                             .iter()
@@ -1176,7 +1204,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     .unwrap_or_default()
                             ))
                             .collect::<Vec<_>>(),
-                        self.is_entry_module()
+                        self.state.module_id.is_entry()
                     );
 
                     // Special handling for importlib imports
@@ -1200,19 +1228,24 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // Resolve relative imports first
                     let resolved_module = if import_from.level > 0 {
-                        self.get_module_path().as_deref().and_then(|path| {
-                            self.state
-                                .bundler
-                                .resolver
-                                .resolve_relative_to_absolute_module_name(
-                                    import_from.level,
-                                    import_from
-                                        .module
-                                        .as_ref()
-                                        .map(ruff_python_ast::Identifier::as_str),
-                                    path,
-                                )
-                        })
+                        self.state
+                            .bundler
+                            .resolver
+                            .get_module_path(self.state.module_id)
+                            .as_deref()
+                            .and_then(|path| {
+                                self.state
+                                    .bundler
+                                    .resolver
+                                    .resolve_relative_to_absolute_module_name(
+                                        import_from.level,
+                                        import_from
+                                            .module
+                                            .as_ref()
+                                            .map(ruff_python_ast::Identifier::as_str),
+                                        path,
+                                    )
+                            })
                     } else {
                         import_from
                             .module
@@ -1268,19 +1301,24 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Resolve relative imports
         let resolved_module = if import_from.level > 0 {
-            self.get_module_path().as_deref().and_then(|path| {
-                self.state
-                    .bundler
-                    .resolver
-                    .resolve_relative_to_absolute_module_name(
-                        import_from.level,
-                        import_from
-                            .module
-                            .as_ref()
-                            .map(ruff_python_ast::Identifier::as_str),
-                        path,
-                    )
-            })
+            self.state
+                .bundler
+                .resolver
+                .get_module_path(self.state.module_id)
+                .as_deref()
+                .and_then(|path| {
+                    self.state
+                        .bundler
+                        .resolver
+                        .resolve_relative_to_absolute_module_name(
+                            import_from.level,
+                            import_from
+                                .module
+                                .as_ref()
+                                .map(ruff_python_ast::Identifier::as_str),
+                            path,
+                        )
+                })
         } else {
             import_from
                 .module
@@ -1292,11 +1330,15 @@ impl<'a> RecursiveImportTransformer<'a> {
             "handle_import_from: resolved_module={:?}, is_wrapper_init={}, current_module={}",
             resolved_module,
             self.state.is_wrapper_init,
-            self.get_module_name()
+            self.state
+                .bundler
+                .resolver
+                .get_module_name(self.state.module_id)
+                .unwrap_or_else(|| format!("module#{}", self.state.module_id))
         );
 
         // For entry module, check if this import would duplicate deferred imports
-        if self.is_entry_module()
+        if self.state.module_id.is_entry()
             && let Some(ref resolved) = resolved_module
         {
             // Check if this is a wrapper module
@@ -1355,7 +1397,11 @@ impl<'a> RecursiveImportTransformer<'a> {
             log::debug!(
                 "RecursiveImportTransformer: Checking import from '{}' in module '{}'",
                 resolved_base,
-                self.get_module_name()
+                self.state
+                    .bundler
+                    .resolver
+                    .get_module_name(self.state.module_id)
+                    .unwrap_or_else(|| format!("module#{}", self.state.module_id))
             );
 
             for alias in &import_from.names {
@@ -1397,8 +1443,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Pass the current module context to avoid recursive initialization
                         if let Some(module_id) = self.state.bundler.get_module_id(&full_module_path)
                         {
-                            let current_module_id =
-                                self.state.bundler.get_module_id(&self.get_module_name());
+                            let current_module_id = self.state.bundler.get_module_id(
+                                &self
+                                    .state
+                                    .bundler
+                                    .resolver
+                                    .get_module_name(self.state.module_id)
+                                    .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
+                            );
                             result_stmts.extend(
                                 self.state
                                     .bundler
@@ -1430,7 +1482,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // duplication
 
                         handled_any = true;
-                    } else if !self.is_entry_module()
+                    } else if !self.state.module_id.is_entry()
                         && self
                             .state
                             .bundler
@@ -1442,7 +1494,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // initialized yet
                         log::debug!(
                             "  Inlined module '{}' importing wrapper submodule '{}' - deferring",
-                            self.get_module_name(),
+                            self.state
+                                .bundler
+                                .resolver
+                                .get_module_name(self.state.module_id)
+                                .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                             full_module_path
                         );
 
@@ -1485,7 +1541,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                             // Only create the assignment if:
                             // 1. We're in the entry module (where user expects the shadowing), OR
                             // 2. The name doesn't conflict with stdlib
-                            if self.is_entry_module() || !shadows_stdlib {
+                            if self.state.module_id.is_entry() || !shadows_stdlib {
                                 log::debug!(
                                     "  Creating namespace assignment: {local_name} = \
                                      {namespace_var}"
@@ -1520,9 +1576,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                             .inlined_modules
                             .contains(&self.state.module_id);
                         let current_module_is_wrapper =
-                            !current_module_is_inlined && !self.is_entry_module();
+                            !current_module_is_inlined && !self.state.module_id.is_entry();
 
-                        if !self.is_entry_module()
+                        if !self.state.module_id.is_entry()
                             && (current_module_is_inlined || current_module_is_wrapper)
                         {
                             log::debug!(
@@ -1602,7 +1658,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
 
                             handled_any = true;
-                        } else if !self.is_entry_module() {
+                        } else if !self.state.module_id.is_entry() {
                             // This is a wrapper module importing an inlined module
                             log::debug!(
                                 "  Deferring inlined submodule import in wrapper module: \
@@ -1659,7 +1715,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                     log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
                     log::debug!(
                         "  Current module '{}' is circular: {}, is inlined: {}",
-                        self.get_module_name(),
+                        self.state
+                            .bundler
+                            .resolver
+                            .get_module_name(self.state.module_id)
+                            .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                         self.state
                             .bundler
                             .circular_modules
@@ -1784,7 +1844,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     );
 
                     // Only defer if we're not in the entry module or wrapper init
-                    if self.is_entry_module() || self.state.is_wrapper_init {
+                    if self.state.module_id.is_entry() || self.state.is_wrapper_init {
                         // For entry module and wrapper init functions, return the imports
                         // immediately In wrapper init functions, module
                         // attributes need to be set where the import was
@@ -1827,11 +1887,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                 // When an inlined module imports from a wrapper module, we need to
                 // track the imports and rewrite all usages within the module
-                if !self.is_entry_module() && current_module_is_inlined {
+                if !self.state.module_id.is_entry() && current_module_is_inlined {
                     log::debug!(
                         "  Tracking wrapper module imports for rewriting in module '{}' (inlined: \
                          {})",
-                        self.get_module_name(),
+                        self.state
+                            .bundler
+                            .resolver
+                            .get_module_name(self.state.module_id)
+                            .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
                         current_module_is_inlined
                     );
 
@@ -1880,7 +1944,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // importing from its parent package
                     let is_parent_import = if current_module_is_inlined {
                         // Check if resolved is a parent of the current module
-                        self.get_module_name().starts_with(&format!("{resolved}."))
+                        self.state
+                            .bundler
+                            .resolver
+                            .get_module_name(self.state.module_id)
+                            .unwrap_or_else(|| format!("module#{}", self.state.module_id))
+                            .starts_with(&format!("{resolved}."))
                     } else {
                         false
                     };
@@ -1993,7 +2062,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         log::debug!(
                             "  Skipping init call for parent package '{resolved}' from inlined \
                              submodule '{}'",
-                            self.get_module_name()
+                            self.state
+                                .bundler
+                                .resolver
+                                .get_module_name(self.state.module_id)
+                                .unwrap_or_else(|| format!("module#{}", self.state.module_id))
                         );
                     }
 
@@ -2069,8 +2142,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let mut result = rewrite_import_from(RewriteImportFromParams {
                         bundler: self.state.bundler,
                         import_from: import_from.clone(),
-                        current_module: &self.get_module_name(),
-                        module_path: self.get_module_path().as_deref(),
+                        current_module: &self
+                            .state
+                            .bundler
+                            .resolver
+                            .get_module_name(self.state.module_id)
+                            .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
+                        module_path: self
+                            .state
+                            .bundler
+                            .resolver
+                            .get_module_path(self.state.module_id)
+                            .as_deref(),
                         symbol_renames: self.state.symbol_renames,
                         inside_wrapper_init: self.state.is_wrapper_init,
                         at_module_level: self.state.at_module_level,
@@ -2091,8 +2174,18 @@ impl<'a> RecursiveImportTransformer<'a> {
         rewrite_import_from(RewriteImportFromParams {
             bundler: self.state.bundler,
             import_from: import_from.clone(),
-            current_module: &self.get_module_name(),
-            module_path: self.get_module_path().as_deref(),
+            current_module: &self
+                .state
+                .bundler
+                .resolver
+                .get_module_name(self.state.module_id)
+                .unwrap_or_else(|| format!("module#{}", self.state.module_id)),
+            module_path: self
+                .state
+                .bundler
+                .resolver
+                .get_module_path(self.state.module_id)
+                .as_deref(),
             symbol_renames: self.state.symbol_renames,
             inside_wrapper_init: self.state.is_wrapper_init,
             at_module_level: self.state.at_module_level,
