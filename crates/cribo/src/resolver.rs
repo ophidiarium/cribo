@@ -106,7 +106,8 @@ impl ModuleRegistry {
     }
 
     fn register(&mut self, name: String, path: &Path) -> ModuleId {
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        // `path` is expected to be canonicalized by the caller
+        let canonical_path = path.to_owned();
 
         // Check for duplicates
         if let Some(&id) = self.by_name.get(&name)
@@ -452,7 +453,7 @@ impl ModuleResolver {
 
     /// Get module ID by path (reverse lookup)
     pub fn get_module_id_by_path(&self, path: &Path) -> Option<ModuleId> {
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        let canonical_path = self.canonicalize_path(path.to_path_buf());
         let registry = self.registry.lock().expect("Module registry lock poisoned");
         registry.by_path.get(&canonical_path).copied()
     }
@@ -1414,7 +1415,8 @@ impl ModuleResolver {
     pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
         let mut registry = self.registry.lock().expect("Module registry lock poisoned");
 
-        let id = registry.register(name.clone(), path);
+        let canonical = self.canonicalize_path(path.to_path_buf());
+        let id = registry.register(name.clone(), &canonical);
 
         if id.is_entry() {
             info!("Registered ENTRY module '{name}' at the origin (ID 0)");
