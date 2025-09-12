@@ -1277,9 +1277,12 @@ impl<'a> Bundler<'a> {
                 // another inlined module, we should use the global symbol directly
                 // instead of accessing through the wrapper module. This avoids
                 // circular dependency issues where the wrapper hasn't been initialized yet.
+
+                // Use the resolved module name (not the canonical name) for checking if it's
+                // inlined
                 let value_expr = self.resolve_import_value_expr(ImportResolveParams {
                     module_expr,
-                    module_name,
+                    module_name, // This is the original module name (e.g., "rich")
                     imported_name,
                     at_module_level,
                     inside_wrapper_init,
@@ -1287,16 +1290,30 @@ impl<'a> Bundler<'a> {
                     symbol_renames,
                 });
 
-                let assignment = statements::simple_assign(target_name.as_str(), value_expr);
+                let assignment =
+                    statements::simple_assign(target_name.as_str(), value_expr.clone());
+
+                // Debug log to understand what we're actually generating
+                let value_str = match &value_expr {
+                    Expr::Name(n) => format!("{}", n.id),
+                    Expr::Attribute(a) => {
+                        if let Expr::Name(base) = a.value.as_ref() {
+                            format!("{}.{}", base.id, a.attr)
+                        } else {
+                            format!("<expr>.{}", a.attr)
+                        }
+                    }
+                    _ => "<other>".to_string(),
+                };
 
                 log::debug!(
-                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {}, \
-                     resolved from: {})",
+                    "Generating attribute assignment: {} = {} (inside_wrapper_init: {}, resolved \
+                     from: {}, canonical: {})",
                     target_name.as_str(),
-                    canonical_module_name,
-                    imported_name,
+                    value_str,
                     inside_wrapper_init,
-                    module_name
+                    module_name,
+                    canonical_module_name
                 );
 
                 assignments.push(assignment);
@@ -4861,8 +4878,77 @@ impl Bundler<'_> {
 
     /// Resolve the value expression for an import, handling special cases for circular dependencies
     fn resolve_import_value_expr(&self, params: ImportResolveParams) -> Expr {
-        // Not at module level or inside wrapper init, use normal attribute access
-        if !params.at_module_level || params.inside_wrapper_init {
+        // Special case: inside wrapper init importing from inlined parent
+        if params.inside_wrapper_init {
+            log::debug!(
+                "resolve_import_value_expr: inside wrapper init, module_name='{}', \
+                 imported_name='{}'",
+                params.module_name,
+                params.imported_name
+            );
+
+            // Check if the module we're importing from is inlined
+            if let Some(target_id) = self.get_module_id(params.module_name) {
+                log::debug!(
+                    "  Found module ID {:?} for '{}', is_inlined={}",
+                    target_id,
+                    params.module_name,
+                    self.inlined_modules.contains(&target_id)
+                );
+
+                // Entry modules are special - their namespace is populated at runtime,
+                // so we should access through the namespace object
+                if target_id.is_entry() {
+                    log::debug!(
+                        "Inside wrapper init: accessing '{}' from entry module '{}' through \
+                         namespace",
+                        params.imported_name,
+                        params.module_name
+                    );
+                    // Use the namespace object for entry module
+                    return expressions::attribute(
+                        params.module_expr,
+                        params.imported_name,
+                        ExprContext::Load,
+                    );
+                }
+
+                // Check if explicitly inlined (not entry)
+                if self.inlined_modules.contains(&target_id) {
+                    // The parent module is inlined, so its symbols should be accessed directly
+                    // Check if there's a renamed version of this symbol
+                    if let Some(renames) = params.symbol_renames.get(&target_id)
+                        && let Some(renamed) = renames.get(params.imported_name)
+                    {
+                        log::debug!(
+                            "Inside wrapper init: using renamed symbol '{}' directly for '{}' \
+                             from inlined module '{}'",
+                            renamed,
+                            params.imported_name,
+                            params.module_name
+                        );
+                        return expressions::name(renamed, ExprContext::Load);
+                    }
+
+                    // No rename, use the symbol directly
+                    log::debug!(
+                        "Inside wrapper init: using symbol '{}' directly from inlined module '{}'",
+                        params.imported_name,
+                        params.module_name
+                    );
+                    return expressions::name(params.imported_name, ExprContext::Load);
+                }
+            }
+            // Module is not inlined, use normal attribute access
+            return expressions::attribute(
+                params.module_expr,
+                params.imported_name,
+                ExprContext::Load,
+            );
+        }
+
+        // Not at module level, use normal attribute access
+        if !params.at_module_level {
             return expressions::attribute(
                 params.module_expr,
                 params.imported_name,
