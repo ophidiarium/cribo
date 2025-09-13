@@ -451,138 +451,7 @@ impl<'a> Bundler<'a> {
 
     // (removed) add_all_if_accessed: dead code
 
-    /// Handle wildcard-from imports (`from X import *`) for wrapper modules
-    fn handle_wildcard_import_from_multiple(
-        &self,
-        _import_from: &StmtImportFrom,
-        module_name: &str,
-        inside_wrapper_init: bool,
-        current_module: Option<&str>,
-        at_module_level: bool,
-    ) -> Vec<Stmt> {
-        let mut assignments = Vec::new();
-
-        // Ensure wrapper module is initialized before accessing attributes
-        if let Some(module_id) = self.get_module_id(module_name)
-            && self.module_synthetic_names.contains_key(&module_id)
-        {
-            let current_module_id = current_module.and_then(|m| self.get_module_id(m));
-            assignments.extend(
-                self.create_module_initialization_for_import_with_current_module(
-                    module_id,
-                    current_module_id,
-                    if inside_wrapper_init {
-                        true
-                    } else {
-                        at_module_level
-                    },
-                ),
-            );
-        }
-
-        // Get the module's exports (either from __all__ or all non-private symbols)
-        let module_exports = if let Some(module_id) = self.get_module_id(module_name) {
-            if let Some(Some(export_list)) = self.module_exports.get(&module_id) {
-                export_list.clone()
-            } else if let Some(semantic_exports) = self.semantic_exports.get(&module_id) {
-                semantic_exports.iter().cloned().collect()
-            } else {
-                vec![]
-            }
-        } else {
-            // Fall back to dynamic copying if we don't have static information
-            let module_expr = expressions::module_reference(module_name, ExprContext::Load);
-
-            // Create: for __cribo_attr in dir(module):
-            //             if not __cribo_attr.startswith('_'):
-            //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
-            let attr_var = "__cribo_attr";
-            let dir_call = expressions::call(
-                expressions::name("dir", ExprContext::Load),
-                vec![module_expr.clone()],
-                vec![],
-            );
-
-            let for_loop = statements::for_loop(
-                attr_var,
-                dir_call,
-                vec![statements::if_stmt(
-                    expressions::unary_op(
-                        ruff_python_ast::UnaryOp::Not,
-                        expressions::call(
-                            expressions::attribute(
-                                expressions::name(attr_var, ExprContext::Load),
-                                "startswith",
-                                ExprContext::Load,
-                            ),
-                            vec![expressions::string_literal("_")],
-                            vec![],
-                        ),
-                    ),
-                    vec![statements::subscript_assign(
-                        expressions::call(
-                            expressions::name("globals", ExprContext::Load),
-                            vec![],
-                            vec![],
-                        ),
-                        expressions::name(attr_var, ExprContext::Load),
-                        expressions::call(
-                            expressions::name("getattr", ExprContext::Load),
-                            vec![
-                                module_expr.clone(),
-                                expressions::name(attr_var, ExprContext::Load),
-                            ],
-                            vec![],
-                        ),
-                    )],
-                    vec![],
-                )],
-                vec![],
-            );
-
-            assignments.push(for_loop);
-            return assignments;
-        };
-
-        let module_expr = if module_name.contains('.') {
-            let parts: Vec<&str> = module_name.split('.').collect();
-            expressions::dotted_name(&parts, ExprContext::Load)
-        } else {
-            expressions::name(module_name, ExprContext::Load)
-        };
-
-        // Cache explicit __all__ (if any) to avoid repeated lookups
-        let explicit_all = self
-            .get_module_id(module_name)
-            .and_then(|id| self.module_exports.get(&id))
-            .and_then(|exports| exports.as_ref());
-
-        for symbol_name in &module_exports {
-            if symbol_name.starts_with('_')
-                && !explicit_all.is_some_and(|all| all.contains(symbol_name))
-            {
-                continue;
-            }
-
-            assignments.push(statements::simple_assign(
-                symbol_name,
-                expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
-            ));
-
-            if inside_wrapper_init && let Some(current_mod) = current_module {
-                let module_var = sanitize_module_name_for_identifier(current_mod);
-                assignments.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                            &module_var,
-                            symbol_name,
-                            symbol_name,
-                        ),
-                    );
-            }
-        }
-
-        assignments
-    }
+    // (moved) handle_wildcard_import_from_multiple -> import_transformer::handlers::wrapper
 
     /// Helper to get module ID from name during transition
     pub(crate) fn get_module_id(&self, module_name: &str) -> Option<ModuleId> {
@@ -723,11 +592,9 @@ impl<'a> Bundler<'a> {
         self.transformation_context.create_new_node(reason)
     }
 
-    /// Transform bundled import from statement with context and current module
+    /// Transform bundled import-from with explicit context (wrapper modules)
     ///
-    /// # Parameters
-    /// - `function_body`: Function body for symbol usage filtering. Pass `Some(body)` in function
-    ///   scopes to enable side-effect detection, or `None` at module level to preserve all imports.
+    /// Dispatches to wildcard or symbol import handlers while preserving context flags.
     pub(super) fn transform_bundled_import_from_multiple_with_current_module(
         &self,
         import_from: &StmtImportFrom,
@@ -751,9 +618,9 @@ impl<'a> Bundler<'a> {
             inside_wrapper_init
         );
 
-        // Early dispatch: wildcard imports handled separately
         if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
-            return self.handle_wildcard_import_from_multiple(
+            return crate::code_generator::import_transformer::transform_wrapper_wildcard_import(
+                self,
                 import_from,
                 module_name,
                 inside_wrapper_init,
@@ -762,7 +629,6 @@ impl<'a> Bundler<'a> {
             );
         }
 
-        // Defer to alias/symbol handling path
         let new_context = BundledImportContext {
             inside_wrapper_init,
             at_module_level,
@@ -777,12 +643,15 @@ impl<'a> Bundler<'a> {
         )
     }
 
+    // (moved) transform_bundled_import_from_multiple_with_current_module ->
+    // crate::code_generator::import_transformer::handlers::wrapper::WrapperHandler::rewrite_from_import_for_wrapper_module_with_context
+
     /// Handle non-wildcard from-imports from wrapper modules
     ///
     /// # Parameters
     /// - `function_body`: Function body for symbol usage filtering. Pass `Some(body)` in function
     ///   scopes to enable side-effect detection, or `None` at module level to preserve all imports.
-    fn handle_symbol_imports_from_multiple(
+    pub(super) fn handle_symbol_imports_from_multiple(
         &self,
         import_from: &StmtImportFrom,
         module_name: &str,

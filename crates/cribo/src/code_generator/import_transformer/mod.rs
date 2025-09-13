@@ -36,6 +36,25 @@ pub struct RecursiveImportTransformer<'a> {
     state: TransformerState<'a>,
 }
 
+/// Public bridge for Bundler to delegate wrapper wildcard from-import handling
+pub(crate) fn transform_wrapper_wildcard_import(
+    bundler: &Bundler,
+    import_from: &StmtImportFrom,
+    module_name: &str,
+    inside_wrapper_init: bool,
+    current_module: Option<&str>,
+    at_module_level: bool,
+) -> Vec<Stmt> {
+    handlers::wrapper::WrapperHandler::handle_wildcard_import_from_multiple(
+        bundler,
+        import_from,
+        module_name,
+        inside_wrapper_init,
+        current_module,
+        at_module_level,
+    )
+}
+
 impl<'a> RecursiveImportTransformer<'a> {
     /// Get filtered exports for a full module path, if available
     fn get_filtered_exports_for_path(
@@ -1989,16 +2008,14 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
         }) {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
-            // This is a wrapper module, we need to transform it
-            let context = crate::code_generator::bundler::BundledImportContext {
-                inside_wrapper_init,
-                at_module_level,
-                current_module: Some(current_module),
-            };
-            return bundler.transform_bundled_import_from_multiple_with_current_module(
+            // Route wrapper-module from-import rewriting through the wrapper handler.
+            return handlers::wrapper::WrapperHandler::rewrite_from_import_for_wrapper_module_with_context(
+                bundler,
                 &import_from,
                 &module_name,
-                context,
+                inside_wrapper_init,
+                at_module_level,
+                Some(current_module),
                 symbol_renames,
                 function_body,
             );
@@ -2137,15 +2154,13 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
             }
         }
-        let context = crate::code_generator::bundler::BundledImportContext {
-            inside_wrapper_init,
-            at_module_level,
-            current_module: Some(current_module),
-        };
-        bundler.transform_bundled_import_from_multiple_with_current_module(
+        handlers::wrapper::WrapperHandler::rewrite_from_import_for_wrapper_module_with_context(
+            bundler,
             &absolute_import,
             &module_name,
-            context,
+            inside_wrapper_init,
+            at_module_level,
+            Some(current_module),
             symbol_renames,
             function_body,
         )
