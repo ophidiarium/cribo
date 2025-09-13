@@ -464,6 +464,192 @@ impl InlinedHandler {
 
         result_stmts
     }
+
+    /// Handle from-import on resolved inlined module
+    pub(in crate::code_generator::import_transformer) fn handle_from_import_on_resolved_inlined(
+        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        import_from: &StmtImportFrom,
+        resolved: &str,
+    ) -> Option<Vec<Stmt>> {
+        // Check if this is an inlined module
+        if let Some(resolved_id) = transformer.state.bundler.get_module_id(resolved)
+            && transformer
+                .state
+                .bundler
+                .inlined_modules
+                .contains(&resolved_id)
+        {
+            // Check if this is a circular module with pre-declarations
+            if transformer
+                .state
+                .bundler
+                .circular_modules
+                .contains(&resolved_id)
+            {
+                log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
+                log::debug!(
+                    "  Current module '{}' is circular: {}, is inlined: {}",
+                    transformer
+                        .state
+                        .bundler
+                        .resolver
+                        .get_module_name(transformer.state.module_id)
+                        .unwrap_or_else(|| format!("module#{}", transformer.state.module_id)),
+                    transformer
+                        .state
+                        .bundler
+                        .circular_modules
+                        .contains(&transformer.state.module_id),
+                    transformer
+                        .state
+                        .bundler
+                        .inlined_modules
+                        .contains(&transformer.state.module_id)
+                );
+                // Special handling for imports between circular inlined modules
+                // If the current module is also a circular inlined module, we need to defer or
+                // transform differently
+                if transformer
+                    .state
+                    .bundler
+                    .circular_modules
+                    .contains(&transformer.state.module_id)
+                    && transformer
+                        .state
+                        .bundler
+                        .inlined_modules
+                        .contains(&transformer.state.module_id)
+                {
+                    log::debug!(
+                        "  Both modules are circular and inlined - transforming to direct \
+                         assignments"
+                    );
+                    // Generate direct assignments since both modules will be in the same scope
+                    let mut assignments = Vec::new();
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                        // Check if this is actually a submodule import
+                        let full_submodule_path = format!("{resolved}.{imported_name}");
+                        log::debug!(
+                            "  Checking if '{full_submodule_path}' is a submodule (bundled: {}, \
+                             inlined: {})",
+                            transformer
+                                .state
+                                .bundler
+                                .get_module_id(&full_submodule_path)
+                                .is_some_and(|id| transformer
+                                    .state
+                                    .bundler
+                                    .bundled_modules
+                                    .contains(&id)),
+                            transformer
+                                .state
+                                .bundler
+                                .get_module_id(&full_submodule_path)
+                                .is_some_and(|id| transformer
+                                    .state
+                                    .bundler
+                                    .inlined_modules
+                                    .contains(&id))
+                        );
+                        if transformer
+                            .state
+                            .bundler
+                            .get_module_id(&full_submodule_path)
+                            .is_some_and(|id| {
+                                transformer.state.bundler.bundled_modules.contains(&id)
+                            })
+                            || transformer
+                                .state
+                                .bundler
+                                .get_module_id(&full_submodule_path)
+                                .is_some_and(|id| {
+                                    transformer.state.bundler.inlined_modules.contains(&id)
+                                })
+                        {
+                            log::debug!(
+                                "  Skipping assignment for '{imported_name}' - it's a submodule, \
+                                 not a symbol"
+                            );
+                            // This is a submodule import, not a symbol import
+                            // The submodule will be handled separately, so we don't create an
+                            // assignment
+                            continue;
+                        }
+
+                        // Check if the symbol was renamed during bundling
+                        let actual_name = if let Some(resolved_id) =
+                            transformer.state.bundler.get_module_id(resolved)
+                            && let Some(renames) =
+                                transformer.state.symbol_renames.get(&resolved_id)
+                        {
+                            renames
+                                .get(imported_name)
+                                .map_or(imported_name, String::as_str)
+                        } else {
+                            imported_name
+                        };
+
+                        // Create assignment: local_name = actual_name
+                        if local_name != actual_name {
+                            assignments.push(statements::simple_assign(
+                                local_name,
+                                expressions::name(actual_name, ExprContext::Load),
+                            ));
+                        }
+                    }
+                    return Some(assignments);
+                }
+                // Original behavior for non-circular modules importing from circular
+                // modules
+                return Some(Self::handle_imports_from_inlined_module_with_context(
+                    transformer.state.bundler,
+                    import_from,
+                    resolved_id,
+                    transformer.state.symbol_renames,
+                    transformer.state.is_wrapper_init,
+                    Some(transformer.state.module_id),
+                ));
+            } else {
+                log::debug!("  Module '{resolved}' is inlined, handling import assignments");
+                // For the entry module, we should not defer these imports
+                // because they need to be available when the entry module's code runs
+                let import_stmts = Self::handle_imports_from_inlined_module_with_context(
+                    transformer.state.bundler,
+                    import_from,
+                    resolved_id,
+                    transformer.state.symbol_renames,
+                    transformer.state.is_wrapper_init,
+                    Some(transformer.state.module_id),
+                );
+
+                // Only defer if we're not in the entry module or wrapper init
+                if transformer.state.module_id.is_entry() || transformer.state.is_wrapper_init {
+                    // For entry module and wrapper init functions, return the imports
+                    // immediately In wrapper init functions, module
+                    // attributes need to be set where the import was
+                    if !import_stmts.is_empty() {
+                        return Some(import_stmts);
+                    }
+                    // If handle_imports_from_inlined_module returned empty (e.g., for submodule
+                    // imports), fall through to check if we need to
+                    // handle it differently
+                    log::debug!(
+                        "  handle_imports_from_inlined_module returned empty for entry module or \
+                         wrapper init, checking for submodule imports"
+                    );
+                } else {
+                    // Return the import statements immediately
+                    // These were previously deferred but now need to be added immediately
+                    return Some(import_stmts);
+                }
+            }
+        }
+
+        None
+    }
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules
