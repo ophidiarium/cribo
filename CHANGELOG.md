@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/ophidiarium/cribo/compare/v0.6.0...v0.6.1) (2025-09-13)
+
+
+### Bug Fixes
+
+* handle relative imports in wrapper module init functions ([#356](https://github.com/ophidiarium/cribo/issues/356)) ([3aafafb](https://github.com/ophidiarium/cribo/commit/3aafafb4a2f20c6205212d57fbf866472703b93b))
+
 ## [0.6.0](https://github.com/ophidiarium/cribo/compare/v0.5.19...v0.6.0) (2025-09-09)
 
 
