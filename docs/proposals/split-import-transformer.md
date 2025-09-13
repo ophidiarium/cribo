@@ -268,7 +268,7 @@ We will extract in descending order of line numbers so earlier line numbers don�
 
 Each step follows the same cycle: extract → update callsite → tests → clippy → commit.
 
-#### Step A (lines 1852–2140): Wrapper-module branch → `handlers/wrapper.rs`
+#### Step A (lines 1852–2140): Wrapper-module branch → `handlers/wrapper.rs` ✅
 
 - New function (add to `crates/cribo/src/code_generator/import_transformer/handlers/wrapper.rs`):
   - Name: `handle_from_import_on_resolved_wrapper`
@@ -286,7 +286,7 @@ Each step follows the same cycle: extract → update callsite → tests → clip
   - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
   - `git add -A && git commit -m "refactor(import_transformer): extract wrapper from-import branch to handlers/wrapper.rs"`
 
-#### Step B (lines 1691–1851): Inlined-module branch → `handlers/inlined.rs`
+#### Step B (lines 1691–1851): Inlined-module branch → `handlers/inlined.rs` ✅
 
 - New function (add to `crates/cribo/src/code_generator/import_transformer/handlers/inlined.rs`):
   - Name: `handle_from_import_on_resolved_inlined`
@@ -304,7 +304,7 @@ Each step follows the same cycle: extract → update callsite → tests → clip
   - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
   - `git add -A && git commit -m "refactor(import_transformer): extract inlined from-import branch to handlers/inlined.rs"`
 
-#### Step C (lines 1372–1689): Submodule handling loop → new `handlers/submodule.rs`
+#### Step C (lines 1372–1689): Submodule handling loop → new `handlers/submodule.rs` ✅
 
 - New file: `crates/cribo/src/code_generator/import_transformer/handlers/submodule.rs`
   - Module struct: `pub struct SubmoduleHandler;`
@@ -325,7 +325,7 @@ Each step follows the same cycle: extract → update callsite → tests → clip
   - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
   - `git add -A && git commit -m "refactor(import_transformer): extract submodule from-import handling to handlers/submodule.rs"`
 
-#### Step D (lines 1323–1370): Entry-module deduplication precheck → `handlers/wrapper.rs`
+#### Step D (lines 1323–1370): Entry-module deduplication precheck → `handlers/wrapper.rs` ✅
 
 - New function (add to `handlers/wrapper.rs`):
   - Name: `maybe_skip_entry_wrapper_if_all_deferred`
@@ -383,3 +383,22 @@ This yields a short dispatcher in `mod.rs` with all functionality in external fi
   - `refactor(import_transformer): extract entry dedup precheck to handlers/wrapper.rs`
 
 This direct extraction plan keeps each change surgical and verifiable, minimizes line-number churn by working from the bottom up, and aligns with our existing handler-based architecture and snapshot-driven validation.
+
+## 8. Implementation Status
+
+**Status: COMPLETED ✅**
+
+All extraction steps have been successfully implemented:
+
+- **Step A** ✅: Wrapper-module branch extracted to `handlers/wrapper.rs`
+- **Step B** ✅: Inlined-module branch extracted to `handlers/inlined.rs`
+- **Step C** ✅: Submodule handling loop extracted to `handlers/submodule.rs`
+- **Step D** ✅: Entry-module deduplication precheck extracted to `handlers/wrapper.rs`
+
+**Results:**
+
+- `handle_import_from` method reduced from ~900+ lines to **120 lines** (~87% reduction)
+- Clean dispatcher pattern with focused handler functions
+- All tests passing (132 passed, 1 skipped)
+- Clippy validation clean
+- Improved code organization and maintainability

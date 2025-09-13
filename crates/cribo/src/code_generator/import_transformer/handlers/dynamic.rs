@@ -1,5 +1,4 @@
-use ruff_python_ast::{AtomicNodeIndex, Expr, ExprCall, ExprContext, ExprName};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprName};
 
 use crate::{
     code_generator::bundler::Bundler,
@@ -125,14 +124,14 @@ impl DynamicHandler {
 
     /// For importlib-imported module variables, rewrite `base.attr` to the inlined symbol
     pub(in crate::code_generator::import_transformer) fn rewrite_attr_for_importlib_var(
+        attr_expr: &ExprAttribute,
         base: &str,
-        attr_name: &str,
         module_name: &str,
-        attr_ctx: ExprContext,
-        attr_range: TextRange,
         bundler: &Bundler,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Expr {
+        let attr_name = attr_expr.attr.as_str();
+
         if let Some(module_id) = bundler.get_module_id(module_name)
             && let Some(module_renames) = symbol_renames.get(&module_id)
             && let Some(renamed) = module_renames.get(attr_name)
@@ -145,8 +144,8 @@ impl DynamicHandler {
             return Expr::Name(ExprName {
                 node_index: AtomicNodeIndex::NONE,
                 id: renamed_str.into(),
-                ctx: attr_ctx,
-                range: attr_range,
+                ctx: attr_expr.ctx,
+                range: attr_expr.range,
             });
         }
         // no rename: fallthrough below
@@ -156,8 +155,8 @@ impl DynamicHandler {
         Expr::Name(ExprName {
             node_index: AtomicNodeIndex::NONE,
             id: attr_name.into(),
-            ctx: attr_ctx,
-            range: attr_range,
+            ctx: attr_expr.ctx,
+            range: attr_expr.range,
         })
     }
 

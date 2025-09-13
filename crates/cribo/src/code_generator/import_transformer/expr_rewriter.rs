@@ -180,11 +180,9 @@ impl ExpressionRewriter {
                                      importlib.import_module('{module_name}') [inlined module]"
                                 );
                                 *expr = DynamicHandler::rewrite_attr_for_importlib_var(
+                                    attr_expr,
                                     &base,
-                                    attr_name,
                                     module_name,
-                                    attr_expr.ctx,
-                                    attr_expr.range,
                                     transformer.state.bundler,
                                     transformer.state.symbol_renames,
                                 );
