@@ -1320,53 +1320,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                 .unwrap_or_else(|| format!("module#{}", self.state.module_id))
         );
 
-        // For entry module, check if this import would duplicate deferred imports
-        if self.state.module_id.is_entry()
-            && let Some(ref resolved) = resolved_module
+        // Check if entry module wrapper imports should be skipped due to deduplication
+        if let Some(ref resolved) = resolved_module
+            && WrapperHandler::maybe_skip_entry_wrapper_if_all_deferred(self, import_from, resolved)
         {
-            // Check if this is a wrapper module
-            if self
-                .state
-                .bundler
-                .get_module_id(resolved)
-                .is_some_and(|id| {
-                    self.state
-                        .bundler
-                        .module_info_registry
-                        .as_ref()
-                        .is_some_and(|reg| reg.contains_module(&id))
-                })
-            {
-                // Check if we have access to global deferred imports
-                if let Some(global_deferred) = self.state.global_deferred_imports {
-                    // Check each symbol to see if it's already been deferred
-                    let mut all_symbols_deferred = true;
-                    if let Some(module_id) =
-                        self.state.bundler.resolver.get_module_id_by_name(resolved)
-                    {
-                        for alias in &import_from.names {
-                            let imported_name = alias.name.as_str(); // The actual name being imported
-                            if !global_deferred
-                                .contains_key(&(module_id, imported_name.to_string()))
-                            {
-                                all_symbols_deferred = false;
-                                break;
-                            }
-                        }
-                    } else {
-                        // Module not found, can't be deferred
-                        all_symbols_deferred = false;
-                    }
-
-                    if all_symbols_deferred {
-                        log::debug!(
-                            "  Skipping import from '{resolved}' in entry module - all symbols \
-                             already deferred by inlined modules"
-                        );
-                        return vec![];
-                    }
-                }
-            }
+            return vec![];
         }
 
         // Check if this should be handled by the submodule handler
