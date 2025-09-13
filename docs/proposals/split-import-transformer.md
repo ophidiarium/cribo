@@ -216,96 +216,170 @@ The refactoring has successfully established:
 
 This systematic approach has reduced the original monolithic file by ~27% (~1123+ lines extracted) while establishing the foundation and methodology for completing the full transformation. The successful extraction of the massive `transform_expr` function (~539 lines), completion of four specialized handlers, and systematic utility extraction demonstrates that even the most complex, deeply integrated components can be systematically extracted.
 
-## 7. Next Phase: Orchestrator Method Refactoring ✨
+## 7. Next Phase: Direct Method-by-Method Extraction (handle_import_from)
 
-### 7.1 Current Challenge: The `handle_import_from` Orchestrator
+Goal: Split the large `handle_import_from` method in `crates/cribo/src/code_generator/import_transformer/mod.rs` into smaller, focused functions located in external handler files. We will extract one branch at a time directly to external files, update the callsite, run tests, commit, and repeat.
 
-**Status**: Analysis completed with Gemini AI assistance\
-**Size**: 907 lines - the largest remaining method in the transformer\
-**Type**: Monolithic orchestrator with multiple execution paths\
-**Single Caller**: Only called from `transform_statement` at line 1249
+This section is self-contained and assumes no knowledge of prior revisions.
 
-### 7.2 Gemini Analysis Results
+### 7.1 Ground Rules
 
-The `handle_import_from` method is a classic **God Method anti-pattern** that contains intertwined logic for different module types, import styles, and optimizations. It violates the Single Responsibility Principle by handling:
+- Only extract one logical branch per commit.
+- After each extraction: run tests, run clippy, and commit.
+- If any snapshot changes unexpectedly, STOP and investigate before proceeding.
+- Do not hardcode test-specific values in production code (see project policy).
+- Enforce `.clippy.toml` disallowed lists before and after each step.
 
-- **Module Type Detection**: Inlined vs Wrapper vs Stdlib vs Dynamic modules
-- **Import Style Processing**: Named imports, aliased imports, star imports
-- **Optimization Logic**: Tree-shaking, type-only import elimination
-- **State Management**: Symbol renames, namespace population tracking
+Useful commands:
 
-### 7.3 Identified Execution Paths
+```
+# Verify GH CLI is configured if pushing PRs
+gh auth status
 
-Gemini identified **4 distinct execution paths** that can be extracted to appropriate handlers:
+# Run tests (workspace-wide)
+cargo nextest run --workspace
 
-#### **Path 1: Inlined Module Import Processing**
+# Run clippy
+cargo clippy --workspace --all-targets
 
-- **Target Handler**: `handlers/inlined.rs`
-- **Logic**: Imports from modules inlined into the bundle
-- **Behavior**: Records symbol mappings, discards original import, delegates to expression rewriter
-- **Complexity**: O(n) where n = number of imported symbols
+# Snapshot workflow (if needed)
+cargo insta accept
+```
 
-#### **Path 2: Wrapper Module Import Processing**
+### 7.2 Current Code Locations (as of HEAD)
 
-- **Target Handler**: `handlers/wrapper.rs`
-- **Logic**: Imports from wrapper modules (bundled but not inlined)
-- **Behavior**: Generates assignment statements like `h = _cribo_bundle.utils.helper`
-- **Includes**: Type-only import optimization logic
+File: `crates/cribo/src/code_generator/import_transformer/mod.rs`
 
-#### **Path 3: Namespace Population Processing**
+- `transform_statement` calls `handle_import_from` at line 1249
+- `handle_import_from` starts at line 1257
+- `rewrite_import_from` starts at line 2624 (keep as-is for now)
 
-- **Target Handler**: New utility or existing structure
-- **Logic**: Creates and populates namespace objects with symbols
-- **Behavior**: Generates `utils = types.SimpleNamespace()` and attribute assignments
-- **Includes**: Tree-shaking integration, `__all__` generation logic
+Within `handle_import_from`, the key branches and exact line ranges are:
 
-#### **Path 4: Stdlib/Dynamic Import Processing**
+1. Entry-module deduplication precheck: lines 1323–1370
+2. Submodule handling loop (wrapper/inlined/namespace): lines 1372–1689
+3. Resolved inlined-module handling (incl. circular modules): lines 1691–1851
+4. Resolved wrapper-module handling (initialization + aliasing): lines 1852–2140
+5. Fallback to `rewrite_import_from`: lines 2141–2163
 
-- **Target Handler**: `handlers/stdlib.rs` or minimal orchestrator logic
-- **Logic**: Standard library or external imports that pass through unchanged
-- **Behavior**: Returns original import statement unmodified
+We will extract in descending order of line numbers so earlier line numbers don’t shift.
 
-### 7.4 Implementation Strategy
+### 7.3 Extraction Order and Concrete Steps
 
-**Phase 1: Internal Method Decomposition**
+Each step follows the same cycle: extract → update callsite → tests → clippy → commit.
 
-1. Create private methods within `handle_import_from` for each execution path:
-   - `handle_inlined_import_from_internal()`
-   - `handle_wrapper_import_from_internal()`
-   - `handle_namespace_population_internal()`
-   - `handle_stdlib_dynamic_import_internal()`
+#### Step A (lines 1852–2140): Wrapper-module branch → `handlers/wrapper.rs`
 
-2. Refactor main method to resolve module type and dispatch to appropriate internal method
-3. Validate with existing tests to ensure no behavioral changes
+- New function (add to `crates/cribo/src/code_generator/import_transformer/handlers/wrapper.rs`):
+  - Name: `handle_from_import_on_resolved_wrapper`
+  - Visibility: `pub(in crate::code_generator::import_transformer)`
+  - Signature:
+    - `fn handle_from_import_on_resolved_wrapper(
+         transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+         import_from: &ruff_python_ast::StmtImportFrom,
+         resolved: &str,
+       ) -> Option<Vec<ruff_python_ast::Stmt>>`
+  - Behavior: Move logic from lines 1852–2140 into this function; return `Some(stmts)` when it fully handles the import (including init + alias assignments); otherwise return `None` to allow fallback.
+- Callsite change in `handle_import_from` (replace the branch body with):
+  - `if let Some(stmts) = handlers::wrapper::WrapperHandler::handle_from_import_on_resolved_wrapper(self, import_from, resolved) { return stmts; }`
+- Validate and commit:
+  - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
+  - `git add -A && git commit -m "refactor(import_transformer): extract wrapper from-import branch to handlers/wrapper.rs"`
 
-**Phase 2: Handler Integration**
+#### Step B (lines 1691–1851): Inlined-module branch → `handlers/inlined.rs`
 
-1. Move logic from internal methods to appropriate handler structs
-2. Update handlers to accept transformer reference and return transformed statements
-3. Replace internal method calls with handler method calls
-4. Validate each handler integration separately
+- New function (add to `crates/cribo/src/code_generator/import_transformer/handlers/inlined.rs`):
+  - Name: `handle_from_import_on_resolved_inlined`
+  - Visibility: `pub(in crate::code_generator::import_transformer)`
+  - Signature:
+    - `fn handle_from_import_on_resolved_inlined(
+         transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+         import_from: &ruff_python_ast::StmtImportFrom,
+         resolved: &str,
+       ) -> Option<Vec<ruff_python_ast::Stmt>>`
+  - Behavior: Move logic from lines 1691–1851 (including circular-module special case and the call to `handle_imports_from_inlined_module_with_context`) into this function; return `Some(stmts)` when handled; otherwise `None` to continue.
+- Callsite change:
+  - Before wrapper branch, insert the call: `if let Some(stmts) = handlers::inlined::InlinedHandler::handle_from_import_on_resolved_inlined(self, import_from, resolved) { return stmts; }`
+- Validate and commit:
+  - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
+  - `git add -A && git commit -m "refactor(import_transformer): extract inlined from-import branch to handlers/inlined.rs"`
 
-**Phase 3: Orchestrator Simplification**
+#### Step C (lines 1372–1689): Submodule handling loop → new `handlers/submodule.rs`
 
-1. Reduce main `handle_import_from` to pure dispatch logic:
-   - Module resolution and type detection
-   - Handler selection and invocation
-   - Result aggregation if needed
-2. Final validation with complete test suite
+- New file: `crates/cribo/src/code_generator/import_transformer/handlers/submodule.rs`
+  - Module struct: `pub struct SubmoduleHandler;`
+  - New function:
+    - Name: `handle_from_import_submodules`
+    - Visibility: `pub(in crate::code_generator::import_transformer)`
+    - Signature:
+      - `fn handle_from_import_submodules(
+           transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+           import_from: &ruff_python_ast::StmtImportFrom,
+           resolved_base: &str,
+         ) -> Option<Vec<ruff_python_ast::Stmt>>`
+    - Behavior: Move the entire block from lines 1372–1689 (setup, loop over aliases, wrapper submodule handling, inlined submodule namespace creation/aliasing, `handled_any` logic) into this function; return `Some(stmts)` when handled; otherwise `None`.
+- Wire the new module in `handlers/mod.rs`.
+- Callsite change (right after computing `resolved_module`):
+  - `if let Some(ref resolved_base) = resolved_module { if let Some(stmts) = handlers::submodule::SubmoduleHandler::handle_from_import_submodules(self, import_from, resolved_base) { return stmts; } }`
+- Validate and commit:
+  - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
+  - `git add -A && git commit -m "refactor(import_transformer): extract submodule from-import handling to handlers/submodule.rs"`
 
-### 7.5 Expected Impact
+#### Step D (lines 1323–1370): Entry-module deduplication precheck → `handlers/wrapper.rs`
 
-- **Size Reduction**: ~900 lines moved from main orchestrator to specialized handlers
-- **Separation of Concerns**: Each module type handled by dedicated, focused code
-- **Maintainability**: Complex logic isolated in appropriate domain handlers
-- **Testing**: Each execution path can be tested independently
-- **Architecture**: Completes the handler pattern implementation
+- New function (add to `handlers/wrapper.rs`):
+  - Name: `maybe_skip_entry_wrapper_if_all_deferred`
+  - Visibility: `pub(in crate::code_generator::import_transformer)`
+  - Signature:
+    - `fn maybe_skip_entry_wrapper_if_all_deferred(
+         transformer: &crate::code_generator::import_transformer::RecursiveImportTransformer,
+         import_from: &ruff_python_ast::StmtImportFrom,
+         resolved: &str,
+       ) -> bool`
+  - Behavior: Move logic from lines 1323–1370 that checks entry module + wrapper + `global_deferred_imports`; return `true` when the import should be skipped (callsite returns `vec![]`).
+- Callsite change (right after logging `resolved_module`):
+  - `if self.state.module_id.is_entry() { if let Some(ref resolved) = resolved_module { if handlers::wrapper::WrapperHandler::maybe_skip_entry_wrapper_if_all_deferred(self, import_from, resolved) { return vec![]; } } }`
+- Validate and commit:
+  - `cargo nextest run --workspace && cargo clippy --workspace --all-targets`
+  - `git add -A && git commit -m "refactor(import_transformer): extract entry dedup precheck to handlers/wrapper.rs"`
 
-### 7.6 Risk Mitigation
+#### Optional Step E (lines 1285–1310): Module resolution helper → stay in `mod.rs` or `statement.rs`
 
-- **State Dependencies**: All handlers will receive transformer reference for state access
-- **Incremental Approach**: Each phase validates before proceeding to next
-- **Test Coverage**: Existing snapshot tests provide comprehensive regression detection
-- **Rollback Strategy**: Each commit represents a stable, working state
+- Small pure helper (optional): `fn resolve_from_import_module(...) -> Option<String>` extracting lines 1285–1310. Only do this after A–D are complete and tests are green. Commit separately.
 
-This orchestrator refactoring represents the **final major extraction** needed to complete the modular transformation of the import transformer, moving from a 4200+ line monolith to a clean, handler-based architecture.
+### 7.4 End State of `handle_import_from`
+
+After steps A–D, `handle_import_from` structure becomes:
+
+1. Stdlib normalization (already delegated to `handlers/stdlib.rs`).
+2. Resolve `resolved_module` (existing code or optional helper).
+3. Entry dedup precheck via `WrapperHandler::maybe_skip_entry_wrapper_if_all_deferred`.
+4. Submodule handling via `SubmoduleHandler::handle_from_import_submodules`.
+5. Resolved inlined branch via `InlinedHandler::handle_from_import_on_resolved_inlined`.
+6. Resolved wrapper branch via `WrapperHandler::handle_from_import_on_resolved_wrapper`.
+7. Fallback to `rewrite_import_from`.
+
+This yields a short dispatcher in `mod.rs` with all functionality in external files.
+
+### 7.5 Validation After Each Step
+
+- Run: `cargo nextest run --workspace` (all tests, including generic bundling snapshots).
+- Run: `cargo clippy --workspace --all-targets` (respect `.clippy.toml` disallowed lists).
+- If tests fail or snapshots change unexpectedly, revert the current step (or fix the extraction) before moving forward.
+
+### 7.6 Notes on Signatures and Imports
+
+- All new functions take `&mut RecursiveImportTransformer` (or `&RecursiveImportTransformer` for read-only prechecks) plus `&StmtImportFrom` and any resolved module name as `&str`.
+- Use visibility `pub(in crate::code_generator::import_transformer)` to keep scope tight.
+- Import types locally within handler files: `use ruff_python_ast::{Stmt, StmtImportFrom};` and any AST builders (`expressions`, `statements`) as needed.
+- Keep logging messages identical to preserve snapshot output and traceability.
+
+### 7.7 Commit Cadence
+
+- One branch per commit. Example messages:
+  - `refactor(import_transformer): extract wrapper from-import branch to handlers/wrapper.rs`
+  - `refactor(import_transformer): extract inlined from-import branch to handlers/inlined.rs`
+  - `refactor(import_transformer): extract submodule from-import handling to handlers/submodule.rs`
+  - `refactor(import_transformer): extract entry dedup precheck to handlers/wrapper.rs`
+
+This direct extraction plan keeps each change surgical and verifiable, minimizes line-number churn by working from the bottom up, and aligns with our existing handler-based architecture and snapshot-driven validation.
