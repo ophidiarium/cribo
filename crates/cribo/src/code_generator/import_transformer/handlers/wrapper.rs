@@ -1,11 +1,26 @@
-use ruff_python_ast::{ExprContext, Identifier, Stmt, StmtImportFrom};
+use ruff_python_ast::{Expr, ExprContext, Identifier, Stmt, StmtImportFrom};
 use ruff_text_size::TextRange;
 
 use crate::{
     ast_builder::{expressions, statements},
-    code_generator::bundler::Bundler,
-    types::FxIndexMap,
+    code_generator::{
+        bundler::Bundler,
+        expression_handlers,
+        module_registry::{is_init_function, sanitize_module_name_for_identifier},
+    },
+    resolver::ModuleId,
+    types::{FxIndexMap, FxIndexSet},
 };
+
+/// Simplified wrapper context to reduce parameter count
+pub struct WrapperContext<'a> {
+    pub bundler: &'a Bundler<'a>,
+    pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    pub is_wrapper_init: bool,
+    pub at_module_level: bool,
+    pub current_module_name: String,
+    pub function_body: Option<&'a [Stmt]>,
+}
 
 // No local ImportResolveParams needed; heavy lifting stays in Bundler for now
 
@@ -15,23 +30,20 @@ pub struct WrapperHandler;
 impl WrapperHandler {
     /// Handle wrapper from-import in absolute context (rel→abs conversion + handler dispatch)
     pub(in crate::code_generator::import_transformer) fn handle_wrapper_from_import_absolute_context(
-        bundler: &Bundler,
+        context: &WrapperContext,
         import_from: &StmtImportFrom,
         module_name: &str,
-        inside_wrapper_init: bool,
-        at_module_level: bool,
-        current_module: Option<&str>,
-        symbol_renames: &crate::types::FxIndexMap<
-            crate::resolver::ModuleId,
-            crate::types::FxIndexMap<String, String>,
-        >,
-        function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {
         // Check if this module is in the registry (wrapper approach)
         // A module is a wrapper if it's bundled but NOT inlined
-        if bundler.get_module_id(module_name).is_some_and(|id| {
-            bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
-        }) {
+        if context
+            .bundler
+            .get_module_id(module_name)
+            .is_some_and(|id| {
+                context.bundler.bundled_modules.contains(&id)
+                    && !context.bundler.inlined_modules.contains(&id)
+            })
+        {
             // Module uses wrapper approach - transform to sys.modules access
             // For relative imports, we need to create an absolute import
             let mut absolute_import = import_from.clone();
@@ -48,7 +60,7 @@ impl WrapperHandler {
                             .iter()
                             .map(|a| a.name.as_str())
                             .collect::<Vec<_>>(),
-                        current_module.unwrap_or("<unknown>")
+                        &context.current_module_name
                     );
                 } else {
                     // Convert relative import to absolute
@@ -58,14 +70,9 @@ impl WrapperHandler {
                 }
             }
             Self::rewrite_from_import_for_wrapper_module_with_context(
-                bundler,
+                context,
                 &absolute_import,
                 module_name,
-                inside_wrapper_init,
-                at_module_level,
-                current_module,
-                symbol_renames,
-                function_body,
             )
         } else {
             panic!(
@@ -77,65 +84,61 @@ impl WrapperHandler {
 
     /// Same as `rewrite_from_import_for_wrapper_module` but accepts explicit context.
     pub(in crate::code_generator::import_transformer) fn rewrite_from_import_for_wrapper_module_with_context(
-        bundler: &Bundler,
+        context: &WrapperContext,
         import_from: &StmtImportFrom,
         module_name: &str,
-        inside_wrapper_init: bool,
-        at_module_level: bool,
-        current_module: Option<&str>,
-        symbol_renames: &crate::types::FxIndexMap<
-            crate::resolver::ModuleId,
-            crate::types::FxIndexMap<String, String>,
-        >,
-        function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
-             inside_wrapper_init={}",
+             context.is_wrapper_init={}",
             module_name,
             import_from
                 .names
                 .iter()
                 .map(|a| a.name.as_str())
                 .collect::<Vec<_>>(),
-            inside_wrapper_init
+            context.is_wrapper_init
         );
 
         // Early dispatch: wildcard imports handled separately
         if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
-            let context = crate::code_generator::bundler::BundledImportContext {
-                inside_wrapper_init,
-                at_module_level,
-                current_module,
+            let bundled_context = crate::code_generator::bundler::BundledImportContext {
+                inside_wrapper_init: context.is_wrapper_init,
+                at_module_level: context.at_module_level,
+                current_module: Some(&context.current_module_name),
             };
-            return bundler.transform_bundled_import_from_multiple_with_current_module(
-                import_from,
-                module_name,
-                context,
-                symbol_renames,
-                function_body,
-            );
+            return context
+                .bundler
+                .transform_bundled_import_from_multiple_with_current_module(
+                    import_from,
+                    module_name,
+                    bundled_context,
+                    context.symbol_renames,
+                    context.function_body,
+                );
         }
 
         // Defer to alias/symbol handling path
-        let context = crate::code_generator::bundler::BundledImportContext {
-            inside_wrapper_init,
-            at_module_level,
-            current_module,
+        let bundled_context = crate::code_generator::bundler::BundledImportContext {
+            inside_wrapper_init: context.is_wrapper_init,
+            at_module_level: context.at_module_level,
+            current_module: Some(&context.current_module_name),
         };
-        bundler.transform_bundled_import_from_multiple_with_current_module(
-            import_from,
-            module_name,
-            context,
-            symbol_renames,
-            function_body,
-        )
+        context
+            .bundler
+            .transform_bundled_import_from_multiple_with_current_module(
+                import_from,
+                module_name,
+                bundled_context,
+                context.symbol_renames,
+                context.function_body,
+            )
     }
 
     /// Handle non-wildcard from-imports (symbols/aliases) for wrapper modules.
     ///
-    /// This currently delegates to Bundler's implementation for behavior parity,
-    /// but centralizes routing via the handler to enable incremental migration.
+    /// This method now uses the extracted logic from the bundler to handle
+    /// individual symbol imports from wrapper modules.
     pub(in crate::code_generator::import_transformer) fn handle_symbol_imports_from_multiple(
         bundler: &Bundler,
         import_from: &StmtImportFrom,
@@ -144,13 +147,17 @@ impl WrapperHandler {
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
         function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {
-        bundler.handle_symbol_imports_from_multiple(
-            import_from,
-            module_name,
-            context,
+        // Build context for the new handler method
+        let wrapper_context = WrapperContext {
+            bundler,
             symbol_renames,
+            is_wrapper_init: context.inside_wrapper_init,
+            at_module_level: context.at_module_level,
+            current_module_name: context.current_module.unwrap_or("").to_string(),
             function_body,
-        )
+        };
+
+        Self::handle_symbol_imports_from_wrapper(&wrapper_context, import_from, module_name)
     }
 
     /// Handle wildcard-from imports (`from X import *`) for wrapper modules
@@ -726,34 +733,588 @@ impl WrapperHandler {
 
     /// Maybe handle wrapper absolute imports (non-resolved branch)
     pub(in crate::code_generator::import_transformer) fn maybe_handle_wrapper_absolute(
-        bundler: &Bundler,
+        context: &WrapperContext,
         import_from: &StmtImportFrom,
         module_name: &str,
-        inside_wrapper_init: bool,
-        at_module_level: bool,
-        current_module: &str,
-        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-        function_body: Option<&[Stmt]>,
     ) -> Option<Vec<Stmt>> {
         // Check if this module is in the module_registry (wrapper module)
         // A module is a wrapper if it's bundled but NOT inlined
-        if bundler.get_module_id(module_name).is_some_and(|id| {
-            bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
-        }) {
+        if context
+            .bundler
+            .get_module_id(module_name)
+            .is_some_and(|id| {
+                context.bundler.bundled_modules.contains(&id)
+                    && !context.bundler.inlined_modules.contains(&id)
+            })
+        {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
             // Route wrapper-module from-import rewriting through the wrapper handler.
             return Some(Self::rewrite_from_import_for_wrapper_module_with_context(
-                bundler,
+                context,
                 import_from,
                 module_name,
-                inside_wrapper_init,
-                at_module_level,
-                Some(current_module),
-                symbol_renames,
-                function_body,
             ));
         }
 
         None
+    }
+
+    /// Handle non-wildcard from-imports from wrapper modules
+    ///
+    /// This is the main logic extracted from `Bundler::handle_symbol_imports_from_multiple`
+    /// for handling individual symbol imports from wrapper modules.
+    pub(in crate::code_generator::import_transformer) fn handle_symbol_imports_from_wrapper(
+        context: &WrapperContext,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+    ) -> Vec<Stmt> {
+        let inside_wrapper_init = context.is_wrapper_init;
+        let at_module_level = context.at_module_level;
+        let current_module = context.current_module_name.as_str();
+        let function_body = context.function_body;
+        let symbol_renames = context.symbol_renames;
+        let bundler = context.bundler;
+
+        let mut assignments = Vec::new();
+        let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
+        let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
+
+        // Collect actually used symbols if we're in a function context
+        let used_symbols = if let Some(body) = function_body {
+            if at_module_level {
+                None
+            } else {
+                // Use the SymbolUsageVisitor to find which symbols are actually used
+                Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
+                    body,
+                ))
+            }
+        } else {
+            None
+        };
+
+        // For wrapper modules, we always need to ensure they're initialized before accessing
+        // attributes Don't create the temporary variable approach - it causes issues with
+        // namespace reassignment
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+            // Check if we're importing a submodule (e.g., from greetings import greeting)
+            let full_module_path = format!("{module_name}.{imported_name}");
+
+            // First check if the parent module has an __init__.py (is a wrapper module)
+            // and might re-export this name
+            let parent_is_wrapper = bundler.has_synthetic_name(module_name);
+            let submodule_exists = bundler.get_module_id(&full_module_path).is_some_and(|id| {
+                bundler.bundled_modules.contains(&id)
+                    && (bundler.has_synthetic_name(&full_module_path)
+                        || bundler.inlined_modules.contains(&id))
+            });
+
+            // If both the parent is a wrapper and a submodule exists, we need to decide
+            // In Python, attributes from __init__.py take precedence over submodules
+            // So we should prefer the attribute unless we have evidence it's not re-exported
+            let importing_submodule = if parent_is_wrapper && submodule_exists {
+                // Check if the parent module explicitly exports this name
+                if let Some(Some(export_list)) = bundler
+                    .get_module_id(module_name)
+                    .and_then(|id| bundler.module_exports.get(&id))
+                {
+                    // If __all__ is defined and doesn't include this name, it's the submodule
+                    !export_list.contains(&imported_name.to_string())
+                } else {
+                    // No __all__ defined - check if the submodule actually exists
+                    // If it does, we're importing the submodule not an attribute
+                    submodule_exists
+                }
+            } else {
+                // Simple case: just check if it's a submodule
+                submodule_exists
+            };
+
+            if importing_submodule {
+                // We're importing a submodule, not an attribute
+                log::debug!(
+                    "Importing submodule '{imported_name}' from '{module_name}' via from import"
+                );
+
+                // Determine if current module is a submodule of the target module
+                let is_submodule_of_target = current_module.starts_with(&format!("{module_name}."));
+
+                // Check if parent module should be initialized
+                let parent_module_id = bundler.get_module_id(module_name);
+                let should_initialize_parent = parent_module_id.is_some_and(|id| {
+                    bundler.has_synthetic_name(module_name)
+                        && !locally_initialized.contains(&id)
+                        && current_module != module_name // Prevent self-initialization
+                        && !is_submodule_of_target // Prevent parent initialization from submodule
+                });
+
+                // Check if submodule should be initialized
+                let submodule_id = bundler.get_module_id(&full_module_path);
+                let should_initialize_submodule = submodule_id.is_some_and(|id| {
+                    bundler.has_synthetic_name(&full_module_path)
+                        && !locally_initialized.contains(&id)
+                });
+
+                // Always initialize parent first, then submodule (caller-driven order)
+                if should_initialize_parent {
+                    // Initialize parent module first
+                    if let Some(module_id) = bundler.get_module_id(module_name) {
+                        let current_module_id = bundler.get_module_id(current_module);
+                        assignments.extend(
+                            bundler.create_module_initialization_for_import_with_current_module(
+                                module_id,
+                                current_module_id,
+                                if inside_wrapper_init {
+                                    true
+                                } else {
+                                    at_module_level
+                                },
+                            ),
+                        );
+                        locally_initialized.insert(module_id);
+                    }
+                }
+
+                if should_initialize_submodule
+                    && let Some(submodule_id) = bundler.get_module_id(&full_module_path)
+                {
+                    crate::code_generator::module_registry::initialize_submodule_if_needed(
+                        submodule_id,
+                        &bundler.module_init_functions,
+                        bundler.resolver,
+                        &mut assignments,
+                        &mut locally_initialized,
+                        &mut initialized_modules,
+                    );
+                }
+
+                // Build the direct namespace reference
+                log::debug!(
+                    "Building namespace reference for '{}' (is_inlined: {}, has_dot: {})",
+                    full_module_path,
+                    bundler
+                        .get_module_id(&full_module_path)
+                        .is_some_and(|id| bundler.inlined_modules.contains(&id)),
+                    full_module_path.contains('.')
+                );
+                let namespace_expr = if bundler
+                    .get_module_id(&full_module_path)
+                    .is_some_and(|id| bundler.inlined_modules.contains(&id))
+                {
+                    // For inlined modules, check if it's a dotted name
+                    if full_module_path.contains('.') {
+                        // For nested inlined modules like myrequests.compat, create dotted
+                        // expression
+                        let parts: Vec<&str> = full_module_path.split('.').collect();
+                        log::debug!("Creating dotted name for inlined nested module: {parts:?}");
+                        expressions::dotted_name(&parts, ExprContext::Load)
+                    } else {
+                        // Simple inlined module
+                        log::debug!("Using simple name for inlined module: {full_module_path}");
+                        expressions::name(&full_module_path, ExprContext::Load)
+                    }
+                } else if full_module_path.contains('.') {
+                    // For nested modules like models.user, create models.user expression
+                    let parts: Vec<&str> = full_module_path.split('.').collect();
+                    log::debug!("Creating dotted name for nested module: {parts:?}");
+                    expressions::dotted_name(&parts, ExprContext::Load)
+                } else {
+                    // Top-level module
+                    log::debug!("Creating simple name for top-level module: {full_module_path}");
+                    expressions::name(&full_module_path, ExprContext::Load)
+                };
+
+                log::debug!(
+                    "Creating submodule import assignment: {} = {:?}",
+                    target_name.as_str(),
+                    namespace_expr
+                );
+                assignments.push(statements::simple_assign(
+                    target_name.as_str(),
+                    namespace_expr,
+                ));
+            } else {
+                // Regular attribute import
+                // Special case: if we're inside the wrapper init of a module importing its own
+                // submodule
+                if inside_wrapper_init && module_name.starts_with(&format!("{current_module}.")) {
+                    // Check if this is actually a submodule
+                    let full_submodule_path = format!("{module_name}.{imported_name}");
+                    if bundler
+                        .get_module_id(&full_submodule_path)
+                        .is_some_and(|id| bundler.bundled_modules.contains(&id))
+                        && bundler.has_synthetic_name(&full_submodule_path)
+                    {
+                        // This is a submodule that needs initialization
+                        log::debug!(
+                            "Special case: module '{module_name}' importing its own submodule \
+                             '{imported_name}' - initializing submodule first"
+                        );
+
+                        // Initialize the submodule
+                        if let Some(submodule_id) = bundler.get_module_id(&full_submodule_path) {
+                            assignments.extend(
+                                bundler.create_module_initialization_for_import(submodule_id),
+                            );
+                            if let Some(submodule_id) = bundler.get_module_id(&full_submodule_path)
+                            {
+                                locally_initialized.insert(submodule_id);
+                            }
+                        }
+
+                        // Now create the assignment from the initialized submodule's namespace
+                        // Use the submodule variable directly to avoid relying on parent namespace
+                        let submodule_var =
+                            sanitize_module_name_for_identifier(&full_submodule_path);
+                        let assignment = statements::simple_assign(
+                            target_name.as_str(),
+                            expressions::attribute(
+                                expressions::name(&submodule_var, ExprContext::Load),
+                                imported_name,
+                                ExprContext::Load,
+                            ),
+                        );
+                        assignments.push(assignment);
+                        continue; // Skip the rest of the regular attribute handling
+                    }
+                }
+
+                // Check if we're importing from an inlined module and the target is a wrapper
+                // submodule This happens when mypkg is inlined and does `from .
+                // import compat` where compat uses init function
+                if bundler
+                    .get_module_id(module_name)
+                    .is_some_and(|id| bundler.inlined_modules.contains(&id))
+                    && !inside_wrapper_init
+                {
+                    let full_submodule_path = format!("{module_name}.{imported_name}");
+                    if bundler.has_synthetic_name(&full_submodule_path) {
+                        // This is importing a wrapper submodule from an inlined parent module
+                        // This case should have been handled by the import transformer during
+                        // inlining and deferred. If we get here, something
+                        // went wrong.
+                        log::warn!(
+                            "Unexpected: importing wrapper submodule '{imported_name}' from \
+                             inlined module '{module_name}' in handle_symbol_imports_from_wrapper \
+                             - should have been deferred"
+                        );
+
+                        // Create direct assignment to where the module will be (fallback)
+                        let namespace_expr = if full_submodule_path.contains('.') {
+                            let parts: Vec<&str> = full_submodule_path.split('.').collect();
+                            expressions::dotted_name(&parts, ExprContext::Load)
+                        } else {
+                            expressions::name(&full_submodule_path, ExprContext::Load)
+                        };
+
+                        assignments.push(statements::simple_assign(
+                            target_name.as_str(),
+                            namespace_expr,
+                        ));
+                        continue; // Skip the rest
+                    }
+                }
+
+                // Only skip imports for bundled modules where we can be confident about side
+                // effects For external/non-bundled imports, always preserve them to
+                // maintain side effects
+                if let Some(ref used) = used_symbols
+                    && !used.contains(target_name.as_str())
+                {
+                    // Check if this is a bundled module where we control the behavior
+                    let module_id = bundler.get_module_id(module_name);
+                    let is_bundled_or_inlined = module_id.is_some_and(|id| {
+                        bundler.bundled_modules.contains(&id)
+                            || bundler.inlined_modules.contains(&id)
+                    });
+                    let is_wrapper =
+                        module_id.is_some_and(|id| bundler.wrapper_modules.contains(&id));
+
+                    // For wrapper modules, we need at least one import to trigger initialization
+                    // Check if this module has already been initialized in this scope
+                    if is_wrapper
+                        && !locally_initialized.contains(
+                            &module_id.expect("module_id should exist when is_wrapper is true"),
+                        )
+                    {
+                        log::debug!(
+                            "Preserving import for '{target_name}' from wrapper module \
+                             '{module_name}' - needs initialization for side effects"
+                        );
+                        // Continue with normal processing to trigger initialization
+                        // The module will be added to locally_initialized after processing
+                    } else if is_bundled_or_inlined {
+                        log::debug!(
+                            "Skipping initialization for unused symbol '{target_name}' from \
+                             bundled module '{module_name}'"
+                        );
+                        continue;
+                    } else {
+                        log::debug!(
+                            "Preserving import for '{target_name}' from external module \
+                             '{module_name}' - may have side effects even if unused"
+                        );
+                        // Continue with normal processing to preserve potential side effects
+                    }
+                }
+
+                // Ensure the module is initialized first if it's a wrapper module
+                // Only initialize if we're inside a wrapper init OR if the module's init
+                // function has already been defined (to avoid forward references)
+                let needs_init = if let Some(module_id) = bundler.get_module_id(module_name) {
+                    // Avoid initializing a parent namespace from within a child's wrapper init
+                    let is_parent_of_current =
+                        current_module.starts_with(&format!("{module_name}."));
+
+                    bundler.has_synthetic_name(module_name)
+                        && !locally_initialized.contains(&module_id)
+                        && current_module != module_name // Prevent self-initialization
+                        && !is_parent_of_current
+                        && (inside_wrapper_init
+                            || bundler.module_init_functions.contains_key(&module_id))
+                } else {
+                    false
+                };
+                if needs_init {
+                    // Check if this module is already initialized in any deferred imports
+                    let module_init_exists = assignments.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(func_name) = &call.func.as_ref()
+                            && is_init_function(func_name.id.as_str())
+                        {
+                            // Check if the target matches our module
+                            match &assign.targets[0] {
+                                Expr::Attribute(attr) => {
+                                    let attr_path =
+                                        expression_handlers::extract_attribute_path(attr);
+                                    attr_path == module_name
+                                }
+                                Expr::Name(name) => name.id.as_str() == module_name,
+                                _ => false,
+                            }
+                        } else {
+                            false
+                        }
+                    });
+
+                    if !module_init_exists {
+                        // Initialize the module before accessing its attributes
+                        if let Some(module_id) = bundler.get_module_id(module_name) {
+                            let current_module_id = bundler.get_module_id(current_module);
+
+                            // If we're inside a function (not at module level), we should NOT add
+                            // global declarations or module assignments. Instead, we'll inline the
+                            // init call when creating the symbol assignment below.
+                            if at_module_level {
+                                // Only at module level do we need to initialize and assign the
+                                // module
+                                assignments.extend(
+                                    bundler.create_module_initialization_for_import_with_current_module(
+                                        module_id,
+                                        current_module_id,
+                                        at_module_level,
+                                    ),
+                                );
+                                // Only mark as initialized if we actually initialized it
+                                locally_initialized.insert(module_id);
+                            }
+                            // Don't mark as initialized if we're deferring initialization
+                        }
+                    }
+                }
+
+                // Check if this symbol is re-exported from an inlined submodule.
+                // If it is, use the globally inlined symbol (respecting semantic renames)
+                // instead of wrapper attribute access.
+                if bundler.has_synthetic_name(module_name) {
+                    // Keep current semantics: we don't attempt to detect "directly defined in
+                    // wrapper" here.
+                    let is_defined_in_wrapper = false;
+
+                    if !is_defined_in_wrapper
+                        && let Some((source_module, source_symbol)) = bundler
+                            .is_symbol_from_inlined_submodule(module_name, target_name.as_str())
+                    {
+                        // Map to the effective global name considering semantic renames of the
+                        // source module.
+                        let source_module_id = bundler
+                            .get_module_id(&source_module)
+                            .expect("Source module should exist");
+                        let global_name = symbol_renames
+                            .get(&source_module_id)
+                            .and_then(|m| m.get(&source_symbol))
+                            .cloned()
+                            .unwrap_or_else(|| source_symbol.clone());
+
+                        log::debug!(
+                            "Using global symbol '{}' from inlined submodule '{}' for re-exported \
+                             symbol '{}' in wrapper '{}'",
+                            global_name,
+                            source_module,
+                            target_name.as_str(),
+                            module_name
+                        );
+
+                        // Only create assignment if the names differ (avoid X = X)
+                        if target_name.as_str() == global_name {
+                            log::debug!(
+                                "Skipping self-referential assignment: {} = {}",
+                                target_name.as_str(),
+                                global_name
+                            );
+                        } else {
+                            let assignment = statements::simple_assign(
+                                target_name.as_str(),
+                                expressions::name(&global_name, ExprContext::Load),
+                            );
+                            assignments.push(assignment);
+                        }
+
+                        // If we're inside a wrapper init, and this symbol is part of the module's
+                        // exports, also expose it on the namespace (self.<name> = <name>).
+                        if inside_wrapper_init
+                            && let Some(curr_id) = bundler.get_module_id(current_module)
+                            && let Some(Some(exports)) = bundler.module_exports.get(&curr_id)
+                            && exports.contains(&target_name.as_str().to_string())
+                        {
+                            assignments.push(statements::assign_attribute(
+                                "self",
+                                target_name.as_str(),
+                                expressions::name(target_name.as_str(), ExprContext::Load),
+                            ));
+                        }
+                        continue; // Skip the normal attribute assignment
+                    }
+                }
+
+                // Create: target = module.imported_name
+                // Resolve symlinks: get canonical module name if it exists
+                let canonical_module_name = bundler
+                    .get_module_id(module_name)
+                    .and_then(|id| bundler.resolver.get_module_name(id))
+                    .unwrap_or_else(|| module_name.to_string());
+
+                // Prefer submodule variable when importing from a child module inside a wrapper
+                // init
+                let prefer_submodule_var = inside_wrapper_init
+                    && canonical_module_name.starts_with(&format!("{current_module}."));
+
+                log::debug!(
+                    "Creating module expression for '{canonical_module_name}': \
+                     prefer_submodule_var={prefer_submodule_var}, \
+                     at_module_level={at_module_level}, inside_wrapper_init={inside_wrapper_init}"
+                );
+
+                let module_expr = if prefer_submodule_var {
+                    let var = sanitize_module_name_for_identifier(&canonical_module_name);
+                    expressions::name(&var, ExprContext::Load)
+                } else if canonical_module_name.contains('.') {
+                    // For nested modules like models.user, create models.user expression
+                    let parts: Vec<&str> = canonical_module_name.split('.').collect();
+
+                    bundler.create_dotted_module_expr(&parts, at_module_level, &locally_initialized)
+                } else {
+                    // Top-level module
+                    log::debug!(
+                        "Top-level module '{canonical_module_name}', \
+                         at_module_level={at_module_level}, \
+                         inside_wrapper_init={inside_wrapper_init}"
+                    );
+
+                    if at_module_level {
+                        expressions::name(&canonical_module_name, ExprContext::Load)
+                    } else if inside_wrapper_init {
+                        // Inside a wrapper init function
+                        let current_module_name = current_module;
+                        log::debug!(
+                            "Inside wrapper init: current_module={current_module_name}, \
+                             accessing={canonical_module_name}"
+                        );
+
+                        bundler.create_wrapper_init_module_expr(
+                            &canonical_module_name,
+                            Some(current_module),
+                            &locally_initialized,
+                        )
+                    } else {
+                        // Inside a regular function
+                        bundler.create_function_module_expr(
+                            &canonical_module_name,
+                            &locally_initialized,
+                        )
+                    }
+                };
+
+                // Special case: If we're at module level in an inlined module importing from a
+                // wrapper parent, and the symbol being imported actually comes from
+                // another inlined module, we should use the global symbol directly
+                // instead of accessing through the wrapper module. This avoids
+                // circular dependency issues where the wrapper hasn't been initialized yet.
+
+                // Use the resolved module name (not the canonical name) for checking if it's
+                // inlined
+                let value_expr = bundler.resolve_import_value_expr(
+                    crate::code_generator::bundler::ImportResolveParams {
+                        module_expr,
+                        module_name, // This is the original module name (e.g., "rich")
+                        imported_name,
+                        at_module_level,
+                        inside_wrapper_init,
+                        current_module: Some(current_module),
+                        symbol_renames,
+                    },
+                );
+
+                let assignment =
+                    statements::simple_assign(target_name.as_str(), value_expr.clone());
+
+                // Debug log to understand what we're actually generating
+                let value_str = match &value_expr {
+                    Expr::Name(n) => format!("{}", n.id),
+                    Expr::Attribute(a) => {
+                        if let Expr::Name(base) = a.value.as_ref() {
+                            format!("{}.{}", base.id, a.attr)
+                        } else {
+                            format!("<expr>.{}", a.attr)
+                        }
+                    }
+                    _ => "<other>".to_string(),
+                };
+
+                log::debug!(
+                    "Generating attribute assignment: {} = {} (inside_wrapper_init: {}, resolved \
+                     from: {}, canonical: {})",
+                    target_name.as_str(),
+                    value_str,
+                    inside_wrapper_init,
+                    module_name,
+                    canonical_module_name
+                );
+
+                assignments.push(assignment);
+
+                // If we're inside a wrapper init, and this symbol is part of the module's exports,
+                // also expose it on the namespace (self.<name> = <name>).
+                if inside_wrapper_init
+                    && let Some(curr_id) = bundler.get_module_id(current_module)
+                    && let Some(Some(exports)) = bundler.module_exports.get(&curr_id)
+                    && exports.contains(&target_name.as_str().to_string())
+                {
+                    assignments.push(statements::assign_attribute(
+                        "self",
+                        target_name.as_str(),
+                        expressions::name(target_name.as_str(), ExprContext::Load),
+                    ));
+                }
+            }
+        }
+
+        assignments
     }
 }

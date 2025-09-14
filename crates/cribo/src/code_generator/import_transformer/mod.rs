@@ -1987,15 +1987,18 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             return stmts;
         }
 
-        if let Some(stmts) = handlers::wrapper::WrapperHandler::maybe_handle_wrapper_absolute(
+        let context = handlers::wrapper::WrapperContext {
             bundler,
+            symbol_renames,
+            is_wrapper_init: inside_wrapper_init,
+            at_module_level,
+            current_module_name: current_module.to_string(),
+            function_body,
+        };
+        if let Some(stmts) = handlers::wrapper::WrapperHandler::maybe_handle_wrapper_absolute(
+            &context,
             &import_from,
             &module_name,
-            inside_wrapper_init,
-            at_module_level,
-            current_module,
-            symbol_renames,
-            function_body,
         ) {
             return stmts;
         }
@@ -2040,15 +2043,18 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
     if bundler.get_module_id(&module_name).is_some_and(|id| {
         bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
     }) {
-        handlers::wrapper::WrapperHandler::handle_wrapper_from_import_absolute_context(
+        let context = handlers::wrapper::WrapperContext {
             bundler,
+            symbol_renames,
+            is_wrapper_init: inside_wrapper_init,
+            at_module_level,
+            current_module_name: current_module.to_string(),
+            function_body,
+        };
+        handlers::wrapper::WrapperHandler::handle_wrapper_from_import_absolute_context(
+            &context,
             &import_from,
             &module_name,
-            inside_wrapper_init,
-            at_module_level,
-            Some(current_module),
-            symbol_renames,
-            function_body,
         )
     } else {
         handlers::inlined::InlinedHandler::handle_inlined_from_import_absolute_context(
