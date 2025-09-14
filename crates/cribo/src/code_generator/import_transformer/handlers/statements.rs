@@ -208,4 +208,166 @@ impl StatementsHandler {
         // Transform class body
         t.transform_statements(&mut s.body);
     }
+
+    pub(in crate::code_generator::import_transformer) fn handle_function_def(
+        t: &mut RecursiveImportTransformer,
+        s: &mut ruff_python_ast::StmtFunctionDef,
+    ) {
+        log::debug!(
+            "RecursiveImportTransformer: Entering function '{}'",
+            s.name.as_str()
+        );
+
+        // Transform decorators
+        for decorator in &mut s.decorator_list {
+            t.transform_expr(&mut decorator.expression);
+        }
+
+        // Transform parameter annotations and default values
+        for param in &mut s.parameters.posonlyargs {
+            if let Some(annotation) = &mut param.parameter.annotation {
+                t.transform_expr(annotation);
+            }
+            if let Some(default) = &mut param.default {
+                t.transform_expr(default);
+            }
+        }
+        for param in &mut s.parameters.args {
+            if let Some(annotation) = &mut param.parameter.annotation {
+                t.transform_expr(annotation);
+            }
+            if let Some(default) = &mut param.default {
+                t.transform_expr(default);
+            }
+        }
+        if let Some(vararg) = &mut s.parameters.vararg
+            && let Some(annotation) = &mut vararg.annotation
+        {
+            t.transform_expr(annotation);
+        }
+        for param in &mut s.parameters.kwonlyargs {
+            if let Some(annotation) = &mut param.parameter.annotation {
+                t.transform_expr(annotation);
+            }
+            if let Some(default) = &mut param.default {
+                t.transform_expr(default);
+            }
+        }
+        if let Some(kwarg) = &mut s.parameters.kwarg
+            && let Some(annotation) = &mut kwarg.annotation
+        {
+            t.transform_expr(annotation);
+        }
+
+        // Transform return type annotation
+        if let Some(returns) = &mut s.returns {
+            t.transform_expr(returns);
+        }
+
+        // Save current local variables and create a new scope for the function
+        let saved_locals = t.state.local_variables.clone();
+
+        // Save the wrapper module imports - these should be scoped to each function
+        // to prevent imports from one function affecting another
+        let saved_wrapper_imports = t.state.wrapper_module_imports.clone();
+
+        // Track function parameters as local variables before transforming the body
+        // This prevents incorrect transformation of parameter names that shadow
+        // stdlib modules
+
+        // Track positional-only parameters
+        for param in &s.parameters.posonlyargs {
+            t.state
+                .local_variables
+                .insert(param.parameter.name.as_str().to_string());
+            log::debug!(
+                "Tracking function parameter as local (posonly): {}",
+                param.parameter.name.as_str()
+            );
+        }
+
+        // Track regular parameters
+        for param in &s.parameters.args {
+            t.state
+                .local_variables
+                .insert(param.parameter.name.as_str().to_string());
+            log::debug!(
+                "Tracking function parameter as local: {}",
+                param.parameter.name.as_str()
+            );
+        }
+
+        // Track *args if present
+        if let Some(vararg) = &s.parameters.vararg {
+            t.state
+                .local_variables
+                .insert(vararg.name.as_str().to_string());
+            log::debug!(
+                "Tracking function parameter as local (vararg): {}",
+                vararg.name.as_str()
+            );
+        }
+
+        // Track keyword-only parameters
+        for param in &s.parameters.kwonlyargs {
+            t.state
+                .local_variables
+                .insert(param.parameter.name.as_str().to_string());
+            log::debug!(
+                "Tracking function parameter as local (kwonly): {}",
+                param.parameter.name.as_str()
+            );
+        }
+
+        // Track **kwargs if present
+        if let Some(kwarg) = &s.parameters.kwarg {
+            t.state
+                .local_variables
+                .insert(kwarg.name.as_str().to_string());
+            log::debug!(
+                "Tracking function parameter as local (kwarg): {}",
+                kwarg.name.as_str()
+            );
+        }
+
+        // Save the current scope level and mark that we're entering a local scope
+        let saved_at_module_level = t.state.at_module_level;
+        t.state.at_module_level = false;
+
+        // Save current function context and compute symbol analysis once
+        let saved_function_body = t.state.current_function_body.take();
+        let saved_used_symbols = t.state.current_function_used_symbols.take();
+
+        // Compute used symbols once from the original body (before transformation)
+        t.state.current_function_used_symbols = Some(
+            crate::visitors::SymbolUsageVisitor::collect_used_symbols(&s.body),
+        );
+
+        // Set function body for compatibility with existing APIs
+        t.state.current_function_body = Some(s.body.clone());
+
+        // Transform the function body
+        t.transform_statements(&mut s.body);
+
+        // After all transformations, hoist and deduplicate any inserted
+        // `global` statements to the start of the function body (after a
+        // docstring if present) to ensure correct Python semantics.
+        crate::code_generator::import_transformer::statement::StatementProcessor::hoist_function_globals(
+            s,
+        );
+
+        // Restore the previous scope level
+        t.state.at_module_level = saved_at_module_level;
+
+        // Restore the previous function context
+        t.state.current_function_body = saved_function_body;
+        t.state.current_function_used_symbols = saved_used_symbols;
+
+        // Restore the wrapper module imports to prevent function-level imports from
+        // affecting other functions
+        t.state.wrapper_module_imports = saved_wrapper_imports;
+
+        // Restore the previous scope's local variables
+        t.state.local_variables = saved_locals;
+    }
 }
