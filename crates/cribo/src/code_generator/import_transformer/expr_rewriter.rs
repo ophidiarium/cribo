@@ -206,7 +206,8 @@ impl ExpressionRewriter {
 
                             if is_shadowed {
                                 log::debug!(
-                                    "Skipping stdlib rewrite for '{base}' - shadowed by local variable"
+                                    "Skipping stdlib rewrite for '{base}' - shadowed by local \
+                                     variable"
                                 );
                                 return; // Don't transform shadowed variables
                             }

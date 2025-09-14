@@ -3001,11 +3001,15 @@ impl<'a> Bundler<'a> {
                                 import_from.level,
                             );
                             if resolved == module_name {
+                                let parent_pkg = self.derive_parent_package_for_relative_import(
+                                    module_name,
+                                    import_from.level,
+                                );
                                 crate::code_generator::import_transformer::handlers::relative::transform_relative_import_aliases(
                                     self,
                                     import_from,
-                                    module_name, // parent_package
-                                    module_name, // current_module
+                                    &parent_pkg, // correct parent package
+                                    module_name, // current module
                                     &mut result,
                                     true,        // add module attributes
                                 );
@@ -5299,5 +5303,30 @@ impl Bundler<'_> {
             }
             _ => {}
         }
+    }
+
+    /// Derive the parent package for a relative import at the given level.
+    fn derive_parent_package_for_relative_import(&self, module_name: &str, level: u32) -> String {
+        // First try to resolve using the module's actual path
+        if let Some(module_id) = self.get_module_id(module_name)
+            && let Some(module_asts) = &self.module_asts
+            && let Some((_, path, _)) = module_asts.get(&module_id)
+            && let Some(resolved) = self
+                .resolver
+                .resolve_relative_to_absolute_module_name(level, None, path)
+        {
+            return resolved;
+        }
+
+        // Fallback: strip `level` components from module_name
+        let mut pkg = module_name.to_string();
+        for _ in 0..level {
+            if let Some((p, _)) = pkg.rsplit_once('.') {
+                pkg = p.to_string();
+            } else {
+                break;
+            }
+        }
+        pkg
     }
 }
