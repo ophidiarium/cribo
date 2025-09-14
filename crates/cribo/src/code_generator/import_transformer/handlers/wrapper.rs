@@ -573,12 +573,21 @@ impl WrapperHandler {
                 // Handle wildcard import export assignments
                 if is_wildcard {
                     Self::log_wrapper_wildcard_info(resolved, transformer.state.bundler);
-                    log::debug!(
-                        "  Returning {} parent-init statements for wildcard import; wrapper init \
-                         + assignments were deferred",
-                        init_stmts.len()
+                    let current_mod_name = transformer
+                        .state
+                        .bundler
+                        .resolver
+                        .get_module_name(transformer.state.module_id)
+                        .unwrap_or_else(|| format!("module#{}", transformer.state.module_id));
+                    let stmts = Self::handle_wildcard_import_from_multiple(
+                        transformer.state.bundler,
+                        import_from,
+                        resolved,
+                        transformer.state.is_wrapper_init,
+                        Some(&current_mod_name),
+                        transformer.state.at_module_level,
                     );
-                    return Some(init_stmts);
+                    return Some(stmts);
                 }
 
                 // Track each imported symbol for rewriting
