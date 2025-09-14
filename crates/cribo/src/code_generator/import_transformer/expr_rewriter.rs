@@ -193,6 +193,24 @@ impl ExpressionRewriter {
                         else if let Some(stdlib_path) =
                             transformer.state.import_aliases.get(&base)
                         {
+                            // Check if this name is shadowed by a local variable
+                            let is_shadowed = transformer.state.local_variables.contains(&base);
+                            log::debug!(
+                                "Semantic check for attribute base '{}': shadowed={}, \
+                                 at_module_level={}, local_vars={:?}",
+                                base,
+                                is_shadowed,
+                                transformer.state.at_module_level,
+                                transformer.state.local_variables
+                            );
+
+                            if is_shadowed {
+                                log::debug!(
+                                    "Skipping stdlib rewrite for '{base}' - shadowed by local variable"
+                                );
+                                return; // Don't transform shadowed variables
+                            }
+
                             // This is accessing an attribute on a stdlib module alias
                             // Transform j.dumps to _cribo.json.dumps
                             if attr_path.len() == 1 {
@@ -499,22 +517,23 @@ impl ExpressionRewriter {
                 // Check if this name is a stdlib import alias that needs rewriting
                 // Only rewrite if it's not shadowed by a local variable
                 if let Some(rewritten_path) = transformer.state.import_aliases.get(name) {
+                    log::debug!("Found import alias for '{name}' -> '{rewritten_path}'");
                     // Check if this is a stdlib module reference (starts with _cribo.)
                     if rewritten_path.starts_with(CRIBO_PREFIX)
                         && rewritten_path.chars().nth(CRIBO_PREFIX.len()) == Some('.')
                     {
-                        // Use semantic analysis to check if this is shadowed by a local variable
-                        let is_shadowed = if let Some(_semantic_bundler) =
-                            transformer.state.bundler.semantic_bundler
-                        {
-                            // Try to find the module in the semantic bundler
-                            // This is a simplified check - in reality we'd need to know the
-                            // exact scope For now, we'll skip
-                            // the semantic check if we don't have proper module info
-                            false // TODO: Implement proper semantic check using SemanticModel
-                        } else {
-                            false
-                        };
+                        // Check if this name is shadowed by a local variable
+                        // The transformer state tracks local variables to avoid treating them as
+                        // module aliases
+                        let is_shadowed = transformer.state.local_variables.contains(name);
+                        log::debug!(
+                            "Semantic check for '{}': shadowed={}, at_module_level={}, \
+                             local_vars={:?}",
+                            name,
+                            is_shadowed,
+                            transformer.state.at_module_level,
+                            transformer.state.local_variables
+                        );
 
                         if !is_shadowed {
                             log::debug!(

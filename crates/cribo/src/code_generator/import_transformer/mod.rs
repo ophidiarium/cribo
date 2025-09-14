@@ -1098,13 +1098,20 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    // If all imports were stdlib, we need to handle aliased imports
+                    // If all imports were stdlib, we need to handle them appropriately
                     if non_stdlib_imports.is_empty() {
-                        // Create local assignments for aliased stdlib imports
+                        // Create local assignments for simple stdlib imports (both aliased and
+                        // non-aliased) For dotted imports like
+                        // "xml.etree.ElementTree", don't create assignments
+                        // - let the expression rewriter handle them
                         let mut assignments = Vec::new();
                         for (module_name, alias) in &stdlib_imports {
-                            if let Some(alias_name) = alias {
-                                // Aliased import creates a local binding
+                            // Only create assignments for simple (non-dotted) module names
+                            // or when there's an explicit alias
+                            if alias.is_some() || !module_name.contains('.') {
+                                let local_name = alias.as_ref().unwrap_or(module_name);
+
+                                // Create assignment: local_name = _cribo.module_name
                                 let proxy_path =
                                     format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
                                 let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
@@ -1113,7 +1120,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     ExprContext::Load,
                                 );
                                 let target = crate::ast_builder::expressions::name(
-                                    alias_name.as_str(),
+                                    local_name.as_str(),
                                     ExprContext::Store,
                                 );
                                 let assign_stmt = crate::ast_builder::statements::assign(
@@ -1125,13 +1132,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // Track the alias for import_module resolution
                                 if module_name == "importlib" {
                                     log::debug!(
-                                        "Tracking importlib alias: {alias_name} -> importlib"
+                                        "Tracking importlib alias: {local_name} -> importlib"
                                     );
                                     self.state
                                         .import_aliases
-                                        .insert(alias_name.clone(), "importlib".to_string());
+                                        .insert(local_name.clone(), "importlib".to_string());
                                 }
                             }
+                            // For dotted imports without aliases, don't create assignments
+                            // Let the expression rewriter handle them via _cribo proxy
                         }
                         return assignments;
                     }

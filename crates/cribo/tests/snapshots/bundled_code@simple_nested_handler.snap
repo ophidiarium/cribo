@@ -37,6 +37,7 @@ def handler_2() -> str:
     return "Hello from boo.py"
 boo.handler = handler_2
 boo_handler = boo.handler
+pprint = _cribo.pprint
 def handler_1():
     print(foo.handler())
     print(boo_handler())

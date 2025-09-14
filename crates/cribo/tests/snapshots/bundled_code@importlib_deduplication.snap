@@ -72,6 +72,8 @@ def _cribo_init___cribo_75ebb7_package_submodule(self):
 package_submodule.__init__ = _cribo_init___cribo_75ebb7_package_submodule
 package.submodule = package_submodule
 """Test how importlib.import_module handles sys.modules and deduplication"""
+sys = _cribo.sys
+importlib = _cribo.importlib
 print("=== Testing importlib.import_module deduplication ===\n")
 mymodule = _cribo_init___cribo_26ef78_mymodule(mymodule)
 mymodule2 = _cribo_init___cribo_26ef78_mymodule(mymodule)

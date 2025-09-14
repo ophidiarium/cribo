@@ -110,6 +110,7 @@ utils_validation.validate_age = validate_age
 utils_validation.validate_email = validate_email
 """Utils package initialization."""
 """Pydantic test project entry point."""
+json = _cribo.json
 from pydantic import ValidationError
 schemas_user = _cribo_init___cribo_f275a8_schemas_user(schemas_user)
 UserSchema = schemas.user.UserSchema

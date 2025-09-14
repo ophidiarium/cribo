@@ -31,5 +31,6 @@ _cribo = _Cribo()
 greeting = _cribo.types.SimpleNamespace(__name__='greeting')
 message = "Hello"
 greeting.message = message
+importlib = _cribo.importlib
 greeting = _cribo.types.SimpleNamespace(message=message)
 print(message)
