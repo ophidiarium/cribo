@@ -185,25 +185,16 @@ Step 9 — Extract wrapper absolute fast‑path (non‑resolved branch)
   - `cargo check && cargo nextest run`
   - `refactor(import_transformer): extract wrapper absolute fast-path to handlers/wrapper.rs`
 
-Step 10 — Move Bundler’s non‑wildcard wrapper from‑import logic into handler
+Step 10 — Move Bundler’s non‑wildcard wrapper from‑import logic into handler — COMPLETED
 
-- Source range: `code_generator/bundler.rs:656–1210` (`handle_symbol_imports_from_multiple`).
-- New function (moved verbatim; receiver becomes `&Bundler` parameter):
-  - `handlers::wrapper::handle_symbol_imports_from_multiple(
-        bundler: &Bundler,
-        import_from: &StmtImportFrom,
-        module_name: &str,
-        context: BundledImportContext<'_>,
-        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
-        function_body: Option<&[Stmt]>,
-     ) -> Vec<Stmt>`
-- Call site updates:
-  - `import_transformer/mod.rs::transform_wrapper_symbol_imports(..)` calls the moved function directly.
-  - Remove the method from `impl Bundler` and its now‑unused helpers if any (only after all call sites are updated).
-- Visibility: keep helper visibilities `pub(in crate::code_generator)` only where the moved function needs them.
-- Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(wrapper): move non-wildcard from-import handler from Bundler to handlers/wrapper.rs`
+- Implementation:
+  - Moved non‑wildcard symbol handling logic into `handlers/wrapper.rs`:
+    - `WrapperHandler::handle_symbol_imports_from_multiple` now builds `WrapperContext` and dispatches to `handle_symbol_imports_from_wrapper`, which contains the extracted logic.
+  - `transform_wrapper_symbol_imports` delegates to the handler.
+  - Removed the old `Bundler::handle_symbol_imports_from_multiple` method; retained helper visibilities `pub(in crate::code_generator)` for reuse.
+- Validation:
+  - Tests passed (`cargo nextest run`: 132 passed, 1 skipped).
+  - Behavior preserved (no snapshot drift).
 
 Step 11 — Optional cleanup (post‑green)
 
