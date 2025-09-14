@@ -55,6 +55,26 @@ pub(crate) fn transform_wrapper_wildcard_import(
     )
 }
 
+/// Public bridge for Bundler to delegate wrapper non-wildcard from-import handling
+pub(in crate::code_generator) fn transform_wrapper_symbol_imports(
+    bundler: &Bundler,
+    import_from: &StmtImportFrom,
+    module_name: &str,
+    context: crate::code_generator::bundler::BundledImportContext<'_>,
+    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    function_body: Option<&[Stmt]>,
+) -> Vec<Stmt> {
+    // Delegate via handler to centralize routing; implementation currently lives in Bundler.
+    handlers::wrapper::WrapperHandler::handle_symbol_imports_from_multiple(
+        bundler,
+        import_from,
+        module_name,
+        context,
+        symbol_renames,
+        function_body,
+    )
+}
+
 impl<'a> RecursiveImportTransformer<'a> {
     /// Get filtered exports for a full module path, if available
     fn get_filtered_exports_for_path(
@@ -2115,7 +2135,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             );
         }
         // For absolute imports from non-bundled modules, keep original import
-        return vec![Stmt::ImportFrom(import_from)];
+        return handlers::fallback::keep_original_from_import(&import_from);
     }
 
     log::debug!(

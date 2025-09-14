@@ -131,14 +131,15 @@ impl std::fmt::Debug for Bundler<'_> {
 }
 
 /// Parameters for resolving import value expressions
-struct ImportResolveParams<'a> {
-    module_expr: Expr,
-    module_name: &'a str,
-    imported_name: &'a str,
-    at_module_level: bool,
-    inside_wrapper_init: bool,
-    current_module: Option<&'a str>,
-    symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+pub(in crate::code_generator) struct ImportResolveParams<'a> {
+    pub(in crate::code_generator) module_expr: Expr,
+    pub(in crate::code_generator) module_name: &'a str,
+    pub(in crate::code_generator) imported_name: &'a str,
+    pub(in crate::code_generator) at_module_level: bool,
+    pub(in crate::code_generator) inside_wrapper_init: bool,
+    pub(in crate::code_generator) current_module: Option<&'a str>,
+    pub(in crate::code_generator) symbol_renames:
+        &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
 }
 
 // Main implementation
@@ -634,7 +635,8 @@ impl<'a> Bundler<'a> {
             at_module_level,
             current_module,
         };
-        self.handle_symbol_imports_from_multiple(
+        crate::code_generator::import_transformer::transform_wrapper_symbol_imports(
+            self,
             import_from,
             module_name,
             new_context,
@@ -4830,7 +4832,10 @@ impl Bundler<'_> {
     }
 
     /// Resolve the value expression for an import, handling special cases for circular dependencies
-    fn resolve_import_value_expr(&self, params: ImportResolveParams) -> Expr {
+    pub(in crate::code_generator) fn resolve_import_value_expr(
+        &self,
+        params: ImportResolveParams,
+    ) -> Expr {
         // Special case: inside wrapper init importing from inlined parent
         if params.inside_wrapper_init {
             log::debug!(
@@ -5004,7 +5009,7 @@ impl Bundler<'_> {
     }
 
     /// Helper method to create dotted module expression with initialization if needed
-    fn create_dotted_module_expr(
+    pub(in crate::code_generator) fn create_dotted_module_expr(
         &self,
         parts: &[&str],
         at_module_level: bool,
@@ -5060,7 +5065,7 @@ impl Bundler<'_> {
     }
 
     /// Helper method to create module expression for wrapper init context
-    fn create_wrapper_init_module_expr(
+    pub(in crate::code_generator) fn create_wrapper_init_module_expr(
         &self,
         canonical_module_name: &str,
         current_module: Option<&str>,
@@ -5120,7 +5125,7 @@ impl Bundler<'_> {
     }
 
     /// Helper method to create module expression for regular function context
-    fn create_function_module_expr(
+    pub(in crate::code_generator) fn create_function_module_expr(
         &self,
         canonical_module_name: &str,
         locally_initialized: &FxIndexSet<ModuleId>,
