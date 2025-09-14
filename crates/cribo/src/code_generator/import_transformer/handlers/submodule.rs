@@ -147,7 +147,8 @@ impl SubmoduleHandler {
                         .local_variables
                         .insert(local_name.to_string());
 
-                    handled_any = true;
+                    // Do not consume the import; let fallback keep it.
+                    continue;
                 }
             } else if let Some(module_id) =
                 transformer.state.bundler.get_module_id(&full_module_path)
