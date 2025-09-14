@@ -465,7 +465,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Create a new transformer from parameters
     pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
         Self {
-            state: TransformerState::new(params),
+            state: TransformerState::new(&params),
         }
     }
 

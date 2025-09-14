@@ -62,7 +62,7 @@ pub(super) struct TransformerState<'a> {
 }
 
 impl<'a> TransformerState<'a> {
-    pub(super) fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
+    pub(super) fn new(params: &RecursiveImportTransformerParams<'a>) -> Self {
         Self {
             bundler: params.bundler,
             module_id: params.module_id,
