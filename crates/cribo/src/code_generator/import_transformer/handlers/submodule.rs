@@ -12,6 +12,8 @@ impl SubmoduleHandler {
         import_from: &StmtImportFrom,
         resolved_base: &str,
     ) -> Option<Vec<Stmt>> {
+        use crate::code_generator::module_registry::get_module_var_identifier;
+
         // Check if we're importing submodules that have been inlined
         // e.g., from utils import calculator where calculator is utils.calculator
         // This must be checked BEFORE checking if the parent module is inlined
@@ -245,7 +247,6 @@ impl SubmoduleHandler {
                             // local_name e.g., pkg_compat
                             // instead of compat
                             // Use get_module_var_identifier to handle symlinks properly
-                            use crate::code_generator::module_registry::get_module_var_identifier;
                             let namespace_var = get_module_var_identifier(
                                 module_id,
                                 transformer.state.bundler.resolver,
