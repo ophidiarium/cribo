@@ -723,4 +723,37 @@ impl WrapperHandler {
 
         false
     }
+
+    /// Maybe handle wrapper absolute imports (non-resolved branch)
+    pub(in crate::code_generator::import_transformer) fn maybe_handle_wrapper_absolute(
+        bundler: &Bundler,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        inside_wrapper_init: bool,
+        at_module_level: bool,
+        current_module: &str,
+        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+        function_body: Option<&[Stmt]>,
+    ) -> Option<Vec<Stmt>> {
+        // Check if this module is in the module_registry (wrapper module)
+        // A module is a wrapper if it's bundled but NOT inlined
+        if bundler.get_module_id(module_name).is_some_and(|id| {
+            bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
+        }) {
+            log::debug!("Module '{module_name}' is a wrapper module in module_registry");
+            // Route wrapper-module from-import rewriting through the wrapper handler.
+            return Some(Self::rewrite_from_import_for_wrapper_module_with_context(
+                bundler,
+                import_from,
+                module_name,
+                inside_wrapper_init,
+                at_module_level,
+                Some(current_module),
+                symbol_renames,
+                function_body,
+            ));
+        }
+
+        None
+    }
 }

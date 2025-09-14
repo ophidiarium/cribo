@@ -1987,23 +1987,17 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             return stmts;
         }
 
-        // Check if this module is in the module_registry (wrapper module)
-        // A module is a wrapper if it's bundled but NOT inlined
-        if bundler.get_module_id(&module_name).is_some_and(|id| {
-            bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
-        }) {
-            log::debug!("Module '{module_name}' is a wrapper module in module_registry");
-            // Route wrapper-module from-import rewriting through the wrapper handler.
-            return handlers::wrapper::WrapperHandler::rewrite_from_import_for_wrapper_module_with_context(
-                bundler,
-                &import_from,
-                &module_name,
-                inside_wrapper_init,
-                at_module_level,
-                Some(current_module),
-                symbol_renames,
-                function_body,
-            );
+        if let Some(stmts) = handlers::wrapper::WrapperHandler::maybe_handle_wrapper_absolute(
+            bundler,
+            &import_from,
+            &module_name,
+            inside_wrapper_init,
+            at_module_level,
+            current_module,
+            symbol_renames,
+            function_body,
+        ) {
+            return stmts;
         }
 
         // Relative imports are ALWAYS first-party and should never be preserved as import
