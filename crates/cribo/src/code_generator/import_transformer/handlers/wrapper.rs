@@ -258,6 +258,9 @@ impl WrapperHandler {
                 symbol_name,
                 expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
             ));
+            // Only add explicit module attribute assignment for wrapper inits to ensure proper
+            // symbol propagation. The module_transformer's add_module_attr_if_exported handles
+            // regular cases, but wrapper wildcard imports need explicit handling.
             if inside_wrapper_init && let Some(current_mod) = current_module {
                 let module_var =
                     crate::code_generator::module_registry::sanitize_module_name_for_identifier(
