@@ -76,6 +76,9 @@ impl ExpressionRewriter {
                             || transformer.state.import_aliases.contains_key(name);
 
                         if !is_shadowed {
+                            if !matches!(attr_expr.ctx, ExprContext::Load) {
+                                return;
+                            }
                             // Transform stdlib module attribute access to use _cribo proxy
                             // e.g., collections.abc -> _cribo.collections.abc
                             log::debug!(
@@ -107,6 +110,9 @@ impl ExpressionRewriter {
                     if let Some((wrapper_module, imported_name)) =
                         transformer.state.wrapper_module_imports.get(name)
                     {
+                        if !matches!(attr_expr.ctx, ExprContext::Load) {
+                            return;
+                        }
                         // The base is a wrapper module import, rewrite the entire attribute access
                         // e.g., cookielib.CookieJar -> myrequests.compat.cookielib.CookieJar
                         log::debug!(
@@ -213,6 +219,10 @@ impl ExpressionRewriter {
                                      variable"
                                 );
                                 return; // Don't transform shadowed variables
+                            }
+
+                            if !matches!(attr_expr.ctx, ExprContext::Load) {
+                                return;
                             }
 
                             // This is accessing an attribute on a stdlib module alias
