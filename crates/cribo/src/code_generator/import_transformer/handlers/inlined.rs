@@ -650,6 +650,77 @@ impl InlinedHandler {
 
         None
     }
+
+    /// Handle inlined from-import in absolute context (namespace/submodules + assignments)
+    pub(in crate::code_generator::import_transformer) fn handle_inlined_from_import_absolute_context(
+        bundler: &Bundler,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
+        python_version: u8,
+    ) -> Vec<Stmt> {
+        // Module was inlined - but first check if we're importing bundled submodules
+        // e.g., from my_package import utils where my_package.utils is a bundled module
+        if super::super::has_bundled_submodules(import_from, module_name, bundler) {
+            log::debug!(
+                "Inlined module '{module_name}' has bundled submodules, using \
+                 transform_namespace_package_imports"
+            );
+            // Use namespace package imports for bundled submodules
+            return crate::code_generator::namespace_manager::transform_namespace_package_imports(
+                bundler,
+                import_from.clone(),
+                module_name,
+                symbol_renames,
+            );
+        }
+
+        // Module was inlined - create assignments for imported symbols
+        log::debug!(
+            "Module '{module_name}' was inlined, creating assignments for imported symbols"
+        );
+
+        let params = crate::code_generator::module_registry::InlinedImportParams {
+            symbol_renames,
+            module_registry: bundler.module_info_registry,
+            inlined_modules: &bundler.inlined_modules,
+            bundled_modules: &bundler.bundled_modules,
+            resolver: bundler.resolver,
+            python_version,
+            is_wrapper_init: inside_wrapper_init,
+            tree_shaking_check: Some(&|module_id, symbol| {
+                bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
+            }),
+        };
+        let (assignments, namespace_requirements) =
+            crate::code_generator::module_registry::create_assignments_for_inlined_imports(
+                import_from,
+                module_name,
+                params,
+            );
+
+        // Check for unregistered namespaces - this indicates a bug in pre-detection
+        let unregistered_namespaces: Vec<_> = namespace_requirements
+            .iter()
+            .filter(|ns_req| !bundler.namespace_registry.contains_key(&ns_req.var_name))
+            .collect();
+
+        assert!(
+            unregistered_namespaces.is_empty(),
+            "Unregistered namespaces detected: {:?}. This indicates a bug in \
+             detect_namespace_requirements_from_imports",
+            unregistered_namespaces
+                .iter()
+                .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
+                .collect::<Vec<_>>()
+        );
+
+        // The namespaces are now pre-created by detect_namespace_requirements_from_imports
+        // and the aliases are handled by create_assignments_for_inlined_imports,
+        // so we just return the assignments
+        assignments
+    }
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules
