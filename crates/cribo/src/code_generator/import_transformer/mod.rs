@@ -2003,32 +2003,8 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         // Relative imports are ALWAYS first-party and should never be preserved as import
         // statements
         if import_from.level > 0 {
-            // Special case: if this resolves to the entry module (ID 0), treat it as inlined
+            // Special case: if this resolves to the entry module, treat it as inlined
             // The entry module is always part of the bundle but might not be in bundled_modules set
-            // Check if this is the entry module or entry.__main__
-            let entry_module_id = if let Some(module_id) = bundler.get_module_id(&module_name) {
-                if module_id.is_entry() {
-                    Some(module_id)
-                } else {
-                    None
-                }
-            } else if module_name.ends_with(".__main__") {
-                // Check if this is <entry>.__main__ where <entry> is the entry module
-                let base_module = module_name
-                    .strip_suffix(".__main__")
-                    .expect("checked with ends_with above");
-                log::debug!("  Checking if base module '{base_module}' is entry");
-                let base_id = bundler.get_module_id(base_module);
-                log::debug!("  Base module ID: {base_id:?}");
-                base_id.filter(|id| id.is_entry())
-            } else {
-                None
-            };
-
-            log::debug!(
-                "Checking if '{module_name}' is entry module: entry_module_id={entry_module_id:?}"
-            );
-
             if let Some(stmts) = handlers::inlined::InlinedHandler::handle_entry_relative_as_inlined(
                 bundler,
                 &import_from,
@@ -2036,7 +2012,6 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 symbol_renames,
                 inside_wrapper_init,
                 current_module,
-                entry_module_id,
             ) {
                 return stmts;
             }
