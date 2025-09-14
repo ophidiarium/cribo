@@ -106,11 +106,10 @@ impl DynamicHandler {
     ) -> Option<Expr> {
         // Get the module name and resolve relative imports
         if let Some(resolved_name) = Self::resolve_importlib_target(call, bundler) {
-            // Check if this module was bundled
-            if bundler
-                .get_module_id(&resolved_name)
-                .is_some_and(|id| bundler.bundled_modules.contains(&id))
-            {
+            // Check if this module is part of the bundle (wrapper or inlined)
+            if bundler.get_module_id(&resolved_name).is_some_and(|id| {
+                bundler.bundled_modules.contains(&id) || bundler.inlined_modules.contains(&id)
+            }) {
                 log::debug!(
                     "Transforming importlib.import_module call to module access '{resolved_name}'"
                 );
@@ -180,15 +179,15 @@ impl DynamicHandler {
             && bundler
                 .get_module_id(&resolved_name)
                 .is_some_and(|id| bundler.inlined_modules.contains(&id))
-            {
-                // Track all assigned names as importing this module
-                for name in assigned_names {
-                    log::debug!(
-                        "Tracking variable '{name}' as assigned from \
-                         importlib.import_module('{resolved_name}')"
-                    );
-                    importlib_inlined_modules.insert(name.clone(), resolved_name.clone());
-                }
+        {
+            // Track all assigned names as importing this module
+            for name in assigned_names {
+                log::debug!(
+                    "Tracking variable '{name}' as assigned from \
+                     importlib.import_module('{resolved_name}')"
+                );
+                importlib_inlined_modules.insert(name.clone(), resolved_name.clone());
             }
+        }
     }
 }
