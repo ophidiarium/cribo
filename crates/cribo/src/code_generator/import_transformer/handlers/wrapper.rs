@@ -858,7 +858,7 @@ impl WrapperHandler {
                 // Always initialize parent first, then submodule (caller-driven order)
                 if should_initialize_parent {
                     // Initialize parent module first
-                    if let Some(module_id) = bundler.get_module_id(module_name) {
+                    if let Some(module_id) = parent_module_id {
                         let current_module_id = bundler.get_module_id(current_module);
                         assignments.extend(
                             bundler.create_module_initialization_for_import_with_current_module(
@@ -875,9 +875,7 @@ impl WrapperHandler {
                     }
                 }
 
-                if should_initialize_submodule
-                    && let Some(submodule_id) = bundler.get_module_id(&full_module_path)
-                {
+                if should_initialize_submodule && let Some(submodule_id) = submodule_id {
                     crate::code_generator::module_registry::initialize_submodule_if_needed(
                         submodule_id,
                         &bundler.module_init_functions,
