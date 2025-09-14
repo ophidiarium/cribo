@@ -59,7 +59,7 @@ pub(in crate::code_generator) fn transform_wrapper_symbol_imports(
     bundler: &Bundler,
     import_from: &StmtImportFrom,
     module_name: &str,
-    context: crate::code_generator::bundler::BundledImportContext<'_>,
+    context: &crate::code_generator::bundler::BundledImportContext<'_>,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     function_body: Option<&[Stmt]>,
 ) -> Vec<Stmt> {
@@ -68,7 +68,7 @@ pub(in crate::code_generator) fn transform_wrapper_symbol_imports(
         bundler,
         import_from,
         module_name,
-        &context,
+        context,
         symbol_renames,
         function_body,
     )

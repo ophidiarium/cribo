@@ -639,7 +639,7 @@ impl<'a> Bundler<'a> {
             self,
             import_from,
             module_name,
-            new_context,
+            &new_context,
             symbol_renames,
             function_body,
         )
