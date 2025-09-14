@@ -791,6 +791,39 @@ impl InlinedHandler {
 
         None
     }
+
+    /// Maybe handle inlined absolute imports (non-bundled case)
+    pub(in crate::code_generator::import_transformer) fn maybe_handle_inlined_absolute(
+        bundler: &Bundler,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
+        current_module: &str,
+    ) -> Option<Vec<Stmt>> {
+        // Check if this module is inlined
+        if let Some(source_module_id) = bundler.get_module_id(module_name)
+            && bundler.inlined_modules.contains(&source_module_id)
+        {
+            log::debug!(
+                "Module '{module_name}' is an inlined module, \
+                 inside_wrapper_init={inside_wrapper_init}"
+            );
+            // Get the importing module's ID
+            let importing_module_id = bundler.resolver.get_module_id_by_name(current_module);
+            // Handle imports from inlined modules
+            return Some(Self::handle_imports_from_inlined_module_with_context(
+                bundler,
+                import_from,
+                source_module_id,
+                symbol_renames,
+                inside_wrapper_init,
+                importing_module_id,
+            ));
+        }
+
+        None
+    }
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules
