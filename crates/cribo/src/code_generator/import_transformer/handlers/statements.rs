@@ -410,19 +410,29 @@ impl StatementsHandler {
                 );
             }
 
+            // Track all assigned names (including tuple/list destructuring) as locals
+            for n in &assigned_names {
+                t.state.local_variables.insert(n.clone());
+            }
+
             crate::code_generator::import_transformer::handlers::dynamic::DynamicHandler::handle_importlib_assignment(
                 &assigned_names,
                 call,
                 t.state.bundler,
                 &mut t.state.importlib_inlined_modules,
             );
-        }
+        } else {
+            // For non-importlib assignments, still track all assigned names as locals
+            let mut assigned_names = crate::types::FxIndexSet::default();
+            for target in &s.targets {
+                crate::code_generator::import_transformer::statement::StatementProcessor::collect_assigned_names(
+                    target,
+                    &mut assigned_names,
+                );
+            }
 
-        // Track local variable assignments
-        for target in &s.targets {
-            if let ruff_python_ast::Expr::Name(name) = target {
-                let var_name = name.id.to_string();
-                t.state.local_variables.insert(var_name.clone());
+            for n in &assigned_names {
+                t.state.local_variables.insert(n.clone());
             }
         }
 
