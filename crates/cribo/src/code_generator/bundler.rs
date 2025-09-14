@@ -3562,7 +3562,7 @@ impl<'a> Bundler<'a> {
                                 import_from.level,
                             );
                             if resolved == module_name {
-                                crate::code_generator::import_transformer::transform_relative_import_aliases(
+                                crate::code_generator::import_transformer::handlers::relative::transform_relative_import_aliases(
                                     self,
                                     import_from,
                                     module_name, // parent_package

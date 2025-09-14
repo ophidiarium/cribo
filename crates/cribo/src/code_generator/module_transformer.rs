@@ -815,7 +815,7 @@ pub fn transform_module_to_init_function<'a>(
                             };
 
                             // Use shared helper to transform relative import aliases
-                            crate::code_generator::import_transformer::transform_relative_import_aliases(
+                            crate::code_generator::import_transformer::handlers::relative::transform_relative_import_aliases(
                                 bundler,
                                 import_from,
                                 base_module,
