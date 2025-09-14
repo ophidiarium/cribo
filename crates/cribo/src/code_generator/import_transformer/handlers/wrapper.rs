@@ -69,7 +69,8 @@ impl WrapperHandler {
             )
         } else {
             panic!(
-                "handle_wrapper_from_import_absolute_context called on non-wrapper module: {module_name}"
+                "handle_wrapper_from_import_absolute_context called on non-wrapper module: \
+                 {module_name}"
             )
         }
     }
