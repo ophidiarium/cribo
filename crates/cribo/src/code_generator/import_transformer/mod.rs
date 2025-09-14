@@ -1430,8 +1430,14 @@ impl<'a> RecursiveImportTransformer<'a> {
         {
             // This is a wrapper module - we need to call its init function
             // This handles modules with invalid Python identifiers like "my-module"
-            let init_func_name =
-                crate::code_generator::module_registry::get_init_function_name(synthetic_name);
+            let init_func_name = self
+                .state
+                .bundler
+                .get_module_id(module_name)
+                .and_then(|id| self.state.bundler.module_init_functions.get(&id).cloned())
+                .unwrap_or_else(|| {
+                    crate::code_generator::module_registry::get_init_function_name(synthetic_name)
+                });
 
             // Create init function call with module as self argument
             let module_var = sanitize_module_name_for_identifier(module_name);
