@@ -517,6 +517,10 @@ impl ExpressionRewriter {
             // imports
             Expr::Name(name_expr) => {
                 let name = name_expr.id.as_str();
+                // Only rewrite reads; never rewrite assignment/delete targets.
+                if !matches!(name_expr.ctx, ExprContext::Load) {
+                    return;
+                }
 
                 // Check if this name is a stdlib import alias that needs rewriting
                 // Only rewrite if it's not shadowed by a local variable
