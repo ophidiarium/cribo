@@ -665,7 +665,7 @@ impl WrapperHandler {
 
     /// Check if entry module wrapper imports should be skipped due to deduplication
     pub(in crate::code_generator::import_transformer) fn maybe_skip_entry_wrapper_if_all_deferred(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        transformer: &crate::code_generator::import_transformer::RecursiveImportTransformer,
         import_from: &StmtImportFrom,
         resolved: &str,
     ) -> bool {
