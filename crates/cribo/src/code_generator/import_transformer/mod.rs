@@ -2,8 +2,8 @@ use std::path::Path;
 
 use cow_utils::CowUtils;
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, Identifier, ModModule, Stmt,
-    StmtClassDef, StmtImport, StmtImportFrom,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, ModModule, Stmt, StmtClassDef,
+    StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -2151,32 +2151,9 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
     if bundler.get_module_id(&module_name).is_some_and(|id| {
         bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
     }) {
-        // Module uses wrapper approach - transform to sys.modules access
-        // For relative imports, we need to create an absolute import
-        let mut absolute_import = import_from.clone();
-        if import_from.level > 0 {
-            // If module_name is empty, this is a critical error
-            if module_name.is_empty() {
-                panic!(
-                    "Relative import 'from {} import {:?}' in module '{}' resolved to empty \
-                     module name. This is a bug - relative imports must resolve to a valid module.",
-                    ".".repeat(import_from.level as usize),
-                    import_from
-                        .names
-                        .iter()
-                        .map(|a| a.name.as_str())
-                        .collect::<Vec<_>>(),
-                    current_module
-                );
-            } else {
-                // Convert relative import to absolute
-                absolute_import.level = 0;
-                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
-            }
-        }
-        handlers::wrapper::WrapperHandler::rewrite_from_import_for_wrapper_module_with_context(
+        handlers::wrapper::WrapperHandler::handle_wrapper_from_import_absolute_context(
             bundler,
-            &absolute_import,
+            &import_from,
             &module_name,
             inside_wrapper_init,
             at_module_level,
