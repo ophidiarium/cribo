@@ -80,26 +80,28 @@ Step 2 — Extract Try/With/For/While (loop and suite transforms) — COMPLETED
   - Tests: `cargo nextest run` passed (132 tests, 1 skipped).
   - Commit (pending in this branch): `refactor(import_transformer): extract loop/suite stmt handlers to handlers/statements.rs`
 
-Step 3 — Extract If (including TYPE_CHECKING and elif/else handling)
+Step 3 — Extract If (including TYPE_CHECKING and elif/else handling) — COMPLETED
 
 - Source range: 794–824 → `StatementsHandler::handle_if(self, if_stmt)`
 - New function:
   - `handle_if(t: &mut RecursiveImportTransformer, s: &mut ruff_python_ast::StmtIf)`
 - Notes: keep non-empty body insertions for TYPE_CHECKING, elif/else.
 - Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(import_transformer): extract if-statement handler to handlers/statements.rs`
+  - Completed: moved to `handlers/statements.rs` and call sites updated.
+  - Tests: `cargo nextest run` passed.
+  - Commit: `refactor(import_transformer): extract if-statement handler to handlers/statements.rs`
 
-Step 4 — Extract ClassDef
+Step 4 — Extract ClassDef — COMPLETED
 
 - Source range: 779–793 → `StatementsHandler::handle_class_def(self, class_def)`
 - New function: `handle_class_def(t: &mut RecursiveImportTransformer, s: &mut ruff_python_ast::StmtClassDef)`
 - Notes: keep decorator transform and delegate base classes to existing `transform_class_bases` (do not move `transform_class_bases` in this step).
 - Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(import_transformer): extract class definition handler to handlers/statements.rs`
+  - Completed: moved to `handlers/statements.rs` and call sites updated.
+  - Tests: `cargo nextest run` passed.
+  - Commit: `refactor(import_transformer): extract class definition handler to handlers/statements.rs`
 
-Step 5 — Extract FunctionDef (parameters, decorators, scope save/restore)
+Step 5 — Extract FunctionDef (parameters, decorators, scope save/restore) — COMPLETED
 
 - Source range: 622–778 → `StatementsHandler::handle_function_def(self, func_def)`
 - New function: `handle_function_def(t: &mut RecursiveImportTransformer, s: &mut ruff_python_ast::StmtFunctionDef)`
@@ -107,10 +109,11 @@ Step 5 — Extract FunctionDef (parameters, decorators, scope save/restore)
   - Keep exact sequence: decorators → params/annotations/defaults → returns → save/restore locals and wrapper imports → transform body → restore state.
   - Preserve `self.state.is_wrapper_init` and locals tracking behavior intact.
 - Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(import_transformer): extract function definition handler to handlers/statements.rs`
+  - Completed: moved to `handlers/statements.rs` and call sites updated.
+  - Tests: `cargo nextest run` passed.
+  - Commit: `refactor(import_transformer): extract function definition handler to handlers/statements.rs`
 
-Step 6 — Extract Assign (LHS tracking, importlib handling, targets/values)
+Step 6 — Extract Assign (LHS tracking, importlib handling, targets/values) — COMPLETED
 
 - Source range: 562–621.
 - This arm has a `continue;` at the end; reflect that in the call site to avoid double `i += 1;`.
@@ -121,8 +124,9 @@ Step 6 — Extract Assign (LHS tracking, importlib handling, targets/values)
 - New function: `handle_assign(t: &mut RecursiveImportTransformer, s: &mut ruff_python_ast::StmtAssign) -> bool`
   - Move entire block verbatim; return `false` at the end (mirrors `continue;`). If refactoring to return `true`, adjust the body to not do the early `continue` locally.
 - Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(import_transformer): extract assignment handler to handlers/statements.rs`
+  - Completed: moved to `handlers/statements.rs` with return flag to preserve `continue`.
+  - Tests: `cargo nextest run` passed.
+  - Commit: `refactor(import_transformer): extract assignment handler to handlers/statements.rs`
 
 Step 7 — Optional: Extract import-path handling into helpers (no behavior change)
 
