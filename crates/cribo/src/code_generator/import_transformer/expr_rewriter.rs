@@ -237,10 +237,14 @@ impl ExpressionRewriter {
                                 // Create dotted name expression like _cribo.json.dumps
                                 let full_path = format!("{stdlib_path}.{attr_name}");
                                 let parts: Vec<&str> = full_path.split('.').collect();
-                                let new_expr = crate::ast_builder::expressions::dotted_name(
+                                let mut new_expr = crate::ast_builder::expressions::dotted_name(
                                     &parts,
                                     attr_expr.ctx,
                                 );
+                                // Preserve the original range
+                                if let Expr::Attribute(attr) = &mut new_expr {
+                                    attr.range = attr_expr.range;
+                                }
                                 *expr = new_expr;
                                 return;
                             } else {
@@ -257,10 +261,14 @@ impl ExpressionRewriter {
                                 );
 
                                 let parts: Vec<&str> = full_path.split('.').collect();
-                                let new_expr = crate::ast_builder::expressions::dotted_name(
+                                let mut new_expr = crate::ast_builder::expressions::dotted_name(
                                     &parts,
                                     attr_expr.ctx,
                                 );
+                                // Preserve the original range
+                                if let Expr::Attribute(attr) = &mut new_expr {
+                                    attr.range = attr_expr.range;
+                                }
                                 *expr = new_expr;
                                 return;
                             }
