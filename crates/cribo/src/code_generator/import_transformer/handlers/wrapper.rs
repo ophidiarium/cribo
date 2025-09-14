@@ -350,6 +350,10 @@ impl WrapperHandler {
         import_from: &StmtImportFrom,
         resolved: &str,
     ) -> Option<Vec<Stmt>> {
+        use crate::{
+            ast_builder::module_wrapper, code_generator::module_registry::get_module_var_identifier,
+        };
+
         // Check if this is a wrapper module (in module_registry)
         // This check must be after the inlined module check to avoid double-handling
         // A module is a wrapper module if it has an init function
@@ -492,11 +496,6 @@ impl WrapperHandler {
                         );
 
                         // Use ast_builder helper to generate wrapper init call
-                        use crate::{
-                            ast_builder::module_wrapper,
-                            code_generator::module_registry::get_module_var_identifier,
-                        };
-
                         let module_var = get_module_var_identifier(
                             module_id,
                             transformer.state.bundler.resolver,
