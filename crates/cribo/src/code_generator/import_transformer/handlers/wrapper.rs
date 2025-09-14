@@ -35,15 +35,7 @@ impl WrapperHandler {
         module_name: &str,
     ) -> Vec<Stmt> {
         // Check if this module is in the registry (wrapper approach)
-        // A module is a wrapper if it's bundled but NOT inlined
-        if context
-            .bundler
-            .get_module_id(module_name)
-            .is_some_and(|id| {
-                context.bundler.bundled_modules.contains(&id)
-                    && !context.bundler.inlined_modules.contains(&id)
-            })
-        {
+        if Self::is_wrapper_module(module_name, context.bundler) {
             // Module uses wrapper approach - transform to sys.modules access
             // For relative imports, we need to create an absolute import
             let mut absolute_import = import_from.clone();
@@ -317,14 +309,14 @@ impl WrapperHandler {
         }
     }
 
-    /// Check if a module is a wrapper module (has init function but is not inlined)
+    /// Check if a module is a wrapper module (bundled but not inlined)
     pub(in crate::code_generator::import_transformer) fn is_wrapper_module(
         module_name: &str,
         bundler: &Bundler,
     ) -> bool {
-        bundler
-            .get_module_id(module_name)
-            .is_some_and(|id| bundler.module_init_functions.contains_key(&id))
+        bundler.get_module_id(module_name).is_some_and(|id| {
+            bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
+        })
     }
 
     /// Track wrapper module imports for later rewriting
@@ -738,15 +730,7 @@ impl WrapperHandler {
         module_name: &str,
     ) -> Option<Vec<Stmt>> {
         // Check if this module is in the module_registry (wrapper module)
-        // A module is a wrapper if it's bundled but NOT inlined
-        if context
-            .bundler
-            .get_module_id(module_name)
-            .is_some_and(|id| {
-                context.bundler.bundled_modules.contains(&id)
-                    && !context.bundler.inlined_modules.contains(&id)
-            })
-        {
+        if Self::is_wrapper_module(module_name, context.bundler) {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
             // Route wrapper-module from-import rewriting through the wrapper handler.
             return Some(Self::rewrite_from_import_for_wrapper_module_with_context(
