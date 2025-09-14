@@ -721,6 +721,37 @@ impl InlinedHandler {
         // so we just return the assignments
         assignments
     }
+
+    /// Handle entry-module resolution as inlined fast-path
+    pub(in crate::code_generator::import_transformer) fn handle_entry_relative_as_inlined(
+        bundler: &Bundler,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
+        current_module: &str,
+        entry_module_id: Option<crate::resolver::ModuleId>,
+    ) -> Option<Vec<Stmt>> {
+        if let Some(module_id) = entry_module_id {
+            log::debug!(
+                "Relative import resolves to entry module '{module_name}' (ID {module_id}), \
+                 treating as inlined"
+            );
+            // Get the importing module's ID
+            let importing_module_id = bundler.resolver.get_module_id_by_name(current_module);
+            // Handle imports from the entry module
+            return Some(Self::handle_imports_from_inlined_module_with_context(
+                bundler,
+                import_from,
+                module_id,
+                symbol_renames,
+                inside_wrapper_init,
+                importing_module_id,
+            ));
+        }
+
+        None
+    }
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules

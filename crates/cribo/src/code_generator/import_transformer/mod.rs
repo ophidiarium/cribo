@@ -2070,22 +2070,16 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 "Checking if '{module_name}' is entry module: entry_module_id={entry_module_id:?}"
             );
 
-            if let Some(module_id) = entry_module_id {
-                log::debug!(
-                    "Relative import resolves to entry module '{module_name}' (ID {module_id}), \
-                     treating as inlined"
-                );
-                // Get the importing module's ID
-                let importing_module_id = bundler.resolver.get_module_id_by_name(current_module);
-                // Handle imports from the entry module
-                return handlers::inlined::InlinedHandler::handle_imports_from_inlined_module_with_context(
-                    bundler,
-                    &import_from,
-                    module_id,
-                    symbol_renames,
-                    inside_wrapper_init,
-                    importing_module_id,
-                );
+            if let Some(stmts) = handlers::inlined::InlinedHandler::handle_entry_relative_as_inlined(
+                bundler,
+                &import_from,
+                &module_name,
+                symbol_renames,
+                inside_wrapper_init,
+                current_module,
+                entry_module_id,
+            ) {
+                return stmts;
             }
 
             return handlers::relative::handle_unbundled_relative_import(
