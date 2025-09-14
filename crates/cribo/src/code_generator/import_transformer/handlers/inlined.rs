@@ -428,8 +428,9 @@ impl InlinedHandler {
                 // symbol directly This avoids ordering issues where the renamed
                 // symbol might not be defined yet
                 let module_namespace =
-                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                        &module_name,
+                    crate::code_generator::module_registry::get_module_var_identifier(
+                        source_module_id,
+                        bundler.resolver,
                     );
                 log::debug!(
                     "Creating assignment: {local_name} = {module_namespace}.{imported_name}"
@@ -446,8 +447,9 @@ impl InlinedHandler {
                 // Even when local_name == renamed_symbol, if it differs from imported_name,
                 // we need to create an assignment to the namespace attribute
                 let module_namespace =
-                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                        &module_name,
+                    crate::code_generator::module_registry::get_module_var_identifier(
+                        source_module_id,
+                        bundler.resolver,
                     );
                 log::debug!(
                     "Creating assignment: {local_name} = {module_namespace}.{imported_name}"
