@@ -1432,9 +1432,7 @@ fn rewrite_import_with_renames(
             }
         } else {
             // Non-dotted import - handle as before
-            let module_id = if let Some(id) = bundler.get_module_id(module_name) {
-                id
-            } else {
+            let Some(module_id) = bundler.get_module_id(module_name) else {
                 handled_all = false;
                 continue;
             };
