@@ -41,15 +41,18 @@ impl ExpressionRewriter {
                 // Do this before any other handling to avoid re-entrancy issues.
                 if transformer.state.is_wrapper_init {
                     let current = transformer.state.get_module_name();
-                    if let Some((root, rel)) = current.split_once('.') {
+                    let segments: Vec<&str> = current.split('.').collect();
+                    if segments.len() >= 2 {
+                        let root = segments[0];
+                        let rel_first = segments[1];
                         // Try to find the inner attribute node where value is Name(root)
-                        // and attribute equals the current module's relative name (rel).
+                        // and attribute equals the first relative segment (rel_first).
                         let mut cursor: &mut ExprAttribute = attr_expr; // start at outer attribute
                         while let Expr::Attribute(inner) = cursor.value.as_mut() {
                             let is_base = matches!(
                                 inner.value.as_ref(),
                                 Expr::Name(n) if n.id.as_str() == root
-                            ) && inner.attr.as_str() == rel;
+                            ) && inner.attr.as_str() == rel_first;
                             if is_base {
                                 inner.value =
                                     Box::new(expressions::name("self", ExprContext::Load));
