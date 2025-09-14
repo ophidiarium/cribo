@@ -173,7 +173,7 @@ impl ExpressionRewriter {
                         {
                             // This is accessing attributes on a variable that was assigned from
                             // importlib.import_module() of an inlined module
-                            if attr_path.len() == 1 {
+                            if attr_path.len() == 1 && matches!(attr_expr.ctx, ExprContext::Load) {
                                 let attr_name = &attr_path[0];
                                 log::debug!(
                                     "Transforming {base}.{attr_name} - {base} was assigned from \
