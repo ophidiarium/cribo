@@ -65,6 +65,8 @@ system_info = _cribo.sys
 process_a = utils_data_processor.process_data
 format_a = utils_data_processor.format_output
 config_a = utils_config_manager.load_config
+math = _cribo.math
+hashlib = _cribo.hashlib
 debug_a = utils_helpers.debug_print
 def main():
     """Main function that uses the imported modules with their aliases."""

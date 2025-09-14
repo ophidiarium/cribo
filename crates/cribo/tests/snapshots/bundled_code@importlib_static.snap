@@ -216,6 +216,7 @@ def _cribo_init___cribo_5687a6__2024_config(self):
     return self
 _2024_config.__init__ = _cribo_init___cribo_5687a6__2024_config
 """Main module demonstrating importlib usage with static string literals."""
+importlib = _cribo.importlib
 data_processor = _cribo_init___cribo_d8297b_data_processor(data_processor)
 api_client = _cribo_init___cribo_64c186_api_client(api_client)
 class_module = _cribo_init___cribo_004e55_class_(class_)

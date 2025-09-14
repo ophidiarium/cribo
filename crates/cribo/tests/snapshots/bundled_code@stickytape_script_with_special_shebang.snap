@@ -28,4 +28,5 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
+sys = _cribo.sys
 print(_cribo.sys.flags.ignore_environment)

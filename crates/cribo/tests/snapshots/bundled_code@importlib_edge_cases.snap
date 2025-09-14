@@ -45,6 +45,7 @@ def _cribo_init___cribo_332fbf_my_module(self):
     self.__initializing__ = False
     return self
 my_module.__init__ = _cribo_init___cribo_332fbf_my_module
+importlib = _cribo.importlib
 mod = _cribo_init___cribo_332fbf_my_module(my_module)
 print(f"Value: {mod.value}")
 print(f"Function result: {mod.get_value()}")

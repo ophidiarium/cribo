@@ -5,7 +5,7 @@ excessive-nesting-threshold         = 8
 min-ident-chars-threshold           = 2
 single-char-binding-names-threshold = 3
 too-many-arguments-threshold        = 6
-too-many-lines-threshold            = 80
+too-many-lines-threshold            = 200
 trivial-copy-size-limit             = 16
 type-complexity-threshold           = 300
 

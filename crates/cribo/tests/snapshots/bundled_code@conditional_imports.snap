@@ -69,17 +69,18 @@ def _cribo_init___cribo_e43fad_conditional_module(self):
     basestring = str, bytes
     self.basestring = basestring
     if has_simplejson:
-        if hasattr(_cribo.json, "JSONDecodeError"):
+        if hasattr(json, "JSONDecodeError"):
             pass
         else:
-            _cribo.json.JSONDecodeError = ValueError
+            JSONDecodeError = ValueError
+            conditional_module.JSONDecodeError = JSONDecodeError
     else:
         pass
 
     def decode_json(text):
         """Decode JSON using the conditionally imported decoder."""
         try:
-            return _cribo.json.loads(text)
+            return json.loads(text)
         except JSONDecodeError as e:
             return None
     self.decode_json = decode_json
@@ -112,7 +113,8 @@ def _cribo_init___cribo_17f1ec_try_except_module(self):
             ETREE_VERSION = "stdlib"
             try_except_module.ETREE_VERSION = ETREE_VERSION
         except ImportError:
-            _cribo.xml.etree.ElementTree = None
+            etree = None
+            try_except_module.etree = etree
             ETREE_VERSION = None
             try_except_module.ETREE_VERSION = ETREE_VERSION
     parser_backend = None
@@ -130,16 +132,17 @@ def _cribo_init___cribo_17f1ec_try_except_module(self):
             parser_backend = "ElementTree"
             try_except_module.parser_backend = parser_backend
         except ImportError:
-            _cribo.xml.etree.ElementTree = None
+            ET = None
+            try_except_module.ET = ET
             parser_backend = None
             try_except_module.parser_backend = parser_backend
 
     def parse_xml(xml_string):
         """Parse XML using available parser."""
-        if _cribo.xml.etree.ElementTree is not None:
-            return _cribo.xml.etree.ElementTree.fromstring(xml_string)
-        elif _cribo.xml.etree.ElementTree is not None:
-            return _cribo.xml.etree.ElementTree.fromstring(xml_string)
+        if etree is not None:
+            return etree.fromstring(xml_string)
+        elif ET is not None:
+            return ET.fromstring(xml_string)
         else:
             raise ImportError("No XML parser available")
     self.parse_xml = parse_xml
