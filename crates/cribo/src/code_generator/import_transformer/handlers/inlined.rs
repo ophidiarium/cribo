@@ -350,9 +350,10 @@ impl InlinedHandler {
                     let source_expr = if is_from_inlined {
                         if local_name == renamed_symbol {
                             let module_namespace =
-                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                                &module_name,
-                            );
+                                crate::code_generator::module_registry::get_module_var_identifier(
+                                    source_module_id,
+                                    bundler.resolver,
+                                );
                             log::debug!(
                                 "Creating local alias from namespace: {local_name} = \
                                  {module_namespace}.{imported_name}"
