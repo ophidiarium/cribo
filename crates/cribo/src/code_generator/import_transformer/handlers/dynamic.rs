@@ -39,14 +39,8 @@ impl DynamicHandler {
         }
     }
 
-    /// Transform importlib.import_module("module-name") to direct module reference
-    pub(in crate::code_generator::import_transformer) fn transform_importlib_import_module(
-        call: &ExprCall,
-        bundler: &Bundler,
-        created_namespace_objects: &mut bool,
-        create_module_access_expr: impl Fn(&str) -> Expr,
-    ) -> Option<Expr> {
-        // Get the first argument which should be the module name
+    /// Resolve `importlib.import_module()` target module name, handling relative imports
+    fn resolve_importlib_target(call: &ExprCall, bundler: &Bundler) -> Option<String> {
         if let Some(arg) = call.arguments.args.first()
             && let Expr::StringLiteral(lit) = arg
         {
@@ -97,14 +91,28 @@ impl DynamicHandler {
                 module_name.to_string()
             };
 
+            Some(resolved_name)
+        } else {
+            None
+        }
+    }
+
+    /// Transform importlib.import_module("module-name") to direct module reference
+    pub(in crate::code_generator::import_transformer) fn transform_importlib_import_module(
+        call: &ExprCall,
+        bundler: &Bundler,
+        created_namespace_objects: &mut bool,
+        create_module_access_expr: impl Fn(&str) -> Expr,
+    ) -> Option<Expr> {
+        // Get the module name and resolve relative imports
+        if let Some(resolved_name) = Self::resolve_importlib_target(call, bundler) {
             // Check if this module was bundled
             if bundler
                 .get_module_id(&resolved_name)
                 .is_some_and(|id| bundler.bundled_modules.contains(&id))
             {
                 log::debug!(
-                    "Transforming importlib.import_module('{module_name}') to module access \
-                     '{resolved_name}'"
+                    "Transforming importlib.import_module call to module access '{resolved_name}'"
                 );
 
                 // Check if this creates a namespace object
@@ -167,51 +175,9 @@ impl DynamicHandler {
         bundler: &Bundler,
         importlib_inlined_modules: &mut FxIndexMap<String, String>,
     ) {
-        // Get the module name from importlib.import_module call
-        if let Some(arg) = call.arguments.args.first()
-            && let Expr::StringLiteral(lit) = arg
-        {
-            let module_name = lit.value.to_str();
-            // Resolve relative names using optional package context (2nd arg)
-            let resolved_name = if module_name.starts_with('.') && call.arguments.args.len() >= 2 {
-                if let Expr::StringLiteral(package_lit) = &call.arguments.args[1] {
-                    let package = package_lit.value.to_str();
-                    if let Ok(Some(package_path)) = bundler.resolver.resolve_module_path(package) {
-                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
-                        let name_part = module_name.trim_start_matches('.');
-                        bundler
-                            .resolver
-                            .resolve_relative_to_absolute_module_name(
-                                level,
-                                if name_part.is_empty() {
-                                    None
-                                } else {
-                                    Some(name_part)
-                                },
-                                &package_path,
-                            )
-                            .unwrap_or_else(|| module_name.to_string())
-                    } else {
-                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
-                        let name_part = module_name.trim_start_matches('.');
-                        bundler.resolver.resolve_relative_import_from_package_name(
-                            level,
-                            if name_part.is_empty() {
-                                None
-                            } else {
-                                Some(name_part)
-                            },
-                            package,
-                        )
-                    }
-                } else {
-                    module_name.to_string()
-                }
-            } else {
-                module_name.to_string()
-            };
-
-            if bundler
+        // Get the module name and resolve relative imports
+        if let Some(resolved_name) = Self::resolve_importlib_target(call, bundler)
+            && bundler
                 .get_module_id(&resolved_name)
                 .is_some_and(|id| bundler.inlined_modules.contains(&id))
             {
@@ -224,6 +190,5 @@ impl DynamicHandler {
                     importlib_inlined_modules.insert(name.clone(), resolved_name.clone());
                 }
             }
-        }
     }
 }
