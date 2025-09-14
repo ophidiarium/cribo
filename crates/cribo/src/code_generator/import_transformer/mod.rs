@@ -23,13 +23,12 @@ mod statement;
 
 use expr_rewriter::ExpressionRewriter;
 use handlers::{
-    dynamic::DynamicHandler, inlined::InlinedHandler, statements::StatementsHandler,
-    stdlib::StdlibHandler, submodule::SubmoduleHandler, wrapper::WrapperHandler,
+    inlined::InlinedHandler, statements::StatementsHandler, stdlib::StdlibHandler,
+    submodule::SubmoduleHandler, wrapper::WrapperHandler,
 };
 // Re-export the params struct for external use
 pub use state::RecursiveImportTransformerParams;
 use state::TransformerState;
-use statement::StatementProcessor;
 
 /// Transformer that recursively handles import statements and module references
 pub struct RecursiveImportTransformer<'a> {
@@ -560,64 +559,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // expressions
                 match &mut stmts[i] {
                     Stmt::Assign(assign_stmt) => {
-                        // Track assignment LHS names to prevent collapsing RHS to self
-                        let mut lhs_names: FxIndexSet<String> = FxIndexSet::default();
-                        for target in &assign_stmt.targets {
-                            StatementProcessor::collect_assigned_names(target, &mut lhs_names);
+                        if !StatementsHandler::handle_assign(self, assign_stmt) {
+                            i += 1;
+                            continue;
                         }
-
-                        let saved_targets = self.state.current_assignment_targets.clone();
-                        self.state.current_assignment_targets = if lhs_names.is_empty() {
-                            None
-                        } else {
-                            Some(lhs_names)
-                        };
-
-                        // Handle importlib.import_module() assignment tracking
-                        if let Expr::Call(call) = &assign_stmt.value.as_ref()
-                            && DynamicHandler::is_importlib_import_module_call(
-                                call,
-                                &self.state.import_aliases,
-                            )
-                        {
-                            // Get assigned names to pass to the handler
-                            let mut assigned_names = FxIndexSet::default();
-                            for target in &assign_stmt.targets {
-                                StatementProcessor::collect_assigned_names(
-                                    target,
-                                    &mut assigned_names,
-                                );
-                            }
-
-                            DynamicHandler::handle_importlib_assignment(
-                                &assigned_names,
-                                call,
-                                self.state.bundler,
-                                &mut self.state.importlib_inlined_modules,
-                            );
-                        }
-
-                        // Track local variable assignments
-                        for target in &assign_stmt.targets {
-                            if let Expr::Name(name) = target {
-                                let var_name = name.id.to_string();
-                                self.state.local_variables.insert(var_name.clone());
-                            }
-                        }
-
-                        // Transform the targets
-                        for target in &mut assign_stmt.targets {
-                            self.transform_expr(target);
-                        }
-
-                        // Transform the RHS
-                        self.transform_expr(&mut assign_stmt.value);
-
-                        // Restore previous context
-                        self.state.current_assignment_targets = saved_targets;
-
-                        i += 1;
-                        continue;
                     }
                     Stmt::FunctionDef(func_def) => {
                         StatementsHandler::handle_function_def(self, func_def);

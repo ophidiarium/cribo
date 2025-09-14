@@ -370,4 +370,74 @@ impl StatementsHandler {
         // Restore the previous scope's local variables
         t.state.local_variables = saved_locals;
     }
+
+    /// Handle assignment statement. Returns whether the caller should advance `i` normally
+    /// (true) or perform `i += 1; continue;` (false). Mirrors current control flow which
+    /// advances and continues within the arm.
+    pub(in crate::code_generator::import_transformer) fn handle_assign(
+        t: &mut RecursiveImportTransformer,
+        s: &mut ruff_python_ast::StmtAssign,
+    ) -> bool {
+        // Track assignment LHS names to prevent collapsing RHS to self
+        let mut lhs_names: crate::types::FxIndexSet<String> = Default::default();
+        for target in &s.targets {
+            crate::code_generator::import_transformer::statement::StatementProcessor::collect_assigned_names(
+                target,
+                &mut lhs_names,
+            );
+        }
+
+        let saved_targets = t.state.current_assignment_targets.clone();
+        t.state.current_assignment_targets = if lhs_names.is_empty() {
+            None
+        } else {
+            Some(lhs_names)
+        };
+
+        // Handle importlib.import_module() assignment tracking
+        if let ruff_python_ast::Expr::Call(call) = &s.value.as_ref()
+            && crate::code_generator::import_transformer::handlers::dynamic::DynamicHandler::is_importlib_import_module_call(
+                call,
+                &t.state.import_aliases,
+            )
+        {
+            // Get assigned names to pass to the handler
+            let mut assigned_names = crate::types::FxIndexSet::default();
+            for target in &s.targets {
+                crate::code_generator::import_transformer::statement::StatementProcessor::collect_assigned_names(
+                    target,
+                    &mut assigned_names,
+                );
+            }
+
+            crate::code_generator::import_transformer::handlers::dynamic::DynamicHandler::handle_importlib_assignment(
+                &assigned_names,
+                call,
+                t.state.bundler,
+                &mut t.state.importlib_inlined_modules,
+            );
+        }
+
+        // Track local variable assignments
+        for target in &s.targets {
+            if let ruff_python_ast::Expr::Name(name) = target {
+                let var_name = name.id.to_string();
+                t.state.local_variables.insert(var_name.clone());
+            }
+        }
+
+        // Transform the targets
+        for target in &mut s.targets {
+            t.transform_expr(target);
+        }
+
+        // Transform the RHS
+        t.transform_expr(&mut s.value);
+
+        // Restore previous context
+        t.state.current_assignment_targets = saved_targets;
+
+        // Original code performs `i += 1; continue;` in the caller.
+        false
+    }
 }
