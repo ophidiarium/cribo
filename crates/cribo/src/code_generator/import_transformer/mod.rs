@@ -1951,15 +1951,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 .collect::<Vec<_>>(),
             current_module
         );
-        // For absolute imports that can't be resolved, return the original import
-        log::warn!(
-            "Could not resolve module name for import {:?}, keeping original import",
-            import_from
-                .module
-                .as_ref()
-                .map(ruff_python_ast::Identifier::as_str)
-        );
-        return vec![Stmt::ImportFrom(import_from)];
+        return handlers::fallback::keep_original_from_import(&import_from);
     };
 
     if !bundler
