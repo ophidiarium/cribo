@@ -119,14 +119,15 @@ pub fn transform_module_to_init_function<'a>(
 
     // First, recursively transform all imports in the AST
     // For wrapper modules, we don't need to defer imports since they run in their own scope
-    let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+    let params = RecursiveImportTransformerParams {
         bundler,
         module_id,
         symbol_renames,
         is_wrapper_init: true,         // This IS a wrapper init function
         global_deferred_imports: None, // No need for global deferred imports in wrapper modules
         python_version: ctx.python_version,
-    });
+    };
+    let mut transformer = RecursiveImportTransformer::new(&params);
 
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)

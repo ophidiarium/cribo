@@ -2110,16 +2110,15 @@ impl<'a> Bundler<'a> {
 
             // Transform imports in the entry module
             {
-                let mut transformer = RecursiveImportTransformer::new(
-                    RecursiveImportTransformerParams {
-                        bundler: self,
-                        module_id: crate::resolver::ModuleId::ENTRY,
-                        symbol_renames: &symbol_renames,
-                        is_wrapper_init: false, // Not a wrapper init
-                        global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports directly */
-                        python_version,
-                    },
-                );
+                let params = RecursiveImportTransformerParams {
+                    bundler: self,
+                    module_id: crate::resolver::ModuleId::ENTRY,
+                    symbol_renames: &symbol_renames,
+                    is_wrapper_init: false, // Not a wrapper init
+                    global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports directly */
+                    python_version,
+                };
+                let mut transformer = RecursiveImportTransformer::new(&params);
 
                 // Pre-populate stdlib aliases that are defined in the ENTRY module only
                 // to avoid leaking aliases from other modules.

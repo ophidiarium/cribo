@@ -69,14 +69,15 @@ impl Bundler<'_> {
         let mut module_renames = FxIndexMap::default();
 
         // Then apply recursive import transformation to the module
-        let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+        let params = RecursiveImportTransformerParams {
             bundler: self,
             module_id,
             symbol_renames: ctx.module_renames,
             is_wrapper_init: false, // Not a wrapper init
             global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
             python_version: ctx.python_version,
-        });
+        };
+        let mut transformer = RecursiveImportTransformer::new(&params);
         transformer.transform_module(&mut ast);
 
         // Copy import aliases from the transformer to the inline context
