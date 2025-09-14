@@ -292,11 +292,7 @@ impl WrapperHandler {
         {
             if let Some(export_list) = exports {
                 log::debug!("  Wrapper module '{resolved}' exports: {export_list:?}");
-                for export in export_list {
-                    if export == "*" {
-                        continue;
-                    }
-                }
+                // (no-op loop removed)
             } else {
                 log::debug!(
                     "  Wrapper module '{resolved}' has no explicit exports; importing all public \
