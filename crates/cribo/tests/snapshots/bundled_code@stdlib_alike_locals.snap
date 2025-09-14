@@ -29,6 +29,8 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 """Test fixture for local variables that have the same name as stdlib modules."""
+json = _cribo.json
+collections = _cribo.collections
 Any = _cribo.typing.Any
 def process_data():
     """Function that uses local variables named like stdlib modules."""
@@ -67,11 +69,12 @@ def process_data():
     print("All tests completed!")
 def test_shadowing():
     """Test what happens when we shadow an imported module."""
+    os = _cribo.os
     cwd = _cribo.os.getcwd()
     print(f"os.getcwd() works: {bool(cwd)}")
-    _cribo.os = "I'm not the os module!"
-    print(f"Shadowed os: {_cribo.os}")
-    print(f"Os uppercase: {_cribo.os.upper()}")
+    os = "I'm not the os module!"
+    print(f"Shadowed os: {os}")
+    print(f"Os uppercase: {os.upper()}")
 if __name__ == "__main__":
     process_data()
     print("\n--- Testing shadowing ---")

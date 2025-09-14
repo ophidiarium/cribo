@@ -64,6 +64,9 @@ url_parser = _cribo.urllib.parse
 xml_tree = _cribo.xml.etree.ElementTree
 helper_utils = utils.helpers
 config_module = utils.config
+math = _cribo.math
+random = _cribo.random
+datetime = _cribo.datetime
 def main():
     """Test function that uses the imported modules with aliases."""
     print("Current working directory: /test/working/directory")

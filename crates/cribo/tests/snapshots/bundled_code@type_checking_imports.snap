@@ -46,6 +46,7 @@ class TypeB:
         return self.value
 TypeB.__module__ = 'module_b'
 """Test case for TYPE_CHECKING blocks that only contain imports."""
+typing = _cribo.typing
 if _cribo.typing.TYPE_CHECKING:
     pass
 def use_function(x: "TypeB") -> str:
