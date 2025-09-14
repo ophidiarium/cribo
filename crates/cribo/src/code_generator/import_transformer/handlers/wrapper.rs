@@ -135,7 +135,7 @@ impl WrapperHandler {
         bundler: &Bundler,
         import_from: &StmtImportFrom,
         module_name: &str,
-        context: crate::code_generator::bundler::BundledImportContext<'_>,
+        context: &crate::code_generator::bundler::BundledImportContext<'_>,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
         function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {

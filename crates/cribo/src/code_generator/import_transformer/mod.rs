@@ -68,7 +68,7 @@ pub(in crate::code_generator) fn transform_wrapper_symbol_imports(
         bundler,
         import_from,
         module_name,
-        context,
+        &context,
         symbol_renames,
         function_body,
     )
