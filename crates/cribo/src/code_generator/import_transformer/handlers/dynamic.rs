@@ -1,4 +1,4 @@
-use ruff_python_ast::{AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprName};
+use ruff_python_ast::{AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprName};
 
 use crate::{
     code_generator::bundler::Bundler,
@@ -137,6 +137,10 @@ impl DynamicHandler {
         bundler: &Bundler,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Expr {
+        // Only rewrite attribute reads; preserve writes to module attributes.
+        if !matches!(attr_expr.ctx, ExprContext::Load) {
+            return Expr::Attribute(attr_expr.clone());
+        }
         let attr_name = attr_expr.attr.as_str();
 
         if let Some(module_id) = bundler.get_module_id(module_name)
