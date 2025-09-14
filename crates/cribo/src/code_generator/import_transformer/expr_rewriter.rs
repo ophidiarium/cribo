@@ -336,7 +336,8 @@ impl ExpressionRewriter {
                     &transformer.state.import_aliases,
                 ) {
                     // Extract the state values we need to avoid borrow checker conflicts
-                    let mut created_namespace_objects = transformer.state.created_namespace_objects;
+                    let mut created_namespace_objects =
+                        std::mem::take(&mut transformer.state.created_namespace_objects);
 
                     if let Some(transformed) = DynamicHandler::transform_importlib_import_module(
                         call_expr,
