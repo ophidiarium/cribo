@@ -379,7 +379,7 @@ impl StatementsHandler {
         s: &mut ruff_python_ast::StmtAssign,
     ) -> bool {
         // Track assignment LHS names to prevent collapsing RHS to self
-        let mut lhs_names: crate::types::FxIndexSet<String> = Default::default();
+        let mut lhs_names = crate::types::FxIndexSet::<String>::default();
         for target in &s.targets {
             crate::code_generator::import_transformer::statement::StatementProcessor::collect_assigned_names(
                 target,
