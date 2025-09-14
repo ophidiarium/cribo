@@ -850,6 +850,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                     Stmt::With(with_stmt) => {
                         for item in &mut with_stmt.items {
                             self.transform_expr(&mut item.context_expr);
+                            if let Some(vars) = &mut item.optional_vars {
+                                // Track assigned names as locals before transforming
+                                let mut with_names = FxIndexSet::default();
+                                StatementProcessor::collect_assigned_names(vars, &mut with_names);
+                                for n in with_names {
+                                    self.state.local_variables.insert(n.clone());
+                                    log::debug!("Tracking with-as variable as local: {n}");
+                                }
+                                self.transform_expr(vars);
+                            }
                         }
                         self.transform_statements(&mut with_stmt.body);
                     }
