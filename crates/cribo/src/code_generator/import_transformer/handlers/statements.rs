@@ -1,6 +1,6 @@
 use ruff_python_ast::{
-    ExceptHandler, StmtAnnAssign, StmtAssert, StmtAugAssign, StmtExpr, StmtFor, StmtRaise,
-    StmtReturn, StmtTry, StmtWhile, StmtWith,
+    ExceptHandler, StmtAnnAssign, StmtAssert, StmtAugAssign, StmtClassDef, StmtExpr, StmtFor,
+    StmtIf, StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith,
 };
 
 use crate::code_generator::import_transformer::RecursiveImportTransformer;
@@ -156,5 +156,56 @@ impl StatementsHandler {
         t.transform_expr(&mut s.test);
         t.transform_statements(&mut s.body);
         t.transform_statements(&mut s.orelse);
+    }
+
+    pub(in crate::code_generator::import_transformer) fn handle_if(
+        t: &mut RecursiveImportTransformer,
+        s: &mut StmtIf,
+    ) {
+        t.transform_expr(&mut s.test);
+        t.transform_statements(&mut s.body);
+
+        // Check if this is a TYPE_CHECKING block and ensure it has a body
+        if s.body.is_empty()
+            && crate::code_generator::import_transformer::statement::StatementProcessor::is_type_checking_condition(
+                &s.test,
+            )
+        {
+            log::debug!(
+                "Adding pass statement to empty TYPE_CHECKING block in import transformer"
+            );
+            s.body.push(crate::ast_builder::statements::pass());
+        }
+
+        for clause in &mut s.elif_else_clauses {
+            if let Some(test_expr) = &mut clause.test {
+                t.transform_expr(test_expr);
+            }
+            t.transform_statements(&mut clause.body);
+
+            // Ensure non-empty body for elif/else clauses too
+            if clause.body.is_empty() {
+                log::debug!(
+                    "Adding pass statement to empty elif/else clause in import transformer"
+                );
+                clause.body.push(crate::ast_builder::statements::pass());
+            }
+        }
+    }
+
+    pub(in crate::code_generator::import_transformer) fn handle_class_def(
+        t: &mut RecursiveImportTransformer,
+        s: &mut StmtClassDef,
+    ) {
+        // Transform decorators
+        for decorator in &mut s.decorator_list {
+            t.transform_expr(&mut decorator.expression);
+        }
+
+        // Transform base classes
+        t.transform_class_bases(s);
+
+        // Transform class body
+        t.transform_statements(&mut s.body);
     }
 }

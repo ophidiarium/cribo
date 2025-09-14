@@ -777,50 +777,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.state.local_variables = saved_locals;
                     }
                     Stmt::ClassDef(class_def) => {
-                        // Transform decorators
-                        for decorator in &mut class_def.decorator_list {
-                            self.transform_expr(&mut decorator.expression);
-                        }
-
-                        // Transform base classes
-                        self.transform_class_bases(class_def);
-
-                        // Note: Class bodies in Python don't create a local scope that requires
-                        // 'global' declarations for assignments. They
-                        // execute in a temporary namespace but can
-                        // still read from and assign to the enclosing scope without 'global'.
-                        self.transform_statements(&mut class_def.body);
+                        StatementsHandler::handle_class_def(self, class_def);
                     }
                     Stmt::If(if_stmt) => {
-                        self.transform_expr(&mut if_stmt.test);
-                        self.transform_statements(&mut if_stmt.body);
-
-                        // Check if this is a TYPE_CHECKING block and ensure it has a body
-                        if if_stmt.body.is_empty()
-                            && StatementProcessor::is_type_checking_condition(&if_stmt.test)
-                        {
-                            log::debug!(
-                                "Adding pass statement to empty TYPE_CHECKING block in import \
-                                 transformer"
-                            );
-                            if_stmt.body.push(crate::ast_builder::statements::pass());
-                        }
-
-                        for clause in &mut if_stmt.elif_else_clauses {
-                            if let Some(test_expr) = &mut clause.test {
-                                self.transform_expr(test_expr);
-                            }
-                            self.transform_statements(&mut clause.body);
-
-                            // Ensure non-empty body for elif/else clauses too
-                            if clause.body.is_empty() {
-                                log::debug!(
-                                    "Adding pass statement to empty elif/else clause in import \
-                                     transformer"
-                                );
-                                clause.body.push(crate::ast_builder::statements::pass());
-                            }
-                        }
+                        StatementsHandler::handle_if(self, if_stmt);
                     }
                     Stmt::While(while_stmt) => {
                         StatementsHandler::handle_while(self, while_stmt);
