@@ -338,44 +338,37 @@ impl InlinedHandler {
                 // When importing from an inlined module, we need to create the local alias FIRST
                 // before setting the module attribute, because the module attribute assignment
                 // uses the local name which won't exist until we create the alias
-                let is_from_inlined = bundler.inlined_modules.contains(&source_module_id);
 
-                // Create a local alias when:
-                // 1. The names are different (aliased import), OR
-                // 2. We're importing from an inlined module (need to access through namespace)
-                if local_name != renamed_symbol || is_from_inlined {
-                    // When importing from an inlined module inside a wrapper init,
-                    // prefer qualifying with the module's namespace when the names are identical
-                    // to avoid creating a self-referential assignment like `x = x`.
-                    let source_expr = if is_from_inlined {
-                        if local_name == renamed_symbol {
-                            let module_namespace =
-                                crate::code_generator::module_registry::get_module_var_identifier(
-                                    source_module_id,
-                                    bundler.resolver,
-                                );
-                            log::debug!(
-                                "Creating local alias from namespace: {local_name} = \
-                                 {module_namespace}.{imported_name}"
-                            );
-                            expressions::attribute(
-                                expressions::name(&module_namespace, ExprContext::Load),
-                                imported_name,
-                                ExprContext::Load,
-                            )
-                        } else {
-                            log::debug!(
-                                "Creating local alias from global symbol: {local_name} = \
-                                 {renamed_symbol} (imported from inlined module {module_name})"
-                            );
-                            expressions::name(&renamed_symbol, ExprContext::Load)
-                        }
-                    } else {
-                        log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
-                        expressions::name(&renamed_symbol, ExprContext::Load)
-                    };
-                    result_stmts.push(statements::simple_assign(local_name, source_expr));
-                }
+                // Note: source_module_id always corresponds to an inlined module when this function
+                // is called, so we can simplify the logic by removing the redundant
+                // is_from_inlined check.
+
+                // When importing from an inlined module inside a wrapper init,
+                // prefer qualifying with the module's namespace when the names are identical
+                // to avoid creating a self-referential assignment like `x = x`.
+                let source_expr = if local_name == renamed_symbol {
+                    let module_namespace =
+                        crate::code_generator::module_registry::get_module_var_identifier(
+                            source_module_id,
+                            bundler.resolver,
+                        );
+                    log::debug!(
+                        "Creating local alias from namespace: {local_name} = \
+                         {module_namespace}.{imported_name}"
+                    );
+                    expressions::attribute(
+                        expressions::name(&module_namespace, ExprContext::Load),
+                        imported_name,
+                        ExprContext::Load,
+                    )
+                } else {
+                    log::debug!(
+                        "Creating local alias from global symbol: {local_name} = {renamed_symbol} \
+                         (imported from inlined module {module_name})"
+                    );
+                    expressions::name(&renamed_symbol, ExprContext::Load)
+                };
+                result_stmts.push(statements::simple_assign(local_name, source_expr));
 
                 // Now set the module attribute using the local name (which now exists)
                 if let Some(current_mod_id) = importing_module_id {
@@ -387,13 +380,9 @@ impl InlinedHandler {
                         crate::code_generator::module_registry::sanitize_module_name_for_identifier(
                             &current_mod_name,
                         );
-                    // When importing from an inlined module, use the local name we just created
-                    // Otherwise use the renamed symbol directly
-                    let attr_value = if is_from_inlined {
-                        local_name
-                    } else {
-                        &renamed_symbol
-                    };
+                    // When importing from an inlined module (which is always the case for this
+                    // function), use the local name we just created
+                    let attr_value = local_name;
                     log::debug!(
                         "Creating module attribute assignment in wrapper init: \
                          {module_var}.{local_name} = {attr_value}"
@@ -406,16 +395,10 @@ impl InlinedHandler {
                     ),
                 );
 
-                    // Also expose on the namespace (self.<name> = <name>) so that
-                    // dir(__cribo_init_result) copies include it. Skip for imports coming from
-                    // inlined modules to avoid redundant assignments inside inlined init functions.
-                    if !is_from_inlined {
-                        result_stmts.push(statements::assign_attribute(
-                            "self",
-                            local_name,
-                            expressions::name(local_name, ExprContext::Load),
-                        ));
-                    }
+                    // Note: We skip the self.<name> = <name> assignment for imports from inlined
+                    // modules to avoid redundant assignments inside inlined
+                    // init functions. Since this function only handles inlined
+                    // modules, we don't add the self assignment.
                 } else {
                     log::warn!(
                         "is_wrapper_init is true but current_module is None, skipping module \
