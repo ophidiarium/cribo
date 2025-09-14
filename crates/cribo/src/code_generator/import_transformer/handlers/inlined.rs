@@ -752,6 +752,45 @@ impl InlinedHandler {
 
         None
     }
+
+    /// Transform imports if the module has bundled submodules
+    pub(in crate::code_generator::import_transformer) fn transform_if_has_bundled_submodules(
+        bundler: &Bundler,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    ) -> Option<Vec<Stmt>> {
+        if crate::code_generator::import_transformer::has_bundled_submodules(
+            import_from,
+            module_name,
+            bundler,
+        ) {
+            // We have bundled submodules, need to transform them
+            log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
+            log::debug!("  Found bundled submodules:");
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let full_module_path = format!("{module_name}.{imported_name}");
+                if bundler
+                    .get_module_id(&full_module_path)
+                    .is_some_and(|id| bundler.bundled_modules.contains(&id))
+                {
+                    log::debug!("    - {full_module_path}");
+                }
+            }
+            // Transform each submodule import
+            return Some(
+                crate::code_generator::namespace_manager::transform_namespace_package_imports(
+                    bundler,
+                    import_from.clone(),
+                    module_name,
+                    symbol_renames,
+                ),
+            );
+        }
+
+        None
+    }
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules

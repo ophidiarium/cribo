@@ -1967,30 +1967,13 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
              importing submodules"
         );
 
-        // First check if we're importing bundled submodules from a namespace package
-        // This check MUST come before the inlined module check
-        // e.g., from greetings import greeting where greeting is actually greetings.greeting
-        if has_bundled_submodules(&import_from, &module_name, bundler) {
-            // We have bundled submodules, need to transform them
-            log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
-            log::debug!("  Found bundled submodules:");
-            for alias in &import_from.names {
-                let imported_name = alias.name.as_str();
-                let full_module_path = format!("{module_name}.{imported_name}");
-                if bundler
-                    .get_module_id(&full_module_path)
-                    .is_some_and(|id| bundler.bundled_modules.contains(&id))
-                {
-                    log::debug!("    - {full_module_path}");
-                }
-            }
-            // Transform each submodule import
-            return crate::code_generator::namespace_manager::transform_namespace_package_imports(
-                bundler,
-                import_from,
-                &module_name,
-                symbol_renames,
-            );
+        if let Some(stmts) = handlers::inlined::InlinedHandler::transform_if_has_bundled_submodules(
+            bundler,
+            &import_from,
+            &module_name,
+            symbol_renames,
+        ) {
+            return stmts;
         }
 
         // Check if this module is inlined
