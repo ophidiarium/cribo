@@ -1212,7 +1212,14 @@ impl WrapperHandler {
                 );
 
                 let module_expr = if prefer_submodule_var {
-                    let var = sanitize_module_name_for_identifier(&canonical_module_name);
+                    let var = if let Some(id) = bundler.get_module_id(&canonical_module_name) {
+                        crate::code_generator::module_registry::get_module_var_identifier(
+                            id,
+                            bundler.resolver,
+                        )
+                    } else {
+                        sanitize_module_name_for_identifier(&canonical_module_name)
+                    };
                     expressions::name(&var, ExprContext::Load)
                 } else if canonical_module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
