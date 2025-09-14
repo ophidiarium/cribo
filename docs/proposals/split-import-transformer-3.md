@@ -38,7 +38,7 @@ Safeguard
 
 - Do not change the loop/iterator scaffolding (`i`, `stmts.remove/insert`, import path). Only replace the arm bodies.
 
-Step 1 — Extract Assert/Return/Raise/Expr/AugAssign/AnnAssign (bottom tail)
+Step 1 — Extract Assert/Return/Raise/Expr/AugAssign/AnnAssign (bottom tail) — COMPLETED
 
 - Source ranges in `mod.rs` inside `transform_statements` match at lines:
   - Assert: 922–927 → `StatementsHandler::handle_assert(self, assert_stmt)`
@@ -56,10 +56,11 @@ Step 1 — Extract Assert/Return/Raise/Expr/AugAssign/AnnAssign (bottom tail)
   - `pub(in crate::code_generator::import_transformer) fn handle_ann_assign(t: &mut RecursiveImportTransformer, s: &mut ruff_python_ast::StmtAnnAssign)`
 - Behavior: move bodies verbatim (only replace `self` with `t`).
 - Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(import_transformer): extract simple leaf stmt handlers to handlers/statements.rs`
+  - Completed: code moved to `handlers/statements.rs` and call sites updated.
+  - Tests: `cargo nextest run` passed (132 tests, 1 skipped).
+  - Commit (pending in this branch): `refactor(import_transformer): extract simple leaf stmt handlers to handlers/statements.rs`
 
-Step 2 — Extract Try/With/For/While (loop and suite transforms)
+Step 2 — Extract Try/With/For/While (loop and suite transforms) — COMPLETED
 
 - Source ranges:
   - Try: 856–889 → `StatementsHandler::handle_try(self, try_stmt)`
@@ -75,8 +76,9 @@ Step 2 — Extract Try/With/For/While (loop and suite transforms)
   - Preserve the “add pass when empty” behavior in try-body and except-body.
   - For `for`, preserve the local loop-variable tracking before recursing.
 - Validation + Commit:
-  - `cargo check && cargo nextest run`
-  - `refactor(import_transformer): extract loop/suite stmt handlers to handlers/statements.rs`
+  - Completed: code moved and call sites updated for While, For, With, Try.
+  - Tests: `cargo nextest run` passed (132 tests, 1 skipped).
+  - Commit (pending in this branch): `refactor(import_transformer): extract loop/suite stmt handlers to handlers/statements.rs`
 
 Step 3 — Extract If (including TYPE_CHECKING and elif/else handling)
 

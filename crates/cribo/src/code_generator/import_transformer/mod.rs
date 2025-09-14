@@ -2,8 +2,8 @@ use std::path::Path;
 
 use cow_utils::CowUtils;
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, ModModule, Stmt, StmtClassDef,
-    StmtImport, StmtImportFrom,
+    AtomicNodeIndex, Expr, ExprContext, ExprName, ModModule, Stmt, StmtClassDef, StmtImport,
+    StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -23,8 +23,8 @@ mod statement;
 
 use expr_rewriter::ExpressionRewriter;
 use handlers::{
-    dynamic::DynamicHandler, inlined::InlinedHandler, stdlib::StdlibHandler,
-    submodule::SubmoduleHandler, wrapper::WrapperHandler,
+    dynamic::DynamicHandler, inlined::InlinedHandler, statements::StatementsHandler,
+    stdlib::StdlibHandler, submodule::SubmoduleHandler, wrapper::WrapperHandler,
 };
 // Re-export the params struct for external use
 pub use state::RecursiveImportTransformerParams;
@@ -823,117 +823,34 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
                     Stmt::While(while_stmt) => {
-                        self.transform_expr(&mut while_stmt.test);
-                        self.transform_statements(&mut while_stmt.body);
-                        self.transform_statements(&mut while_stmt.orelse);
+                        StatementsHandler::handle_while(self, while_stmt);
                     }
                     Stmt::For(for_stmt) => {
-                        // Track loop variable as local before transforming to prevent incorrect
-                        // stdlib transformations
-                        {
-                            let mut loop_names = FxIndexSet::default();
-                            StatementProcessor::collect_assigned_names(
-                                &for_stmt.target,
-                                &mut loop_names,
-                            );
-                            for n in loop_names {
-                                self.state.local_variables.insert(n.clone());
-                                log::debug!("Tracking for loop variable as local: {n}");
-                            }
-                        }
-
-                        self.transform_expr(&mut for_stmt.target);
-                        self.transform_expr(&mut for_stmt.iter);
-                        self.transform_statements(&mut for_stmt.body);
-                        self.transform_statements(&mut for_stmt.orelse);
+                        StatementsHandler::handle_for(self, for_stmt);
                     }
                     Stmt::With(with_stmt) => {
-                        for item in &mut with_stmt.items {
-                            self.transform_expr(&mut item.context_expr);
-                            if let Some(vars) = &mut item.optional_vars {
-                                // Track assigned names as locals before transforming
-                                let mut with_names = FxIndexSet::default();
-                                StatementProcessor::collect_assigned_names(vars, &mut with_names);
-                                for n in with_names {
-                                    self.state.local_variables.insert(n.clone());
-                                    log::debug!("Tracking with-as variable as local: {n}");
-                                }
-                                self.transform_expr(vars);
-                            }
-                        }
-                        self.transform_statements(&mut with_stmt.body);
+                        StatementsHandler::handle_with(self, with_stmt);
                     }
                     Stmt::Try(try_stmt) => {
-                        self.transform_statements(&mut try_stmt.body);
-
-                        // Ensure try body is not empty
-                        if try_stmt.body.is_empty() {
-                            log::debug!(
-                                "Adding pass statement to empty try body in import transformer"
-                            );
-                            try_stmt.body.push(crate::ast_builder::statements::pass());
-                        }
-
-                        for handler in &mut try_stmt.handlers {
-                            let ExceptHandler::ExceptHandler(eh) = handler;
-                            if let Some(exc_type) = &mut eh.type_ {
-                                self.transform_expr(exc_type);
-                            }
-                            if let Some(name) = &eh.name {
-                                self.state.local_variables.insert(name.as_str().to_string());
-                                log::debug!("Tracking except alias as local: {}", name.as_str());
-                            }
-                            self.transform_statements(&mut eh.body);
-
-                            // Ensure exception handler body is not empty
-                            if eh.body.is_empty() {
-                                log::debug!(
-                                    "Adding pass statement to empty except handler in import \
-                                     transformer"
-                                );
-                                eh.body.push(crate::ast_builder::statements::pass());
-                            }
-                        }
-                        self.transform_statements(&mut try_stmt.orelse);
-                        self.transform_statements(&mut try_stmt.finalbody);
+                        StatementsHandler::handle_try(self, try_stmt);
                     }
                     Stmt::AnnAssign(ann_assign) => {
-                        // Transform the annotation
-                        self.transform_expr(&mut ann_assign.annotation);
-
-                        // Transform the target
-                        self.transform_expr(&mut ann_assign.target);
-
-                        // Transform the value if present
-                        if let Some(value) = &mut ann_assign.value {
-                            self.transform_expr(value);
-                        }
+                        StatementsHandler::handle_ann_assign(self, ann_assign);
                     }
                     Stmt::AugAssign(aug_assign) => {
-                        self.transform_expr(&mut aug_assign.target);
-                        self.transform_expr(&mut aug_assign.value);
+                        StatementsHandler::handle_aug_assign(self, aug_assign);
                     }
                     Stmt::Expr(expr_stmt) => {
-                        self.transform_expr(&mut expr_stmt.value);
+                        StatementsHandler::handle_expr_stmt(self, expr_stmt);
                     }
                     Stmt::Return(ret_stmt) => {
-                        if let Some(value) = &mut ret_stmt.value {
-                            self.transform_expr(value);
-                        }
+                        StatementsHandler::handle_return(self, ret_stmt);
                     }
                     Stmt::Raise(raise_stmt) => {
-                        if let Some(exc) = &mut raise_stmt.exc {
-                            self.transform_expr(exc);
-                        }
-                        if let Some(cause) = &mut raise_stmt.cause {
-                            self.transform_expr(cause);
-                        }
+                        StatementsHandler::handle_raise(self, raise_stmt);
                     }
                     Stmt::Assert(assert_stmt) => {
-                        self.transform_expr(&mut assert_stmt.test);
-                        if let Some(msg) = &mut assert_stmt.msg {
-                            self.transform_expr(msg);
-                        }
+                        StatementsHandler::handle_assert(self, assert_stmt);
                     }
                     _ => {}
                 }
