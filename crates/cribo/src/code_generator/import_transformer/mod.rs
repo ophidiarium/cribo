@@ -866,6 +866,13 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                         for handler in &mut try_stmt.handlers {
                             let ExceptHandler::ExceptHandler(eh) = handler;
+                            if let Some(exc_type) = &mut eh.type_ {
+                                self.transform_expr(exc_type);
+                            }
+                            if let Some(name) = &eh.name {
+                                self.state.local_variables.insert(name.as_str().to_string());
+                                log::debug!("Tracking except alias as local: {}", name.as_str());
+                            }
                             self.transform_statements(&mut eh.body);
 
                             // Ensure exception handler body is not empty

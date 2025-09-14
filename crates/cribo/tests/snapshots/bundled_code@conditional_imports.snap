@@ -80,7 +80,7 @@ def _cribo_init___cribo_e43fad_conditional_module(self):
         """Decode JSON using the conditionally imported decoder."""
         try:
             return _cribo.json.loads(text)
-        except JSONDecodeError as e:
+        except _cribo.json.JSONDecodeError as e:
             return None
     self.decode_json = decode_json
     self.__initialized__ = True
