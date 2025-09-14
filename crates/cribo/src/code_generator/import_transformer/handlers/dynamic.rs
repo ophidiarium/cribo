@@ -172,19 +172,56 @@ impl DynamicHandler {
             && let Expr::StringLiteral(lit) = arg
         {
             let module_name = lit.value.to_str();
+            // Resolve relative names using optional package context (2nd arg)
+            let resolved_name = if module_name.starts_with('.') && call.arguments.args.len() >= 2 {
+                if let Expr::StringLiteral(package_lit) = &call.arguments.args[1] {
+                    let package = package_lit.value.to_str();
+                    if let Ok(Some(package_path)) = bundler.resolver.resolve_module_path(package) {
+                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+                        let name_part = module_name.trim_start_matches('.');
+                        bundler
+                            .resolver
+                            .resolve_relative_to_absolute_module_name(
+                                level,
+                                if name_part.is_empty() {
+                                    None
+                                } else {
+                                    Some(name_part)
+                                },
+                                &package_path,
+                            )
+                            .unwrap_or_else(|| module_name.to_string())
+                    } else {
+                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+                        let name_part = module_name.trim_start_matches('.');
+                        bundler.resolver.resolve_relative_import_from_package_name(
+                            level,
+                            if name_part.is_empty() {
+                                None
+                            } else {
+                                Some(name_part)
+                            },
+                            package,
+                        )
+                    }
+                } else {
+                    module_name.to_string()
+                }
+            } else {
+                module_name.to_string()
+            };
 
-            // Check if this module is inlined
             if bundler
-                .get_module_id(module_name)
+                .get_module_id(&resolved_name)
                 .is_some_and(|id| bundler.inlined_modules.contains(&id))
             {
                 // Track all assigned names as importing this module
                 for name in assigned_names {
                     log::debug!(
                         "Tracking variable '{name}' as assigned from \
-                         importlib.import_module('{module_name}')"
+                         importlib.import_module('{resolved_name}')"
                     );
-                    importlib_inlined_modules.insert(name.clone(), module_name.to_string());
+                    importlib_inlined_modules.insert(name.clone(), resolved_name.clone());
                 }
             }
         }
