@@ -30,3 +30,4 @@ class _Cribo():
 _cribo = _Cribo()
 """Test package that has both __main__.py and __init__.py."""
 print("This is __init__.py")
+directory_entry_main = _cribo.types.SimpleNamespace(__name__='directory_entry_main', __initializing__=False, __initialized__=False)

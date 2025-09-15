@@ -5,9 +5,35 @@
             "label": "cargo insta test",
             "type": "process",
             "command": "cargo",
-            "args": ["insta", "test"],
+            "args": [
+                "insta",
+                "test"
+            ],
             "group": "test",
-            "problemMatcher": ["$rustc"]
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "type": "cargo",
+            "command": "build",
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "label": "rust: cargo build"
+        },
+        {
+            "type": "cargo",
+            "command": "clippy",
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+            "label": "rust: cargo clippy"
         }
     ]
 }

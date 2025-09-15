@@ -287,6 +287,40 @@ impl<'a> Bundler<'a> {
         })
     }
 
+    /// Check if a simple module attribute assignment already exists in the body
+    /// Only considers it a duplicate if both the target path AND value are the same
+    fn is_duplicate_simple_module_attr_assignment(stmt: &Stmt, final_body: &[Stmt]) -> bool {
+        let Stmt::Assign(assign) = stmt else {
+            return false;
+        };
+
+        if assign.targets.len() != 1 {
+            return false;
+        }
+
+        let Expr::Attribute(target_attr) = &assign.targets[0] else {
+            return false;
+        };
+
+        let target_path = expression_handlers::extract_attribute_path(target_attr);
+
+        final_body.iter().any(|stmt| {
+            let Stmt::Assign(existing) = stmt else {
+                return false;
+            };
+            let [Expr::Attribute(existing_attr)] = existing.targets.as_slice() else {
+                return false;
+            };
+
+            // Check if target paths match
+            if expression_handlers::extract_attribute_path(existing_attr) == target_path {
+                // Only a duplicate if the value expressions are also equal
+                return expression_handlers::expressions_are_equal(&existing.value, &assign.value);
+            }
+            false
+        })
+    }
+
     /// Helper: collect wrapper-needed-by-inlined from a single `ImportFrom` statement
     fn collect_wrapper_needed_from_importfrom_for_inlinable(
         &self,
@@ -2042,6 +2076,9 @@ impl<'a> Bundler<'a> {
 
         // Process the entry module (always ModuleId::ENTRY)
         // Direct access using the constant ID
+        // Store entry module symbols and renames for later namespace attachment
+        let entry_module_symbols;
+        let entry_module_renames;
         if let Some((mut ast, _module_path, _)) =
             modules.shift_remove(&crate::resolver::ModuleId::ENTRY)
         {
@@ -2052,6 +2089,10 @@ impl<'a> Bundler<'a> {
 
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
+            log::debug!(
+                "Entry is package init or main: {}",
+                self.entry_is_package_init_or_main
+            );
 
             // Check if the entry module is part of circular dependencies
             if self
@@ -2083,7 +2124,7 @@ impl<'a> Bundler<'a> {
 
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
-            let entry_module_renames = symbol_renames
+            entry_module_renames = symbol_renames
                 .get(&crate::resolver::ModuleId::ENTRY)
                 .cloned()
                 .unwrap_or_default();
@@ -2091,6 +2132,7 @@ impl<'a> Bundler<'a> {
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
             // First pass: collect locally defined symbols in the entry module
+            // Store in self for later use when attaching to namespace
             let mut locally_defined_symbols = FxIndexSet::default();
             for stmt in &ast.body {
                 match stmt {
@@ -2104,6 +2146,8 @@ impl<'a> Bundler<'a> {
                 }
             }
             log::debug!("Entry module locally defined symbols: {locally_defined_symbols:?}");
+            // Store for later use in namespace attachment
+            entry_module_symbols = locally_defined_symbols.clone();
 
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
@@ -2367,6 +2411,47 @@ impl<'a> Bundler<'a> {
                         ));
                     }
                 }
+            }
+
+            // CRITICAL: Attach entry module exports to namespace when it's a package
+            // When the entry module is a package __init__.py, its top-level exports
+            // (functions, classes) need to be attached to the namespace object so they
+            // can be accessed when the bundle is imported as a library.
+            // For example, rich defines get_console() in __init__.py, so we need:
+            // rich.get_console = get_console
+            log::debug!(
+                "Checking if entry module needs namespace attachment: \
+                 entry_is_package_init_or_main={}, entry_module_name='{}'",
+                self.entry_is_package_init_or_main,
+                self.entry_module_name
+            );
+            if self.entry_is_package_init_or_main {
+                // When entry is a package __init__.py or __main__.py, we need to attach exports to
+                // the namespace Derive the real package name (handles both __init__
+                // and __main__ cases)
+                let entry_pkg: String = self
+                    .entry_package_name()
+                    .map(std::string::ToString::to_string)
+                    .or_else(|| self.infer_entry_root_package())
+                    .unwrap_or_else(|| self.entry_module_name.clone());
+
+                // Skip attaching if we couldn't determine a valid package name or if it's __main__
+                if entry_pkg.is_empty() || entry_pkg == crate::python::constants::MAIN_STEM {
+                    log::warn!(
+                        "Skipping namespace attachment: ambiguous entry package for '{}'",
+                        self.entry_module_name
+                    );
+                } else {
+                    log::debug!("Using package name '{entry_pkg}' for namespace attachment");
+
+                    // Use helper method to reduce nesting
+                    self.emit_entry_namespace_attachments(
+                        &entry_pkg,
+                        &mut final_body,
+                        &entry_module_symbols,
+                        &entry_module_renames,
+                    );
+                } // Close the else block for valid package name
             }
 
             // Note: deferred imports functionality has been removed
@@ -2733,6 +2818,108 @@ impl<'a> Bundler<'a> {
         }
 
         false
+    }
+
+    /// Emit namespace attachments for entry module exports
+    fn emit_entry_namespace_attachments(
+        &mut self,
+        entry_pkg: &str,
+        final_body: &mut Vec<Stmt>,
+        entry_module_symbols: &FxIndexSet<String>,
+        entry_module_renames: &FxIndexMap<String, String>,
+    ) {
+        let namespace_var = sanitize_module_name_for_identifier(entry_pkg);
+        log::debug!(
+            "Attaching entry module exports to namespace '{namespace_var}' for package \
+             '{entry_pkg}'"
+        );
+
+        // Ensure the namespace exists before attaching exports
+        // This is crucial for packages without submodules where the namespace
+        // might not have been created yet
+        if !self.created_namespaces.contains(&namespace_var) {
+            log::debug!("Creating namespace '{namespace_var}' for entry package exports");
+            let namespace_stmt = statements::simple_assign(
+                &namespace_var,
+                expressions::call(
+                    expressions::simple_namespace_ctor(),
+                    vec![],
+                    vec![
+                        expressions::keyword(
+                            Some("__name__"),
+                            expressions::string_literal(entry_pkg),
+                        ),
+                        expressions::keyword(
+                            Some("__initializing__"),
+                            expressions::bool_literal(false),
+                        ),
+                        expressions::keyword(
+                            Some("__initialized__"),
+                            expressions::bool_literal(false),
+                        ),
+                    ],
+                ),
+            );
+            final_body.push(namespace_stmt);
+            self.created_namespaces.insert(namespace_var.clone());
+        }
+
+        // Collect all top-level symbols defined in the entry module
+        // that should be attached to the namespace
+        let mut exports_to_attach = Vec::new();
+
+        // Check if module has explicit __all__ to determine exports
+        if let Some(Some(all_exports)) = self.module_exports.get(&crate::resolver::ModuleId::ENTRY)
+        {
+            // Module has __all__: respect export policy and tree-shaking
+            for export_name in all_exports {
+                if self.should_export_symbol(export_name, &self.entry_module_name) {
+                    exports_to_attach.push(export_name.clone());
+                }
+            }
+            log::debug!("Using __all__ exports for namespace attachment: {exports_to_attach:?}");
+        } else {
+            // No __all__: defer to should_export_symbol for visibility + tree-shaking
+            for symbol in entry_module_symbols {
+                if self.should_export_symbol(symbol, &self.entry_module_name) {
+                    exports_to_attach.push(symbol.clone());
+                }
+            }
+            log::debug!(
+                "Attaching public symbols from entry module to namespace: {exports_to_attach:?}"
+            );
+        }
+
+        // Sort and deduplicate exports
+        exports_to_attach.sort();
+        exports_to_attach.dedup();
+
+        // Generate attachment statements: namespace.symbol = symbol
+        for symbol_name in exports_to_attach {
+            // Check if this symbol was renamed due to conflicts
+            let actual_name = entry_module_renames
+                .get(&symbol_name)
+                .unwrap_or(&symbol_name);
+
+            log::debug!(
+                "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace \
+                 '{namespace_var}'"
+            );
+
+            let attach_stmt = statements::assign(
+                vec![expressions::attribute(
+                    expressions::name(&namespace_var, ExprContext::Load),
+                    &symbol_name,
+                    ExprContext::Store,
+                )],
+                expressions::name(actual_name, ExprContext::Load),
+            );
+
+            // Only add if not a duplicate
+            if !Self::is_duplicate_simple_module_attr_assignment(&attach_stmt, final_body) {
+                final_body.push(attach_stmt);
+            }
+        }
     }
 
     /// Process a function definition in the entry module

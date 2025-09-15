@@ -268,7 +268,7 @@ https://github.com/ophidiarium/cribo/pull/<PR_NUMBER>#discussion_r<COMMENT_ID>
 2. Fetch the comment body
 
 ```bash
-GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
+gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
   --jq '
 "id:         \(.id)
 pr_number:   \(.pull_request_url | split("/") | last)
