@@ -288,6 +288,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if a simple module attribute assignment already exists in the body
+    /// Only considers it a duplicate if both the target path AND value are the same
     fn is_duplicate_simple_module_attr_assignment(stmt: &Stmt, final_body: &[Stmt]) -> bool {
         let Stmt::Assign(assign) = stmt else {
             return false;
@@ -310,7 +311,13 @@ impl<'a> Bundler<'a> {
             let [Expr::Attribute(existing_attr)] = existing.targets.as_slice() else {
                 return false;
             };
-            expression_handlers::extract_attribute_path(existing_attr) == target_path
+
+            // Check if target paths match
+            if expression_handlers::extract_attribute_path(existing_attr) == target_path {
+                // Only a duplicate if the value expressions are also equal
+                return expression_handlers::expressions_are_equal(&existing.value, &assign.value);
+            }
+            false
         })
     }
 
