@@ -92,18 +92,10 @@
     "chat.tools.terminal.enableAutoApprove": true,
     "chat.tools.terminal.autoApprove": {
         "cargo check": true,
-        "gh": true,
         "cargo fmt": true,
         "cargo build": true,
-        "cargo nextest rus": true,
+        "cargo nextest run": true,
         "cargo insta": true,
-        "cargo clippy": true,
-        "INSTA_GLOB_FILTER": true
-    },
-    "chat.mcp.discovery.enabled": {
-        "claude-desktop": false,
-        "windsurf": false,
-        "cursor-global": false,
-        "cursor-workspace": false
+        "cargo clippy": true
     }
 }
