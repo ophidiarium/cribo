@@ -65,21 +65,6 @@
     "github.copilot.advanced": {
         "useLanguageServer": true
     },
-    "mcp": {
-        "servers": {
-            "context7": {
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@upstash/context7-mcp"
-                ]
-            },
-            "github": {
-                "type": "http",
-                "url": "https://api.githubcopilot.com/mcp/"
-            }
-        }
-    },
     "files.exclude": {
         "**/.git": true,
         "**/.svn": true,
@@ -114,5 +99,11 @@
         "cargo insta": true,
         "cargo clippy": true,
         "INSTA_GLOB_FILTER": true
+    },
+    "chat.mcp.discovery.enabled": {
+        "claude-desktop": false,
+        "windsurf": false,
+        "cursor-global": false,
+        "cursor-workspace": false
     }
 }
