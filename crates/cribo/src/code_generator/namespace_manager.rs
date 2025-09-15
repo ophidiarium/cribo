@@ -772,29 +772,20 @@ pub fn populate_namespace_with_module_symbols(
                 }
             } else {
                 // Local symbol (defined in this module)
-                // Determine the actual symbol name. Prefer an explicit rename, otherwise
-                // fall back to tree-shaking information (if present) or assume the
-                // local symbol exists. If tree-shaking data says the symbol was removed,
-                // skip exposing it to avoid referencing an absent symbol.
-                let from_renames = symbol_renames
+                // Determine the actual symbol name. Prefer an explicit rename; otherwise
+                // fall back to tree-shaking information (if present) or assume the local
+                // symbol exists. If tree-shaking data says the symbol was removed, skip
+                // exposing it to avoid referencing an absent symbol.
+                let actual_symbol_name = symbol_renames
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
-                    .cloned();
-
-                let tree_shaking_map_opt = ctx.tree_shaking_keep_symbols.as_ref();
-                let is_kept = tree_shaking_map_opt
-                    .and_then(|m| m.get(&module_id))
-                    .is_some_and(|set| set.contains(&symbol_name));
-
-                let actual_symbol_name = if from_renames.is_some() {
-                    from_renames
-                } else if tree_shaking_map_opt.is_some() {
-                    // Tree-shaking info exists: only expose if kept
-                    is_kept.then(|| symbol_name.clone())
-                } else {
-                    // No renames and no tree-shaking info -> assume local symbol present
-                    Some(symbol_name.clone())
-                };
+                    .cloned()
+                    .or_else(|| match ctx.tree_shaking_keep_symbols.as_ref() {
+                        Some(map) => map.get(&module_id).and_then(|set| {
+                            set.contains(&symbol_name).then(|| symbol_name.clone())
+                        }),
+                        None => Some(symbol_name.clone()),
+                    });
 
                 let Some(actual_symbol_name) = actual_symbol_name else {
                     log::debug!(
