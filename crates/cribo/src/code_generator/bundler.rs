@@ -2042,8 +2042,9 @@ impl<'a> Bundler<'a> {
 
         // Process the entry module (always ModuleId::ENTRY)
         // Direct access using the constant ID
-        // Store entry module symbols for later namespace attachment
+        // Store entry module symbols and renames for later namespace attachment
         let mut entry_module_symbols = FxIndexSet::default();
+        let mut entry_module_renames = FxIndexMap::default();
         if let Some((mut ast, _module_path, _)) =
             modules.shift_remove(&crate::resolver::ModuleId::ENTRY)
         {
@@ -2089,7 +2090,7 @@ impl<'a> Bundler<'a> {
 
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
-            let entry_module_renames = symbol_renames
+            entry_module_renames = symbol_renames
                 .get(&crate::resolver::ModuleId::ENTRY)
                 .cloned()
                 .unwrap_or_default();
@@ -2455,10 +2456,10 @@ impl<'a> Bundler<'a> {
 
                         // Generate attachment statements: namespace.symbol = symbol
                         for symbol_name in exports_to_attach {
-                            // For now, we'll use the symbol name directly since
-                            // entry_module_renames is out of scope. The
-                            // renamed versions are already in final_body.
-                            let actual_name = &symbol_name;
+                            // Check if this symbol was renamed due to conflicts
+                            let actual_name = entry_module_renames
+                                .get(&symbol_name)
+                                .unwrap_or(&symbol_name);
 
                             log::debug!(
                                 "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace \
