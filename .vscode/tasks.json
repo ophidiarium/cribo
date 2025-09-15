@@ -3,8 +3,11 @@
     "tasks": [
         {
             "label": "cargo insta test",
-            "type": "shell",
-            "command": "cargo insta test"
+            "type": "process",
+            "command": "cargo",
+            "args": ["insta", "test"],
+            "group": "test",
+            "problemMatcher": ["$rustc"]
         }
     ]
 }
