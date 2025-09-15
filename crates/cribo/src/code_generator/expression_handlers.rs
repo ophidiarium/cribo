@@ -1185,11 +1185,20 @@ pub fn expressions_are_equal(expr1: &Expr, expr2: &Expr) -> bool {
         // String literals
         (Expr::StringLiteral(lit1), Expr::StringLiteral(lit2)) => lit1.value == lit2.value,
 
+        // Number literals
+        (Expr::NumberLiteral(n1), Expr::NumberLiteral(n2)) => n1.value == n2.value,
+
+        // Bytes literals
+        (Expr::BytesLiteral(b1), Expr::BytesLiteral(b2)) => b1.value == b2.value,
+
         // Boolean literals
         (Expr::BooleanLiteral(lit1), Expr::BooleanLiteral(lit2)) => lit1.value == lit2.value,
 
         // None literals
         (Expr::NoneLiteral(_), Expr::NoneLiteral(_)) => true,
+
+        // Ellipsis (...)
+        (Expr::EllipsisLiteral(_), Expr::EllipsisLiteral(_)) => true,
 
         // Different types or complex expressions - conservatively return false
         _ => false,
