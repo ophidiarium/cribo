@@ -50,6 +50,7 @@ compat.__init__ = _cribo_init___cribo_f0aa89_compat
 structures = _cribo.types.SimpleNamespace(__name__='structures')
 """structures.py - Contains data structures."""
 compat = compat.__init__(compat)
+MutableMapping = compat.MutableMapping
 class CaseInsensitiveDict(compat.MutableMapping):
     """A case-insensitive dict-like object."""
 

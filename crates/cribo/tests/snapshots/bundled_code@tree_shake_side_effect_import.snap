@@ -50,7 +50,6 @@ def _cribo_init___cribo_ddd935_mypackage(self):
     self.utils = utils
     print("mypackage initialized")
     self.exceptions = mypackage_exceptions
-    self.exceptions = mypackage_exceptions
     self.__initialized__ = True
     self.__initializing__ = False
     return self

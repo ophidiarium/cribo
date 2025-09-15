@@ -64,7 +64,6 @@ def _cribo_init___cribo_937418_complex_pkg(self):
         console.print("Testing")
     self.main = main
     self.abc = complex_pkg_abc
-    self.abc = complex_pkg_abc
     self.__initialized__ = True
     self.__initializing__ = False
     return self

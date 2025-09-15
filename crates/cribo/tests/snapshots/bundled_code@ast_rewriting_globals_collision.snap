@@ -155,7 +155,6 @@ def _cribo_init___cribo_e52b1d_core_utils(self):
     User = "utils_user_string"
     self.User = User
     self.helpers = core_utils_helpers
-    self.helpers = core_utils_helpers
     self.__initialized__ = True
     self.__initializing__ = False
     return self

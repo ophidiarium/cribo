@@ -47,7 +47,6 @@ def _cribo_init___cribo_a9fdaa_mypackage(self):
     self.get_version = get_version
     self.get_version = get_version
     self.constants = mypackage_constants
-    self.constants = mypackage_constants
     self.__initialized__ = True
     self.__initializing__ = False
     return self
