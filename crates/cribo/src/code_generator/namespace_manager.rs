@@ -757,18 +757,37 @@ pub fn populate_namespace_with_module_symbols(
                     let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
                     let symbol_expr =
                         expressions::attribute(source_expr, &original_name, ExprContext::Load);
-                    log::debug!(
-                        "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
-                         {source_module}.{original_name} (wrapper re-export)"
-                    );
-                    result_stmts.push(statements::assign(
-                        vec![expressions::attribute(
-                            target.clone(),
-                            &symbol_name,
-                            ExprContext::Store,
-                        )],
-                        symbol_expr,
-                    ));
+
+                    // Dedup: skip if the same assignment already exists in this batch
+                    let exists = result_stmts.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Attribute(attr) = &assign.targets[0]
+                        {
+                            return expr_matches_qualified_name(&attr.value, target_name)
+                                && attr.attr.as_str() == symbol_name;
+                        }
+                        false
+                    });
+                    if exists {
+                        log::debug!(
+                            "[namespace] Skipping duplicate assignment: \
+                             {target_name}.{symbol_name}"
+                        );
+                    } else {
+                        log::debug!(
+                            "[namespace] Adding namespace assignment: {target_name}.{symbol_name} \
+                             = {source_module}.{original_name} (wrapper re-export)"
+                        );
+                        result_stmts.push(statements::assign(
+                            vec![expressions::attribute(
+                                target.clone(),
+                                &symbol_name,
+                                ExprContext::Store,
+                            )],
+                            symbol_expr,
+                        ));
+                    }
                 }
             } else {
                 // Local symbol (defined in this module)
