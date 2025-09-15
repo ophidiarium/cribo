@@ -47,7 +47,6 @@ def _cribo_init___cribo_d7bb86_mymodule(self):
     self.MyError = MyError
     self.MyError = MyError
     self.compat = mymodule_compat
-    self.compat = mymodule_compat
     self.__initialized__ = True
     self.__initializing__ = False
     return self

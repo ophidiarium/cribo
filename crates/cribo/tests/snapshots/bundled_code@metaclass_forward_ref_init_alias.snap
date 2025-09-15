@@ -56,7 +56,6 @@ def _cribo_init___cribo_d9a389_yaml_pkg(self):
     YAMLObjectMetaclass = yaml_pkg_meta.YAMLObjectMetaclass
     yaml_pkg.YAMLObjectMetaclass = YAMLObjectMetaclass
     self.meta = yaml_pkg_meta
-    self.meta = yaml_pkg_meta
     self.__initialized__ = True
     self.__initializing__ = False
     return self

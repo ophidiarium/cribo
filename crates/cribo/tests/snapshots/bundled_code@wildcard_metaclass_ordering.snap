@@ -140,8 +140,6 @@ def _cribo_init___cribo_952a76_yaml_module(self):
     self.YAMLObject = YAMLObject
     self.dumper = yaml_module_dumper
     self.loader = yaml_module_loader
-    self.dumper = yaml_module_dumper
-    self.loader = yaml_module_loader
     self.__initialized__ = True
     self.__initializing__ = False
     return self

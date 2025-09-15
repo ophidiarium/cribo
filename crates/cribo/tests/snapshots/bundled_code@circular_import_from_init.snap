@@ -48,7 +48,6 @@ def _cribo_init___cribo_d50b51_rich(self):
     jupyter = rich.jupyter
     self.jupyter = jupyter
     self.console = rich_console
-    self.console = rich_console
     self.__initialized__ = True
     self.__initializing__ = False
     return self

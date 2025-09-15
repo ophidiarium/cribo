@@ -125,7 +125,6 @@ def _cribo_init___cribo_62c387_core(self):
     Logger = CoreLogger
     self.Logger = Logger
     self.database = core_database
-    self.database = core_database
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -144,7 +143,6 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     core_utils.validate = validate
     Connection = "utils_connection_type"
     self.Connection = Connection
-    self.helpers = core_utils_helpers
     self.helpers = core_utils_helpers
     self.__initialized__ = True
     self.__initializing__ = False
@@ -319,7 +317,6 @@ def _cribo_init___cribo_98ecc1_models(self):
     self.validate = validate
     connection = "models_connection_string"
     self.connection = connection
-    self.user = models_user
     self.user = models_user
     self.__initialized__ = True
     self.__initializing__ = False

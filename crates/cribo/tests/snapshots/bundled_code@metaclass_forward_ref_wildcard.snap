@@ -55,7 +55,6 @@ def _cribo_init___cribo_99f82c_wildcard_pkg(self):
     WildcardMetaclass = wildcard_pkg.base.WildcardMetaclass
     wildcard_pkg.WildcardMetaclass = WildcardMetaclass
     self.meta = wildcard_pkg_meta
-    self.meta = wildcard_pkg_meta
     self.__initialized__ = True
     self.__initializing__ = False
     return self

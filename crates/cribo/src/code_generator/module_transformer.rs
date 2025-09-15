@@ -1223,7 +1223,17 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // Now add the submodules as attributes
+    // Deduplicate: a submodule can appear in both bundled_modules and inlined_modules
+    // when (for example) it is first marked for bundling then later inlined during
+    // transformation decisions. This led to duplicate attribute assignments like
+    // `self.console = rich_console` being emitted twice in wrapper init functions.
+    // We keep the first occurrence to preserve original relative ordering.
+    {
+        let mut seen: FxIndexSet<String> = FxIndexSet::default();
+        submodules_to_add.retain(|(full_name, _)| seen.insert(full_name.clone()));
+    }
+
+    // Now add the (deduplicated) submodules as attributes
     debug!(
         "Submodules to add for {}: {:?}",
         ctx.module_name, submodules_to_add

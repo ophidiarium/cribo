@@ -50,8 +50,6 @@ def _cribo_init___cribo_35e8d2_foo(self):
     self.tada = tada
     self.boo = foo_boo
     self.zoo = foo_zoo
-    self.boo = foo_boo
-    self.zoo = foo_zoo
     self.__initialized__ = True
     self.__initializing__ = False
     return self
