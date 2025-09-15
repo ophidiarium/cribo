@@ -749,11 +749,11 @@ impl<'a> Bundler<'a> {
                         "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
                     );
                 } else {
-                    // Include non-renamed symbols too - they still need to be in the namespace
-                    module_renames.insert(symbol.clone(), symbol.clone());
+                    // Don't add non-renamed symbols to the rename map
+                    // They'll be handled differently in namespace population
                     log::debug!(
-                        "Module '{module_name}': symbol '{symbol}' has no rename, using original \
-                         name"
+                        "Module '{module_name}': symbol '{symbol}' has no rename, skipping rename \
+                         map"
                     );
                 }
             }

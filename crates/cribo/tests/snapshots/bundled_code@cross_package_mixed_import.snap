@@ -107,8 +107,6 @@ def _cribo_init___cribo_f00e4b_core(self):
     self.is_initialized = is_initialized
     self.version = core_version
     self.utils = core_utils
-    self.version = core_version
-    self.utils = core_utils
     self.validate = validate
     self.get_config = get_config
     self.__initialized__ = True
@@ -197,8 +195,6 @@ def _cribo_init___cribo_563ea2_models(self):
     __all__ = ["get_model_version", "process_user", "get_base_model", "ModelID", "DEFAULT_MODEL_CONFIG", "HAS_ADVANCED"]
     if self.HAS_ADVANCED:
         __all__.append("AdvancedModel")
-    self.user = models_user
-    self.base = models_base
     self.user = models_user
     self.base = models_base
     self.__initialized__ = True

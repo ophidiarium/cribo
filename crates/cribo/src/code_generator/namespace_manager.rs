@@ -738,29 +738,83 @@ pub fn populate_namespace_with_module_symbols(
             if let Some((source_module, original_name)) =
                 find_symbol_source_module(ctx, module_name, &symbol_name)
             {
-                let source_parts: Vec<&str> = source_module.split('.').collect();
-                let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
-                let symbol_expr =
-                    expressions::attribute(source_expr, &original_name, ExprContext::Load);
-                log::debug!(
-                    "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
-                     {source_module}.{original_name} (wrapper re-export)"
-                );
-                result_stmts.push(statements::assign(
-                    vec![expressions::attribute(
-                        target.clone(),
-                        &symbol_name,
-                        ExprContext::Store,
-                    )],
-                    symbol_expr,
-                ));
+                // If the source module uses an init function, the symbol is only available after
+                // init.
+                let source_has_init = ctx
+                    .resolver
+                    .get_module_id_by_name(&source_module)
+                    .is_some_and(|id| ctx.module_init_functions.contains_key(&id));
+
+                if source_has_init {
+                    // Skip the assignment because the symbol won't be available until the init
+                    // function runs
+                    log::debug!(
+                        "[namespace] Skipping wrapper re-export assignment: \
+                         {target_name}.{symbol_name} = {source_module}.{original_name} (source \
+                         uses init)"
+                    );
+                } else {
+                    let source_parts: Vec<&str> = source_module.split('.').collect();
+                    let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
+                    let symbol_expr =
+                        expressions::attribute(source_expr, &original_name, ExprContext::Load);
+
+                    // Dedup: skip if the same assignment already exists in this batch
+                    let exists = result_stmts.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Attribute(attr) = &assign.targets[0]
+                        {
+                            return expr_matches_qualified_name(&attr.value, target_name)
+                                && attr.attr.as_str() == symbol_name;
+                        }
+                        false
+                    });
+                    if exists {
+                        log::debug!(
+                            "[namespace] Skipping duplicate assignment: \
+                             {target_name}.{symbol_name}"
+                        );
+                    } else {
+                        log::debug!(
+                            "[namespace] Adding namespace assignment: {target_name}.{symbol_name} \
+                             = {source_module}.{original_name} (wrapper re-export)"
+                        );
+                        result_stmts.push(statements::assign(
+                            vec![expressions::attribute(
+                                target.clone(),
+                                &symbol_name,
+                                ExprContext::Store,
+                            )],
+                            symbol_expr,
+                        ));
+                    }
+                }
             } else {
                 // Local symbol (defined in this module)
+                // Determine the actual symbol name. Prefer an explicit rename; otherwise
+                // fall back to tree-shaking information (if present) or assume the local
+                // symbol exists. If tree-shaking data says the symbol was removed, skip
+                // exposing it to avoid referencing an absent symbol.
                 let actual_symbol_name = symbol_renames
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
                     .cloned()
-                    .unwrap_or_else(|| symbol_name.clone());
+                    .or_else(|| match ctx.tree_shaking_keep_symbols.as_ref() {
+                        Some(map) => map.get(&module_id).and_then(|set| {
+                            set.contains(&symbol_name).then(|| symbol_name.clone())
+                        }),
+                        None => Some(symbol_name.clone()),
+                    });
+
+                let Some(actual_symbol_name) = actual_symbol_name else {
+                    log::debug!(
+                        "[namespace] Skipping '{target_name}.{symbol_name}' - neither renamed nor \
+                         kept by tree-shaker; likely not inlined or imported from elsewhere"
+                    );
+                    continue;
+                };
+
                 let symbol_expr = expressions::name(&actual_symbol_name, ExprContext::Load);
                 log::debug!(
                     "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \

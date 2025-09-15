@@ -77,8 +77,6 @@ def _cribo_init___cribo_b86557_pkg(self):
     self.Session = Session
     self.__version__ = pkg___version__
     self.certs = pkg_certs
-    self.__version__ = pkg___version__
-    self.certs = pkg_certs
     self.__initialized__ = True
     self.__initializing__ = False
     return self

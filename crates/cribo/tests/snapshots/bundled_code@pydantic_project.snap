@@ -83,6 +83,9 @@ schemas = _cribo.types.SimpleNamespace(__name__='schemas', __initializing__=Fals
 schemas.user = schemas_user
 """Schemas package initialization."""
 schemas_user = schemas_user.__init__(schemas_user)
+UserSchema = schemas.user.UserSchema
+CreateUserRequest = schemas.user.CreateUserRequest
+UserResponse = schemas.user.UserResponse
 utils_validation = _cribo.types.SimpleNamespace(__name__='utils.validation')
 utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
 utils.validation = utils_validation
@@ -113,8 +116,6 @@ utils_validation.validate_email = validate_email
 json = _cribo.json
 from pydantic import ValidationError
 schemas_user = _cribo_init___cribo_f275a8_schemas_user(schemas_user)
-UserSchema = schemas.user.UserSchema
-CreateUserRequest = schemas.user.CreateUserRequest
 def main():
     """Main function demonstrating Pydantic usage."""
     user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}

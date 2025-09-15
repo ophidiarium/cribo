@@ -53,7 +53,6 @@ def _cribo_init___cribo_c04dc3_my_package(self):
     self.TOP_LEVEL_VAL = TOP_LEVEL_VAL
     print(TOP_LEVEL_VAL)
     self.mod_l = my_package_mod_l
-    self.mod_l = my_package_mod_l
     self.__initialized__ = True
     self.__initializing__ = False
     return self

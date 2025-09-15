@@ -64,7 +64,7 @@ def _cribo_init___cribo_cca96f_package(self):
     my_function = package._subpackage.my_function
     package.my_function = my_function
     __all__ = ["MyClass", "my_function"]
-    __locals = vars(package)
+    __locals = vars(self)
     self.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):
@@ -82,8 +82,6 @@ def _cribo_init___cribo_66c36f_package__subpackage(self):
     self.MyClass = package__subpackage_module_a.MyClass
     self.my_function = package__subpackage_module_b.my_function
     """Subpackage that re-exports from modules using wildcards."""
-    self.module_b = package__subpackage_module_b
-    self.module_a = package__subpackage_module_a
     self.module_b = package__subpackage_module_b
     self.module_a = package__subpackage_module_a
     self.__initialized__ = True

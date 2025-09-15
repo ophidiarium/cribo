@@ -60,7 +60,6 @@ def _cribo_init___cribo_370515_mypackage(self):
         return f"{get_version_info()} - {process_data()}"
     self.get_full_info = get_full_info
     self.__version__ = mypackage___version__
-    self.__version__ = mypackage___version__
     self.__initialized__ = True
     self.__initializing__ = False
     return self

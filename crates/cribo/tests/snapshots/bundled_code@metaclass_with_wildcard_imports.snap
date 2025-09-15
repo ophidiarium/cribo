@@ -113,8 +113,6 @@ def _cribo_init___cribo_5b2acd_yaml_pkg(self):
     self.YAMLObject = YAMLObject
     self.dumper = yaml_pkg_dumper
     self.loader = yaml_pkg_loader
-    self.dumper = yaml_pkg_dumper
-    self.loader = yaml_pkg_loader
     self.__initialized__ = True
     self.__initializing__ = False
     return self
