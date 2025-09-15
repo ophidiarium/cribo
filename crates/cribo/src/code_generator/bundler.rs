@@ -2436,10 +2436,7 @@ impl<'a> Bundler<'a> {
                     .unwrap_or_else(|| self.entry_module_name.clone());
 
                 // Skip attaching if we couldn't determine a valid package name or if it's __main__
-                if entry_pkg.is_empty()
-                    || entry_pkg == "__main__"
-                    || entry_pkg == crate::python::constants::MAIN_STEM
-                {
+                if entry_pkg.is_empty() || entry_pkg == crate::python::constants::MAIN_STEM {
                     log::warn!(
                         "Skipping namespace attachment: ambiguous entry package for '{}'",
                         self.entry_module_name
