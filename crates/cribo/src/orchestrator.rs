@@ -368,31 +368,31 @@ impl BundleOrchestrator {
 
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
-            // Check for __main__.py first
-            let main_py = entry_path.join(crate::python::constants::MAIN_FILE);
-            if main_py.exists() && main_py.is_file() {
+            // Check for __init__.py first (standard package import behavior)
+            let init_py = entry_path.join(crate::python::constants::INIT_FILE);
+            if init_py.exists() && init_py.is_file() {
                 info!(
                     "Using {} as entry point from directory: {}",
-                    crate::python::constants::MAIN_FILE,
+                    crate::python::constants::INIT_FILE,
                     entry_path.display()
                 );
-                main_py
+                init_py
             } else {
-                // Check for __init__.py
-                let init_py = entry_path.join(crate::python::constants::INIT_FILE);
-                if init_py.exists() && init_py.is_file() {
+                // Check for __main__.py as fallback
+                let main_py = entry_path.join(crate::python::constants::MAIN_FILE);
+                if main_py.exists() && main_py.is_file() {
                     info!(
                         "Using {} as entry point from directory: {}",
-                        crate::python::constants::INIT_FILE,
+                        crate::python::constants::MAIN_FILE,
                         entry_path.display()
                     );
-                    init_py
+                    main_py
                 } else {
                     return Err(anyhow!(
                         "Directory {} does not contain {} or {}",
                         entry_path.display(),
-                        crate::python::constants::MAIN_FILE,
-                        crate::python::constants::INIT_FILE
+                        crate::python::constants::INIT_FILE,
+                        crate::python::constants::MAIN_FILE
                     ));
                 }
             }
