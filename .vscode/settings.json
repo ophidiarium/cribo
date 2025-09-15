@@ -96,5 +96,10 @@
         "cargo nextest run": true,
         "cargo insta": true,
         "cargo clippy": true
-    }
+    },
+    "python.analysis.exclude": [
+        "**/target",
+        "**/.venv",
+        "**/npm"
+    ]
 }
