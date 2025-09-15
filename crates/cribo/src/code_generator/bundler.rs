@@ -2042,6 +2042,8 @@ impl<'a> Bundler<'a> {
 
         // Process the entry module (always ModuleId::ENTRY)
         // Direct access using the constant ID
+        // Store entry module symbols for later namespace attachment
+        let mut entry_module_symbols = FxIndexSet::default();
         if let Some((mut ast, _module_path, _)) =
             modules.shift_remove(&crate::resolver::ModuleId::ENTRY)
         {
@@ -2109,6 +2111,8 @@ impl<'a> Bundler<'a> {
                 }
             }
             log::debug!("Entry module locally defined symbols: {locally_defined_symbols:?}");
+            // Store for later use in namespace attachment
+            entry_module_symbols = locally_defined_symbols.clone();
 
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
@@ -2403,9 +2407,7 @@ impl<'a> Bundler<'a> {
                     &self.entry_module_name
                 };
 
-                log::debug!(
-                    "Using package name '{entry_pkg}' for namespace attachment"
-                );
+                log::debug!("Using package name '{entry_pkg}' for namespace attachment");
 
                 {
                     let namespace_var = sanitize_module_name_for_identifier(entry_pkg);
@@ -2432,28 +2434,18 @@ impl<'a> Bundler<'a> {
                             "Using __all__ exports for namespace attachment: {exports_to_attach:?}"
                         );
                     } else {
-                        // No __all__, attach all public symbols (non-underscore)
-                        // We need to re-collect them since locally_defined_symbols is out of scope
-                        // Look through the final_body for function and class definitions
-                        for stmt in &final_body {
-                            match stmt {
-                                Stmt::FunctionDef(func_def) => {
-                                    let name = func_def.name.to_string();
-                                    if !name.starts_with('_') {
-                                        exports_to_attach.push(name);
-                                    }
-                                }
-                                Stmt::ClassDef(class_def) => {
-                                    let name = class_def.name.to_string();
-                                    if !name.starts_with('_') {
-                                        exports_to_attach.push(name);
-                                    }
-                                }
-                                _ => {}
+                        // No __all__, attach all public symbols (non-underscore) from entry module
+                        // only Use the entry_module_symbols collected
+                        // earlier to avoid including symbols from other
+                        // bundled modules
+                        for symbol in &entry_module_symbols {
+                            if !symbol.starts_with('_') {
+                                exports_to_attach.push(symbol.clone());
                             }
                         }
                         log::debug!(
-                            "Attaching public symbols to namespace: {exports_to_attach:?}"
+                            "Attaching public symbols from entry module to namespace: \
+                             {exports_to_attach:?}"
                         );
                     }
 
@@ -2464,7 +2456,8 @@ impl<'a> Bundler<'a> {
                         let actual_name = &symbol_name;
 
                         log::debug!(
-                            "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace '{namespace_var}'"
+                            "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace \
+                             '{namespace_var}'"
                         );
 
                         let attach_stmt = statements::assign(
