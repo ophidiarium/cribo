@@ -287,6 +287,34 @@ impl<'a> Bundler<'a> {
         })
     }
 
+    /// Check if a simple module attribute assignment already exists in the body
+    fn is_duplicate_simple_module_attr_assignment(stmt: &Stmt, final_body: &[Stmt]) -> bool {
+        let Stmt::Assign(assign) = stmt else {
+            return false;
+        };
+
+        if assign.targets.len() != 1 {
+            return false;
+        }
+
+        let Expr::Attribute(target_attr) = &assign.targets[0] else {
+            return false;
+        };
+
+        let target_path = expression_handlers::extract_attribute_path(target_attr);
+
+        final_body.iter().any(|stmt| {
+            if let Stmt::Assign(existing) = stmt
+                && existing.targets.len() == 1
+                && let Expr::Attribute(existing_attr) = &existing.targets[0]
+            {
+                let existing_path = expression_handlers::extract_attribute_path(existing_attr);
+                return existing_path == target_path;
+            }
+            false
+        })
+    }
+
     /// Helper: collect wrapper-needed-by-inlined from a single `ImportFrom` statement
     fn collect_wrapper_needed_from_importfrom_for_inlinable(
         &self,
@@ -2413,102 +2441,13 @@ impl<'a> Bundler<'a> {
                 } else {
                     log::debug!("Using package name '{entry_pkg}' for namespace attachment");
 
-                    {
-                        let namespace_var = sanitize_module_name_for_identifier(&entry_pkg);
-                        log::debug!(
-                            "Attaching entry module exports to namespace '{namespace_var}' for \
-                             package '{entry_pkg}'"
-                        );
-
-                        // Ensure the namespace exists before attaching exports
-                        // This is crucial for packages without submodules where the namespace
-                        // might not have been created yet
-                        if !self.created_namespaces.contains(&namespace_var) {
-                            log::debug!(
-                                "Creating namespace '{namespace_var}' for entry package exports"
-                            );
-                            let namespace_stmt = statements::simple_assign(
-                                &namespace_var,
-                                expressions::call(
-                                    expressions::simple_namespace_ctor(),
-                                    vec![],
-                                    vec![
-                                        expressions::keyword(
-                                            Some("__name__"),
-                                            expressions::string_literal(&entry_pkg),
-                                        ),
-                                        expressions::keyword(
-                                            Some("__initializing__"),
-                                            expressions::bool_literal(false),
-                                        ),
-                                        expressions::keyword(
-                                            Some("__initialized__"),
-                                            expressions::bool_literal(false),
-                                        ),
-                                    ],
-                                ),
-                            );
-                            final_body.push(namespace_stmt);
-                            self.created_namespaces.insert(namespace_var.clone());
-                        }
-
-                        // Collect all top-level symbols defined in the entry module
-                        // that should be attached to the namespace
-                        let mut exports_to_attach = Vec::new();
-
-                        // Check if module has explicit __all__ to determine exports
-                        if let Some(Some(all_exports)) =
-                            self.module_exports.get(&crate::resolver::ModuleId::ENTRY)
-                        {
-                            // Module has __all__, only attach those symbols
-                            for export_name in all_exports {
-                                if !export_name.starts_with('_') {
-                                    exports_to_attach.push(export_name.clone());
-                                }
-                            }
-                            log::debug!(
-                                "Using __all__ exports for namespace attachment: \
-                                 {exports_to_attach:?}"
-                            );
-                        } else {
-                            // No __all__, attach all public symbols (non-underscore) from entry
-                            // module only Use the entry_module_symbols
-                            // collected earlier to avoid including
-                            // symbols from other bundled modules
-                            for symbol in &entry_module_symbols {
-                                if !symbol.starts_with('_') {
-                                    exports_to_attach.push(symbol.clone());
-                                }
-                            }
-                            log::debug!(
-                                "Attaching public symbols from entry module to namespace: \
-                                 {exports_to_attach:?}"
-                            );
-                        }
-
-                        // Generate attachment statements: namespace.symbol = symbol
-                        for symbol_name in exports_to_attach {
-                            // Check if this symbol was renamed due to conflicts
-                            let actual_name = entry_module_renames
-                                .get(&symbol_name)
-                                .unwrap_or(&symbol_name);
-
-                            log::debug!(
-                                "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace \
-                                 '{namespace_var}'"
-                            );
-
-                            let attach_stmt = statements::assign(
-                                vec![expressions::attribute(
-                                    expressions::name(&namespace_var, ExprContext::Load),
-                                    &symbol_name,
-                                    ExprContext::Store,
-                                )],
-                                expressions::name(actual_name, ExprContext::Load),
-                            );
-                            final_body.push(attach_stmt);
-                        }
-                    } // Close the inner block
+                    // Use helper method to reduce nesting
+                    self.emit_entry_namespace_attachments(
+                        &entry_pkg,
+                        &mut final_body,
+                        &entry_module_symbols,
+                        &entry_module_renames,
+                    );
                 } // Close the else block for valid package name
             }
 
@@ -2876,6 +2815,110 @@ impl<'a> Bundler<'a> {
         }
 
         false
+    }
+
+    /// Emit namespace attachments for entry module exports
+    fn emit_entry_namespace_attachments(
+        &mut self,
+        entry_pkg: &str,
+        final_body: &mut Vec<Stmt>,
+        entry_module_symbols: &FxIndexSet<String>,
+        entry_module_renames: &FxIndexMap<String, String>,
+    ) {
+        let namespace_var = sanitize_module_name_for_identifier(entry_pkg);
+        log::debug!(
+            "Attaching entry module exports to namespace '{namespace_var}' for package \
+             '{entry_pkg}'"
+        );
+
+        // Ensure the namespace exists before attaching exports
+        // This is crucial for packages without submodules where the namespace
+        // might not have been created yet
+        if !self.created_namespaces.contains(&namespace_var) {
+            log::debug!("Creating namespace '{namespace_var}' for entry package exports");
+            let namespace_stmt = statements::simple_assign(
+                &namespace_var,
+                expressions::call(
+                    expressions::simple_namespace_ctor(),
+                    vec![],
+                    vec![
+                        expressions::keyword(
+                            Some("__name__"),
+                            expressions::string_literal(entry_pkg),
+                        ),
+                        expressions::keyword(
+                            Some("__initializing__"),
+                            expressions::bool_literal(false),
+                        ),
+                        expressions::keyword(
+                            Some("__initialized__"),
+                            expressions::bool_literal(false),
+                        ),
+                    ],
+                ),
+            );
+            final_body.push(namespace_stmt);
+            self.created_namespaces.insert(namespace_var.clone());
+        }
+
+        // Collect all top-level symbols defined in the entry module
+        // that should be attached to the namespace
+        let mut exports_to_attach = Vec::new();
+
+        // Check if module has explicit __all__ to determine exports
+        if let Some(Some(all_exports)) = self.module_exports.get(&crate::resolver::ModuleId::ENTRY)
+        {
+            // Module has __all__, only attach those symbols
+            for export_name in all_exports {
+                if !export_name.starts_with('_') {
+                    exports_to_attach.push(export_name.clone());
+                }
+            }
+            log::debug!("Using __all__ exports for namespace attachment: {exports_to_attach:?}");
+        } else {
+            // No __all__, attach all public symbols (non-underscore) from entry
+            // module only. Use the entry_module_symbols collected earlier to avoid
+            // including symbols from other bundled modules
+            for symbol in entry_module_symbols {
+                if !symbol.starts_with('_') {
+                    exports_to_attach.push(symbol.clone());
+                }
+            }
+            log::debug!(
+                "Attaching public symbols from entry module to namespace: {exports_to_attach:?}"
+            );
+        }
+
+        // Sort and deduplicate exports
+        exports_to_attach.sort();
+        exports_to_attach.dedup();
+
+        // Generate attachment statements: namespace.symbol = symbol
+        for symbol_name in exports_to_attach {
+            // Check if this symbol was renamed due to conflicts
+            let actual_name = entry_module_renames
+                .get(&symbol_name)
+                .unwrap_or(&symbol_name);
+
+            log::debug!(
+                "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace \
+                 '{namespace_var}'"
+            );
+
+            let attach_stmt = statements::assign(
+                vec![expressions::attribute(
+                    expressions::name(&namespace_var, ExprContext::Load),
+                    &symbol_name,
+                    ExprContext::Store,
+                )],
+                expressions::name(actual_name, ExprContext::Load),
+            );
+
+            // Only add if not a duplicate
+            if !Self::is_duplicate_simple_module_attr_assignment(&attach_stmt, final_body) {
+                final_body.push(attach_stmt);
+            }
+        }
     }
 
     /// Process a function definition in the entry module
