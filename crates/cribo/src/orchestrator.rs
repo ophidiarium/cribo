@@ -368,9 +368,31 @@ impl BundleOrchestrator {
 
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
-            // Check for __main__.py first
+            // Check for __init__.py first (standard package import behavior)
+            let init_py = entry_path.join(crate::python::constants::INIT_FILE);
             let main_py = entry_path.join(crate::python::constants::MAIN_FILE);
-            if main_py.exists() && main_py.is_file() {
+            let init_exists = init_py.is_file();
+            let main_exists = main_py.is_file();
+            if init_exists {
+                if main_exists {
+                    warn!(
+                        "Directory {} contains both {} and {}; preferring {}. For CLI behavior, \
+                         pass {}/{} explicitly.",
+                        entry_path.display(),
+                        crate::python::constants::INIT_FILE,
+                        crate::python::constants::MAIN_FILE,
+                        crate::python::constants::INIT_FILE,
+                        entry_path.display(),
+                        crate::python::constants::MAIN_FILE
+                    );
+                }
+                info!(
+                    "Using {} as entry point from directory: {}",
+                    crate::python::constants::INIT_FILE,
+                    entry_path.display()
+                );
+                init_py
+            } else if main_exists {
                 info!(
                     "Using {} as entry point from directory: {}",
                     crate::python::constants::MAIN_FILE,
@@ -378,23 +400,12 @@ impl BundleOrchestrator {
                 );
                 main_py
             } else {
-                // Check for __init__.py
-                let init_py = entry_path.join(crate::python::constants::INIT_FILE);
-                if init_py.exists() && init_py.is_file() {
-                    info!(
-                        "Using {} as entry point from directory: {}",
-                        crate::python::constants::INIT_FILE,
-                        entry_path.display()
-                    );
-                    init_py
-                } else {
-                    return Err(anyhow!(
-                        "Directory {} does not contain {} or {}",
-                        entry_path.display(),
-                        crate::python::constants::MAIN_FILE,
-                        crate::python::constants::INIT_FILE
-                    ));
-                }
+                return Err(anyhow!(
+                    "Directory {} does not contain {} or {}",
+                    entry_path.display(),
+                    crate::python::constants::INIT_FILE,
+                    crate::python::constants::MAIN_FILE
+                ));
             }
         } else if entry_path.is_file() {
             entry_path.to_path_buf()
@@ -953,15 +964,26 @@ impl BundleOrchestrator {
     ) -> Result<String> {
         log::debug!("find_entry_module_name: entry_path = {entry_path:?}");
 
-        // Special case: If the entry is __init__.py, always use __init__ as the module name
-        // to avoid conflicts with wrapper modules that might have the same name as the package
+        // Special case: If the entry is __init__.py, use the package name
         if entry_path
             .file_name()
             .and_then(|f| f.to_str())
             .is_some_and(crate::python::module_path::is_init_file_name)
         {
+            // Get the package name from the parent directory
+            if let Some(parent) = entry_path.parent()
+                && let Some(package_name) = self.find_module_in_src_dirs(parent)
+            {
+                log::debug!(
+                    "Entry is {} in package '{}', using package name as module name",
+                    crate::python::constants::INIT_FILE,
+                    package_name
+                );
+                return Ok(package_name);
+            }
+            // Fallback if we can't determine the package name
             log::debug!(
-                "Entry is {}, using '{}' as module name",
+                "Entry is {}, but couldn't determine package name, using '{}'",
                 crate::python::constants::INIT_FILE,
                 crate::python::constants::INIT_STEM
             );
