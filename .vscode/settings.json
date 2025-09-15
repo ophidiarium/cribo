@@ -65,7 +65,6 @@
     "github.copilot.advanced": {
         "useLanguageServer": true
     },
-    "chat.mcp.enabled": true,
     "mcp": {
         "servers": {
             "context7": {
@@ -101,5 +100,6 @@
     "git.branchProtection": [
         "main"
     ],
-    "git.branchProtectionPrompt": "alwaysPrompt"
+    "git.branchProtectionPrompt": "alwaysPrompt",
+    "chat.mcp.access": "all"
 }
