@@ -123,46 +123,6 @@ def test_bundled_print_functionality(bundled_rich):
         assert "Hello, World!" in result
 
 
-@pytest.mark.skip(reason="Table class not accessible in bundled module - submodule imports not supported")
-def test_bundled_table_rendering(bundled_rich):
-    """Test table rendering with bundled rich.
-
-    This test is skipped because Table is not a top-level export of rich.
-    In a bundle, we cannot do 'from rich.table import Table'.
-    """
-    pass  # Test not applicable for bundled modules
-
-
-@pytest.mark.skip(reason="Text class not accessible in bundled module - submodule imports not supported")
-def test_bundled_text_formatting(bundled_rich):
-    """Test text formatting with bundled rich.
-
-    This test is skipped because Text is not a top-level export of rich.
-    In a bundle, we cannot do 'from rich.text import Text'.
-    """
-    pass  # Test not applicable for bundled modules
-
-
-@pytest.mark.skip(reason="Progress classes not accessible in bundled module - submodule imports not supported")
-def test_bundled_progress_bar(bundled_rich):
-    """Test progress bar with bundled rich.
-
-    This test is skipped because Progress components are not top-level exports of rich.
-    In a bundle, we cannot do 'from rich.progress import Progress'.
-    """
-    pass  # Test not applicable for bundled modules
-
-
-@pytest.mark.skip(reason="Markdown class not accessible in bundled module - submodule imports not supported")
-def test_bundled_markdown_rendering(bundled_rich):
-    """Test markdown rendering with bundled rich.
-
-    This test is skipped because Markdown is not a top-level export of rich.
-    In a bundle, we cannot do 'from rich.markdown import Markdown'.
-    """
-    pass  # Test not applicable for bundled modules
-
-
 if __name__ == "__main__":
     # Run with pytest when executed directly
     sys.exit(pytest.main([__file__, "-v"]))

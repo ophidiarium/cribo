@@ -101,5 +101,6 @@
         "**/target",
         "**/.venv",
         "**/npm"
-    ]
+    ],
+    "python.analysis.enablePytestSupport": true
 }
