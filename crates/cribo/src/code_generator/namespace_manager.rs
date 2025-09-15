@@ -741,8 +741,8 @@ pub fn populate_namespace_with_module_symbols(
                 // Check if both modules are in circular dependencies (have init functions)
                 let source_module_id = ctx.resolver.get_module_id_by_name(&source_module);
                 let current_has_init = ctx.module_init_functions.contains_key(&module_id);
-                let source_has_init = source_module_id
-                    .is_some_and(|id| ctx.module_init_functions.contains_key(&id));
+                let source_has_init =
+                    source_module_id.is_some_and(|id| ctx.module_init_functions.contains_key(&id));
 
                 if current_has_init && source_has_init {
                     // Both modules are in circular dependencies - skip the assignment
@@ -772,21 +772,38 @@ pub fn populate_namespace_with_module_symbols(
                 }
             } else {
                 // Local symbol (defined in this module)
-                // But first check if the symbol is in the rename map - if not, it might be imported
-                let actual_symbol_name = symbol_renames
+                // Determine the actual symbol name. Prefer an explicit rename, otherwise
+                // fall back to tree-shaking information (if present) or assume the
+                // local symbol exists. If tree-shaking data says the symbol was removed,
+                // skip exposing it to avoid referencing an absent symbol.
+                let from_renames = symbol_renames
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
                     .cloned();
 
+                let tree_shaking_map_opt = ctx.tree_shaking_keep_symbols.as_ref();
+                let is_kept = tree_shaking_map_opt
+                    .and_then(|m| m.get(&module_id))
+                    .is_some_and(|set| set.contains(&symbol_name));
+
+                let actual_symbol_name = if from_renames.is_some() {
+                    from_renames
+                } else if tree_shaking_map_opt.is_some() {
+                    // Tree-shaking info exists: only expose if kept
+                    is_kept.then(|| symbol_name.clone())
+                } else {
+                    // No renames and no tree-shaking info -> assume local symbol present
+                    Some(symbol_name.clone())
+                };
+
                 let Some(actual_symbol_name) = actual_symbol_name else {
-                    // Symbol is not in rename map - it might be imported from a circular dependency
-                    // Skip it to avoid referencing undefined symbols
                     log::debug!(
-                        "[namespace] Skipping '{target_name}.{symbol_name}' - not in rename map, \
-                         likely imported from circular dependency"
+                        "[namespace] Skipping '{target_name}.{symbol_name}' - neither renamed nor \
+                         kept by tree-shaker; likely not inlined or imported from elsewhere"
                     );
                     continue;
                 };
+
                 let symbol_expr = expressions::name(&actual_symbol_name, ExprContext::Load);
                 log::debug!(
                     "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
