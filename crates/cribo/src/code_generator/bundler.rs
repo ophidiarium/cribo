@@ -304,14 +304,13 @@ impl<'a> Bundler<'a> {
         let target_path = expression_handlers::extract_attribute_path(target_attr);
 
         final_body.iter().any(|stmt| {
-            if let Stmt::Assign(existing) = stmt
-                && existing.targets.len() == 1
-                && let Expr::Attribute(existing_attr) = &existing.targets[0]
-            {
-                let existing_path = expression_handlers::extract_attribute_path(existing_attr);
-                return existing_path == target_path;
-            }
-            false
+            let Stmt::Assign(existing) = stmt else {
+                return false;
+            };
+            let [Expr::Attribute(existing_attr)] = existing.targets.as_slice() else {
+                return false;
+            };
+            expression_handlers::extract_attribute_path(existing_attr) == target_path
         })
     }
 
