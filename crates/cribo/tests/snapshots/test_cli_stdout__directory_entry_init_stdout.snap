@@ -32,3 +32,4 @@ _cribo = _Cribo()
 def run():
     print("Running from __init__.py as fallback")
 run()
+directory_entry_init.run = run

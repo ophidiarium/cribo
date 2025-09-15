@@ -2052,6 +2052,10 @@ impl<'a> Bundler<'a> {
 
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
+            log::debug!(
+                "Entry is package init or main: {}",
+                self.entry_is_package_init_or_main
+            );
 
             // Check if the entry module is part of circular dependencies
             if self
@@ -2091,6 +2095,7 @@ impl<'a> Bundler<'a> {
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
             // First pass: collect locally defined symbols in the entry module
+            // Store in self for later use when attaching to namespace
             let mut locally_defined_symbols = FxIndexSet::default();
             for stmt in &ast.body {
                 match stmt {
@@ -2365,6 +2370,112 @@ impl<'a> Bundler<'a> {
                                 ExprContext::Load,
                             ),
                         ));
+                    }
+                }
+            }
+
+            // CRITICAL: Attach entry module exports to namespace when it's a package
+            // When the entry module is a package __init__.py, its top-level exports
+            // (functions, classes) need to be attached to the namespace object so they
+            // can be accessed when the bundle is imported as a library.
+            // For example, rich defines get_console() in __init__.py, so we need:
+            // rich.get_console = get_console
+            log::debug!(
+                "Checking if entry module needs namespace attachment: \
+                 entry_is_package_init_or_main={}, entry_module_name='{}'",
+                self.entry_is_package_init_or_main,
+                self.entry_module_name
+            );
+            if self.entry_is_package_init_or_main {
+                // When entry is a package __init__.py, we need to attach exports to the namespace
+                // The entry_package_name() method only works if entry_module_name contains
+                // .__init__ But when a directory is passed as entry,
+                // entry_module_name is just the package name
+                let entry_pkg = if let Some(pkg) = self.entry_package_name() {
+                    pkg
+                } else if self.entry_is_package_init_or_main {
+                    // Entry is a package but doesn't have .__init__ suffix
+                    // This happens when a directory is passed as the entry point
+                    &self.entry_module_name
+                } else {
+                    // This shouldn't happen if entry_is_package_init_or_main is true
+                    log::warn!("Unable to determine package name for entry module");
+                    &self.entry_module_name
+                };
+
+                log::debug!(
+                    "Using package name '{entry_pkg}' for namespace attachment"
+                );
+
+                {
+                    let namespace_var = sanitize_module_name_for_identifier(entry_pkg);
+                    log::debug!(
+                        "Attaching entry module exports to namespace '{namespace_var}' for \
+                         package '{entry_pkg}'"
+                    );
+
+                    // Collect all top-level symbols defined in the entry module
+                    // that should be attached to the namespace
+                    let mut exports_to_attach = Vec::new();
+
+                    // Check if module has explicit __all__ to determine exports
+                    if let Some(Some(all_exports)) =
+                        self.module_exports.get(&crate::resolver::ModuleId::ENTRY)
+                    {
+                        // Module has __all__, only attach those symbols
+                        for export_name in all_exports {
+                            if !export_name.starts_with('_') {
+                                exports_to_attach.push(export_name.clone());
+                            }
+                        }
+                        log::debug!(
+                            "Using __all__ exports for namespace attachment: {exports_to_attach:?}"
+                        );
+                    } else {
+                        // No __all__, attach all public symbols (non-underscore)
+                        // We need to re-collect them since locally_defined_symbols is out of scope
+                        // Look through the final_body for function and class definitions
+                        for stmt in &final_body {
+                            match stmt {
+                                Stmt::FunctionDef(func_def) => {
+                                    let name = func_def.name.to_string();
+                                    if !name.starts_with('_') {
+                                        exports_to_attach.push(name);
+                                    }
+                                }
+                                Stmt::ClassDef(class_def) => {
+                                    let name = class_def.name.to_string();
+                                    if !name.starts_with('_') {
+                                        exports_to_attach.push(name);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        log::debug!(
+                            "Attaching public symbols to namespace: {exports_to_attach:?}"
+                        );
+                    }
+
+                    // Generate attachment statements: namespace.symbol = symbol
+                    for symbol_name in exports_to_attach {
+                        // For now, we'll use the symbol name directly since entry_module_renames
+                        // is out of scope. The renamed versions are already in final_body.
+                        let actual_name = &symbol_name;
+
+                        log::debug!(
+                            "Attaching '{symbol_name}' (actual: '{actual_name}') to namespace '{namespace_var}'"
+                        );
+
+                        let attach_stmt = statements::assign(
+                            vec![expressions::attribute(
+                                expressions::name(&namespace_var, ExprContext::Load),
+                                &symbol_name,
+                                ExprContext::Store,
+                            )],
+                            expressions::name(actual_name, ExprContext::Load),
+                        );
+                        final_body.push(attach_stmt);
                     }
                 }
             }
