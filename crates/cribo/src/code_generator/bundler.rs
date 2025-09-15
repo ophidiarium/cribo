@@ -2043,8 +2043,8 @@ impl<'a> Bundler<'a> {
         // Process the entry module (always ModuleId::ENTRY)
         // Direct access using the constant ID
         // Store entry module symbols and renames for later namespace attachment
-        let mut entry_module_symbols = FxIndexSet::default();
-        let mut entry_module_renames = FxIndexMap::default();
+        let entry_module_symbols;
+        let entry_module_renames;
         if let Some((mut ast, _module_path, _)) =
             modules.shift_remove(&crate::resolver::ModuleId::ENTRY)
         {
@@ -2419,6 +2419,38 @@ impl<'a> Bundler<'a> {
                             "Attaching entry module exports to namespace '{namespace_var}' for \
                              package '{entry_pkg}'"
                         );
+
+                        // Ensure the namespace exists before attaching exports
+                        // This is crucial for packages without submodules where the namespace
+                        // might not have been created yet
+                        if !self.created_namespaces.contains(&namespace_var) {
+                            log::debug!(
+                                "Creating namespace '{namespace_var}' for entry package exports"
+                            );
+                            let namespace_stmt = statements::simple_assign(
+                                &namespace_var,
+                                expressions::call(
+                                    expressions::simple_namespace_ctor(),
+                                    vec![],
+                                    vec![
+                                        expressions::keyword(
+                                            Some("__name__"),
+                                            expressions::string_literal(&entry_pkg),
+                                        ),
+                                        expressions::keyword(
+                                            Some("__initializing__"),
+                                            expressions::bool_literal(false),
+                                        ),
+                                        expressions::keyword(
+                                            Some("__initialized__"),
+                                            expressions::bool_literal(false),
+                                        ),
+                                    ],
+                                ),
+                            );
+                            final_body.push(namespace_stmt);
+                            self.created_namespaces.insert(namespace_var.clone());
+                        }
 
                         // Collect all top-level symbols defined in the entry module
                         // that should be attached to the namespace

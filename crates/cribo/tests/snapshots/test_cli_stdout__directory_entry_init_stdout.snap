@@ -32,4 +32,5 @@ _cribo = _Cribo()
 def run():
     print("Running from __init__.py as fallback")
 run()
+directory_entry_init = _cribo.types.SimpleNamespace(__name__='directory_entry_init', __initializing__=False, __initialized__=False)
 directory_entry_init.run = run
