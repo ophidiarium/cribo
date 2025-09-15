@@ -250,9 +250,9 @@ fn test_directory_entry_with_main_py() {
         assert_snapshot!("directory_entry_main_stdout", stdout);
     });
 
-    // Should contain code from __main__.py, not __init__.py
-    assert!(stdout.contains("Running from __main__.py"));
-    assert!(!stdout.contains("This is __init__.py"));
+    // Should contain code from __init__.py, not __main__.py (prefers __init__.py)
+    assert!(stdout.contains("This is __init__.py"));
+    assert!(!stdout.contains("Running from __main__.py"));
 }
 
 #[test]
@@ -293,6 +293,6 @@ fn test_directory_entry_empty_fails() {
         assert_snapshot!("directory_entry_empty_stderr", stderr);
     });
 
-    // Should contain appropriate error message
-    assert!(stderr.contains("does not contain __main__.py or __init__.py"));
+    // Should contain appropriate error message (checks __init__.py first)
+    assert!(stderr.contains("does not contain __init__.py or __main__.py"));
 }

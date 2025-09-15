@@ -370,31 +370,42 @@ impl BundleOrchestrator {
         let entry_path = if entry_path.is_dir() {
             // Check for __init__.py first (standard package import behavior)
             let init_py = entry_path.join(crate::python::constants::INIT_FILE);
-            if init_py.exists() && init_py.is_file() {
+            let main_py = entry_path.join(crate::python::constants::MAIN_FILE);
+            let init_exists = init_py.is_file();
+            let main_exists = main_py.is_file();
+            if init_exists {
+                if main_exists {
+                    warn!(
+                        "Directory {} contains both {} and {}; preferring {}. For CLI behavior, \
+                         pass {}/{} explicitly.",
+                        entry_path.display(),
+                        crate::python::constants::INIT_FILE,
+                        crate::python::constants::MAIN_FILE,
+                        crate::python::constants::INIT_FILE,
+                        entry_path.display(),
+                        crate::python::constants::MAIN_FILE
+                    );
+                }
                 info!(
                     "Using {} as entry point from directory: {}",
                     crate::python::constants::INIT_FILE,
                     entry_path.display()
                 );
                 init_py
+            } else if main_exists {
+                info!(
+                    "Using {} as entry point from directory: {}",
+                    crate::python::constants::MAIN_FILE,
+                    entry_path.display()
+                );
+                main_py
             } else {
-                // Check for __main__.py as fallback
-                let main_py = entry_path.join(crate::python::constants::MAIN_FILE);
-                if main_py.exists() && main_py.is_file() {
-                    info!(
-                        "Using {} as entry point from directory: {}",
-                        crate::python::constants::MAIN_FILE,
-                        entry_path.display()
-                    );
-                    main_py
-                } else {
-                    return Err(anyhow!(
-                        "Directory {} does not contain {} or {}",
-                        entry_path.display(),
-                        crate::python::constants::INIT_FILE,
-                        crate::python::constants::MAIN_FILE
-                    ));
-                }
+                return Err(anyhow!(
+                    "Directory {} does not contain {} or {}",
+                    entry_path.display(),
+                    crate::python::constants::INIT_FILE,
+                    crate::python::constants::MAIN_FILE
+                ));
             }
         } else if entry_path.is_file() {
             entry_path.to_path_buf()
