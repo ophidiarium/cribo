@@ -87,8 +87,7 @@
     ],
     "git.branchProtectionPrompt": "alwaysPrompt",
     "chat.mcp.access": "all",
-    "terminal.integrated.shellIntegration.enabled": true,
-    "chat.tools.terminal.shellIntegrationTimeout": 2,
+    "chat.tools.terminal.shellIntegrationTimeout": 3,
     "chat.tools.terminal.enableAutoApprove": true,
     "chat.tools.terminal.autoApprove": {
         "cargo check": true,
