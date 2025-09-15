@@ -2871,19 +2871,17 @@ impl<'a> Bundler<'a> {
         // Check if module has explicit __all__ to determine exports
         if let Some(Some(all_exports)) = self.module_exports.get(&crate::resolver::ModuleId::ENTRY)
         {
-            // Module has __all__, only attach those symbols
+            // Module has __all__: respect export policy and tree-shaking
             for export_name in all_exports {
-                if !export_name.starts_with('_') {
+                if self.should_export_symbol(export_name, &self.entry_module_name) {
                     exports_to_attach.push(export_name.clone());
                 }
             }
             log::debug!("Using __all__ exports for namespace attachment: {exports_to_attach:?}");
         } else {
-            // No __all__, attach all public symbols (non-underscore) from entry
-            // module only. Use the entry_module_symbols collected earlier to avoid
-            // including symbols from other bundled modules
+            // No __all__: defer to should_export_symbol for visibility + tree-shaking
             for symbol in entry_module_symbols {
-                if !symbol.starts_with('_') {
+                if self.should_export_symbol(symbol, &self.entry_module_name) {
                     exports_to_attach.push(symbol.clone());
                 }
             }
