@@ -101,5 +101,18 @@
         "main"
     ],
     "git.branchProtectionPrompt": "alwaysPrompt",
-    "chat.mcp.access": "all"
+    "chat.mcp.access": "all",
+    "terminal.integrated.shellIntegration.enabled": true,
+    "chat.tools.terminal.shellIntegrationTimeout": 2,
+    "chat.tools.terminal.enableAutoApprove": true,
+    "chat.tools.terminal.autoApprove": {
+        "cargo check": true,
+        "gh": true,
+        "cargo fmt": true,
+        "cargo build": true,
+        "cargo nextest rus": true,
+        "cargo insta": true,
+        "cargo clippy": true,
+        "INSTA_GLOB_FILTER": true
+    }
 }
