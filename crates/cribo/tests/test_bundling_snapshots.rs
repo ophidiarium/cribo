@@ -24,6 +24,27 @@ static FIXTURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Get the Python executable to use for testing
 fn get_python_executable() -> String {
+    // Prefer a project-local virtual environment (repo root .venv) if present.
+    // We walk up from the crate's manifest directory to find the first '.venv'.
+    // This allows tests to consistently use the pinned dependencies (e.g. pandera)
+    // without relying on an externally activated environment.
+    {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        for ancestor in manifest_dir.ancestors() {
+            let venv_dir = ancestor.join(".venv");
+            if venv_dir.is_dir() {
+                let candidate = if cfg!(windows) {
+                    venv_dir.join("Scripts").join("python.exe")
+                } else {
+                    venv_dir.join("bin").join("python")
+                };
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
     // First check if we're in a virtual environment (CI or local development)
     if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
         // Try the virtual environment's Python first

@@ -1,0 +1,10 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cargo insta test",
+            "type": "shell",
+            "command": "cargo insta test"
+        }
+    ]
+}
