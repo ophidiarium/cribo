@@ -169,8 +169,9 @@ cargo coverage-lcov
 ```
 
 **Allowed types** (enforced by commitlint):
+
 - `feat`: New features
-- `fix`: Bug fixes  
+- `fix`: Bug fixes
 - `docs`: Documentation changes
 - `style`: Code style changes (formatting, missing semicolons, etc.)
 - `refactor`: Code changes that neither fix bugs nor add features
@@ -183,6 +184,7 @@ cargo coverage-lcov
 - `ai`: AI-generated changes or AI-related updates
 
 **Examples:**
+
 ```bash
 feat: add support for circular dependency detection
 fix(parser): handle malformed import statements correctly
@@ -192,6 +194,7 @@ refactor(analyzer): extract symbol tracking into separate module
 ```
 
 **Breaking changes** use `!` or `BREAKING CHANGE:` footer:
+
 ```bash
 feat!: remove deprecated bundling API
 feat(api): add new parser interface
@@ -212,11 +215,13 @@ cargo fmt --all
 ```
 
 **NEVER bypass git hooks** - they ensure code quality:
+
 - Pre-commit hooks run `cargo fmt`, `cargo clippy`, and other checks
 - Commit-msg hooks validate conventional commit format
 - Let hooks fix formatting automatically when possible
 
 **If hooks fail:**
+
 1. Fix the underlying issue (don't bypass with `--no-verify`)
 2. For formatting: run `cargo fmt` and re-commit
 3. For linting: fix clippy warnings with `cargo clippy --fix`
@@ -238,6 +243,7 @@ cargo clippy --workspace --all-targets    # Check for linting issues
 ```
 
 **Git hooks automatically enforce:**
+
 - Code formatting with `cargo fmt`
 - Linting with `cargo clippy --fix`
 - Conventional commit message format
@@ -287,6 +293,167 @@ git push                                          # Hooks will validate automati
 ```
 
 ## 📝 Additional Resources
+
+## 🔄 Handling GitHub PR Review Comment Links (MANDATORY WORKFLOW)
+
+When the user provides a direct link to a specific GitHub PR review comment, you MUST follow this exact sequence. Treat EVERY comment (including nitpicks) as actionable and required.
+
+### 1. Recognize the Link Format
+
+Links will look like:
+
+```
+https://github.com/ophidiarium/cribo/pull/<PR_NUMBER>#discussion_r<COMMENT_ID>
+```
+
+Extract:
+
+- PR number → the digits after `/pull/`
+- Comment ID → the digits after `discussion_r`
+
+### 2. Fetch the Comment Body
+
+Confirm GitHub CLI auth first (fail fast if unauthenticated):
+
+```bash
+gh auth status
+```
+
+Then fetch the specific comment for inspection (DO NOT proceed without reading the body):
+
+```bash
+GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
+   --jq '
+"id:         \(.id)\npr_number:   \(.pull_request_url | split("/") | last)\nauthor:      \(.user.login)\ncreated_at:  \(.created_at)\nfile:        \(.path)\nline:        \(.start_line)\n--- BEGIN_BODY ---\n\(.body)\n--- END_BODY ---"'
+```
+
+### 3. Apply the Requested Change(s) Immediately
+
+Rules:
+
+- Implement exactly what the comment requests (even if minor wording or formatting)
+- Do NOT leave TODOs or partial fixes
+- If ambiguous, choose the safest, most minimal conforming interpretation
+- Never argue, postpone, or batch—address per comment
+
+### 4. Validate Locally (Quality Gates)
+
+Run the full required checks (in this order):
+
+```bash
+cargo fmt --all
+cargo nextest run --workspace
+cargo clippy --workspace --all-targets
+```
+
+All must pass cleanly (no failing tests, no clippy errors). If clippy suggests fixes you may run:
+
+```bash
+cargo clippy --workspace --fix --allow-dirty --allow-staged
+```
+
+Then re-run the validation sequence.
+
+### 5. Commit the Change
+
+Use a conventional commit message referencing the comment ID:
+
+```bash
+git add -A
+git commit -m "chore: address PR review comment <COMMENT_ID>"
+```
+
+If multiple distinct review comments are addressed separately, create one commit per comment (preferred for traceability). If a single change naturally resolves multiple comments, list all IDs in the body:
+
+```
+chore: address PR review comments 12345678, 12345679
+
+Refs: #<PR_NUMBER>
+```
+
+### 6. Push the Commit
+
+```bash
+git push
+```
+
+(Assumes branch already exists on remote; if not: `git push -u origin <branch>`)
+
+### 7. Reply Directly to the Original Comment
+
+Get the short commit hash:
+
+```bash
+SHORT=$(git rev-parse --short HEAD)
+```
+
+Post reply (must be a direct reply, NOT a new top-level PR comment):
+
+```bash
+gh api repos/ophidiarium/cribo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+   -X POST -f body="✅ Addressed in ${SHORT}. Thanks!"
+```
+
+### 8. Multiple Pending Comments Workflow
+
+Process comments one at a time unless they clearly require a unified refactor. Order of operations:
+
+1. Fetch → apply → validate → commit → reply
+2. Repeat for next comment
+
+### 9. If Comment References Another File/Context
+
+- Open and inspect the referenced file and surrounding logic
+- Avoid mechanical edits—ensure semantic correctness
+- If systemic pattern needs adjustment, document briefly in the commit body
+
+### 10. Absolutely MUST NOT
+
+- Do NOT batch unrelated review fixes into a single opaque commit
+- Do NOT skip tests or clippy to “reply quickly”
+- Do NOT reply before code is actually pushed
+- Do NOT silence clippy with `#[allow]` instead of fixing root cause
+- Do NOT create new review threads instead of replying inline
+
+### 11. Edge Cases
+
+| Situation                                                                             | Required Action                                                                                                                        |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Comment suggests something already implemented                                        | Re-verify, quote code in reply, still respond politely with confirmation                                                               |
+| Comment is unclear                                                                    | Implement the most conservative safe interpretation; if still ambiguous, reply asking for clarification BEFORE altering unrelated code |
+| Suggestion would violate deterministic output rules                                   | Implement an alternative that satisfies reviewer intent while preserving determinism; explain briefly in reply                         |
+| Comment requests addition that introduces disallowed type/method (per `.clippy.toml`) | Implement compliant equivalent and note substitution in reply                                                                          |
+
+### 12. Example End-to-End Session
+
+```bash
+# Given link: https://github.com/ophidiarium/cribo/pull/362#discussion_r123456789
+PR=362
+CID=123456789
+
+gh auth status
+GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/$CID --jq '.body'
+# -> Read, implement change
+
+cargo fmt --all
+cargo nextest run --workspace
+cargo clippy --workspace --all-targets
+
+git add -A
+git commit -m "chore: address PR review comment $CID"
+git push
+
+SHORT=$(git rev-parse --short HEAD)
+gh api repos/ophidiarium/cribo/pulls/$PR/comments/$CID/replies -X POST -f body="✅ Addressed in ${SHORT}. Thanks!"
+```
+
+### 13. Validation Reminder
+
+Never declare a review comment “handled” until after: implementation + tests pass + clippy clean + reply posted.
+
+---
+
+This workflow is STRICT. Deviation causes churn and is not allowed—always execute precisely.
 
 - Main instructions: `/CLAUDE.md` (comprehensive guidelines)
 - Architecture docs: `/docs/` directory
