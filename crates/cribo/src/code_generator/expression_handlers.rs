@@ -1169,3 +1169,38 @@ pub fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -
     }
     false
 }
+
+/// Check if two expressions are structurally equal (for simple cases)
+/// This is a basic implementation that handles common cases for namespace attachments
+pub fn expressions_are_equal(expr1: &Expr, expr2: &Expr) -> bool {
+    match (expr1, expr2) {
+        // Name expressions - compare identifiers
+        (Expr::Name(name1), Expr::Name(name2)) => name1.id == name2.id,
+
+        // Attribute expressions - compare value and attr
+        (Expr::Attribute(attr1), Expr::Attribute(attr2)) => {
+            attr1.attr == attr2.attr && expressions_are_equal(&attr1.value, &attr2.value)
+        }
+
+        // String literals
+        (Expr::StringLiteral(lit1), Expr::StringLiteral(lit2)) => lit1.value == lit2.value,
+
+        // Number literals
+        (Expr::NumberLiteral(n1), Expr::NumberLiteral(n2)) => n1.value == n2.value,
+
+        // Bytes literals
+        (Expr::BytesLiteral(b1), Expr::BytesLiteral(b2)) => b1.value == b2.value,
+
+        // Boolean literals
+        (Expr::BooleanLiteral(lit1), Expr::BooleanLiteral(lit2)) => lit1.value == lit2.value,
+
+        // None literals
+        (Expr::NoneLiteral(_), Expr::NoneLiteral(_)) => true,
+
+        // Ellipsis (...)
+        (Expr::EllipsisLiteral(_), Expr::EllipsisLiteral(_)) => true,
+
+        // Different types or complex expressions - conservatively return false
+        _ => false,
+    }
+}
