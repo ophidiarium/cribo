@@ -432,9 +432,9 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     def shadow_test(validate: _cribo.typing.Any=None, process: _cribo.typing.Any=None, Logger: _cribo.typing.Any=None, result: _cribo.typing.Any=None, initialize: _cribo.typing.Any=None) -> _cribo.typing.Dict[str, _cribo.typing.Any]:
         """Function that shadows all major conflict names with parameters"""
         shadows = {"validate_param": validate, "process_param": process, "Logger_param": Logger, "result_param": result, "initialize_param": initialize}
-        validate = models_base.__dict__["validate"]
-        process = models_base.__dict__["process"]
-        Logger = models_base.__dict__["Logger"]
+        validate = self.__dict__["validate"]
+        process = self.__dict__["process"]
+        Logger = self.__dict__["Logger"]
         validation_result = validate("test_data")
         process_result = process("test_data")
         logger = Logger("shadow_test")
@@ -597,7 +597,7 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
         """Auth validate function - conflicts with other validate functions"""
         if not data:
             return "auth_invalid"
-        module_validate = services_auth_manager.__dict__.get("validate")
+        module_validate = self.__dict__.get("validate")
         if module_validate and module_validate is not validate and callable(module_validate):
             lambda_result = module_validate(data)
         else:
@@ -631,7 +631,7 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
 
         def add_user(self, username: str, password: str) -> "User":
             """Method that creates User with local scope conflicts"""
-            User = services_auth_manager.__dict__["User"]
+            User = self.__dict__["User"]
             user = User(username, password)
             self.users.append(user)
             self.User = user

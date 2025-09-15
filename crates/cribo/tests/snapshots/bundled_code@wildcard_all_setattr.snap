@@ -64,7 +64,7 @@ def _cribo_init___cribo_cca96f_package(self):
     my_function = package._subpackage.my_function
     package.my_function = my_function
     __all__ = ["MyClass", "my_function"]
-    __locals = vars(package)
+    __locals = vars(self)
     self.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):

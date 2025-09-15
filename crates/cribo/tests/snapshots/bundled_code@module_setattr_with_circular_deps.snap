@@ -90,7 +90,7 @@ def _cribo_init___cribo_1fb248_pkg(self):
     self.main = main
     self.main = main
     __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
-    __locals = vars(pkg)
+    __locals = vars(self)
     self.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):

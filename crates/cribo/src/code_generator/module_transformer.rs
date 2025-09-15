@@ -43,8 +43,7 @@ pub fn transform_module_to_init_function<'a>(
         .expect("Init function must exist for wrapper module");
     let mut body = Vec::new();
 
-    // Get the global module variable name
-    let module_var_name = sanitize_module_name_for_identifier(ctx.module_name);
+    // Note: we no longer need a separate module variable name inside init; use `self` directly
 
     // Check if already fully initialized
     // if getattr(self, "__initialized__", False):
@@ -1364,9 +1363,9 @@ pub fn transform_module_to_init_function<'a>(
 
     // Transform globals() calls to module.__dict__ in the entire body
     for stmt in &mut body {
-        transform_globals_in_stmt(stmt, &module_var_name);
-        // Transform locals() calls to vars(module_var) in the entire body
-        transform_locals_in_stmt(stmt, &module_var_name);
+        transform_globals_in_stmt(stmt, SELF_PARAM);
+        // Transform locals() calls to vars(self) in the entire body
+        transform_locals_in_stmt(stmt, SELF_PARAM);
     }
 
     // Mark as fully initialized (module is now fully populated)
