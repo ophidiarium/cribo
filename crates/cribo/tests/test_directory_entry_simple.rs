@@ -22,24 +22,24 @@ fn run_cribo(args: &[&str]) -> (String, String, i32) {
 }
 
 #[test]
-fn test_directory_entry_main_py_priority() {
+fn test_directory_entry_init_py_priority() {
     let temp_dir = TempDir::new().unwrap();
     let package_dir = temp_dir.path().join("testpkg");
     fs::create_dir(&package_dir).unwrap();
 
-    // Create __main__.py
+    // Create __init__.py (should be preferred over __main__.py)
     fs::write(
-        package_dir.join("__main__.py"),
-        r#"#!/usr/bin/env python3
-print("Running from __main__.py")
-"#,
+        package_dir.join("__init__.py"),
+        r#"print("This is __init__.py")"#,
     )
     .unwrap();
 
-    // Create __init__.py (should be ignored when __main__.py exists)
+    // Create __main__.py (should be ignored when __init__.py exists)
     fs::write(
-        package_dir.join("__init__.py"),
-        r#"print("This is __init__.py - should not run")"#,
+        package_dir.join("__main__.py"),
+        r#"#!/usr/bin/env python3
+print("Running from __main__.py - should not run")
+"#,
     )
     .unwrap();
 
@@ -55,10 +55,10 @@ print("Running from __main__.py")
     assert_eq!(exit_code, 0, "Bundling failed: {stderr}");
     assert!(output_path.exists());
 
-    // Verify the bundled content
+    // Verify the bundled content (should prefer __init__.py)
     let bundled_content = fs::read_to_string(&output_path).unwrap();
-    assert!(bundled_content.contains("Running from __main__.py"));
-    assert!(!bundled_content.contains("This is __init__.py"));
+    assert!(bundled_content.contains("This is __init__.py"));
+    assert!(!bundled_content.contains("Running from __main__.py"));
 
     // Execute and verify output
     let python_output = Command::new("python3")
@@ -68,7 +68,7 @@ print("Running from __main__.py")
 
     let python_stdout = String::from_utf8_lossy(&python_output.stdout);
     assert!(python_output.status.success());
-    assert_eq!(python_stdout.trim(), "Running from __main__.py");
+    assert_eq!(python_stdout.trim(), "This is __init__.py");
 }
 
 #[test]
@@ -112,6 +112,48 @@ fn test_directory_entry_init_py_fallback() {
 }
 
 #[test]
+fn test_directory_entry_main_py_only() {
+    let temp_dir = TempDir::new().unwrap();
+    let package_dir = temp_dir.path().join("testpkg");
+    fs::create_dir(&package_dir).unwrap();
+
+    // Create only __main__.py (no __init__.py)
+    fs::write(
+        package_dir.join("__main__.py"),
+        r#"#!/usr/bin/env python3
+print("Running from __main__.py")
+"#,
+    )
+    .unwrap();
+
+    let output_path = temp_dir.path().join("bundled.py");
+
+    let (_, stderr, exit_code) = run_cribo(&[
+        "--entry",
+        package_dir.to_str().unwrap(),
+        "--output",
+        output_path.to_str().unwrap(),
+    ]);
+
+    assert_eq!(exit_code, 0, "Bundling failed: {stderr}");
+    assert!(output_path.exists());
+
+    // Verify the bundled content
+    let bundled_content = fs::read_to_string(&output_path).unwrap();
+    assert!(bundled_content.contains("Running from __main__.py"));
+
+    // Execute and verify output
+    let python_output = Command::new("python3")
+        .arg(&output_path)
+        .output()
+        .expect("Failed to execute Python");
+
+    let python_stdout = String::from_utf8_lossy(&python_output.stdout);
+    assert!(python_output.status.success());
+    assert_eq!(python_stdout.trim(), "Running from __main__.py");
+}
+
+#[test]
 fn test_directory_entry_empty_dir_error() {
     let temp_dir = TempDir::new().unwrap();
     let empty_dir = temp_dir.path().join("empty");
@@ -127,6 +169,6 @@ fn test_directory_entry_empty_dir_error() {
     ]);
 
     assert_ne!(exit_code, 0);
-    assert!(stderr.contains("does not contain __main__.py or __init__.py"));
+    assert!(stderr.contains("does not contain __init__.py or __main__.py"));
     assert!(!output_path.exists());
 }

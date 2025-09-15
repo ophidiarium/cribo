@@ -2,4 +2,4 @@
 source: crates/cribo/tests/test_cli_stdout.rs
 expression: stderr
 ---
-Error: Directory <WORKSPACE> does not contain __main__.py or __init__.py
+Error: Directory <WORKSPACE> does not contain __init__.py or __main__.py
