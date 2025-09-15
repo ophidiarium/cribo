@@ -738,19 +738,20 @@ pub fn populate_namespace_with_module_symbols(
             if let Some((source_module, original_name)) =
                 find_symbol_source_module(ctx, module_name, &symbol_name)
             {
-                // Check if both modules are in circular dependencies (have init functions)
-                let source_module_id = ctx.resolver.get_module_id_by_name(&source_module);
-                let current_has_init = ctx.module_init_functions.contains_key(&module_id);
-                let source_has_init =
-                    source_module_id.is_some_and(|id| ctx.module_init_functions.contains_key(&id));
+                // If the source module uses an init function, the symbol is only available after
+                // init.
+                let source_has_init = ctx
+                    .resolver
+                    .get_module_id_by_name(&source_module)
+                    .is_some_and(|id| ctx.module_init_functions.contains_key(&id));
 
-                if current_has_init && source_has_init {
-                    // Both modules are in circular dependencies - skip the assignment
-                    // because the symbol won't be available until the init function runs
+                if source_has_init {
+                    // Skip the assignment because the symbol won't be available until the init
+                    // function runs
                     log::debug!(
-                        "[namespace] Skipping circular dependency assignment: \
-                         {target_name}.{symbol_name} = {source_module}.{original_name} (both \
-                         modules have init functions)"
+                        "[namespace] Skipping wrapper re-export assignment: \
+                         {target_name}.{symbol_name} = {source_module}.{original_name} (source \
+                         uses init)"
                     );
                 } else {
                     let source_parts: Vec<&str> = source_module.split('.').collect();
