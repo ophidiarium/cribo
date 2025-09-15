@@ -152,7 +152,9 @@ logger.__init__ = _cribo_init___cribo_0639af_logger
 app = _cribo.types.SimpleNamespace(__name__='app')
 """\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
 config = config.__init__(config)
+get_config = config.get_config
 logger = logger.__init__(logger)
+get_logger = logger.get_logger
 class Application:
 
     def __init__(self):

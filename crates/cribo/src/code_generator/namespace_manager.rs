@@ -738,29 +738,55 @@ pub fn populate_namespace_with_module_symbols(
             if let Some((source_module, original_name)) =
                 find_symbol_source_module(ctx, module_name, &symbol_name)
             {
-                let source_parts: Vec<&str> = source_module.split('.').collect();
-                let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
-                let symbol_expr =
-                    expressions::attribute(source_expr, &original_name, ExprContext::Load);
-                log::debug!(
-                    "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
-                     {source_module}.{original_name} (wrapper re-export)"
-                );
-                result_stmts.push(statements::assign(
-                    vec![expressions::attribute(
-                        target.clone(),
-                        &symbol_name,
-                        ExprContext::Store,
-                    )],
-                    symbol_expr,
-                ));
+                // Check if both modules are in circular dependencies (have init functions)
+                let source_module_id = ctx.resolver.get_module_id_by_name(&source_module);
+                let current_has_init = ctx.module_init_functions.contains_key(&module_id);
+                let source_has_init = source_module_id
+                    .is_some_and(|id| ctx.module_init_functions.contains_key(&id));
+
+                if current_has_init && source_has_init {
+                    // Both modules are in circular dependencies - skip the assignment
+                    // because the symbol won't be available until the init function runs
+                    log::debug!(
+                        "[namespace] Skipping circular dependency assignment: \
+                         {target_name}.{symbol_name} = {source_module}.{original_name} (both \
+                         modules have init functions)"
+                    );
+                } else {
+                    let source_parts: Vec<&str> = source_module.split('.').collect();
+                    let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
+                    let symbol_expr =
+                        expressions::attribute(source_expr, &original_name, ExprContext::Load);
+                    log::debug!(
+                        "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \
+                         {source_module}.{original_name} (wrapper re-export)"
+                    );
+                    result_stmts.push(statements::assign(
+                        vec![expressions::attribute(
+                            target.clone(),
+                            &symbol_name,
+                            ExprContext::Store,
+                        )],
+                        symbol_expr,
+                    ));
+                }
             } else {
                 // Local symbol (defined in this module)
+                // But first check if the symbol is in the rename map - if not, it might be imported
                 let actual_symbol_name = symbol_renames
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
-                    .cloned()
-                    .unwrap_or_else(|| symbol_name.clone());
+                    .cloned();
+
+                let Some(actual_symbol_name) = actual_symbol_name else {
+                    // Symbol is not in rename map - it might be imported from a circular dependency
+                    // Skip it to avoid referencing undefined symbols
+                    log::debug!(
+                        "[namespace] Skipping '{target_name}.{symbol_name}' - not in rename map, \
+                         likely imported from circular dependency"
+                    );
+                    continue;
+                };
                 let symbol_expr = expressions::name(&actual_symbol_name, ExprContext::Load);
                 log::debug!(
                     "[namespace] Adding namespace assignment: {target_name}.{symbol_name} = \

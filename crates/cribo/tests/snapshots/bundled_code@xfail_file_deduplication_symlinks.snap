@@ -42,9 +42,6 @@ lib_helpers.counter = counter
 lib_helpers.get_location = get_location
 lib_helpers.increment_counter = increment_counter
 shared = _cribo.types.SimpleNamespace(__name__='shared')
-shared.counter = counter
-shared.get_location = get_location
-shared.increment_counter = increment_counter
 helpers = lib_helpers
 common = lib_helpers
 print(f"helpers location: {helpers.get_location()}")

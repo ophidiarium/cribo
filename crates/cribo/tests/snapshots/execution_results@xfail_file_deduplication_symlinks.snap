@@ -7,5 +7,5 @@ ExecutionResults {
         1,
     ),
     stdout: "helpers location: lib/helpers.py\ncommon location: lib/helpers.py\nhelpers counter: 1\ncommon counter: 2",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 50, in <module>",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 47, in <module>",
 }
