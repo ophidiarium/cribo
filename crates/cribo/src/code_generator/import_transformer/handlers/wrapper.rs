@@ -21,6 +21,7 @@ pub struct WrapperContext<'a> {
     pub at_module_level: bool,
     pub current_module_name: String,
     pub function_body: Option<&'a [Stmt]>,
+    pub current_function_used_symbols: Option<&'a FxIndexSet<String>>,
 }
 
 // No local ImportResolveParams needed; heavy lifting stays in Bundler for now
@@ -148,6 +149,7 @@ impl WrapperHandler {
             at_module_level: context.at_module_level,
             current_module_name: context.current_module.unwrap_or("").to_string(),
             function_body,
+            current_function_used_symbols: None, // Not available from old context
         };
 
         Self::handle_symbol_imports_from_wrapper(&wrapper_context, import_from, module_name)
@@ -658,6 +660,10 @@ impl WrapperHandler {
                         at_module_level: transformer.state.at_module_level,
                         python_version: transformer.state.python_version,
                         function_body: transformer.state.current_function_body.as_deref(),
+                        current_function_used_symbols: transformer
+                            .state
+                            .current_function_used_symbols
+                            .as_ref(),
                     });
 
                 // Prepend the init statements to ensure wrapper is initialized before use
@@ -771,19 +777,13 @@ impl WrapperHandler {
         let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
         let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
 
-        // Collect actually used symbols if we're in a function context
-        let used_symbols = if let Some(body) = function_body {
-            if at_module_level {
-                None
-            } else {
-                // Use the SymbolUsageVisitor to find which symbols are actually used
-                Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
-                    body,
-                ))
-            }
-        } else {
+        // Use cached symbols if available, otherwise compute them
+        let used_symbols = if at_module_level {
             None
-        };
+        } else if let Some(cached) = context.current_function_used_symbols {
+            // Use the cached set from the transformer
+            Some(cached.clone())
+        } else { function_body.map(crate::visitors::SymbolUsageVisitor::collect_used_symbols) };
 
         // For wrapper modules, we always need to ensure they're initialized before accessing
         // attributes Don't create the temporary variable approach - it causes issues with
