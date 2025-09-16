@@ -781,14 +781,19 @@ impl WrapperHandler {
         let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
         let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
 
-        // Use cached symbols if available, otherwise compute them
-        let used_symbols = if at_module_level {
+        // Use cached symbols if available, otherwise compute them (borrow when possible)
+        let owned_used = if !at_module_level && context.current_function_used_symbols.is_none() {
+            function_body.map(crate::visitors::SymbolUsageVisitor::collect_used_symbols)
+        } else {
+            None
+        };
+
+        let used_symbols: Option<&FxIndexSet<String>> = if at_module_level {
             None
         } else if let Some(cached) = context.current_function_used_symbols {
-            // Use the cached set from the transformer
-            Some(cached.clone())
+            Some(cached)
         } else {
-            function_body.map(crate::visitors::SymbolUsageVisitor::collect_used_symbols)
+            owned_used.as_ref()
         };
 
         // For wrapper modules, we always need to ensure they're initialized before accessing
@@ -1018,7 +1023,7 @@ impl WrapperHandler {
                 // Only skip imports for bundled modules where we can be confident about side
                 // effects For external/non-bundled imports, always preserve them to
                 // maintain side effects
-                if let Some(ref used) = used_symbols
+                if let Some(used) = used_symbols
                     && !used.contains(target_name.as_str())
                 {
                     // Check if this is a bundled module where we control the behavior
