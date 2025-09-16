@@ -3,11 +3,12 @@
     "tasks": [
         {
             "label": "cargo insta test",
-            "type": "process",
-            "command": "cargo",
+            "type": "cargo",
+            "command": "insta",
             "args": [
-                "insta",
-                "test"
+                "test",
+                "--all-features",
+                "--unreferenced auto"
             ],
             "group": "test",
             "problemMatcher": [
@@ -29,11 +30,26 @@
         {
             "type": "cargo",
             "command": "clippy",
+            "args": [
+                "--workspace",
+                "--all-targets",
+                "--fix",
+                "--allow-dirty",
+                "--allow-staged"
+            ],
             "problemMatcher": [
                 "$rustc"
             ],
             "group": "build",
             "label": "rust: cargo clippy"
+        },
+        {
+            "label": "Init",
+            "type": "shell",
+            "command": "git submodule update --init --recursive",
+            "runOptions": {
+                "runOn": "folderOpen"
+            }
         }
     ]
 }

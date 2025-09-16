@@ -130,9 +130,9 @@ def _cribo_init___cribo_c75306_module_mixed_patterns(self):
         """Modify globals using different patterns."""
         global _cribo_module_mixed_patterns_foo, _cribo_module_mixed_patterns_counter
         _cribo_module_mixed_patterns_foo = "module3_foo_modified"
-        self.foo = _cribo_module_mixed_patterns_foo
+        module_mixed_patterns.foo = _cribo_module_mixed_patterns_foo
         _cribo_module_mixed_patterns_counter += 1
-        self.counter = _cribo_module_mixed_patterns_counter
+        module_mixed_patterns.counter = _cribo_module_mixed_patterns_counter
         self.__dict__["bar"] = "module3_bar_modified"
         self.__dict__["new_var"] = "dynamically_added"
     self.modify_all = modify_all
