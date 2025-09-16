@@ -3,7 +3,7 @@
 //! This module handles the complex transformation of Python module ASTs into
 //! initialization functions that can be called to create module objects.
 
-// Constant for the self parameter name used in init functions
+/// Name of the module object parameter used in generated init functions.
 pub(crate) const SELF_PARAM: &str = "self";
 
 use log::debug;
