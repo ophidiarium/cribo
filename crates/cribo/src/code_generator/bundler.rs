@@ -1672,7 +1672,8 @@ impl<'a> Bundler<'a> {
                         .clone();
 
                     let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
-                    let is_in_circular = self.circular_modules.contains(mid);
+                    // mid is a member of the current SCC; don't rely on pruned circular_modules
+                    let is_in_circular = member_to_group.contains_key(mid);
                     let transform_ctx = ModuleTransformContext {
                         module_name: mname,
                         module_path: &path,
