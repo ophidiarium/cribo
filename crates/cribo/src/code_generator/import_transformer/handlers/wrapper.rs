@@ -1060,8 +1060,8 @@ impl WrapperHandler {
                         // Module not yet initialized - preserve import to trigger
                         // initialization
                         log::debug!(
-                            "Preserving import for '{target_name}' from circular wrapper \
-                             module '{module_name}' - needs initialization for side effects"
+                            "Preserving import for '{target_name}' from circular wrapper module \
+                             '{module_name}' - needs initialization for side effects"
                         );
                         // Continue with normal processing to trigger initialization
                     } else if is_wrapper {
