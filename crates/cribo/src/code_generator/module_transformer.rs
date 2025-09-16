@@ -4,7 +4,7 @@
 //! initialization functions that can be called to create module objects.
 
 // Constant for the self parameter name used in init functions
-const SELF_PARAM: &str = "self";
+pub(crate) const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{

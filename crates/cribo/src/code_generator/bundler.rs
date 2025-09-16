@@ -17,7 +17,7 @@ use crate::{
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
-        module_transformer,
+        module_transformer::{self, SELF_PARAM},
         namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
@@ -5449,7 +5449,7 @@ impl Bundler<'_> {
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(statements::assign(
                             vec![expressions::attribute(
-                                expressions::name("self", ExprContext::Load),
+                                expressions::name(SELF_PARAM, ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],
@@ -5478,7 +5478,7 @@ impl Bundler<'_> {
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(statements::assign(
                             vec![expressions::attribute(
-                                expressions::name("self", ExprContext::Load),
+                                expressions::name(SELF_PARAM, ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],

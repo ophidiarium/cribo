@@ -5,8 +5,12 @@ use ruff_python_ast::{
 };
 
 use crate::{
-    ast_builder::expressions, code_generator::module_registry::sanitize_module_name_for_identifier,
-    semantic_bundler::ModuleGlobalInfo, types::FxIndexMap,
+    ast_builder::expressions,
+    code_generator::{
+        module_registry::sanitize_module_name_for_identifier, module_transformer::SELF_PARAM,
+    },
+    semantic_bundler::ModuleGlobalInfo,
+    types::FxIndexMap,
 };
 
 /// Sanitize a variable name for use in a Python identifier
@@ -93,18 +97,18 @@ fn transform_introspection_in_expr(
                         );
                     }
                 } else {
-                    // Fallback to using "self" if no module_var_name provided
+                    // Fallback to using SELF_PARAM if no module_var_name provided
                     if target_fn == "locals" {
                         // Replace with vars(self)
                         *expr = expressions::call(
                             expressions::name("vars", ExprContext::Load),
-                            vec![expressions::name("self", ExprContext::Load)],
+                            vec![expressions::name(SELF_PARAM, ExprContext::Load)],
                             vec![],
                         );
                     } else if target_fn == "globals" {
                         // Replace with self.__dict__
                         *expr = expressions::attribute(
-                            expressions::name("self", ExprContext::Load),
+                            expressions::name(SELF_PARAM, ExprContext::Load),
                             "__dict__",
                             ExprContext::Load,
                         );

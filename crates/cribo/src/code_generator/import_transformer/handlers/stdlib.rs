@@ -2,7 +2,7 @@ use ruff_python_ast::{ExprContext, Stmt, StmtImportFrom};
 
 use crate::{
     ast_builder::{expressions, statements},
-    code_generator::{bundler::Bundler, module_registry},
+    code_generator::{bundler::Bundler, module_registry, module_transformer::SELF_PARAM},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -131,7 +131,7 @@ impl StdlibHandler {
             // 2) Set module attribute: <current_module>.<local> = <local>
             // In wrapper init functions, use "self" instead of the module name
             let module_var = if is_wrapper_init {
-                "self".to_string()
+                SELF_PARAM.to_string()
             } else {
                 module_registry::sanitize_module_name_for_identifier(current_module_name)
             };
@@ -147,7 +147,7 @@ impl StdlibHandler {
                 && exports.contains(&local_name)
             {
                 assignments.push(statements::assign_attribute(
-                    "self",
+                    SELF_PARAM,
                     local_name.as_str(),
                     expressions::name(local_name.as_str(), ExprContext::Load),
                 ));
