@@ -34,6 +34,14 @@
             ],
             "group": "build",
             "label": "rust: cargo clippy"
+        },
+        {
+            "label": "Init",
+            "type": "shell",
+            "command": "git submodule update --init --recursive --remote",
+            "runOptions": {
+                "runOn": "folderOpen"
+            }
         }
     ]
 }
