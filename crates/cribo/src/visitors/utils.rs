@@ -1,6 +1,6 @@
 //! Shared utilities for visitor implementations
 
-use ruff_python_ast::{Expr, ExprList, ExprStringLiteral, ExprTuple};
+use ruff_python_ast::{Expr, ExprList, ExprName, ExprStringLiteral, ExprTuple};
 
 /// Result of extracting exports from an expression
 #[derive(Debug)]
@@ -51,6 +51,52 @@ fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
         ExtractedExports {
             names: None,
             is_dynamic: true,
+        }
+    }
+}
+
+/// Collect all variable names from an assignment target expression.
+///
+/// This function handles various assignment patterns including:
+/// - Simple names: `x = ...`
+/// - Tuple unpacking: `a, b, c = ...`
+/// - List unpacking: `[a, b, c] = ...`
+/// - Nested unpacking: `(a, (b, c)) = ...`
+/// - Starred expressions: `a, *rest = ...`
+///
+/// Returns a vector of unique variable names found in the target.
+/// The names are sorted and deduplicated.
+pub fn collect_names_from_assignment_target(expr: &Expr) -> Vec<&str> {
+    let mut names = Vec::new();
+    collect_names_recursive(expr, &mut names);
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+/// Recursively collect variable names from nested assignment targets
+fn collect_names_recursive<'a>(expr: &'a Expr, out: &mut Vec<&'a str>) {
+    match expr {
+        Expr::Name(ExprName { id, .. }) => {
+            out.push(id.as_str());
+        }
+        Expr::Tuple(tuple) => {
+            for elem in &tuple.elts {
+                collect_names_recursive(elem, out);
+            }
+        }
+        Expr::List(list) => {
+            for elem in &list.elts {
+                collect_names_recursive(elem, out);
+            }
+        }
+        Expr::Starred(starred) => {
+            // Handle starred expressions like *rest in (a, *rest) = ...
+            collect_names_recursive(&starred.value, out);
+        }
+        _ => {
+            // Other expression types (like Attribute or Subscript) don't bind new names
+            // in assignment contexts, they modify existing objects
         }
     }
 }

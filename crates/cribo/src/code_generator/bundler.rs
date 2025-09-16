@@ -5440,34 +5440,6 @@ impl Bundler<'_> {
         func_def.body = new_body;
     }
 
-    /// Helper function to collect all Name identifiers from assignment targets
-    /// Handles simple names, tuples, and lists (for unpacking assignments)
-    fn collect_names_from_target(expr: &Expr) -> Vec<&str> {
-        let mut names = Vec::new();
-        Self::collect_names_recursive(expr, &mut names);
-        names.sort_unstable();
-        names.dedup();
-        names
-    }
-
-    /// Recursive helper to collect names from nested assignment targets
-    fn collect_names_recursive<'a>(expr: &'a Expr, out: &mut Vec<&'a str>) {
-        match expr {
-            Expr::Name(name) => out.push(name.id.as_str()),
-            Expr::Tuple(tuple) => {
-                for elem in &tuple.elts {
-                    Self::collect_names_recursive(elem, out);
-                }
-            }
-            Expr::List(list) => {
-                for elem in &list.elts {
-                    Self::collect_names_recursive(elem, out);
-                }
-            }
-            _ => {} // Other expression types don't represent assignment targets
-        }
-    }
-
     /// Add synchronization statements for global variable modifications
     fn add_global_sync_if_needed(
         &self,
@@ -5482,7 +5454,9 @@ impl Bundler<'_> {
                 // Collect all names from all targets (handles simple and unpacking assignments)
                 let mut all_names = Vec::new();
                 for target in &assign.targets {
-                    all_names.extend(Self::collect_names_from_target(target));
+                    all_names.extend(
+                        crate::visitors::utils::collect_names_from_assignment_target(target),
+                    );
                 }
 
                 // Process each collected name
@@ -5519,7 +5493,9 @@ impl Bundler<'_> {
             Stmt::AugAssign(aug_assign) => {
                 // Collect names from the target (though augmented assignment typically doesn't use
                 // unpacking)
-                let target_names = Self::collect_names_from_target(&aug_assign.target);
+                let target_names = crate::visitors::utils::collect_names_from_assignment_target(
+                    &aug_assign.target,
+                );
 
                 for var_name in target_names {
                     // Similar check for augmented assignments
