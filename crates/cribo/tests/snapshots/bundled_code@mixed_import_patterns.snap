@@ -122,7 +122,7 @@ def _cribo_init___cribo_0639af_logger(self):
 
         def configure(self):
             """Configure logger with settings from config module"""
-            get_log_level = _cribo_init___cribo_f96d2c_config(config).get_log_level
+            get_log_level = _cribo_init___cribo_f96d2c_config(globals()['config']).get_log_level
             self.log_level = get_log_level()
             self.log(f"Logger configured with level: {self.log_level}")
 

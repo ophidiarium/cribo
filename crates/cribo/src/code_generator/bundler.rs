@@ -4701,66 +4701,6 @@ impl Bundler<'_> {
         expressions::dotted_name(parts, ExprContext::Load)
     }
 
-    /// Helper method to create module expression for wrapper init context
-    pub(in crate::code_generator) fn create_wrapper_init_module_expr(
-        &self,
-        canonical_module_name: &str,
-        current_module: Option<&str>,
-        locally_initialized: &FxIndexSet<ModuleId>,
-    ) -> Expr {
-        let current_module_name = current_module.unwrap_or("");
-
-        // Check if we're accessing a module that's NOT a child of the current module
-        let is_different_module = !canonical_module_name
-            .starts_with(&format!("{current_module_name}."))
-            && canonical_module_name != current_module_name;
-
-        if !is_different_module {
-            // Accessing current module or its submodule - use the module name directly
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        }
-
-        log::debug!(
-            "Accessing different module, checking if synthetic: {}",
-            self.has_synthetic_name(canonical_module_name)
-        );
-
-        // Accessing a different module - check if it needs initialization
-        if !self.has_synthetic_name(canonical_module_name) {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        }
-
-        let Some(module_id) = self.get_module_id(canonical_module_name) else {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        };
-
-        log::debug!(
-            "Module {} has id {:?}, locally_initialized: {}",
-            canonical_module_name,
-            module_id,
-            locally_initialized.contains(&module_id)
-        );
-
-        if locally_initialized.contains(&module_id) {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        }
-
-        log::debug!("Module {canonical_module_name} needs init, checking for init function");
-
-        let Some(init_func_name) = self.module_init_functions.get(&module_id) else {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        };
-
-        log::debug!("Found init function {init_func_name} for module {canonical_module_name}");
-
-        // Call the init function with the module
-        expressions::call(
-            expressions::name(init_func_name, ExprContext::Load),
-            vec![expressions::name(canonical_module_name, ExprContext::Load)],
-            vec![],
-        )
-    }
-
     /// Helper method to create module expression for regular function context
     pub(in crate::code_generator) fn create_function_module_expr(
         &self,

@@ -1025,8 +1025,7 @@ impl WrapperHandler {
                         module_id.is_some_and(|id| bundler.wrapper_modules.contains(&id));
 
                     // Only skip for inlined modules where we're certain about usage
-                    // For wrapper modules, be conservative since usage detection may miss
-                    // some cases (e.g., symbols used in type annotations or cast() calls)
+                    // For wrapper modules, we need to be more careful about side effects
                     if is_bundled_or_inlined && !is_wrapper {
                         log::debug!(
                             "Skipping unused symbol '{target_name}' from inlined module \
@@ -1034,30 +1033,50 @@ impl WrapperHandler {
                         );
                         continue;
                     } else if is_wrapper {
-                        // For wrapper modules with circular dependencies, check if we can
-                        // reasonably determine the symbol is unused. Be conservative for
-                        // symbols that might be used in type annotations or other contexts
-                        // that our usage detection might miss.
+                        // Wrapper modules have side effects, so we need to ensure they're
+                        // initialized even if the imported symbol isn't
+                        // used. However, we can skip if:
+                        // 1. The module has already been initialized in this scope
+                        // 2. AND the symbol is clearly not used
 
-                        // Check if this looks like a type-related import (heuristic)
-                        let might_be_type = target_name.as_str().ends_with("Type")
-                            || target_name.as_str().ends_with("Protocol")
-                            || target_name.as_str().starts_with('T')
-                            || imported_name.ends_with("Type")
-                            || imported_name.ends_with("Protocol");
+                        // Check if this module has already been initialized in this function's
+                        // scope
+                        let module_id = bundler
+                            .get_module_id(module_name)
+                            .expect("wrapper module should have ID");
 
-                        if might_be_type {
-                            log::debug!(
-                                "Preserving potentially type-related import '{target_name}' from \
-                                 wrapper module '{module_name}' - may be used in annotations"
-                            );
-                            // Continue with normal processing
+                        if locally_initialized.contains(&module_id) {
+                            // Module already initialized in this scope, can skip unused symbol
+                            // unless it might be a type used in annotations
+                            let might_be_type = target_name.as_str().ends_with("Type")
+                                || target_name.as_str().ends_with("Protocol")
+                                || target_name.as_str().starts_with('T')
+                                || imported_name.ends_with("Type")
+                                || imported_name.ends_with("Protocol");
+
+                            if might_be_type {
+                                log::debug!(
+                                    "Preserving potentially type-related import '{target_name}' \
+                                     from wrapper module '{module_name}' - may be used in \
+                                     annotations"
+                                );
+                                // Continue with normal processing
+                            } else {
+                                log::debug!(
+                                    "Skipping unused symbol '{target_name}' from \
+                                     already-initialized wrapper module '{module_name}' inside \
+                                     function"
+                                );
+                                continue;
+                            }
                         } else {
+                            // Module not yet initialized - preserve import to trigger
+                            // initialization
                             log::debug!(
-                                "Skipping clearly unused symbol '{target_name}' from wrapper \
-                                 module '{module_name}' inside function"
+                                "Preserving import for '{target_name}' from wrapper module \
+                                 '{module_name}' - needs initialization for side effects"
                             );
-                            continue;
+                            // Continue with normal processing to trigger initialization
                         }
                     } else {
                         log::debug!(
