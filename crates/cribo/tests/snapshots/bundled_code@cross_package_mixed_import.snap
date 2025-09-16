@@ -94,7 +94,7 @@ def _cribo_init___cribo_f00e4b_core(self):
         """Initialize the core package with configuration."""
         global _cribo_core__initialized, _cribo_core__config
         _cribo_core__initialized = True
-        self._initialized = _cribo_core__initialized
+        core._initialized = _cribo_core__initialized
         _cribo_core__config["debug"] = debug
         if debug:
             print(f"Core initialized with version: {CORE_MODEL_VERSION}")

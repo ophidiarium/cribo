@@ -284,7 +284,7 @@ def _cribo_init___cribo_0a162a_models_base(self):
         """Initialize base module"""
         global _cribo_models_base_Connection
         _cribo_models_base_Connection = type("Connection", (), {"type": "base_connection"})
-        self.Connection = _cribo_models_base_Connection
+        models_base.Connection = _cribo_models_base_Connection
         return "base_initialized"
     self.initialize = initialize
     self.__initialized__ = True

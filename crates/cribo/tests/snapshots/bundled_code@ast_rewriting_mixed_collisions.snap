@@ -372,7 +372,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
             global _cribo_models_base_result
             self.initialized = True
             _cribo_models_base_result = f"base_initialized_{self.model_type}"
-            self.result = _cribo_models_base_result
+            models_base.result = _cribo_models_base_result
             return _cribo_models_base_result
     BaseModel.__module__ = 'models.base'
     self.BaseModel = BaseModel
@@ -385,7 +385,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
         logger = UserLogger("base_init")
         logger._log_process("Base module initialized")
         _cribo_models_base_result = f"module_init: {init_result}"
-        self.result = _cribo_models_base_result
+        models_base.result = _cribo_models_base_result
         return _cribo_models_base_result
     self.initialize = initialize
 
@@ -403,7 +403,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
         else:
             processed = "base_module_invalid"
         _cribo_models_base_result = f"base_last_process: {processed}"
-        self.result = _cribo_models_base_result
+        models_base.result = _cribo_models_base_result
         return processed
     self.process = process
 
@@ -589,7 +589,7 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
         else:
             processed = f"auth_other_{data}"
         _cribo_services_auth_manager_result = f"{_cribo_services_auth_manager_result}_processed"
-        self.result = _cribo_services_auth_manager_result
+        services_auth_manager.result = _cribo_services_auth_manager_result
         return f"auth_processed: {processed}, base: {base_init}"
     self.process = process
 
