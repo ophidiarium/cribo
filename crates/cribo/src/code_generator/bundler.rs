@@ -1450,7 +1450,7 @@ impl<'a> Bundler<'a> {
         // This affects initialization order and hard dependency handling
         let has_circular_wrapped_modules = sorted_wrapper_modules
             .iter()
-            .any(|(module_id, _, _, _)| self.circular_modules.contains(module_id));
+            .any(|(module_id, _, _, _)| self.is_module_in_circular_deps(*module_id));
         if has_circular_wrapped_modules {
             log::info!(
                 "Detected circular dependencies in modules with side effects - special handling \
@@ -1932,8 +1932,8 @@ impl<'a> Bundler<'a> {
                 // Analyze global declarations for this wrapper module
                 let global_info = crate::analyzers::GlobalAnalyzer::analyze(&module_name, &ast);
 
-                // Check if this wrapper module is in circular dependencies
-                let is_in_circular = self.circular_modules.contains(&wrapper_module_id);
+                // Check circular deps using the unpruned view
+                let is_in_circular = self.is_module_in_circular_deps(wrapper_module_id);
 
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
@@ -4155,7 +4155,7 @@ impl<'a> Bundler<'a> {
             // (starts with underscore but not dunder) in a circular module,
             // it means it's explicitly imported by another module and should be included
             // even if it's not in the regular export list
-            if self.circular_modules.contains(&module_id)
+            if self.is_module_in_circular_deps(module_id)
                 && symbol_name.starts_with('_')
                 && !symbol_name.starts_with("__")
             {
