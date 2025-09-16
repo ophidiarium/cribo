@@ -130,15 +130,19 @@ impl StdlibHandler {
 
             // 2) Set module attribute: <current_module>.<local> = <local>
             // In wrapper init functions, use "self" instead of the module name
-            let module_var = if is_wrapper_init {
-                SELF_PARAM.to_string()
+            if is_wrapper_init {
+                assignments.push(module_registry::create_module_attr_assignment(
+                    SELF_PARAM,
+                    local_name.as_str(),
+                ));
             } else {
-                module_registry::sanitize_module_name_for_identifier(current_module_name)
-            };
-            assignments.push(module_registry::create_module_attr_assignment(
-                &module_var,
-                local_name.as_str(),
-            ));
+                let module_var =
+                    module_registry::sanitize_module_name_for_identifier(current_module_name);
+                assignments.push(module_registry::create_module_attr_assignment(
+                    &module_var,
+                    local_name.as_str(),
+                ));
+            }
 
             // 3) Optionally expose on self if part of exports (__all__) for this module
             // Skip this for wrapper init since we already added it above
