@@ -41,6 +41,8 @@ pub(super) struct BundledImportContext<'a> {
     pub inside_wrapper_init: bool,
     pub at_module_level: bool,
     pub current_module: Option<&'a str>,
+    /// Cached set of symbols used in the current function scope (if available)
+    pub current_function_used_symbols: Option<&'a FxIndexSet<String>>,
 }
 
 /// Bundler orchestrates the code generation phase of bundling
@@ -672,6 +674,7 @@ impl<'a> Bundler<'a> {
             inside_wrapper_init,
             at_module_level,
             current_module,
+            current_function_used_symbols: context.current_function_used_symbols,
         };
         crate::code_generator::import_transformer::transform_wrapper_symbol_imports(
             self,

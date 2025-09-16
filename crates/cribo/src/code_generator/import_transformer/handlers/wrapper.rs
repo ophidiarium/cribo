@@ -104,6 +104,7 @@ impl WrapperHandler {
                 inside_wrapper_init: context.is_wrapper_init,
                 at_module_level: context.at_module_level,
                 current_module: Some(&context.current_module_name),
+                current_function_used_symbols: context.current_function_used_symbols,
             };
             return context
                 .bundler
@@ -121,6 +122,7 @@ impl WrapperHandler {
             inside_wrapper_init: context.is_wrapper_init,
             at_module_level: context.at_module_level,
             current_module: Some(&context.current_module_name),
+            current_function_used_symbols: context.current_function_used_symbols,
         };
         context
             .bundler
@@ -153,7 +155,7 @@ impl WrapperHandler {
             at_module_level: context.at_module_level,
             current_module_name: context.current_module.unwrap_or("").to_string(),
             function_body,
-            current_function_used_symbols: None, // Not available from old context
+            current_function_used_symbols: context.current_function_used_symbols,
         };
 
         Self::handle_symbol_imports_from_wrapper(&wrapper_context, import_from, module_name)
