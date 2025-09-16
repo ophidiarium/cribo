@@ -9,6 +9,15 @@ use crate::{
     semantic_bundler::ModuleGlobalInfo, types::FxIndexMap,
 };
 
+/// Type of introspection function being transformed
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Introspection {
+    /// Transform `locals()` calls to `vars(module_var)`
+    Locals,
+    /// Transform `globals()` calls to `module_var`.__dict__
+    Globals,
+}
+
 /// Sanitize a variable name for use in a Python identifier
 /// This ensures variable names only contain valid Python identifier characters
 fn sanitize_var_name(name: &str) -> String {
@@ -30,7 +39,7 @@ pub struct GlobalsLifter {
 /// Helper function to transform generators in comprehensions
 fn transform_generators(
     generators: &mut [Comprehension],
-    target_fn: &str,
+    target_fn: Introspection,
     recurse_into_scopes: bool,
     module_var_name: &str,
 ) {
@@ -63,33 +72,41 @@ fn transform_generators(
 /// For `globals()`: transforms to `module_var.__dict__`, recurses into all contexts
 fn transform_introspection_in_expr(
     expr: &mut Expr,
-    target_fn: &str,
+    target_fn: Introspection,
     recurse_into_scopes: bool,
     module_var_name: &str,
 ) {
     match expr {
         Expr::Call(call_expr) => {
             // Check if this is the target introspection call
+            let target_name = match target_fn {
+                Introspection::Locals => "locals",
+                Introspection::Globals => "globals",
+            };
+
             if let Expr::Name(name_expr) = &*call_expr.func
-                && name_expr.id.as_str() == target_fn
+                && name_expr.id.as_str() == target_name
                 && call_expr.arguments.args.is_empty()
                 && call_expr.arguments.keywords.is_empty()
             {
                 // Transform based on the target function
-                if target_fn == "locals" {
-                    // Replace with vars(module_var)
-                    *expr = expressions::call(
-                        expressions::name("vars", ExprContext::Load),
-                        vec![expressions::name(module_var_name, ExprContext::Load)],
-                        vec![],
-                    );
-                } else if target_fn == "globals" {
-                    // Replace with module_var.__dict__
-                    *expr = expressions::attribute(
-                        expressions::name(module_var_name, ExprContext::Load),
-                        "__dict__",
-                        ExprContext::Load,
-                    );
+                match target_fn {
+                    Introspection::Locals => {
+                        // Replace with vars(module_var)
+                        *expr = expressions::call(
+                            expressions::name("vars", ExprContext::Load),
+                            vec![expressions::name(module_var_name, ExprContext::Load)],
+                            vec![],
+                        );
+                    }
+                    Introspection::Globals => {
+                        // Replace with module_var.__dict__
+                        *expr = expressions::attribute(
+                            expressions::name(module_var_name, ExprContext::Load),
+                            "__dict__",
+                            ExprContext::Load,
+                        );
+                    }
                 }
                 return;
             }
@@ -486,7 +503,7 @@ fn transform_introspection_in_expr(
 /// For `globals()`: recurses into all contexts
 fn transform_introspection_in_stmt(
     stmt: &mut Stmt,
-    target_fn: &str,
+    target_fn: Introspection,
     recurse_into_scopes: bool,
     module_var_name: &str,
 ) {
@@ -883,7 +900,7 @@ fn transform_introspection_in_stmt(
 /// Transform `globals()` calls in a statement
 pub fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion enabled (globals recurses into all scopes)
-    transform_introspection_in_stmt(stmt, "globals", true, module_var_name);
+    transform_introspection_in_stmt(stmt, Introspection::Globals, true, module_var_name);
 }
 
 impl GlobalsLifter {
@@ -931,5 +948,5 @@ impl GlobalsLifter {
 /// Transform `locals()` calls to `vars(module_var)` in a statement
 pub fn transform_locals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion disabled (locals stops at function/class boundaries)
-    transform_introspection_in_stmt(stmt, "locals", false, module_var_name);
+    transform_introspection_in_stmt(stmt, Introspection::Locals, false, module_var_name);
 }
