@@ -432,9 +432,9 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     def shadow_test(validate: _cribo.typing.Any=None, process: _cribo.typing.Any=None, Logger: _cribo.typing.Any=None, result: _cribo.typing.Any=None, initialize: _cribo.typing.Any=None) -> _cribo.typing.Dict[str, _cribo.typing.Any]:
         """Function that shadows all major conflict names with parameters"""
         shadows = {"validate_param": validate, "process_param": process, "Logger_param": Logger, "result_param": result, "initialize_param": initialize}
-        validate = self.__dict__["validate"]
-        process = self.__dict__["process"]
-        Logger = self.__dict__["Logger"]
+        validate = globals()["validate"]
+        process = globals()["process"]
+        Logger = globals()["Logger"]
         validation_result = validate("test_data")
         process_result = process("test_data")
         logger = Logger("shadow_test")

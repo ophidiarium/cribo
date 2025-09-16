@@ -308,7 +308,7 @@ def _cribo_init___cribo_782908_core_database(self):
 
     def safe_connect(database_name: str) -> str:
         """Connect only if core is initialized."""
-        is_initialized = _cribo_init___cribo_f00e4b_core(core).is_initialized
+        is_initialized = _cribo_init___cribo_f00e4b_core(self.__dict__['core']).is_initialized
         if not is_initialized():
             raise RuntimeError("Core package must be initialized before connecting")
         return connect(database_name)

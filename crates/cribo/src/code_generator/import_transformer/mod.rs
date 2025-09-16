@@ -1105,6 +1105,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             at_module_level: self.state.at_module_level,
             python_version: self.state.python_version,
             function_body: self.state.current_function_body.as_deref(),
+            current_function_used_symbols: self.state.current_function_used_symbols.as_ref(),
         })
     }
 
@@ -1568,6 +1569,7 @@ struct RewriteImportFromParams<'a> {
     at_module_level: bool,
     python_version: u8,
     function_body: Option<&'a [Stmt]>,
+    current_function_used_symbols: Option<&'a FxIndexSet<String>>,
 }
 
 /// Rewrite import from statement with proper handling for bundled modules
@@ -1582,6 +1584,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         at_module_level,
         python_version,
         function_body,
+        current_function_used_symbols,
     } = params;
     // Resolve relative imports to absolute module names
     log::debug!(
@@ -1692,6 +1695,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             at_module_level,
             current_module_name: current_module.to_string(),
             function_body,
+            current_function_used_symbols,
         };
         if let Some(stmts) = handlers::wrapper::WrapperHandler::maybe_handle_wrapper_absolute(
             &context,
@@ -1748,6 +1752,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             at_module_level,
             current_module_name: current_module.to_string(),
             function_body,
+            current_function_used_symbols,
         };
         handlers::wrapper::WrapperHandler::handle_wrapper_from_import_absolute_context(
             &context,
