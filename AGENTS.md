@@ -86,37 +86,82 @@ cargo insta accept
 
 ### Architecture Overview
 
-The project is organized as a Rust workspace with the main crate in `crates/cribo`.
+The project is organized as a Rust workspace with the main crate in `crates/cribo`. The architecture follows a clear separation of concerns with dedicated modules for analysis, code generation, and AST traversal.
 
-#### Key Components
+#### 🔍 Core Components & Navigation Guide
 
-1. **Bundle Orchestration** (`orchestrator.rs`)
-   - Coordinates the entire bundling workflow
-   - Manages module discovery and dependency resolution
-   - Handles circular dependency detection using Tarjan's algorithm
-   - Calls the code generator for final output
+**THE REAL CRITICAL PATH: How Modules Get Bundled**
 
-2. **Code Generation** (`code_generator.rs`)
-   - Implements the sys.modules-based bundling approach
-   - Generates deterministic module names using content hashing
-   - Performs AST transformations and import rewriting
-   - Integrates unused import trimming
-   - Produces the final bundled Python output
+1. **CLI Entry Point** → `main.rs`
+   - [`main()` in `main.rs`](crates/cribo/src/main.rs#L85) is the entry point.
+   - It creates a [`BundleOrchestrator`](crates/cribo/src/orchestrator.rs#L176) and calls `bundle()` or `bundle_to_string()`.
 
-3. **Module Resolution & Import Classification** (`resolver.rs`)
-   - Classifies imports as standard library, first-party, or third-party
-   - Resolves actual file paths for bundling
-   - Handles PYTHONPATH and VIRTUAL_ENV support
+2. **Orchestration Layer** → `orchestrator.rs`
+   - [`bundle_to_string()` or `bundle()`](crates/cribo/src/orchestrator.rs#L636) → Entry points for bundling.
+   - [`bundle_core()`](crates/cribo/src/orchestrator.rs#L356) → Module discovery and dependency graph building.
+   - [`emit_static_bundle()`](crates/cribo/src/orchestrator.rs#L1850) → **Calls the REAL orchestrator**.
 
-4. **Dependency Graph** (`dependency_graph.rs`)
-   - Builds a directed graph of module dependencies
-   - Uses topological sorting to determine bundling order
-   - Implements Tarjan's SCC algorithm for circular dependency detection
+3. **🔥 THE ACTUAL BUNDLER** → `code_generator/bundler.rs`
+   This is THE struct that orchestrates everything:
+   - [`bundle_modules()` in `bundler.rs`](crates/cribo/src/code_generator/bundler.rs#L1263) is the main function that orchestrates the bundling of modules.
 
-5. **Unused Import Detection** (`unused_imports.rs`)
-   - Detects and removes unused imports
-   - Handles various import formats (simple, from, aliased)
-   - Operates directly on AST to avoid double parsing
+   ```rust
+   pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
+       // 1. Initialize bundler settings
+       self.initialize_bundler(params);
+
+       // 2. Prepare modules (trim imports, index ASTs)
+       let modules = self.prepare_modules(params);
+
+       // 3. Classify modules (THE critical decision)
+       let classifier = ModuleClassifier::new(...);
+       let classification = classifier.classify_modules(&modules);
+
+       // 4. Process modules in dependency order
+       // This is where inlining vs wrapping happens!
+   }
+   ```
+
+4. **Module Classification** → `analyzers/module_classifier.rs`
+   - [`classify_modules()` in `module_classifier.rs`](crates/cribo/src/analyzers/module_classifier.rs#L126) is where the decision to inline or wrap a module is made.
+
+   ```rust
+   // THE decision that determines bundle structure:
+   if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular:
+       → wrapper_modules.push()  // Becomes init function with circular import guards
+   else:
+       → inlinable_modules.push() // Directly inserted into bundle
+   ```
+
+5. **Side Effect Detection** → `visitors/side_effect_detector.rs`
+   - Key triggers that force wrapping are detected by visiting the AST. For example, a function call `Expr::Call(_)` is considered a side effect.
+
+6. **Module Processing Loop** (inside `bundle_modules()`)
+   - Processes modules in topological order from the dependency graph.
+   - For circular dependencies: Two-phase emission (declarations then init).
+   - For each module: Either inline content OR create a wrapper function.
+
+#### 💀 The ACTUAL Code Generation Functions
+
+**Inlining Path** (`bundler.rs` + `inliner.rs`)
+
+- `process_inlinable_module()` → Handles inlined modules.
+- `Inliner::inline_module()` → Actually inlines the module content.
+- Transforms imports via `RecursiveImportTransformer`.
+- Direct variable assignments, no function wrapper.
+
+**Wrapper Path** (`bundler.rs`)
+
+- `process_wrapper_module()` → Handles wrapper modules.
+- `create_wrapper_module()` → Creates the init function.
+- `module_wrapper::create_wrapper_module()` → Generates init function with `__initializing__` and `__initialized__` guards.
+- Returns module namespace object (types.SimpleNamespace).
+
+**Import Rewriting** (`bundler.rs`)
+
+- `transform_bundled_import()` → Routes import to correct handler.
+- `transform_wrapper_wildcard_import()` → Special case for `from wrapper import *`.
+- `transform_wrapper_symbol_imports()` → Handles `from wrapper import symbol`.
 
 #### Generic Snapshot Testing Framework (REUSE FOR NEW FEATURES)
 

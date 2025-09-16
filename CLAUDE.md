@@ -34,83 +34,200 @@ Cribo is a Rust-based source bundler for Python projects. It merges a multi-modu
 
 The project is organized as a Rust workspace with the main crate in `crates/cribo`. The architecture follows a clear separation of concerns with dedicated modules for analysis, code generation, and AST traversal.
 
-#### Core Components
+#### 🔍 Core Components & Navigation Guide
 
-1. **Bundle Orchestration** (`orchestrator.rs`)
-   - Coordinates the entire bundling workflow
-   - Manages module discovery and dependency resolution
-   - Integrates tree-shaking when enabled
-   - Handles circular dependency detection via Tarjan's algorithm
-   - Orchestrates code generation for final output
+**THE REAL CRITICAL PATH: How Modules Get Bundled**
 
-2. **Analyzers** (`analyzers/` directory)
-   - **Symbol Analyzer** (`symbol_analyzer.rs`): Symbol resolution, dependency graph building, and hard dependency detection
-   - **Import Analyzer** (`import_analyzer.rs`): Import relationship analysis, direct/namespace import detection
-   - **Namespace Analyzer** (`namespace_analyzer.rs`): Namespace requirement detection and analysis
-   - **Dependency Analyzer** (`dependency_analyzer.rs`): Module dependency sorting and circular dependency analysis
-   - **Types** (`types.rs`): Shared types for analysis results
+1. **Orchestration Layer** → `crates/cribo/src/orchestrator.rs`
+   - `bundle_to_string()` or `bundle()` → Entry points
+   - `bundle_core()` → Module discovery and loading
+   - `emit_static_bundle()` → **Calls the REAL orchestrator**
 
-3. **Code Generation** (`code_generator/` directory)
-   - **Bundler** (`bundler.rs`): Main orchestration for code generation
-   - **Inliner** (`inliner.rs`): Module inlining logic for functions, classes, and assignments
-   - **Module Transformer** (`module_transformer.rs`): Module-level AST transformations
-   - **Import Transformer** (`import_transformer.rs`): Import rewriting and resolution
-   - **Expression Handlers** (`expression_handlers.rs`): Expression creation, analysis, and transformation
-   - **Module Registry** (`module_registry.rs`): Module naming, registration, and cache generation
-   - **Import Deduplicator** (`import_deduplicator.rs`): Import cleanup and deduplication
-   - **Circular Deps** (`circular_deps.rs`): Circular dependency detection helpers
-   - **Globals** (`globals.rs`): Global variable management
-   - **Context** (`context.rs`): Transformation context management
+2. **🔥 THE ACTUAL BUNDLER** → `crates/cribo/src/code_generator/bundler.rs::bundle_modules()`
+   This is THE function that orchestrates everything:
 
-4. **Visitors** (`visitors/` directory)
-   - **Import Discovery** (`import_discovery.rs`): Identifies all import types and locations
-   - **Side Effect Detector** (`side_effect_detector.rs`): Determines which statements have side effects
-   - **Symbol Collector** (`symbol_collector.rs`): Collects symbol definitions, scopes, and attributes
-   - **Variable Collector** (`variable_collector.rs`): Tracks variable usage, references, and dependencies
-   - **Export Collector** (`export_collector.rs`): Detects module exports and re-exports
-   - **Utils** (`utils.rs`): Shared visitor utilities
+   ```rust
+   pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
+       // 1. Initialize bundler settings
+       self.initialize_bundler(params);
 
-5. **Module Resolution & Import Classification** (`resolver.rs`)
-   - Classifies imports as standard library, first-party, or third-party
-   - Resolves actual file paths for bundling
-   - Handles PYTHONPATH and VIRTUAL_ENV support
-   - Manages namespace package detection
+       // 2. Prepare modules (trim imports, index ASTs)
+       let modules = self.prepare_modules(params);
 
-6. **Advanced Dependency Graph** (`cribo_graph.rs`)
-   - Pure graph data structure for dependency tracking
-   - Item-level dependency tracking inspired by Turbopack
-   - Fine-grained symbol usage analysis
-   - Cross-module reference tracking
-   - Support for incremental updates
+       // 3. Classify modules (THE critical decision)
+       let classifier = ModuleClassifier::new(...);
+       let classification = classifier.classify_modules(&modules);
 
-7. **Graph Builder** (`graph_builder.rs`)
-   - Bridges ruff's AST and the dependency graph
-   - Tracks variable reads/writes at statement level
-   - Handles complex scoping (module, function, class)
-   - Collects symbol dependencies for classes and functions
-   - Identifies module-level side effects
+       // 4. Process modules in dependency order
+       // This is where inlining vs wrapping happens!
+   }
+   ```
 
-8. **Tree Shaking** (`tree_shaking.rs`)
-   - Mark-and-sweep algorithm for dead code elimination
-   - Tracks used symbols transitively from entry point
-   - Preserves directly imported modules' exports
-   - Handles import aliases and re-exports
-   - Respects `__all__` declarations
-   - Enabled by default with `--no-tree-shake` to disable
+3. **Module Classification** → `crates/cribo/src/analyzers/module_classifier.rs::classify_modules()`
 
-9. **AST Utilities**
-   - **AST Builder** (`ast_builder/` directory): Utilities for creating AST nodes
-   - **AST Indexing** (`ast_indexer.rs`): Deterministic node indexing for AST transformations
-   - **Transformation Context** (`transformation_context.rs`): Tracks AST modifications
+   ```rust
+   // THE decision that determines bundle structure:
+   if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular:
+       → wrapper_modules.push()  // Becomes init function with circular import guards
+   else:
+       → inlinable_modules.push() // Directly inserted into bundle
+   ```
 
-10. **Other Utilities**
-    - **Import Alias Tracker** (`import_alias_tracker.rs`): Tracks import aliases across modules
-    - **Import Rewriter** (`import_rewriter.rs`): Import rewriting utilities
-    - **Side Effects** (`side_effects.rs`): Side effect analysis helpers
-    - **Stdlib Normalization** (`stdlib_normalization.rs`): Standard library import normalization
-    - **Directory Management** (`dirs.rs`): XDG-compliant config paths
-    - **Semantic Bundler** (`semantic_bundler.rs`): Semantic analysis integration
-    - **Combine** (`combine.rs`): Module combination utilities
+4. **Side Effect Detection** → `crates/cribo/src/visitors/side_effect_detector.rs`
+   Key triggers that force wrapping:
+   - `visit_expr()` → `Expr::Call(_)` = SIDE EFFECT
+   - `visit_stmt()` → `Stmt::ClassDef` with `metaclass` = SIDE EFFECT
+   - `visit_expr()` → `Expr::Lambda(_)` = SIDE EFFECT
+   - `visit_stmt()` → `Stmt::Expr` (non-literals) = SIDE EFFECT
+
+5. **Module Processing Loop** (inside `bundle_modules()`)
+   - Processes modules in topological order from dependency graph
+   - For circular dependencies: Two-phase emission (declarations then init)
+   - For each module: Either inline content OR create wrapper function
+
+#### 💀 The ACTUAL Code Generation Functions
+
+**Inlining Path** (`crates/cribo/src/code_generator/bundler.rs` + `crates/cribo/src/code_generator/inliner.rs`)
+
+- `process_inlinable_module()` → Handles inlined modules
+- `Inliner::inline_module()` → Actually inlines the module content
+- Transforms imports via `RecursiveImportTransformer`
+- Direct variable assignments, no function wrapper
+
+**Wrapper Path** (`crates/cribo/src/code_generator/bundler.rs`)
+
+- `process_wrapper_module()` → Handles wrapper modules
+- `create_wrapper_module()` → Creates the init function
+- `module_wrapper::create_wrapper_module()` → Generates init function with `__initializing__` and `__initialized__` guards
+- Returns module namespace object (types.SimpleNamespace)
+
+**Import Rewriting** (`crates/cribo/src/code_generator/bundler.rs`)
+
+- `transform_bundled_import()` → Routes import to correct handler
+- `transform_wrapper_wildcard_import()` → Special case for `from wrapper import *`
+- `transform_wrapper_symbol_imports()` → Handles `from wrapper import symbol`
+
+#### 🔥 Critical Decision Points
+
+**1. The Wrapper vs Inline Decision** (`crates/cribo/src/analyzers/module_classifier.rs::classify_modules()`)
+
+- THE most important decision - determines entire module structure
+- Check `module_has_side_effects()` call
+- Check `has_invalid_identifier` using `is_identifier()`
+- Check `needs_wrapping_for_circular` from circular modules set
+
+**2. Circular Dependency Classification** (`crates/cribo/src/analyzers/dependency_analyzer.rs::classify_cycle_type()`)
+
+- `CircularDependencyType::FunctionLevel`: Can be resolved by moving imports
+- `CircularDependencyType::ClassLevel`: Inheritance cycles, needs careful handling
+- `CircularDependencyType::ModuleConstants`: UNRESOLVABLE - will fail
+- `CircularDependencyType::ImportTime`: Needs wrapper functions
+- Check `is_parent_child_package_cycle()` for package patterns
+
+**3. Global Variable Lifting** (`crates/cribo/src/analyzers/global_analyzer.rs::analyze()`)
+
+- Problem: `global x` in wrapper function needs real module-level `x`
+- Solution: Lift to bundle top-level with unique names
+- `collect_from_target()` collects module-level vars
+- `visit_stmt()` for `Stmt::Global` tracks declarations
+- Result in `ModuleGlobalInfo` struct
+
+**4. Tree Shaking Mark & Sweep** (`crates/cribo/src/tree_shaking.rs::analyze()`)
+
+- Entry: `TreeShaker::analyze()` starts from entry module
+- `mark_used_symbols()` does recursive marking
+- For `import module`: `mark_direct_import()` keeps ALL exports
+- For `from module import x`: Only marks specific symbol
+- `resolve_relative_with_context()` handles relative imports
+- Gotcha: Circular deps with tree-shaking can break
+
+#### 📊 Key Data Structures
+
+**Module Registry** (`crates/cribo/src/orchestrator.rs` struct `ModuleRegistry`)
+
+```rust
+ModuleRegistry {
+    modules: FxIndexMap<ModuleId, ModuleInfo>,
+    name_to_id: FxIndexMap<String, ModuleId>,
+    path_to_id: FxIndexMap<PathBuf, ModuleId>,
+}
+```
+
+**Bundler State** (`crates/cribo/src/code_generator/bundler.rs` struct `Bundler`)
+
+```rust
+Bundler {
+    module_synthetic_names: FxIndexMap<ModuleId, String>,
+    module_init_functions: FxIndexMap<ModuleId, String>,
+    wrapper_modules: FxIndexSet<ModuleId>,
+    inlined_modules: FxIndexSet<ModuleId>,
+    namespace_registry: FxIndexMap<String, NamespaceInfo>,
+}
+```
+
+**Dependency Graph** (`crates/cribo/src/cribo_graph.rs` struct `CriboGraph`)
+
+```rust
+CriboGraph {
+    modules: FxIndexMap<ModuleId, ModuleDepGraph>,
+    module_names: FxIndexMap<String, ModuleId>,
+}
+```
+
+#### 🐛 Common Issues & Where to Debug
+
+**"Module unexpectedly wrapped"**
+→ Set breakpoint in `crates/cribo/src/analyzers/module_classifier.rs::classify_modules()` at the if statement
+→ Check `crates/cribo/src/visitors/side_effect_detector.rs::visit_expr()` for `Expr::Call` or `Expr::Lambda`
+→ Look for "has side effects - using wrapper" in debug logs
+
+**"Circular import error"**
+→ `crates/cribo/src/code_generator/bundler.rs::bundle_modules()` - check the cycle group processing
+→ `crates/cribo/src/analyzers/dependency_analyzer.rs::analyze_circular_dependencies()`
+→ Look for `CircularDependencyType::ModuleConstants` (unresolvable)
+
+**"Import not transformed correctly"**
+→ `crates/cribo/src/code_generator/bundler.rs::transform_bundled_import()` - THE router for all import transforms
+→ Check `RecursiveImportTransformer::transform_import()`
+→ Trace which handler was selected in `import_transformer/handlers/`
+
+**"Symbol undefined after bundling"**
+→ Check if module was processed: `crates/cribo/src/code_generator/bundler.rs::bundle_modules()` processing loop
+→ For tree-shaking: `crates/cribo/src/tree_shaking.rs::mark_used_symbols()`
+→ Verify module wasn't skipped in topological order
+
+**"Global variable not working in wrapper"**
+→ `crates/cribo/src/code_generator/bundler.rs::process_wrapper_module()` - check global lifting
+→ `crates/cribo/src/analyzers/global_analyzer.rs::analyze()` - was global detected?
+→ `crates/cribo/src/code_generator/module_transformer.rs::transform_module_with_globals()` - was it lifted?
+
+**"Module not bundled at all"**
+→ `crates/cribo/src/orchestrator.rs::bundle_core()` - was module discovered?
+→ `crates/cribo/src/code_generator/bundler.rs::bundle_modules()` - check `processed_modules` set
+→ Check topological sort excluded it
+
+#### 🔧 Debugging Commands
+
+```bash
+# See module classification decisions
+RUST_LOG=debug cargo run -- --entry main.py --stdout 2>&1 | grep "side effects\|wrapper\|inline"
+
+# Trace import transformation
+RUST_LOG=trace cargo run -- --entry main.py --stdout 2>&1 | grep "transform.*import"
+
+# Check circular dependency detection
+RUST_LOG=debug cargo run -- --entry main.py --stdout 2>&1 | grep "circular\|cycle"
+
+# Tree-shaking decisions
+RUST_LOG=debug cargo run -- --entry main.py --stdout 2>&1 | grep "Tree-shaking\|Keeping\|Removing"
+```
+
+#### 🚀 Performance Hotspots
+
+1. **Module Cache** (`crates/cribo/src/orchestrator.rs::process_module()`) - Caches parsed ASTs in `module_cache`
+2. **Import Deduplication** (`crates/cribo/src/code_generator/import_deduplicator.rs::deduplicate_imports()`) - O(n²) comparisons
+3. **Tree Shaking** (`crates/cribo/src/tree_shaking.rs::analyze()`) - Full graph traversal
+4. **Side Effect Detection** (`crates/cribo/src/visitors/side_effect_detector.rs::module_has_side_effects()`) - Two-pass visitor
 
 ### CLI Usage
 
