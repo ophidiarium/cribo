@@ -21,6 +21,10 @@ pub struct WrapperContext<'a> {
     pub at_module_level: bool,
     pub current_module_name: String,
     pub function_body: Option<&'a [Stmt]>,
+    /// Cached set of symbols used at runtime in the current function.
+    /// When present (Some), this takes precedence over deriving usage from `function_body`.
+    /// This is a borrowed reference from the transformer's cached analysis, avoiding
+    /// redundant recomputation via `SymbolUsageVisitor`.
     pub current_function_used_symbols: Option<&'a FxIndexSet<String>>,
 }
 
@@ -783,7 +787,9 @@ impl WrapperHandler {
         } else if let Some(cached) = context.current_function_used_symbols {
             // Use the cached set from the transformer
             Some(cached.clone())
-        } else { function_body.map(crate::visitors::SymbolUsageVisitor::collect_used_symbols) };
+        } else {
+            function_body.map(crate::visitors::SymbolUsageVisitor::collect_used_symbols)
+        };
 
         // For wrapper modules, we always need to ensure they're initialized before accessing
         // attributes Don't create the temporary variable approach - it causes issues with
