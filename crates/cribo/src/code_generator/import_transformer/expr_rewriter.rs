@@ -6,8 +6,11 @@ use ruff_python_ast::{
 
 use crate::{
     ast_builder::{CRIBO_PREFIX, expressions},
-    code_generator::import_transformer::{
-        RecursiveImportTransformer, handlers::dynamic::DynamicHandler, state::TransformerState,
+    code_generator::{
+        import_transformer::{
+            RecursiveImportTransformer, handlers::dynamic::DynamicHandler, state::TransformerState,
+        },
+        module_transformer::SELF_PARAM,
     },
 };
 
@@ -55,7 +58,7 @@ impl ExpressionRewriter {
                             ) && inner.attr.as_str() == rel_first;
                             if is_base {
                                 inner.value =
-                                    Box::new(expressions::name("self", ExprContext::Load));
+                                    Box::new(expressions::name(SELF_PARAM, ExprContext::Load));
                                 return;
                             }
                             cursor = inner;

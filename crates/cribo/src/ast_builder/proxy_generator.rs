@@ -48,7 +48,10 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-use crate::ast_builder::{expressions, statements};
+use crate::{
+    ast_builder::{expressions, statements},
+    code_generator::module_transformer::SELF_PARAM,
+};
 
 /// Constants for the proxy implementation
 const SYS_MODULE: &str = "sys";
@@ -173,12 +176,12 @@ fn create_cribo_module_init() -> Stmt {
     let assign_stmt = statements::assign(
         vec![expressions::tuple(vec![
             expressions::attribute(
-                expressions::name("self", ExprContext::Load),
+                expressions::name(SELF_PARAM, ExprContext::Load),
                 "_m",
                 ExprContext::Store,
             ),
             expressions::attribute(
-                expressions::name("self", ExprContext::Load),
+                expressions::name(SELF_PARAM, ExprContext::Load),
                 "_p",
                 ExprContext::Store,
             ),
@@ -191,7 +194,7 @@ fn create_cribo_module_init() -> Stmt {
 
     statements::function_def(
         crate::python::constants::INIT_STEM,
-        make_params(&["self", "m", "p"]),
+        make_params(&[SELF_PARAM, "m", "p"]),
         vec![assign_stmt],
         vec![], // decorator_list
         None,   // returns
@@ -208,7 +211,7 @@ fn create_cribo_module_getattr() -> Stmt {
         expressions::bin_op(
             expressions::bin_op(
                 expressions::attribute(
-                    expressions::name("self", ExprContext::Load),
+                    expressions::name(SELF_PARAM, ExprContext::Load),
                     "_p",
                     ExprContext::Load,
                 ),
@@ -246,7 +249,7 @@ fn create_cribo_module_getattr() -> Stmt {
         expressions::name("getattr", ExprContext::Load),
         vec![
             expressions::attribute(
-                expressions::name("self", ExprContext::Load),
+                expressions::name(SELF_PARAM, ExprContext::Load),
                 "_m",
                 ExprContext::Load,
             ),
@@ -276,7 +279,7 @@ fn create_cribo_module_getattr() -> Stmt {
 
     statements::function_def(
         "__getattr__",
-        make_params(&["self", "n"]),
+        make_params(&[SELF_PARAM, "n"]),
         vec![f_assign, try_stmt],
         vec![], // decorator_list
         None,   // returns
@@ -342,7 +345,7 @@ fn create_cribo_module_getattribute() -> Stmt {
 
     statements::function_def(
         "__getattribute__",
-        make_params(&["self", "n"]),
+        make_params(&[SELF_PARAM, "n"]),
         vec![statements::return_stmt(Some(cond_expr))],
         vec![], // decorator_list
         None,   // returns
@@ -426,7 +429,7 @@ fn create_cribo_getattr() -> Stmt {
 
     statements::function_def(
         "__getattr__",
-        make_params(&["self", "n"]),
+        make_params(&[SELF_PARAM, "n"]),
         vec![m_assign, return_stmt],
         vec![], // decorator_list
         None,   // returns

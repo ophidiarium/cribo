@@ -33,6 +33,7 @@ struct TransformFunctionParams<'a> {
     lifted_names: &'a FxIndexMap<String, String>,
     global_info: &'a crate::semantic_bundler::ModuleGlobalInfo,
     function_globals: &'a FxIndexSet<String>,
+    module_name: Option<&'a str>,
 }
 
 /// Context for transforming bundled imports
@@ -3774,10 +3775,17 @@ impl<'a> Bundler<'a> {
         ast: &mut ModModule,
         lifted_names: &FxIndexMap<String, String>,
         global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        module_name: Option<&str>,
     ) {
         // Transform all statements that use global declarations
         for stmt in &mut ast.body {
-            self.transform_stmt_for_lifted_globals(stmt, lifted_names, global_info, None);
+            self.transform_stmt_for_lifted_globals(
+                stmt,
+                lifted_names,
+                global_info,
+                None,
+                module_name,
+            );
         }
     }
 
@@ -3788,6 +3796,7 @@ impl<'a> Bundler<'a> {
         lifted_names: &FxIndexMap<String, String>,
         global_info: &crate::semantic_bundler::ModuleGlobalInfo,
         current_function_globals: Option<&FxIndexSet<String>>,
+        module_name: Option<&str>,
     ) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
@@ -3807,6 +3816,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         function_globals: &function_globals,
+                        module_name,
                     };
                     self.transform_function_body_for_lifted_globals(func_def, &params);
                 }
@@ -3854,6 +3864,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
@@ -3872,6 +3883,7 @@ impl<'a> Bundler<'a> {
                             lifted_names,
                             global_info,
                             current_function_globals,
+                            module_name,
                         );
                     }
                 }
@@ -3890,6 +3902,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
             }
@@ -3914,6 +3927,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
             }
@@ -3936,6 +3950,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
             }
@@ -3964,6 +3979,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
 
@@ -3989,6 +4005,7 @@ impl<'a> Bundler<'a> {
                             lifted_names,
                             global_info,
                             current_function_globals,
+                            module_name,
                         );
                     }
                 }
@@ -4000,6 +4017,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
 
@@ -4010,6 +4028,7 @@ impl<'a> Bundler<'a> {
                         lifted_names,
                         global_info,
                         current_function_globals,
+                        module_name,
                     );
                 }
             }
@@ -5402,6 +5421,7 @@ impl Bundler<'_> {
                     params.lifted_names,
                     params.global_info,
                     Some(params.function_globals),
+                    params.module_name,
                 );
                 new_body.push(body_stmt.clone());
 
@@ -5411,6 +5431,7 @@ impl Bundler<'_> {
                     params.function_globals,
                     params.lifted_names,
                     &mut new_body,
+                    params.module_name,
                 );
             }
         }
@@ -5426,13 +5447,20 @@ impl Bundler<'_> {
         function_globals: &FxIndexSet<String>,
         lifted_names: &FxIndexMap<String, String>,
         new_body: &mut Vec<Stmt>,
+        module_name: Option<&str>,
     ) {
         match stmt {
             Stmt::Assign(assign) => {
-                // Check if this is an assignment to a global variable
-                if let [Expr::Name(name)] = &assign.targets[..] {
-                    let var_name = name.id.as_str();
+                // Collect all names from all targets (handles simple and unpacking assignments)
+                let mut all_names = Vec::new();
+                for target in &assign.targets {
+                    all_names.extend(
+                        crate::visitors::utils::collect_names_from_assignment_target(target),
+                    );
+                }
 
+                // Process each collected name
+                for var_name in all_names {
                     // The variable name might already be transformed to the lifted name,
                     // so we need to check if it's a lifted variable
                     if let Some(original_name) = lifted_names
@@ -5440,50 +5468,61 @@ impl Bundler<'_> {
                         .find(|(orig, lifted)| {
                             lifted.as_str() == var_name && function_globals.contains(orig.as_str())
                         })
-                        .map(|(orig, _)| orig)
+                        .map(|(orig, _)| orig.as_str())
                     {
                         log::debug!(
                             "Adding sync for assignment to global {var_name}: {var_name} -> \
                              module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
-                        new_body.push(statements::assign(
-                            vec![expressions::attribute(
-                                expressions::name("self", ExprContext::Load),
-                                original_name,
-                                ExprContext::Store,
-                            )],
-                            expressions::name(var_name, ExprContext::Load),
-                        ));
+                        // Use the provided module name if available, otherwise we can't sync
+                        if let Some(mod_name) = module_name {
+                            let module_var = sanitize_module_name_for_identifier(mod_name);
+                            new_body.push(statements::assign(
+                                vec![expressions::attribute(
+                                    expressions::name(&module_var, ExprContext::Load),
+                                    original_name,
+                                    ExprContext::Store,
+                                )],
+                                expressions::name(var_name, ExprContext::Load),
+                            ));
+                        }
                     }
                 }
             }
             Stmt::AugAssign(aug_assign) => {
-                // Check if this is an augmented assignment to a global variable
-                if let Expr::Name(name) = aug_assign.target.as_ref() {
-                    let var_name = name.id.as_str();
+                // Collect names from the target (though augmented assignment typically doesn't use
+                // unpacking)
+                let target_names = crate::visitors::utils::collect_names_from_assignment_target(
+                    &aug_assign.target,
+                );
 
+                for var_name in target_names {
                     // Similar check for augmented assignments
                     if let Some(original_name) = lifted_names
                         .iter()
                         .find(|(orig, lifted)| {
                             lifted.as_str() == var_name && function_globals.contains(orig.as_str())
                         })
-                        .map(|(orig, _)| orig)
+                        .map(|(orig, _)| orig.as_str())
                     {
                         log::debug!(
                             "Adding sync for augmented assignment to global {var_name}: \
                              {var_name} -> module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
-                        new_body.push(statements::assign(
-                            vec![expressions::attribute(
-                                expressions::name("self", ExprContext::Load),
-                                original_name,
-                                ExprContext::Store,
-                            )],
-                            expressions::name(var_name, ExprContext::Load),
-                        ));
+                        // Use the provided module name if available, otherwise we can't sync
+                        if let Some(mod_name) = module_name {
+                            let module_var = sanitize_module_name_for_identifier(mod_name);
+                            new_body.push(statements::assign(
+                                vec![expressions::attribute(
+                                    expressions::name(&module_var, ExprContext::Load),
+                                    original_name,
+                                    ExprContext::Store,
+                                )],
+                                expressions::name(var_name, ExprContext::Load),
+                            ));
+                        }
                     }
                 }
             }

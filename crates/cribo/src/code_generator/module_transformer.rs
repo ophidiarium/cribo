@@ -3,8 +3,8 @@
 //! This module handles the complex transformation of Python module ASTs into
 //! initialization functions that can be called to create module objects.
 
-// Constant for the self parameter name used in init functions
-const SELF_PARAM: &str = "self";
+/// Name of the module object parameter used in generated init functions.
+pub(crate) const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{
@@ -108,7 +108,13 @@ pub fn transform_module_to_init_function<'a>(
             let lifted_names = globals_lifter.get_lifted_names().clone();
 
             // Transform the AST to use lifted globals
-            transform_ast_with_lifted_globals(bundler, &mut ast, &lifted_names, global_info);
+            transform_ast_with_lifted_globals(
+                bundler,
+                &mut ast,
+                &lifted_names,
+                global_info,
+                Some(ctx.module_name),
+            );
 
             Some(lifted_names)
         }
@@ -2664,8 +2670,9 @@ pub fn transform_ast_with_lifted_globals(
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    module_name: Option<&str>,
 ) {
-    bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info);
+    bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info, module_name);
 }
 
 /// Transform expressions to handle built-in name shadowing in init functions

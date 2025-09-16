@@ -2,7 +2,7 @@ use ruff_python_ast::{ExprContext, Stmt, StmtImportFrom};
 
 use crate::{
     ast_builder::{expressions, statements},
-    code_generator::{bundler::Bundler, module_registry},
+    code_generator::{bundler::Bundler, module_registry, module_transformer::SELF_PARAM},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -130,15 +130,19 @@ impl StdlibHandler {
 
             // 2) Set module attribute: <current_module>.<local> = <local>
             // In wrapper init functions, use "self" instead of the module name
-            let module_var = if is_wrapper_init {
-                "self".to_string()
+            if is_wrapper_init {
+                assignments.push(module_registry::create_module_attr_assignment(
+                    SELF_PARAM,
+                    local_name.as_str(),
+                ));
             } else {
-                module_registry::sanitize_module_name_for_identifier(current_module_name)
-            };
-            assignments.push(module_registry::create_module_attr_assignment(
-                &module_var,
-                local_name.as_str(),
-            ));
+                let module_var =
+                    module_registry::sanitize_module_name_for_identifier(current_module_name);
+                assignments.push(module_registry::create_module_attr_assignment(
+                    &module_var,
+                    local_name.as_str(),
+                ));
+            }
 
             // 3) Optionally expose on self if part of exports (__all__) for this module
             // Skip this for wrapper init since we already added it above
@@ -147,7 +151,7 @@ impl StdlibHandler {
                 && exports.contains(&local_name)
             {
                 assignments.push(statements::assign_attribute(
-                    "self",
+                    SELF_PARAM,
                     local_name.as_str(),
                     expressions::name(local_name.as_str(), ExprContext::Load),
                 ));

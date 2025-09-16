@@ -7,6 +7,7 @@ use crate::{
         bundler::Bundler,
         expression_handlers,
         module_registry::{is_init_function, sanitize_module_name_for_identifier},
+        module_transformer::SELF_PARAM,
     },
     resolver::ModuleId,
     types::{FxIndexMap, FxIndexSet},
@@ -1173,7 +1174,7 @@ impl WrapperHandler {
                             && exports.contains(&target_name.as_str().to_string())
                         {
                             assignments.push(statements::assign_attribute(
-                                "self",
+                                SELF_PARAM,
                                 target_name.as_str(),
                                 expressions::name(target_name.as_str(), ExprContext::Load),
                             ));
@@ -1303,7 +1304,7 @@ impl WrapperHandler {
                     && exports.contains(&target_name.as_str().to_string())
                 {
                     assignments.push(statements::assign_attribute(
-                        "self",
+                        SELF_PARAM,
                         target_name.as_str(),
                         expressions::name(target_name.as_str(), ExprContext::Load),
                     ));
