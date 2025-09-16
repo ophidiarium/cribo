@@ -1030,7 +1030,7 @@ impl WrapperHandler {
                     let is_wrapper =
                         module_id.is_some_and(|id| bundler.wrapper_modules.contains(&id));
                     let wrapper_is_circular =
-                        module_id.is_some_and(|id| bundler.circular_modules.contains(&id));
+                        module_id.is_some_and(|id| bundler.is_module_in_circular_deps(id));
 
                     // Only skip for inlined modules where we're certain about usage
                     // For wrapper modules, we need to be more careful about side effects

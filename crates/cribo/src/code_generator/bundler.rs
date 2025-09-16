@@ -75,8 +75,10 @@ pub struct Bundler<'a> {
     pub(crate) module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Reference to the module resolver
     pub(crate) resolver: &'a ModuleResolver,
-    /// Modules that are part of circular dependencies
+    /// Modules that are part of circular dependencies (may be pruned for entry package)
     pub(crate) circular_modules: FxIndexSet<ModuleId>,
+    /// All modules that are part of circular dependencies (unpruned, for accurate checks)
+    all_circular_modules: FxIndexSet<ModuleId>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
@@ -600,6 +602,7 @@ impl<'a> Bundler<'a> {
             module_info_registry,
             resolver,
             circular_modules: FxIndexSet::default(),
+            all_circular_modules: FxIndexSet::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
@@ -1114,11 +1117,13 @@ impl<'a> Bundler<'a> {
             for group in &analysis.resolvable_cycles {
                 for &module_id in &group.modules {
                     self.circular_modules.insert(module_id);
+                    self.all_circular_modules.insert(module_id);
                 }
             }
             for group in &analysis.unresolvable_cycles {
                 for &module_id in &group.modules {
                     self.circular_modules.insert(module_id);
+                    self.all_circular_modules.insert(module_id);
                 }
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
@@ -4346,6 +4351,12 @@ impl<'a> Bundler<'a> {
 
 // Helper methods for import rewriting
 impl Bundler<'_> {
+    /// Check if a module is part of circular dependencies (unpruned check)
+    /// This is more accurate than checking `circular_modules` which may be pruned
+    pub(crate) fn is_module_in_circular_deps(&self, module_id: ModuleId) -> bool {
+        self.all_circular_modules.contains(&module_id)
+    }
+
     /// Check if a symbol is imported by any wrapper module
     fn is_symbol_imported_by_wrapper(&self, module_id: ModuleId, symbol_name: &str) -> bool {
         let Some(module_name) = self.resolver.get_module_name(module_id) else {
