@@ -1672,13 +1672,15 @@ impl<'a> Bundler<'a> {
                         .clone();
 
                     let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
+                    let is_in_circular = self.circular_modules.contains(mid);
                     let transform_ctx = ModuleTransformContext {
                         module_name: mname,
                         module_path: &path,
                         global_info: global_info.clone(),
                         semantic_bundler: self.semantic_bundler,
                         python_version,
-                        is_wrapper_body: true,
+                        is_wrapper_body: true, // Keep original semantics
+                        is_in_circular_deps: is_in_circular,
                     };
 
                     let init_function = module_transformer::transform_module_to_init_function(
@@ -1924,6 +1926,9 @@ impl<'a> Bundler<'a> {
                 // Analyze global declarations for this wrapper module
                 let global_info = crate::analyzers::GlobalAnalyzer::analyze(&module_name, &ast);
 
+                // Check if this wrapper module is in circular dependencies
+                let is_in_circular = self.circular_modules.contains(&wrapper_module_id);
+
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
                     module_name: &module_name,
@@ -1931,7 +1936,8 @@ impl<'a> Bundler<'a> {
                     global_info: global_info.clone(),
                     semantic_bundler: self.semantic_bundler,
                     python_version,
-                    is_wrapper_body: true,
+                    is_wrapper_body: true, // Keep original semantics
+                    is_in_circular_deps: is_in_circular,
                 };
 
                 // Transform the module into an init function

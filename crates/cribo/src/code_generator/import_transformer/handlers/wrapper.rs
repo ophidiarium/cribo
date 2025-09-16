@@ -1024,25 +1024,41 @@ impl WrapperHandler {
                     let is_wrapper =
                         module_id.is_some_and(|id| bundler.wrapper_modules.contains(&id));
 
-                    // For wrapper modules, we need at least one import to trigger initialization
-                    // Check if this module has already been initialized in this scope
-                    if is_wrapper
-                        && !locally_initialized.contains(
-                            &module_id.expect("module_id should exist when is_wrapper is true"),
-                        )
-                    {
+                    // Only skip for inlined modules where we're certain about usage
+                    // For wrapper modules, be conservative since usage detection may miss
+                    // some cases (e.g., symbols used in type annotations or cast() calls)
+                    if is_bundled_or_inlined && !is_wrapper {
                         log::debug!(
-                            "Preserving import for '{target_name}' from wrapper module \
-                             '{module_name}' - needs initialization for side effects"
-                        );
-                        // Continue with normal processing to trigger initialization
-                        // The module will be added to locally_initialized after processing
-                    } else if is_bundled_or_inlined {
-                        log::debug!(
-                            "Skipping initialization for unused symbol '{target_name}' from \
-                             bundled module '{module_name}'"
+                            "Skipping unused symbol '{target_name}' from inlined module \
+                             '{module_name}' inside function"
                         );
                         continue;
+                    } else if is_wrapper {
+                        // For wrapper modules with circular dependencies, check if we can
+                        // reasonably determine the symbol is unused. Be conservative for
+                        // symbols that might be used in type annotations or other contexts
+                        // that our usage detection might miss.
+
+                        // Check if this looks like a type-related import (heuristic)
+                        let might_be_type = target_name.as_str().ends_with("Type")
+                            || target_name.as_str().ends_with("Protocol")
+                            || target_name.as_str().starts_with('T')
+                            || imported_name.ends_with("Type")
+                            || imported_name.ends_with("Protocol");
+
+                        if might_be_type {
+                            log::debug!(
+                                "Preserving potentially type-related import '{target_name}' from \
+                                 wrapper module '{module_name}' - may be used in annotations"
+                            );
+                            // Continue with normal processing
+                        } else {
+                            log::debug!(
+                                "Skipping clearly unused symbol '{target_name}' from wrapper \
+                                 module '{module_name}' inside function"
+                            );
+                            continue;
+                        }
                     } else {
                         log::debug!(
                             "Preserving import for '{target_name}' from external module \
@@ -1226,21 +1242,14 @@ impl WrapperHandler {
 
                     if at_module_level {
                         expressions::name(&canonical_module_name, ExprContext::Load)
-                    } else if inside_wrapper_init {
-                        // Inside a wrapper init function
-                        let current_module_name = current_module;
-                        log::debug!(
-                            "Inside wrapper init: current_module={current_module_name}, \
-                             accessing={canonical_module_name}"
-                        );
-
-                        bundler.create_wrapper_init_module_expr(
-                            &canonical_module_name,
-                            Some(current_module),
-                            &locally_initialized,
-                        )
                     } else {
-                        // Inside a regular function
+                        // Inside a function (either in wrapper init or regular module)
+                        // Always use create_function_module_expr for function context
+                        // since 'self' won't be available when the function is called
+                        log::debug!(
+                            "Inside function: accessing={canonical_module_name}, \
+                             inside_wrapper_init={inside_wrapper_init}"
+                        );
                         bundler.create_function_module_expr(
                             &canonical_module_name,
                             &locally_initialized,

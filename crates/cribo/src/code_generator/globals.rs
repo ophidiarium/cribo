@@ -903,6 +903,97 @@ pub fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     transform_introspection_in_stmt(stmt, Introspection::Globals, true, module_var_name);
 }
 
+/// Transform `globals()` calls in a statement for wrapper modules
+/// This version does NOT transform `globals()` inside function bodies, since those functions
+/// will be called later when `self` is not in scope. However, it DOES transform
+/// `globals()` in module-level code (outside functions).
+pub fn transform_globals_in_stmt_wrapper(stmt: &mut Stmt, module_var_name: &str) {
+    // For wrapper modules, we need special handling:
+    // - Transform globals() at module level (outside functions)
+    // - Do NOT transform globals() inside function bodies
+    match stmt {
+        Stmt::FunctionDef(func_def) => {
+            // Transform decorators and defaults (evaluated at module level)
+            for decorator in &mut func_def.decorator_list {
+                transform_introspection_in_expr(
+                    &mut decorator.expression,
+                    Introspection::Globals,
+                    true,
+                    module_var_name,
+                );
+            }
+            if let Some(ref mut returns) = func_def.returns {
+                transform_introspection_in_expr(
+                    returns,
+                    Introspection::Globals,
+                    true,
+                    module_var_name,
+                );
+            }
+            for param in func_def
+                .parameters
+                .posonlyargs
+                .iter_mut()
+                .chain(func_def.parameters.args.iter_mut())
+                .chain(func_def.parameters.kwonlyargs.iter_mut())
+            {
+                if let Some(ref mut default) = param.default {
+                    transform_introspection_in_expr(
+                        default,
+                        Introspection::Globals,
+                        true,
+                        module_var_name,
+                    );
+                }
+                if let Some(ref mut annotation) = param.parameter.annotation {
+                    transform_introspection_in_expr(
+                        annotation,
+                        Introspection::Globals,
+                        true,
+                        module_var_name,
+                    );
+                }
+            }
+            // DO NOT transform inside function body - leave globals() as is
+            // The function will be called later when self is not in scope
+        }
+        Stmt::ClassDef(class_def) => {
+            // Transform decorators and bases (evaluated at module level)
+            for decorator in &mut class_def.decorator_list {
+                transform_introspection_in_expr(
+                    &mut decorator.expression,
+                    Introspection::Globals,
+                    true,
+                    module_var_name,
+                );
+            }
+            if let Some(ref mut arguments) = class_def.arguments {
+                for base in &mut arguments.args {
+                    transform_introspection_in_expr(
+                        base,
+                        Introspection::Globals,
+                        true,
+                        module_var_name,
+                    );
+                }
+                for keyword in &mut arguments.keywords {
+                    transform_introspection_in_expr(
+                        &mut keyword.value,
+                        Introspection::Globals,
+                        true,
+                        module_var_name,
+                    );
+                }
+            }
+            // DO NOT transform inside class body - classes also have their own scope
+        }
+        _ => {
+            // For all other statements at module level, transform normally
+            transform_introspection_in_stmt(stmt, Introspection::Globals, true, module_var_name);
+        }
+    }
+}
+
 impl GlobalsLifter {
     pub fn new(global_info: &ModuleGlobalInfo) -> Self {
         let mut lifted_names = FxIndexMap::default();

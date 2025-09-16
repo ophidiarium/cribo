@@ -19,7 +19,10 @@ use crate::{
         bundler::Bundler,
         context::ModuleTransformContext,
         expression_handlers,
-        globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
+        globals::{
+            GlobalsLifter, transform_globals_in_stmt, transform_globals_in_stmt_wrapper,
+            transform_locals_in_stmt,
+        },
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::sanitize_module_name_for_identifier,
@@ -1368,8 +1371,22 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Transform globals() calls to module.__dict__ in the entire body
+    // For wrapper modules with circular dependencies, use the wrapper version that doesn't
+    // recurse into function bodies since those functions will be called later when 'self' is not in
+    // scope For regular wrapper modules (with side effects but no circular deps), use normal
+    // transformation
+    debug!(
+        "Transforming globals/locals for module '{}', is_wrapper_body={}, is_in_circular_deps={}",
+        ctx.module_name, ctx.is_wrapper_body, ctx.is_in_circular_deps
+    );
     for stmt in &mut body {
-        transform_globals_in_stmt(stmt, SELF_PARAM);
+        if ctx.is_in_circular_deps {
+            // Module is in circular dependencies - don't transform globals() inside functions
+            transform_globals_in_stmt_wrapper(stmt, SELF_PARAM);
+        } else {
+            // Regular module or wrapper without circular deps - transform globals() everywhere
+            transform_globals_in_stmt(stmt, SELF_PARAM);
+        }
         // Transform locals() calls to vars(self) in the entire body
         transform_locals_in_stmt(stmt, SELF_PARAM);
     }
