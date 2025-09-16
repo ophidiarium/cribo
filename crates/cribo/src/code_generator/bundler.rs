@@ -5440,6 +5440,34 @@ impl Bundler<'_> {
         func_def.body = new_body;
     }
 
+    /// Helper function to collect all Name identifiers from assignment targets
+    /// Handles simple names, tuples, and lists (for unpacking assignments)
+    fn collect_names_from_target(expr: &Expr) -> Vec<&str> {
+        let mut names = Vec::new();
+        Self::collect_names_recursive(expr, &mut names);
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    /// Recursive helper to collect names from nested assignment targets
+    fn collect_names_recursive<'a>(expr: &'a Expr, out: &mut Vec<&'a str>) {
+        match expr {
+            Expr::Name(name) => out.push(name.id.as_str()),
+            Expr::Tuple(tuple) => {
+                for elem in &tuple.elts {
+                    Self::collect_names_recursive(elem, out);
+                }
+            }
+            Expr::List(list) => {
+                for elem in &list.elts {
+                    Self::collect_names_recursive(elem, out);
+                }
+            }
+            _ => {} // Other expression types don't represent assignment targets
+        }
+    }
+
     /// Add synchronization statements for global variable modifications
     fn add_global_sync_if_needed(
         &self,
@@ -5451,10 +5479,14 @@ impl Bundler<'_> {
     ) {
         match stmt {
             Stmt::Assign(assign) => {
-                // Check if this is an assignment to a global variable
-                if let [Expr::Name(name)] = &assign.targets[..] {
-                    let var_name = name.id.as_str();
+                // Collect all names from all targets (handles simple and unpacking assignments)
+                let mut all_names = Vec::new();
+                for target in &assign.targets {
+                    all_names.extend(Self::collect_names_from_target(target));
+                }
 
+                // Process each collected name
+                for var_name in all_names {
                     // The variable name might already be transformed to the lifted name,
                     // so we need to check if it's a lifted variable
                     if let Some(original_name) = lifted_names
@@ -5462,7 +5494,7 @@ impl Bundler<'_> {
                         .find(|(orig, lifted)| {
                             lifted.as_str() == var_name && function_globals.contains(orig.as_str())
                         })
-                        .map(|(orig, _)| orig)
+                        .map(|(orig, _)| orig.as_str())
                     {
                         log::debug!(
                             "Adding sync for assignment to global {var_name}: {var_name} -> \
@@ -5485,17 +5517,18 @@ impl Bundler<'_> {
                 }
             }
             Stmt::AugAssign(aug_assign) => {
-                // Check if this is an augmented assignment to a global variable
-                if let Expr::Name(name) = aug_assign.target.as_ref() {
-                    let var_name = name.id.as_str();
+                // Collect names from the target (though augmented assignment typically doesn't use
+                // unpacking)
+                let target_names = Self::collect_names_from_target(&aug_assign.target);
 
+                for var_name in target_names {
                     // Similar check for augmented assignments
                     if let Some(original_name) = lifted_names
                         .iter()
                         .find(|(orig, lifted)| {
                             lifted.as_str() == var_name && function_globals.contains(orig.as_str())
                         })
-                        .map(|(orig, _)| orig)
+                        .map(|(orig, _)| orig.as_str())
                     {
                         log::debug!(
                             "Adding sync for augmented assignment to global {var_name}: \
