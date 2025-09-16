@@ -5,12 +5,8 @@ use ruff_python_ast::{
 };
 
 use crate::{
-    ast_builder::expressions,
-    code_generator::{
-        module_registry::sanitize_module_name_for_identifier, module_transformer::SELF_PARAM,
-    },
-    semantic_bundler::ModuleGlobalInfo,
-    types::FxIndexMap,
+    ast_builder::expressions, code_generator::module_registry::sanitize_module_name_for_identifier,
+    semantic_bundler::ModuleGlobalInfo, types::FxIndexMap,
 };
 
 /// Sanitize a variable name for use in a Python identifier
@@ -36,7 +32,7 @@ fn transform_generators(
     generators: &mut [Comprehension],
     target_fn: &str,
     recurse_into_scopes: bool,
-    module_var_name: Option<&str>,
+    module_var_name: &str,
 ) {
     for generator in generators {
         transform_introspection_in_expr(
@@ -69,7 +65,7 @@ fn transform_introspection_in_expr(
     expr: &mut Expr,
     target_fn: &str,
     recurse_into_scopes: bool,
-    module_var_name: Option<&str>,
+    module_var_name: &str,
 ) {
     match expr {
         Expr::Call(call_expr) => {
@@ -80,39 +76,20 @@ fn transform_introspection_in_expr(
                 && call_expr.arguments.keywords.is_empty()
             {
                 // Transform based on the target function
-                if let Some(module_var) = module_var_name {
-                    if target_fn == "locals" {
-                        // Replace with vars(module_var)
-                        *expr = expressions::call(
-                            expressions::name("vars", ExprContext::Load),
-                            vec![expressions::name(module_var, ExprContext::Load)],
-                            vec![],
-                        );
-                    } else if target_fn == "globals" {
-                        // Replace with module_var.__dict__
-                        *expr = expressions::attribute(
-                            expressions::name(module_var, ExprContext::Load),
-                            "__dict__",
-                            ExprContext::Load,
-                        );
-                    }
-                } else {
-                    // Fallback to using SELF_PARAM if no module_var_name provided
-                    if target_fn == "locals" {
-                        // Replace with vars(self)
-                        *expr = expressions::call(
-                            expressions::name("vars", ExprContext::Load),
-                            vec![expressions::name(SELF_PARAM, ExprContext::Load)],
-                            vec![],
-                        );
-                    } else if target_fn == "globals" {
-                        // Replace with self.__dict__
-                        *expr = expressions::attribute(
-                            expressions::name(SELF_PARAM, ExprContext::Load),
-                            "__dict__",
-                            ExprContext::Load,
-                        );
-                    }
+                if target_fn == "locals" {
+                    // Replace with vars(module_var)
+                    *expr = expressions::call(
+                        expressions::name("vars", ExprContext::Load),
+                        vec![expressions::name(module_var_name, ExprContext::Load)],
+                        vec![],
+                    );
+                } else if target_fn == "globals" {
+                    // Replace with module_var.__dict__
+                    *expr = expressions::attribute(
+                        expressions::name(module_var_name, ExprContext::Load),
+                        "__dict__",
+                        ExprContext::Load,
+                    );
                 }
                 return;
             }
@@ -511,7 +488,7 @@ fn transform_introspection_in_stmt(
     stmt: &mut Stmt,
     target_fn: &str,
     recurse_into_scopes: bool,
-    module_var_name: Option<&str>,
+    module_var_name: &str,
 ) {
     match stmt {
         Stmt::FunctionDef(func_def) => {
@@ -906,7 +883,7 @@ fn transform_introspection_in_stmt(
 /// Transform `globals()` calls in a statement
 pub fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion enabled (globals recurses into all scopes)
-    transform_introspection_in_stmt(stmt, "globals", true, Some(module_var_name));
+    transform_introspection_in_stmt(stmt, "globals", true, module_var_name);
 }
 
 impl GlobalsLifter {
@@ -954,5 +931,5 @@ impl GlobalsLifter {
 /// Transform `locals()` calls to `vars(module_var)` in a statement
 pub fn transform_locals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion disabled (locals stops at function/class boundaries)
-    transform_introspection_in_stmt(stmt, "locals", false, Some(module_var_name));
+    transform_introspection_in_stmt(stmt, "locals", false, module_var_name);
 }
