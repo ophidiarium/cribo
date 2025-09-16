@@ -38,7 +38,7 @@ def _cribo_init___cribo_895222_moduleA(self):
     self.__initializing__ = True
 
     def funcA():
-        funcB = _cribo_init___cribo_19d6d4_moduleB(moduleB).funcB
+        funcB = _cribo_init___cribo_19d6d4_moduleB(globals()['moduleB']).funcB
         return f"A calls {funcB()}"
     self.funcA = funcA
 

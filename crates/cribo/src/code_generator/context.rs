@@ -18,6 +18,8 @@ pub struct ModuleTransformContext<'a> {
     pub python_version: u8,
     /// Whether this module is being transformed as a wrapper function body
     pub is_wrapper_body: bool,
+    /// Whether this module is in a circular dependency chain
+    pub is_in_circular_deps: bool,
 }
 
 /// Context for inlining modules

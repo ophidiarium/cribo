@@ -21,6 +21,11 @@ pub struct WrapperContext<'a> {
     pub at_module_level: bool,
     pub current_module_name: String,
     pub function_body: Option<&'a [Stmt]>,
+    /// Cached set of symbols used at runtime in the current function.
+    /// When present (Some), this takes precedence over deriving usage from `function_body`.
+    /// This is a borrowed reference from the transformer's cached analysis, avoiding
+    /// redundant recomputation via `SymbolUsageVisitor`.
+    pub current_function_used_symbols: Option<&'a FxIndexSet<String>>,
 }
 
 // No local ImportResolveParams needed; heavy lifting stays in Bundler for now
@@ -99,6 +104,7 @@ impl WrapperHandler {
                 inside_wrapper_init: context.is_wrapper_init,
                 at_module_level: context.at_module_level,
                 current_module: Some(&context.current_module_name),
+                current_function_used_symbols: context.current_function_used_symbols,
             };
             return context
                 .bundler
@@ -116,6 +122,7 @@ impl WrapperHandler {
             inside_wrapper_init: context.is_wrapper_init,
             at_module_level: context.at_module_level,
             current_module: Some(&context.current_module_name),
+            current_function_used_symbols: context.current_function_used_symbols,
         };
         context
             .bundler
@@ -148,6 +155,7 @@ impl WrapperHandler {
             at_module_level: context.at_module_level,
             current_module_name: context.current_module.unwrap_or("").to_string(),
             function_body,
+            current_function_used_symbols: context.current_function_used_symbols,
         };
 
         Self::handle_symbol_imports_from_wrapper(&wrapper_context, import_from, module_name)
@@ -658,6 +666,10 @@ impl WrapperHandler {
                         at_module_level: transformer.state.at_module_level,
                         python_version: transformer.state.python_version,
                         function_body: transformer.state.current_function_body.as_deref(),
+                        current_function_used_symbols: transformer
+                            .state
+                            .current_function_used_symbols
+                            .as_ref(),
                     });
 
                 // Prepend the init statements to ensure wrapper is initialized before use
@@ -771,18 +783,19 @@ impl WrapperHandler {
         let mut initialized_modules: FxIndexSet<ModuleId> = FxIndexSet::default();
         let mut locally_initialized: FxIndexSet<ModuleId> = FxIndexSet::default();
 
-        // Collect actually used symbols if we're in a function context
-        let used_symbols = if let Some(body) = function_body {
-            if at_module_level {
-                None
-            } else {
-                // Use the SymbolUsageVisitor to find which symbols are actually used
-                Some(crate::visitors::SymbolUsageVisitor::collect_used_symbols(
-                    body,
-                ))
-            }
+        // Use cached symbols if available, otherwise compute them (borrow when possible)
+        let owned_used = if !at_module_level && context.current_function_used_symbols.is_none() {
+            function_body.map(crate::visitors::SymbolUsageVisitor::collect_used_symbols)
         } else {
             None
+        };
+
+        let used_symbols: Option<&FxIndexSet<String>> = if at_module_level {
+            None
+        } else if let Some(cached) = context.current_function_used_symbols {
+            Some(cached)
+        } else {
+            owned_used.as_ref()
         };
 
         // For wrapper modules, we always need to ensure they're initialized before accessing
@@ -1012,7 +1025,7 @@ impl WrapperHandler {
                 // Only skip imports for bundled modules where we can be confident about side
                 // effects For external/non-bundled imports, always preserve them to
                 // maintain side effects
-                if let Some(ref used) = used_symbols
+                if let Some(used) = used_symbols
                     && !used.contains(target_name.as_str())
                 {
                     // Check if this is a bundled module where we control the behavior
@@ -1023,26 +1036,54 @@ impl WrapperHandler {
                     });
                     let is_wrapper =
                         module_id.is_some_and(|id| bundler.wrapper_modules.contains(&id));
+                    let wrapper_is_circular =
+                        module_id.is_some_and(|id| bundler.is_module_in_circular_deps(id));
 
-                    // For wrapper modules, we need at least one import to trigger initialization
-                    // Check if this module has already been initialized in this scope
-                    if is_wrapper
-                        && !locally_initialized.contains(
-                            &module_id.expect("module_id should exist when is_wrapper is true"),
-                        )
-                    {
+                    // Only skip for inlined modules where we're certain about usage
+                    // For wrapper modules, we need to be more careful about side effects
+                    if is_bundled_or_inlined && !is_wrapper {
                         log::debug!(
-                            "Preserving import for '{target_name}' from wrapper module \
+                            "Skipping unused symbol '{target_name}' from inlined module \
+                             '{module_name}' inside function"
+                        );
+                        continue;
+                    } else if is_wrapper && wrapper_is_circular {
+                        // For circular wrapper modules, we need to ensure they're initialized
+                        // even if the imported symbol isn't used. However, we can skip if:
+                        // 1. The module has already been initialized in this scope
+                        // 2. AND the symbol is clearly not used at runtime
+
+                        // Check if this module has already been initialized in this function's
+                        // scope
+                        let module_id = bundler
+                            .get_module_id(module_name)
+                            .expect("wrapper module should have ID");
+
+                        if locally_initialized.contains(&module_id) {
+                            // Module already initialized in this scope
+                            // We already know the symbol is not in the used set (from the outer if
+                            // condition) So we can skip it since it's
+                            // not used at runtime
+                            log::debug!(
+                                "Skipping unused symbol '{target_name}' from already-initialized \
+                                 circular wrapper module '{module_name}' inside function"
+                            );
+                            continue;
+                        }
+                        // Module not yet initialized - preserve import to trigger
+                        // initialization
+                        log::debug!(
+                            "Preserving import for '{target_name}' from circular wrapper module \
                              '{module_name}' - needs initialization for side effects"
                         );
                         // Continue with normal processing to trigger initialization
-                        // The module will be added to locally_initialized after processing
-                    } else if is_bundled_or_inlined {
+                    } else if is_wrapper {
+                        // Non-circular wrappers: preserve to avoid behavior changes
                         log::debug!(
-                            "Skipping initialization for unused symbol '{target_name}' from \
-                             bundled module '{module_name}'"
+                            "Preserving potentially unused symbol '{target_name}' from \
+                             non-circular wrapper module '{module_name}'"
                         );
-                        continue;
+                        // Continue with normal processing
                     } else {
                         log::debug!(
                             "Preserving import for '{target_name}' from external module \
@@ -1226,21 +1267,14 @@ impl WrapperHandler {
 
                     if at_module_level {
                         expressions::name(&canonical_module_name, ExprContext::Load)
-                    } else if inside_wrapper_init {
-                        // Inside a wrapper init function
-                        let current_module_name = current_module;
-                        log::debug!(
-                            "Inside wrapper init: current_module={current_module_name}, \
-                             accessing={canonical_module_name}"
-                        );
-
-                        bundler.create_wrapper_init_module_expr(
-                            &canonical_module_name,
-                            Some(current_module),
-                            &locally_initialized,
-                        )
                     } else {
-                        // Inside a regular function
+                        // Inside a function (either in wrapper init or regular module)
+                        // Always use create_function_module_expr for function context
+                        // since 'self' won't be available when the function is called
+                        log::debug!(
+                            "Inside function: accessing={canonical_module_name}, \
+                             inside_wrapper_init={inside_wrapper_init}"
+                        );
                         bundler.create_function_module_expr(
                             &canonical_module_name,
                             &locally_initialized,

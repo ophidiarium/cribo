@@ -41,6 +41,8 @@ pub(super) struct BundledImportContext<'a> {
     pub inside_wrapper_init: bool,
     pub at_module_level: bool,
     pub current_module: Option<&'a str>,
+    /// Cached set of symbols used in the current function scope (if available)
+    pub current_function_used_symbols: Option<&'a FxIndexSet<String>>,
 }
 
 /// Bundler orchestrates the code generation phase of bundling
@@ -75,8 +77,10 @@ pub struct Bundler<'a> {
     pub(crate) module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Reference to the module resolver
     pub(crate) resolver: &'a ModuleResolver,
-    /// Modules that are part of circular dependencies
+    /// Modules that are part of circular dependencies (may be pruned for entry package)
     pub(crate) circular_modules: FxIndexSet<ModuleId>,
+    /// All modules that are part of circular dependencies (unpruned, for accurate checks)
+    all_circular_modules: FxIndexSet<ModuleId>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
@@ -600,6 +604,7 @@ impl<'a> Bundler<'a> {
             module_info_registry,
             resolver,
             circular_modules: FxIndexSet::default(),
+            all_circular_modules: FxIndexSet::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
@@ -669,6 +674,7 @@ impl<'a> Bundler<'a> {
             inside_wrapper_init,
             at_module_level,
             current_module,
+            current_function_used_symbols: context.current_function_used_symbols,
         };
         crate::code_generator::import_transformer::transform_wrapper_symbol_imports(
             self,
@@ -1114,11 +1120,13 @@ impl<'a> Bundler<'a> {
             for group in &analysis.resolvable_cycles {
                 for &module_id in &group.modules {
                     self.circular_modules.insert(module_id);
+                    self.all_circular_modules.insert(module_id);
                 }
             }
             for group in &analysis.unresolvable_cycles {
                 for &module_id in &group.modules {
                     self.circular_modules.insert(module_id);
+                    self.all_circular_modules.insert(module_id);
                 }
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
@@ -1445,7 +1453,7 @@ impl<'a> Bundler<'a> {
         // This affects initialization order and hard dependency handling
         let has_circular_wrapped_modules = sorted_wrapper_modules
             .iter()
-            .any(|(module_id, _, _, _)| self.circular_modules.contains(module_id));
+            .any(|(module_id, _, _, _)| self.is_module_in_circular_deps(*module_id));
         if has_circular_wrapped_modules {
             log::info!(
                 "Detected circular dependencies in modules with side effects - special handling \
@@ -1672,13 +1680,16 @@ impl<'a> Bundler<'a> {
                         .clone();
 
                     let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
+                    // mid is a member of the current SCC; don't rely on pruned circular_modules
+                    let is_in_circular = member_to_group.contains_key(mid);
                     let transform_ctx = ModuleTransformContext {
                         module_name: mname,
                         module_path: &path,
                         global_info: global_info.clone(),
                         semantic_bundler: self.semantic_bundler,
                         python_version,
-                        is_wrapper_body: true,
+                        is_wrapper_body: true, // Keep original semantics
+                        is_in_circular_deps: is_in_circular,
                     };
 
                     let init_function = module_transformer::transform_module_to_init_function(
@@ -1924,6 +1935,9 @@ impl<'a> Bundler<'a> {
                 // Analyze global declarations for this wrapper module
                 let global_info = crate::analyzers::GlobalAnalyzer::analyze(&module_name, &ast);
 
+                // Check circular deps using the unpruned view
+                let is_in_circular = self.is_module_in_circular_deps(wrapper_module_id);
+
                 // Create the module transform context
                 let transform_ctx = ModuleTransformContext {
                     module_name: &module_name,
@@ -1931,7 +1945,8 @@ impl<'a> Bundler<'a> {
                     global_info: global_info.clone(),
                     semantic_bundler: self.semantic_bundler,
                     python_version,
-                    is_wrapper_body: true,
+                    is_wrapper_body: true, // Keep original semantics
+                    is_in_circular_deps: is_in_circular,
                 };
 
                 // Transform the module into an init function
@@ -4143,7 +4158,7 @@ impl<'a> Bundler<'a> {
             // (starts with underscore but not dunder) in a circular module,
             // it means it's explicitly imported by another module and should be included
             // even if it's not in the regular export list
-            if self.circular_modules.contains(&module_id)
+            if self.is_module_in_circular_deps(module_id)
                 && symbol_name.starts_with('_')
                 && !symbol_name.starts_with("__")
             {
@@ -4339,6 +4354,12 @@ impl<'a> Bundler<'a> {
 
 // Helper methods for import rewriting
 impl Bundler<'_> {
+    /// Check if a module is part of circular dependencies (unpruned check)
+    /// This is more accurate than checking `circular_modules` which may be pruned
+    pub(crate) fn is_module_in_circular_deps(&self, module_id: ModuleId) -> bool {
+        self.all_circular_modules.contains(&module_id)
+    }
+
     /// Check if a symbol is imported by any wrapper module
     fn is_symbol_imported_by_wrapper(&self, module_id: ModuleId, symbol_name: &str) -> bool {
         let Some(module_name) = self.resolver.get_module_name(module_id) else {
@@ -4693,66 +4714,6 @@ impl Bundler<'_> {
 
         // Fallback: plain dotted expr
         expressions::dotted_name(parts, ExprContext::Load)
-    }
-
-    /// Helper method to create module expression for wrapper init context
-    pub(in crate::code_generator) fn create_wrapper_init_module_expr(
-        &self,
-        canonical_module_name: &str,
-        current_module: Option<&str>,
-        locally_initialized: &FxIndexSet<ModuleId>,
-    ) -> Expr {
-        let current_module_name = current_module.unwrap_or("");
-
-        // Check if we're accessing a module that's NOT a child of the current module
-        let is_different_module = !canonical_module_name
-            .starts_with(&format!("{current_module_name}."))
-            && canonical_module_name != current_module_name;
-
-        if !is_different_module {
-            // Accessing current module or its submodule - use the module name directly
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        }
-
-        log::debug!(
-            "Accessing different module, checking if synthetic: {}",
-            self.has_synthetic_name(canonical_module_name)
-        );
-
-        // Accessing a different module - check if it needs initialization
-        if !self.has_synthetic_name(canonical_module_name) {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        }
-
-        let Some(module_id) = self.get_module_id(canonical_module_name) else {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        };
-
-        log::debug!(
-            "Module {} has id {:?}, locally_initialized: {}",
-            canonical_module_name,
-            module_id,
-            locally_initialized.contains(&module_id)
-        );
-
-        if locally_initialized.contains(&module_id) {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        }
-
-        log::debug!("Module {canonical_module_name} needs init, checking for init function");
-
-        let Some(init_func_name) = self.module_init_functions.get(&module_id) else {
-            return expressions::name(canonical_module_name, ExprContext::Load);
-        };
-
-        log::debug!("Found init function {init_func_name} for module {canonical_module_name}");
-
-        // Call the init function with the module
-        expressions::call(
-            expressions::name(init_func_name, ExprContext::Load),
-            vec![expressions::name(canonical_module_name, ExprContext::Load)],
-            vec![],
-        )
     }
 
     /// Helper method to create module expression for regular function context

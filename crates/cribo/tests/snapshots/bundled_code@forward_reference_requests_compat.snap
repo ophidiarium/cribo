@@ -233,7 +233,7 @@ def _cribo_init___cribo_ce8acb_myrequests_utils(self):
         try:
             return _cribo.json.loads(content)
         except (ValueError, TypeError) as e:
-            OurJSONDecodeError = _cribo_init___cribo_530a30_myrequests_exceptions(self.__dict__['myrequests_exceptions']).JSONDecodeError
+            OurJSONDecodeError = _cribo_init___cribo_530a30_myrequests_exceptions(globals()['myrequests_exceptions']).JSONDecodeError
             raise OurJSONDecodeError(str(e))
     self.decode_json = decode_json
     self.__initialized__ = True

@@ -903,6 +903,26 @@ pub fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     transform_introspection_in_stmt(stmt, Introspection::Globals, true, module_var_name);
 }
 
+/// Transform `globals()` calls in a statement for wrapper modules
+/// This version does NOT transform `globals()` inside function bodies, since those functions
+/// will be called later when `self` is not in scope. However, it DOES transform
+/// `globals()` in module-level code (outside functions).
+pub fn transform_globals_in_stmt_wrapper(stmt: &mut Stmt, module_var_name: &str) {
+    match stmt {
+        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+            // For functions and classes, we only want to transform the "header"
+            // (decorators, defaults, etc.) but not recurse into the body.
+            // `transform_introspection_in_stmt` with `recurse_into_scopes = false`
+            // achieves exactly this.
+            transform_introspection_in_stmt(stmt, Introspection::Globals, false, module_var_name);
+        }
+        _ => {
+            // For all other statements at module level, transform recursively.
+            transform_introspection_in_stmt(stmt, Introspection::Globals, true, module_var_name);
+        }
+    }
+}
+
 impl GlobalsLifter {
     pub fn new(global_info: &ModuleGlobalInfo) -> Self {
         let mut lifted_names = FxIndexMap::default();
