@@ -650,10 +650,7 @@ pub fn transform_module_to_init_function<'a>(
     // First pass: collect all wrapper module namespace variables that need global declarations
     // Use a visitor to properly traverse the AST
     let wrapper_globals_needed = {
-        use ruff_python_ast::{
-            AnyNodeRef,
-            visitor::source_order::{SourceOrderVisitor, TraversalSignal, walk_stmt},
-        };
+        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, walk_stmt};
 
         struct WrapperGlobalCollector {
             globals_needed: FxIndexSet<String>,
@@ -668,50 +665,37 @@ pub fn transform_module_to_init_function<'a>(
 
             fn collect(processed_body: &[Stmt]) -> FxIndexSet<String> {
                 let mut collector = Self::new();
-                for stmt in processed_body {
-                    collector.visit_stmt(stmt);
-                }
+                source_order::walk_body(&mut collector, processed_body);
                 collector.globals_needed
-            }
-
-            /// Check if this assignment needs a global declaration
-            fn check_assignment(&mut self, assign: &StmtAssign) {
-                // Check if the value is a call to an init function
-                if let Expr::Call(call) = assign.value.as_ref()
-                    && let Expr::Name(name) = call.func.as_ref()
-                    && crate::code_generator::module_registry::is_init_function(name.id.as_str())
-                {
-                    // Check if the assignment target is also used as an argument
-                    if assign.targets.len() == 1
-                        && let Expr::Name(target) = &assign.targets[0]
-                    {
-                        // Check if the target is also passed as an argument
-                        let needs_global = call.arguments.args.iter().any(|arg| {
-                            matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
-                        });
-                        if needs_global {
-                            self.globals_needed.insert(target.id.to_string());
-                        }
-                    }
-                }
             }
         }
 
         impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
-            fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
-                // Check assignments during entry to catch them early
-                if let AnyNodeRef::StmtAssign(assign) = node {
-                    self.check_assignment(assign);
-                }
-                // Continue traversing
-                TraversalSignal::Traverse
-            }
-
-            fn leave_node(&mut self, _node: AnyNodeRef<'a>) {
-                // No cleanup needed
-            }
-
             fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                // Check if this assignment needs a global declaration
+                if let Stmt::Assign(assign) = stmt {
+                    // Check if the value is a call to an init function
+                    if let Expr::Call(call) = assign.value.as_ref()
+                        && let Expr::Name(name) = call.func.as_ref()
+                        && crate::code_generator::module_registry::is_init_function(
+                            name.id.as_str(),
+                        )
+                    {
+                        // Check if the assignment target is also used as an argument
+                        if assign.targets.len() == 1
+                            && let Expr::Name(target) = &assign.targets[0]
+                        {
+                            // Check if the target is also passed as an argument
+                            let needs_global = call.arguments.args.iter().any(|arg| {
+                                matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
+                            });
+                            if needs_global {
+                                self.globals_needed.insert(target.id.to_string());
+                            }
+                        }
+                    }
+                }
+
                 // Continue traversal to children
                 walk_stmt(self, stmt);
             }
