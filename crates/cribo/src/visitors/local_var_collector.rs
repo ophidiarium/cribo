@@ -1,19 +1,20 @@
 //! Local variable collector that respects `global` and `nonlocal` declarations
 //!
 //! This visitor traverses the AST in source order to collect local variable
-//! names, excluding names declared as `global`, and treating names
+//! names at module level, excluding names declared as `global`, and treating names
 //! declared `nonlocal` as locals for collection (to prevent module-attr rewrites).
 
 use ruff_python_ast::{
-    ExceptHandler, Expr, Stmt,
-    visitor::source_order::{self, SourceOrderVisitor},
+    AnyNodeRef, ExceptHandler, Expr, Stmt,
+    visitor::source_order::{
+        self, SourceOrderVisitor, TraversalSignal, walk_except_handler, walk_stmt,
+    },
 };
 
 use crate::types::FxIndexSet;
 
-/// Visitor that collects local variable names in source order,
+/// Visitor that collects local variable names at module level,
 /// excluding names declared as `global`, and treating `nonlocal` names as locals
-/// for the purposes of collection
 pub struct LocalVarCollector<'a> {
     /// Set to collect local variable names
     local_vars: &'a mut FxIndexSet<String>,
@@ -71,55 +72,48 @@ impl<'a> LocalVarCollector<'a> {
 }
 
 impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
+    fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
+        // Skip traversing into functions and classes - we only collect module-level variables
+        match node {
+            AnyNodeRef::StmtFunctionDef(func_def) => {
+                // Collect the function name itself as a module-level variable
+                self.insert_if_not_global(&func_def.name);
+                // Skip traversing into the function body
+                TraversalSignal::Skip
+            }
+            AnyNodeRef::StmtClassDef(class_def) => {
+                // Collect the class name itself as a module-level variable
+                self.insert_if_not_global(&class_def.name);
+                // Skip traversing into the class body
+                TraversalSignal::Skip
+            }
+            _ => TraversalSignal::Traverse,
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        // Process statements to collect variable bindings
         match stmt {
             Stmt::Assign(assign) => {
-                // Collect names from assignment targets
                 for target in &assign.targets {
                     self.collect_from_target(target);
                 }
             }
             Stmt::AnnAssign(ann_assign) => {
-                // Collect names from annotated assignment targets
                 self.collect_from_target(&ann_assign.target);
             }
             Stmt::AugAssign(aug_assign) => {
-                // Augmented assignments (x += 1) bind names in current scope
                 self.collect_from_target(&aug_assign.target);
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
             Stmt::For(for_stmt) => {
-                // Collect for loop targets (including async for)
-                // Note: is_async is a flag on For, not a separate statement type
                 self.collect_from_target(&for_stmt.target);
-                // Continue default traversal for body
-                source_order::walk_stmt(self, stmt);
             }
             Stmt::With(with_stmt) => {
-                // Collect with statement targets (including async with)
-                // Note: is_async is a flag on With, not a separate statement type
                 for item in &with_stmt.items {
                     if let Some(ref optional_vars) = item.optional_vars {
                         self.collect_from_target(optional_vars);
                     }
                 }
-                // Continue default traversal for body
-                source_order::walk_stmt(self, stmt);
-            }
-            Stmt::FunctionDef(func_def) => {
-                // Function definitions (including async) create local names (unless declared
-                // global) Note: is_async is a flag on FunctionDef, not a separate
-                // statement type
-                self.insert_if_not_global(&func_def.name);
-                // Don't walk into the function body - we're only collecting local vars at the
-                // current scope
-            }
-            Stmt::ClassDef(class_def) => {
-                // Class definitions create local names (unless declared global)
-                self.insert_if_not_global(&class_def.name);
-                // Don't walk into the class body - we're only collecting local vars at the current
-                // scope
             }
             Stmt::Nonlocal(nonlocal_stmt) => {
                 // Nonlocal declarations create local names in the enclosing scope
@@ -127,17 +121,13 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 for name in &nonlocal_stmt.names {
                     self.insert_if_not_global(name);
                 }
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
             Stmt::Import(import_stmt) => {
-                // Import statements bind names in the current scope
                 for alias in &import_stmt.names {
                     let name = if let Some(asname) = &alias.asname {
                         asname.to_string()
                     } else {
-                        // For dotted imports like 'import a.b.c', bind only the top-level package
-                        // 'a'
+                        // For dotted imports like 'import a.b.c', bind only 'a'
                         let full_name = alias.name.to_string();
                         full_name
                             .split('.')
@@ -149,7 +139,6 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 }
             }
             Stmt::ImportFrom(from_stmt) => {
-                // From imports bind the imported names or their aliases
                 for alias in &from_stmt.names {
                     // Skip wildcard imports (from m import *)
                     if alias.name.as_str() == "*" {
@@ -162,22 +151,21 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                     self.insert_if_not_global(&binding);
                 }
             }
-            _ => {
-                // For all other statement types, use default traversal
-                source_order::walk_stmt(self, stmt);
-            }
+            _ => {}
         }
+
+        // Continue traversal to children
+        walk_stmt(self, stmt);
     }
 
     fn visit_except_handler(&mut self, handler: &'a ExceptHandler) {
         let ExceptHandler::ExceptHandler(eh) = handler;
         // Collect exception name if present, respecting global declarations
         if let Some(ref name) = eh.name {
-            // Exception names can be global if previously declared
             self.insert_if_not_global(name);
         }
-        // Continue default traversal for the handler body
-        source_order::walk_except_handler(self, handler);
+        // Continue traversal to children
+        walk_except_handler(self, handler);
     }
 }
 
