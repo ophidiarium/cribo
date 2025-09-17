@@ -9,8 +9,8 @@
 //! to true globals in the bundled output to preserve Python's global semantics.
 
 use ruff_python_ast::{
-    Expr, ModModule, Stmt, StmtFunctionDef,
-    visitor::source_order::{self, SourceOrderVisitor},
+    AnyNodeRef, Expr, ModModule, Stmt,
+    visitor::source_order::{self, SourceOrderVisitor, TraversalSignal, walk_stmt},
 };
 use ruff_text_size::TextRange;
 
@@ -39,8 +39,8 @@ pub struct GlobalAnalyzer {
     /// Current function name stack (for nested functions)
     function_stack: Vec<String>,
 
-    /// Whether we're currently at module level
-    at_module_level: bool,
+    /// Depth in the AST (0 = module level)
+    depth: usize,
 }
 
 impl GlobalAnalyzer {
@@ -53,7 +53,7 @@ impl GlobalAnalyzer {
             functions_using_globals: FxIndexSet::default(),
             module_name: module_name.into(),
             function_stack: Vec::new(),
-            at_module_level: true,
+            depth: 0,
         }
     }
 
@@ -79,11 +79,17 @@ impl GlobalAnalyzer {
         }
     }
 
+    /// Check if we're at module level (depth == 0)
+    #[inline]
+    fn is_module_level(&self) -> bool {
+        self.depth == 0
+    }
+
     /// Helper to collect variable names from assignment targets
     fn collect_from_target(&mut self, target: &Expr) {
         match target {
             Expr::Name(name) => {
-                if self.at_module_level {
+                if self.is_module_level() {
                     self.module_level_vars.insert(name.id.to_string());
                     self.liftable_vars.insert(name.id.to_string());
                 }
@@ -104,70 +110,80 @@ impl GlobalAnalyzer {
             _ => {}
         }
     }
-
-    /// Process a function definition (handles both sync and async functions)
-    /// Note: Async functions are represented as `StmtFunctionDef` with `is_async` flag
-    fn process_function(&mut self, func_def: &StmtFunctionDef) {
-        // Push function name onto stack
-        self.function_stack.push(func_def.name.id.to_string());
-        let was_module_level = self.at_module_level;
-        self.at_module_level = false;
-
-        let mut has_globals = false;
-
-        // Visit the function body
-        for stmt in &func_def.body {
-            if let Stmt::Global(global_stmt) = stmt {
-                has_globals = true;
-                for identifier in &global_stmt.names {
-                    let var_name = identifier.id.to_string();
-                    self.global_declarations
-                        .entry(var_name)
-                        .or_default()
-                        .push(identifier.range);
-                }
-            }
-            // Continue visiting other statements
-            self.visit_stmt(stmt);
-        }
-
-        // Track this function if it uses globals
-        if has_globals {
-            // Use the full function path for nested functions
-            let function_name = self.function_stack.join(".");
-            self.functions_using_globals.insert(function_name);
-        }
-
-        // Restore state
-        self.at_module_level = was_module_level;
-        self.function_stack.pop();
-    }
 }
 
 impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
+    fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
+        // Track entry into scope-creating nodes
+        match node {
+            AnyNodeRef::StmtFunctionDef(func_def) => {
+                // Record the function name at module level
+                if self.is_module_level() {
+                    self.liftable_vars.insert(func_def.name.id.to_string());
+                }
+                // Push function name onto stack for tracking nested functions
+                self.function_stack.push(func_def.name.id.to_string());
+                self.depth += 1;
+            }
+            AnyNodeRef::StmtClassDef(class_def) => {
+                // The class name itself is a module-level variable
+                if self.is_module_level() {
+                    self.module_level_vars.insert(class_def.name.id.to_string());
+                    self.liftable_vars.insert(class_def.name.id.to_string());
+                }
+                self.depth += 1;
+            }
+            _ => {}
+        }
+        TraversalSignal::Traverse
+    }
+
+    fn leave_node(&mut self, node: AnyNodeRef<'a>) {
+        // Clean up when exiting scope-creating nodes
+        match node {
+            AnyNodeRef::StmtFunctionDef(func_def) => {
+                // Check if this function had any global declarations
+                let mut has_globals = false;
+                for body_stmt in &func_def.body {
+                    if matches!(body_stmt, Stmt::Global(_)) {
+                        has_globals = true;
+                        break;
+                    }
+                }
+
+                if has_globals {
+                    // Use the full function path for nested functions
+                    let function_name = self.function_stack.join(".");
+                    self.functions_using_globals.insert(function_name);
+                }
+
+                self.function_stack.pop();
+                self.depth -= 1;
+            }
+            AnyNodeRef::StmtClassDef(_) => {
+                self.depth -= 1;
+            }
+            _ => {}
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             // Collect module-level variable definitions
-            Stmt::Assign(assign) if self.at_module_level => {
+            Stmt::Assign(assign) if self.is_module_level() => {
                 for target in &assign.targets {
                     self.collect_from_target(target);
                 }
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
-            Stmt::AnnAssign(ann_assign) if self.at_module_level => {
+            Stmt::AnnAssign(ann_assign) if self.is_module_level() => {
                 self.collect_from_target(&ann_assign.target);
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
-            Stmt::AugAssign(aug_assign) if self.at_module_level => {
+            Stmt::AugAssign(aug_assign) if self.is_module_level() => {
                 self.collect_from_target(&aug_assign.target);
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
 
             // Track module-level imports as defining names in the module namespace
-            Stmt::Import(import_stmt) if self.at_module_level => {
+            Stmt::Import(import_stmt) if self.is_module_level() => {
                 for alias in &import_stmt.names {
                     // Local binding is `asname` if present, otherwise top-level package segment
                     let name = if let Some(asname) = &alias.asname {
@@ -180,10 +196,8 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
                     // module-level var rewriting behavior
                     self.liftable_vars.insert(name);
                 }
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
-            Stmt::ImportFrom(from_stmt) if self.at_module_level => {
+            Stmt::ImportFrom(from_stmt) if self.is_module_level() => {
                 for alias in &from_stmt.names {
                     // Skip wildcard imports (from m import *)
                     if alias.name.as_str() == "*" {
@@ -196,45 +210,24 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
                     // From-import bindings are liftable but not regular module vars
                     self.liftable_vars.insert(binding);
                 }
-                // Continue default traversal
-                source_order::walk_stmt(self, stmt);
             }
 
-            // Process function definitions (includes async functions)
-            // Note: In ruff's AST, async functions are represented as FunctionDef with is_async
-            // flag
-            Stmt::FunctionDef(func_def) => {
-                // Functions are liftable for globals handling but don't participate in
-                // module-level var rewriting which can cause premature self-references
-                if self.at_module_level {
-                    self.liftable_vars.insert(func_def.name.id.to_string());
-                }
-                self.process_function(func_def);
-                // Don't use walk_stmt here as we already visited the body
-            }
-
-            // Process class definitions (they create a new scope)
-            Stmt::ClassDef(class_def) => {
-                let was_module_level = self.at_module_level;
-                self.at_module_level = false;
-
-                // Visit class body
-                source_order::walk_stmt(self, stmt);
-
-                self.at_module_level = was_module_level;
-
-                // The class name itself is a module-level variable
-                if self.at_module_level {
-                    self.module_level_vars.insert(class_def.name.id.to_string());
-                    self.liftable_vars.insert(class_def.name.id.to_string());
+            // Track global declarations within functions
+            Stmt::Global(global_stmt) if !self.is_module_level() => {
+                for identifier in &global_stmt.names {
+                    let var_name = identifier.id.to_string();
+                    self.global_declarations
+                        .entry(var_name)
+                        .or_default()
+                        .push(identifier.range);
                 }
             }
 
-            _ => {
-                // Continue default traversal for other statements
-                source_order::walk_stmt(self, stmt);
-            }
+            _ => {}
         }
+
+        // The framework handles the traversal - we don't call walk_stmt
+        walk_stmt(self, stmt);
     }
 }
 

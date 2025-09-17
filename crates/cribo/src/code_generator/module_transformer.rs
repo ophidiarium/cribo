@@ -650,7 +650,10 @@ pub fn transform_module_to_init_function<'a>(
     // First pass: collect all wrapper module namespace variables that need global declarations
     // Use a visitor to properly traverse the AST
     let wrapper_globals_needed = {
-        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
+        use ruff_python_ast::{
+            AnyNodeRef,
+            visitor::source_order::{SourceOrderVisitor, TraversalSignal, walk_stmt},
+        };
 
         struct WrapperGlobalCollector {
             globals_needed: FxIndexSet<String>,
@@ -670,34 +673,47 @@ pub fn transform_module_to_init_function<'a>(
                 }
                 collector.globals_needed
             }
-        }
 
-        impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
-            fn visit_stmt(&mut self, stmt: &'a Stmt) {
-                if let Stmt::Assign(assign) = stmt {
-                    // Check if the value is a call to an init function
-                    if let Expr::Call(call) = assign.value.as_ref()
-                        && let Expr::Name(name) = call.func.as_ref()
-                        && crate::code_generator::module_registry::is_init_function(
-                            name.id.as_str(),
-                        )
+            /// Check if this assignment needs a global declaration
+            fn check_assignment(&mut self, assign: &StmtAssign) {
+                // Check if the value is a call to an init function
+                if let Expr::Call(call) = assign.value.as_ref()
+                    && let Expr::Name(name) = call.func.as_ref()
+                    && crate::code_generator::module_registry::is_init_function(name.id.as_str())
+                {
+                    // Check if the assignment target is also used as an argument
+                    if assign.targets.len() == 1
+                        && let Expr::Name(target) = &assign.targets[0]
                     {
-                        // Check if the assignment target is also used as an argument
-                        if assign.targets.len() == 1
-                            && let Expr::Name(target) = &assign.targets[0]
-                        {
-                            // Check if the target is also passed as an argument
-                            let needs_global = call.arguments.args.iter().any(|arg| {
-                                matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
-                            });
-                            if needs_global {
-                                self.globals_needed.insert(target.id.to_string());
-                            }
+                        // Check if the target is also passed as an argument
+                        let needs_global = call.arguments.args.iter().any(|arg| {
+                            matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
+                        });
+                        if needs_global {
+                            self.globals_needed.insert(target.id.to_string());
                         }
                     }
                 }
-                // Continue traversing the statement tree
-                source_order::walk_stmt(self, stmt);
+            }
+        }
+
+        impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
+            fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
+                // Check assignments during entry to catch them early
+                if let AnyNodeRef::StmtAssign(assign) = node {
+                    self.check_assignment(assign);
+                }
+                // Continue traversing
+                TraversalSignal::Traverse
+            }
+
+            fn leave_node(&mut self, _node: AnyNodeRef<'a>) {
+                // No cleanup needed
+            }
+
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                // The framework handles the traversal
+                walk_stmt(self, stmt);
             }
         }
 

@@ -6,7 +6,7 @@
 
 use ruff_python_ast::{
     Expr, Stmt,
-    visitor::source_order::{self, SourceOrderVisitor},
+    visitor::{self, Visitor},
 };
 
 use crate::types::FxIndexSet;
@@ -50,10 +50,6 @@ const TYPE_HINT_IDENTIFIERS: &[&str] = &[
 pub struct SymbolUsageVisitor {
     /// Set of symbol names that are used in the body
     used_names: FxIndexSet<String>,
-    /// Whether we're currently inside a type annotation context
-    in_annotation: bool,
-    /// Track depth of annotation nesting (for complex annotations)
-    annotation_depth: usize,
 }
 
 impl SymbolUsageVisitor {
@@ -69,205 +65,61 @@ impl SymbolUsageVisitor {
         visitor.used_names
     }
 
-    /// Track a name usage if we're not in an annotation context
+    /// Track a name usage
     fn track_name(&mut self, name: &str) {
-        if !self.in_annotation {
-            self.used_names.insert(name.to_string());
-        }
-    }
-
-    /// Start annotation context
-    fn enter_annotation(&mut self) {
-        if self.annotation_depth == 0 {
-            self.in_annotation = true;
-        }
-        self.annotation_depth += 1;
-    }
-
-    /// End annotation context
-    fn exit_annotation(&mut self) {
-        if self.annotation_depth > 0 {
-            self.annotation_depth -= 1;
-            if self.annotation_depth == 0 {
-                self.in_annotation = false;
-            }
-        }
+        self.used_names.insert(name.to_string());
     }
 }
 
-impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
+impl<'a> Visitor<'a> for SymbolUsageVisitor {
+    fn visit_annotation(&mut self, _expr: &'a Expr) {
+        // Don't track names in annotations - they're not runtime usage
+        // By not calling the default walk, we skip all names in annotations
+        // Note: This is only called for function returns, parameters, and AnnAssign
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
-            // Handle annotated assignments - annotation is not runtime code
-            Stmt::AnnAssign(ann_assign) => {
-                // Visit annotation in annotation context
-                self.with_annotation(|visitor| {
-                    visitor.visit_expr(&ann_assign.annotation);
-                });
-
-                // Visit target normally (it's a runtime assignment target)
-                self.visit_expr(&ann_assign.target);
-
-                // Visit value if present (runtime code)
-                if let Some(value) = &ann_assign.value {
-                    self.visit_expr(value);
-                }
-            }
-            // Handle function definitions (both sync and async) - annotations are not runtime
-            Stmt::FunctionDef(func) => {
-                // Don't track the function name itself as "used"
-                // (it's being defined, not used)
-
-                // Visit parameter annotations in annotation context
-                for param in &func.parameters.args {
-                    if let Some(annotation) = &param.parameter.annotation {
-                        self.with_annotation(|visitor| {
-                            visitor.visit_expr(annotation);
-                        });
-                    }
-                    // Visit default value normally (it's runtime code)
-                    if let Some(default) = &param.default {
-                        self.visit_expr(default);
-                    }
-                }
-
-                // Handle other parameter types similarly
-                for param in &func.parameters.posonlyargs {
-                    if let Some(annotation) = &param.parameter.annotation {
-                        self.with_annotation(|visitor| {
-                            visitor.visit_expr(annotation);
-                        });
-                    }
-                    if let Some(default) = &param.default {
-                        self.visit_expr(default);
-                    }
-                }
-
-                for param in &func.parameters.kwonlyargs {
-                    if let Some(annotation) = &param.parameter.annotation {
-                        self.with_annotation(|visitor| {
-                            visitor.visit_expr(annotation);
-                        });
-                    }
-                    if let Some(default) = &param.default {
-                        self.visit_expr(default);
-                    }
-                }
-
-                if let Some(param) = &func.parameters.vararg
-                    && let Some(annotation) = &param.annotation
-                {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_expr(annotation);
-                    });
-                }
-
-                if let Some(param) = &func.parameters.kwarg
-                    && let Some(annotation) = &param.annotation
-                {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_expr(annotation);
-                    });
-                }
-
-                // Visit return annotation in annotation context
-                if let Some(returns) = &func.returns {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_expr(returns);
-                    });
-                }
-
-                // Visit PEP 695 type parameters (annotation-only)
-                if let Some(type_params) = &func.type_params {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_type_params(type_params);
-                    });
-                }
-
-                // Visit decorators normally (they're runtime code)
-                for decorator in &func.decorator_list {
-                    self.visit_expr(&decorator.expression);
-                }
-
-                // Visit function body normally
-                self.visit_body(&func.body);
-            }
-            // Handle class definitions similarly
-            Stmt::ClassDef(class) => {
-                // Visit decorators (runtime)
-                for decorator in &class.decorator_list {
-                    self.visit_expr(&decorator.expression);
-                }
-
-                // Visit base classes (runtime - they're evaluated when class is created)
-                for base in class.bases() {
-                    self.visit_expr(base);
-                }
-
-                // Visit keywords (runtime)
-                for keyword in class.keywords() {
-                    self.visit_expr(&keyword.value);
-                }
-
-                // Visit PEP 695 type parameters (annotation-only)
-                if let Some(type_params) = &class.type_params {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_type_params(type_params);
-                    });
-                }
-
-                // Visit class body
-                self.visit_body(&class.body);
-            }
-            // Handle type alias statements (PEP 695) - available in Python 3.12+
-            Stmt::TypeAlias(type_alias) => {
+            // Type alias values and type parameters are not covered by visit_annotation
+            // so we need to skip them manually
+            Stmt::TypeAlias(_) => {
                 // The alias name itself is not "used" (it's being defined)
-                // The RHS expression is annotation-only and should not count as runtime usage
-                self.with_annotation(|visitor| {
-                    visitor.visit_expr(&type_alias.value);
-                });
-
-                // Visit type parameters if present (also annotation-only)
-                if let Some(type_params) = &type_alias.type_params {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_type_params(type_params);
-                    });
-                }
+                // The value and type params are type annotations, not runtime
+                // Don't visit them at all
             }
             _ => {
-                // For all other statements, use default traversal
-                source_order::walk_stmt(self, stmt);
+                // For other statements, use default traversal
+                // The framework will call visit_annotation for actual annotations
+                visitor::walk_stmt(self, stmt);
             }
         }
+    }
+
+    fn visit_type_params(&mut self, _type_params: &'a ruff_python_ast::TypeParams) {
+        // Don't track anything in type parameters - they're not runtime usage
+        // By not calling the default walk, we skip all names in type parameters
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
         match expr {
             Expr::Name(name) => {
-                // Track the name if we're not in an annotation
+                // Track the name - we're in runtime context
+                // (annotations are handled separately by visit_annotation)
                 self.track_name(&name.id);
             }
             // For subscript expressions like List[str], the subscript part is annotation-like
             Expr::Subscript(subscript) if self.could_be_type_hint(&subscript.value) => {
                 // Visit the value part normally
                 self.visit_expr(&subscript.value);
-
-                // Visit the slice in annotation context if this looks like a type hint
-                self.with_annotation(|visitor| {
-                    visitor.visit_expr(&subscript.slice);
-                });
+                // Don't visit the slice if this looks like a type hint
+                // (skip the subscript part of type hints like List[str])
             }
-            // typing.cast[T](expr) — treat T as annotation-only
+            // typing.cast(T, expr) — treat T as annotation-only
             Expr::Call(call) if self.is_typing_cast(&call.func) => {
                 // Visit callee (runtime)
                 self.visit_expr(&call.func);
-                // First positional arg (type) as annotation-only, if present
-                if let Some(first) = call.arguments.args.first() {
-                    self.with_annotation(|visitor| {
-                        visitor.visit_expr(first);
-                    });
-                }
-                // Remaining args/keywords are runtime
+                // Skip first positional arg (type annotation)
+                // Visit remaining args/keywords (runtime)
                 for arg in call.arguments.args.iter().skip(1) {
                     self.visit_expr(arg);
                 }
@@ -277,24 +129,13 @@ impl<'a> SourceOrderVisitor<'a> for SymbolUsageVisitor {
             }
             _ => {
                 // For all other expressions, use default traversal
-                source_order::walk_expr(self, expr);
+                visitor::walk_expr(self, expr);
             }
         }
     }
 }
 
 impl SymbolUsageVisitor {
-    /// Helper to safely execute code within an annotation context
-    ///
-    /// This ensures proper pairing of `enter_annotation/exit_annotation` calls
-    /// and prevents imbalances that could occur with early returns during AST traversal.
-    fn with_annotation<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        self.enter_annotation();
-        let result = f(self);
-        self.exit_annotation();
-        result
-    }
-
     /// Check if a function call is typing.cast or `typing_extensions.cast`
     ///
     /// Recognizes both direct imports (cast) and qualified calls (typing.cast)
@@ -473,36 +314,27 @@ y = x
 
     #[test]
     fn test_annotation_context_balance() {
-        // This test ensures that annotation context depth is properly balanced
+        // This test ensures that annotations are properly excluded
         // even with complex nested annotation patterns
         let code = r"
 from typing import Dict, List, Optional
 def func(
-    x: Dict[str, List[Optional[int]]], 
+    x: Dict[str, List[Optional[int]]],
     y: Optional[Dict[str, int]] = None
 ) -> List[str]:
     return [str(x), str(y)]
 ";
-        let mut visitor = SymbolUsageVisitor::new();
-        let parsed = parse(code, Mode::Module.into()).expect("Failed to parse");
-        match parsed.into_syntax() {
-            ruff_python_ast::Mod::Module(module) => {
-                visitor.visit_body(&module.body);
-            }
-            _ => panic!("Expected module"),
-        }
-
-        // Verify annotation context is balanced (should be at depth 0)
-        assert_eq!(visitor.annotation_depth, 0);
-        assert!(!visitor.in_annotation);
+        let used = parse_and_collect(code);
 
         // Verify runtime symbols are tracked correctly
-        assert!(visitor.used_names.contains("str"));
+        assert!(used.contains("str"));
+        assert!(used.contains("x"));
+        assert!(used.contains("y"));
         // Verify type annotations are not tracked
-        assert!(!visitor.used_names.contains("Dict"));
-        assert!(!visitor.used_names.contains("List"));
-        assert!(!visitor.used_names.contains("Optional"));
-        assert!(!visitor.used_names.contains("int"));
+        assert!(!used.contains("Dict"));
+        assert!(!used.contains("List"));
+        assert!(!used.contains("Optional"));
+        assert!(!used.contains("int"));
     }
 
     #[test]
