@@ -3,8 +3,8 @@
 //! Also performs semantic analysis to determine import usage patterns.
 
 use ruff_python_ast::{
-    AnyNodeRef, Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, Stmt, StmtImport,
-    StmtImportFrom,
+    AnyNodeRef, Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, ExprUnaryOp, Stmt,
+    StmtImport, StmtImportFrom, UnaryOp,
     visitor::source_order::{SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
@@ -310,19 +310,33 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         !requires_module_level && !import.is_used_in_init
     }
 
-    /// Check if a condition is a `TYPE_CHECKING` check
-    fn is_type_checking_condition(&self, expr: &Expr) -> bool {
+    /// Determine which branch of an if statement is `TYPE_CHECKING`
+    /// Returns:
+    /// - Some(true)  => `if TYPE_CHECKING:` (then-branch is type-checking)
+    /// - Some(false) => `if not TYPE_CHECKING:` (else-branch is type-checking)
+    /// - None        => not a `TYPE_CHECKING` guard
+    fn type_checking_branch(&self, expr: &Expr) -> Option<bool> {
         match expr {
-            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
-            Expr::Attribute(attr) => {
+            Expr::Name(name) if name.id.as_str() == "TYPE_CHECKING" => Some(true),
+            Expr::Attribute(attr)
                 if attr.attr.as_str() == "TYPE_CHECKING"
-                    && let Expr::Name(name) = &*attr.value
-                {
-                    return name.id.as_str() == "typing";
-                }
-                false
+                    && matches!(&*attr.value, Expr::Name(n) if n.id.as_str() == "typing") =>
+            {
+                Some(true)
             }
-            _ => false,
+            Expr::UnaryOp(ExprUnaryOp {
+                op: UnaryOp::Not,
+                operand,
+                ..
+            }) => {
+                // Handle `if not TYPE_CHECKING:`
+                match self.type_checking_branch(operand) {
+                    Some(true) => Some(false), // not TYPE_CHECKING
+                    Some(false) => Some(true), // not (not TYPE_CHECKING)
+                    None => None,
+                }
+            }
+            _ => None,
         }
     }
 
@@ -525,12 +539,7 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
                     .push(ScopeElement::Class(class.name.to_string()));
                 self.imported_names_stack.push(FxIndexMap::default());
             }
-            AnyNodeRef::StmtIf(if_stmt) => {
-                // Check if this is a TYPE_CHECKING block and push state
-                let is_type_checking = self.is_type_checking_condition(&if_stmt.test);
-                self.type_checking_stack.push(is_type_checking);
-                self.scope_stack.push(ScopeElement::If);
-            }
+            // If handling moved to visit_stmt to distinguish body vs orelse TYPE_CHECKING
             AnyNodeRef::StmtWhile(_) => {
                 self.scope_stack.push(ScopeElement::While);
             }
@@ -559,11 +568,7 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
                 self.scope_stack.pop();
                 self.imported_names_stack.pop();
             }
-            AnyNodeRef::StmtIf(_) => {
-                // Pop type checking state
-                self.type_checking_stack.pop();
-                self.scope_stack.pop();
-            }
+            // If handling moved to visit_stmt
             AnyNodeRef::StmtWhile(_)
             | AnyNodeRef::StmtFor(_)
             | AnyNodeRef::StmtWith(_)
@@ -576,6 +581,58 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
 
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
+            Stmt::If(if_stmt) => {
+                // Determine which branch (if any) is TYPE_CHECKING
+                let branch = self.type_checking_branch(&if_stmt.test);
+
+                // Visit IF body
+                self.scope_stack.push(ScopeElement::If);
+                if matches!(branch, Some(true)) {
+                    // `if TYPE_CHECKING:` - then-branch is type-checking
+                    self.type_checking_stack.push(true);
+                }
+                for s in &if_stmt.body {
+                    self.visit_stmt(s);
+                }
+                if matches!(branch, Some(true)) {
+                    self.type_checking_stack.pop();
+                }
+                self.scope_stack.pop();
+
+                // Visit ELIF/ELSE clauses
+                for clause in &if_stmt.elif_else_clauses {
+                    self.scope_stack.push(ScopeElement::If);
+
+                    // Check if this is an elif with TYPE_CHECKING condition
+                    let elif_branch = clause
+                        .test
+                        .as_ref()
+                        .and_then(|test| self.type_checking_branch(test));
+
+                    if matches!(branch, Some(false)) && clause.test.is_none() {
+                        // This is an else clause after `if not TYPE_CHECKING:`
+                        self.type_checking_stack.push(true);
+                    } else if matches!(elif_branch, Some(true)) {
+                        // This is `elif TYPE_CHECKING:`
+                        self.type_checking_stack.push(true);
+                    } else if matches!(elif_branch, Some(false)) {
+                        // This is `elif not TYPE_CHECKING:` (the else would be type-checking)
+                        // But we're not handling that case's else here
+                    }
+
+                    for s in &clause.body {
+                        self.visit_stmt(s);
+                    }
+
+                    if (matches!(branch, Some(false)) && clause.test.is_none())
+                        || matches!(elif_branch, Some(true))
+                    {
+                        self.type_checking_stack.pop();
+                    }
+                    self.scope_stack.pop();
+                }
+                return; // We've manually traversed this node
+            }
             Stmt::Import(import_stmt) => {
                 log::debug!("Processing import statement");
                 self.record_import(import_stmt);
@@ -812,6 +869,77 @@ class MyClass:
                 matches!(&scopes[1], ScopeElement::Function(m) if m == "method") &&
                 matches!(&scopes[2], ScopeElement::Function(f) if f == "nested_function")
         ));
+    }
+
+    #[test]
+    fn test_type_checking_if_else() {
+        // Test that else branch is NOT marked as type-checking when if branch is
+        let source = r"
+TYPE_CHECKING = False
+
+if TYPE_CHECKING:
+    import typing_extensions
+else:
+    import json
+";
+        let parsed = parse_module(source).expect("Failed to parse test module");
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+        let imports = visitor.into_imports();
+
+        assert_eq!(imports.len(), 2);
+
+        // typing_extensions should be marked as type-checking only
+        let typing_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("typing_extensions".to_string()))
+            .expect("typing_extensions import not found");
+        assert!(typing_import.is_type_checking_only);
+
+        // json should NOT be marked as type-checking only
+        let json_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("json".to_string()))
+            .expect("json import not found");
+        assert!(!json_import.is_type_checking_only);
+    }
+
+    #[test]
+    fn test_type_checking_if_not_else() {
+        // Test that else branch IS marked as type-checking when using 'if not TYPE_CHECKING'
+        let source = r"
+TYPE_CHECKING = False
+
+if not TYPE_CHECKING:
+    import json
+else:
+    import typing_extensions
+";
+        let parsed = parse_module(source).expect("Failed to parse test module");
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+        let imports = visitor.into_imports();
+
+        assert_eq!(imports.len(), 2);
+
+        // json should NOT be marked as type-checking only (it's in the 'if not TYPE_CHECKING'
+        // branch)
+        let json_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("json".to_string()))
+            .expect("json import not found");
+        assert!(!json_import.is_type_checking_only);
+
+        // typing_extensions should be marked as type-checking only (it's in the else branch)
+        let typing_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("typing_extensions".to_string()))
+            .expect("typing_extensions import not found");
+        assert!(typing_import.is_type_checking_only);
     }
 
     #[test]
