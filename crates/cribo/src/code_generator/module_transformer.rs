@@ -650,7 +650,7 @@ pub fn transform_module_to_init_function<'a>(
     // First pass: collect all wrapper module namespace variables that need global declarations
     // Use a visitor to properly traverse the AST
     let wrapper_globals_needed = {
-        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
+        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, walk_stmt};
 
         struct WrapperGlobalCollector {
             globals_needed: FxIndexSet<String>,
@@ -665,15 +665,14 @@ pub fn transform_module_to_init_function<'a>(
 
             fn collect(processed_body: &[Stmt]) -> FxIndexSet<String> {
                 let mut collector = Self::new();
-                for stmt in processed_body {
-                    collector.visit_stmt(stmt);
-                }
+                source_order::walk_body(&mut collector, processed_body);
                 collector.globals_needed
             }
         }
 
         impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
             fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                // Check if this assignment needs a global declaration
                 if let Stmt::Assign(assign) = stmt {
                     // Check if the value is a call to an init function
                     if let Expr::Call(call) = assign.value.as_ref()
@@ -696,8 +695,9 @@ pub fn transform_module_to_init_function<'a>(
                         }
                     }
                 }
-                // Continue traversing the statement tree
-                source_order::walk_stmt(self, stmt);
+
+                // Continue traversal to children
+                walk_stmt(self, stmt);
             }
         }
 

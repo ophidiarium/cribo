@@ -2,7 +2,8 @@
 /// to resolve circular dependencies
 use log::{debug, trace};
 use ruff_python_ast::{
-    self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom, visitor::Visitor,
+    self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom,
+    visitor::source_order::SourceOrderVisitor,
 };
 
 use crate::{

@@ -3,8 +3,9 @@
 //! Also performs semantic analysis to determine import usage patterns.
 
 use ruff_python_ast::{
-    Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, Stmt, StmtImport, StmtImportFrom,
-    visitor::{Visitor, walk_expr, walk_stmt},
+    AnyNodeRef, Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, ExprUnaryOp, Stmt,
+    StmtImport, StmtImportFrom, UnaryOp,
+    visitor::source_order::{SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
 
@@ -125,8 +126,8 @@ pub struct ImportDiscoveryVisitor<'a> {
     _module_id: Option<ModuleId>,
     /// Current execution context
     current_context: ExecutionContext,
-    /// Whether we're in a type checking block
-    in_type_checking: bool,
+    /// Stack to track `TYPE_CHECKING` state (for nested if blocks)
+    type_checking_stack: Vec<bool>,
     /// Track if we have importlib imported
     has_importlib: bool,
 }
@@ -149,7 +150,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             _semantic_bundler: None,
             _module_id: None,
             current_context: ExecutionContext::ModuleLevel,
-            in_type_checking: false,
+            type_checking_stack: Vec::new(),
             has_importlib: false,
         }
     }
@@ -167,7 +168,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             _semantic_bundler: Some(semantic_bundler),
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
-            in_type_checking: false,
+            type_checking_stack: Vec::new(),
             has_importlib: false,
         }
     }
@@ -245,9 +246,14 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         }
     }
 
+    /// Check if we're currently in a `TYPE_CHECKING` block
+    fn in_type_checking(&self) -> bool {
+        self.type_checking_stack.iter().any(|&v| v)
+    }
+
     /// Get current execution context based on scope stack
     fn get_current_execution_context(&self) -> ExecutionContext {
-        if self.in_type_checking {
+        if self.in_type_checking() {
             return ExecutionContext::TypeAnnotation;
         }
 
@@ -304,19 +310,33 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         !requires_module_level && !import.is_used_in_init
     }
 
-    /// Check if a condition is a `TYPE_CHECKING` check
-    fn is_type_checking_condition(&self, expr: &Expr) -> bool {
+    /// Determine which branch of an if statement is `TYPE_CHECKING`
+    /// Returns:
+    /// - Some(true)  => `if TYPE_CHECKING:` (then-branch is type-checking)
+    /// - Some(false) => `if not TYPE_CHECKING:` (else-branch is type-checking)
+    /// - None        => not a `TYPE_CHECKING` guard
+    fn type_checking_branch(expr: &Expr) -> Option<bool> {
         match expr {
-            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
-            Expr::Attribute(attr) => {
+            Expr::Name(name) if name.id.as_str() == "TYPE_CHECKING" => Some(true),
+            Expr::Attribute(attr)
                 if attr.attr.as_str() == "TYPE_CHECKING"
-                    && let Expr::Name(name) = &*attr.value
-                {
-                    return name.id.as_str() == "typing";
-                }
-                false
+                    && matches!(&*attr.value, Expr::Name(n) if n.id.as_str() == "typing") =>
+            {
+                Some(true)
             }
-            _ => false,
+            Expr::UnaryOp(ExprUnaryOp {
+                op: UnaryOp::Not,
+                operand,
+                ..
+            }) => {
+                // Handle `if not TYPE_CHECKING:`
+                match Self::type_checking_branch(operand) {
+                    Some(true) => Some(false), // not TYPE_CHECKING
+                    Some(false) => Some(true), // not (not TYPE_CHECKING)
+                    None => None,
+                }
+            }
+            _ => None,
         }
     }
 
@@ -442,7 +462,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 execution_contexts: FxIndexSet::default(),
                 is_used_in_init: false,
                 is_movable: false,
-                is_type_checking_only: self.in_type_checking,
+                is_type_checking_only: self.in_type_checking(),
                 package_context: None,
             };
             self.imports.push(import);
@@ -498,16 +518,118 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             execution_contexts: FxIndexSet::default(),
             is_used_in_init: false,
             is_movable: false,
-            is_type_checking_only: self.in_type_checking,
+            is_type_checking_only: self.in_type_checking(),
             package_context: None,
         };
         self.imports.push(import);
     }
 }
 
-impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
+impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
+    fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
+        match node {
+            // Handle scope-creating nodes
+            AnyNodeRef::StmtFunctionDef(func) => {
+                self.scope_stack
+                    .push(ScopeElement::Function(func.name.to_string()));
+                self.imported_names_stack.push(FxIndexMap::default());
+            }
+            AnyNodeRef::StmtClassDef(class) => {
+                self.scope_stack
+                    .push(ScopeElement::Class(class.name.to_string()));
+                self.imported_names_stack.push(FxIndexMap::default());
+            }
+            // If handling moved to visit_stmt to distinguish body vs orelse TYPE_CHECKING
+            AnyNodeRef::StmtWhile(_) => {
+                self.scope_stack.push(ScopeElement::While);
+            }
+            AnyNodeRef::StmtFor(_) => {
+                self.scope_stack.push(ScopeElement::For);
+            }
+            AnyNodeRef::StmtWith(_) => {
+                self.scope_stack.push(ScopeElement::With);
+            }
+            AnyNodeRef::StmtTry(_) => {
+                self.scope_stack.push(ScopeElement::Try);
+            }
+            _ => {}
+        }
+        TraversalSignal::Traverse
+    }
+
+    fn leave_node(&mut self, node: AnyNodeRef<'a>) {
+        match node {
+            // Clean up scope stack when leaving scope-creating nodes
+            AnyNodeRef::StmtFunctionDef(_) => {
+                self.scope_stack.pop();
+                self.imported_names_stack.pop();
+            }
+            AnyNodeRef::StmtClassDef(_) => {
+                self.scope_stack.pop();
+                self.imported_names_stack.pop();
+            }
+            // If handling moved to visit_stmt
+            AnyNodeRef::StmtWhile(_)
+            | AnyNodeRef::StmtFor(_)
+            | AnyNodeRef::StmtWith(_)
+            | AnyNodeRef::StmtTry(_) => {
+                self.scope_stack.pop();
+            }
+            _ => {}
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
+            Stmt::If(if_stmt) => {
+                // Determine which branch (if any) is TYPE_CHECKING
+                let branch = Self::type_checking_branch(&if_stmt.test);
+
+                // Visit IF body
+                self.scope_stack.push(ScopeElement::If);
+                if matches!(branch, Some(true)) {
+                    // `if TYPE_CHECKING:` - then-branch is type-checking
+                    self.type_checking_stack.push(true);
+                }
+                for s in &if_stmt.body {
+                    self.visit_stmt(s);
+                }
+                if matches!(branch, Some(true)) {
+                    self.type_checking_stack.pop();
+                }
+                self.scope_stack.pop();
+
+                // Visit ELIF/ELSE clauses
+                for clause in &if_stmt.elif_else_clauses {
+                    self.scope_stack.push(ScopeElement::If);
+
+                    // Check if this is an elif with TYPE_CHECKING condition
+                    let elif_branch = clause.test.as_ref().and_then(Self::type_checking_branch);
+
+                    if matches!(branch, Some(false)) && clause.test.is_none() {
+                        // This is an else clause after `if not TYPE_CHECKING:`
+                        self.type_checking_stack.push(true);
+                    } else if matches!(elif_branch, Some(true)) {
+                        // This is `elif TYPE_CHECKING:`
+                        self.type_checking_stack.push(true);
+                    } else if matches!(elif_branch, Some(false)) {
+                        // This is `elif not TYPE_CHECKING:` (the else would be type-checking)
+                        // But we're not handling that case's else here
+                    }
+
+                    for s in &clause.body {
+                        self.visit_stmt(s);
+                    }
+
+                    if (matches!(branch, Some(false)) && clause.test.is_none())
+                        || matches!(elif_branch, Some(true))
+                    {
+                        self.type_checking_stack.pop();
+                    }
+                    self.scope_stack.pop();
+                }
+                return; // We've manually traversed this node
+            }
             Stmt::Import(import_stmt) => {
                 log::debug!("Processing import statement");
                 self.record_import(import_stmt);
@@ -516,75 +638,14 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                 log::debug!("Processing import from statement");
                 self.record_import_from(import_from);
             }
-            Stmt::Assign(_assign_stmt) => {
+            Stmt::Assign(_) => {
                 log::debug!("Processing assignment statement");
-                // Just walk the statement - ImportlibStatic imports are handled in visit_expr
-                walk_stmt(self, stmt);
-                return; // Don't call walk_stmt again
-            }
-            Stmt::FunctionDef(func) => {
-                self.scope_stack
-                    .push(ScopeElement::Function(func.name.to_string()));
-                self.imported_names_stack.push(FxIndexMap::default());
-                // Visit the function body
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                self.imported_names_stack.pop();
-                return; // Don't call walk_stmt again
-            }
-            Stmt::ClassDef(class) => {
-                self.scope_stack
-                    .push(ScopeElement::Class(class.name.to_string()));
-                self.imported_names_stack.push(FxIndexMap::default());
-                // Visit the class body
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                self.imported_names_stack.pop();
-                return;
-            }
-            Stmt::If(if_stmt) => {
-                // Check if this is a TYPE_CHECKING block
-                let was_type_checking = self.in_type_checking;
-                if self.is_type_checking_condition(&if_stmt.test) {
-                    self.in_type_checking = true;
-                }
-
-                self.scope_stack.push(ScopeElement::If);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-
-                // Restore the previous type checking state
-                self.in_type_checking = was_type_checking;
-                return;
-            }
-            Stmt::While(_) => {
-                self.scope_stack.push(ScopeElement::While);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
-            }
-            Stmt::For(_) => {
-                self.scope_stack.push(ScopeElement::For);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
-            }
-            Stmt::With(_) => {
-                self.scope_stack.push(ScopeElement::With);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
-            }
-            Stmt::Try(_) => {
-                self.scope_stack.push(ScopeElement::Try);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
+                // ImportlibStatic imports are handled in visit_expr
             }
             _ => {}
         }
 
-        // For other statement types, use default traversal
+        // Continue traversal to children
         walk_stmt(self, stmt);
     }
 
@@ -619,7 +680,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                         execution_contexts: FxIndexSet::default(),
                         is_used_in_init: false,
                         is_movable: false,
-                        is_type_checking_only: self.in_type_checking,
+                        is_type_checking_only: self.in_type_checking(),
                         package_context,
                     };
                     self.imports.push(import);
@@ -677,7 +738,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use ruff_python_ast::visitor::Visitor;
+    use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
     use ruff_python_parser::parse_module;
 
     use super::*;
@@ -805,6 +866,77 @@ class MyClass:
                 matches!(&scopes[1], ScopeElement::Function(m) if m == "method") &&
                 matches!(&scopes[2], ScopeElement::Function(f) if f == "nested_function")
         ));
+    }
+
+    #[test]
+    fn test_type_checking_if_else() {
+        // Test that else branch is NOT marked as type-checking when if branch is
+        let source = r"
+TYPE_CHECKING = False
+
+if TYPE_CHECKING:
+    import typing_extensions
+else:
+    import json
+";
+        let parsed = parse_module(source).expect("Failed to parse test module");
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+        let imports = visitor.into_imports();
+
+        assert_eq!(imports.len(), 2);
+
+        // typing_extensions should be marked as type-checking only
+        let typing_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("typing_extensions".to_string()))
+            .expect("typing_extensions import not found");
+        assert!(typing_import.is_type_checking_only);
+
+        // json should NOT be marked as type-checking only
+        let json_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("json".to_string()))
+            .expect("json import not found");
+        assert!(!json_import.is_type_checking_only);
+    }
+
+    #[test]
+    fn test_type_checking_if_not_else() {
+        // Test that else branch IS marked as type-checking when using 'if not TYPE_CHECKING'
+        let source = r"
+TYPE_CHECKING = False
+
+if not TYPE_CHECKING:
+    import json
+else:
+    import typing_extensions
+";
+        let parsed = parse_module(source).expect("Failed to parse test module");
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+        let imports = visitor.into_imports();
+
+        assert_eq!(imports.len(), 2);
+
+        // json should NOT be marked as type-checking only (it's in the 'if not TYPE_CHECKING'
+        // branch)
+        let json_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("json".to_string()))
+            .expect("json import not found");
+        assert!(!json_import.is_type_checking_only);
+
+        // typing_extensions should be marked as type-checking only (it's in the else branch)
+        let typing_import = imports
+            .iter()
+            .find(|i| i.module_name == Some("typing_extensions".to_string()))
+            .expect("typing_extensions import not found");
+        assert!(typing_import.is_type_checking_only);
     }
 
     #[test]
