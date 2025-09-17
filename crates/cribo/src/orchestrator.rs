@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{ModModule, visitor::Visitor};
+use ruff_python_ast::{ModModule, visitor::source_order::SourceOrderVisitor};
 
 use crate::{
     analyzers::types::{

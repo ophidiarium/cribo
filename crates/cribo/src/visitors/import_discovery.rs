@@ -3,8 +3,9 @@
 //! Also performs semantic analysis to determine import usage patterns.
 
 use ruff_python_ast::{
-    Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, Stmt, StmtImport, StmtImportFrom,
-    visitor::{Visitor, walk_expr, walk_stmt},
+    AnyNodeRef, Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, Stmt, StmtImport,
+    StmtImportFrom,
+    visitor::source_order::{SourceOrderVisitor, TraversalSignal, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
 
@@ -125,8 +126,8 @@ pub struct ImportDiscoveryVisitor<'a> {
     _module_id: Option<ModuleId>,
     /// Current execution context
     current_context: ExecutionContext,
-    /// Whether we're in a type checking block
-    in_type_checking: bool,
+    /// Stack to track `TYPE_CHECKING` state (for nested if blocks)
+    type_checking_stack: Vec<bool>,
     /// Track if we have importlib imported
     has_importlib: bool,
 }
@@ -149,7 +150,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             _semantic_bundler: None,
             _module_id: None,
             current_context: ExecutionContext::ModuleLevel,
-            in_type_checking: false,
+            type_checking_stack: Vec::new(),
             has_importlib: false,
         }
     }
@@ -167,7 +168,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             _semantic_bundler: Some(semantic_bundler),
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
-            in_type_checking: false,
+            type_checking_stack: Vec::new(),
             has_importlib: false,
         }
     }
@@ -245,9 +246,14 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         }
     }
 
+    /// Check if we're currently in a `TYPE_CHECKING` block
+    fn in_type_checking(&self) -> bool {
+        self.type_checking_stack.iter().any(|&v| v)
+    }
+
     /// Get current execution context based on scope stack
     fn get_current_execution_context(&self) -> ExecutionContext {
-        if self.in_type_checking {
+        if self.in_type_checking() {
             return ExecutionContext::TypeAnnotation;
         }
 
@@ -442,7 +448,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 execution_contexts: FxIndexSet::default(),
                 is_used_in_init: false,
                 is_movable: false,
-                is_type_checking_only: self.in_type_checking,
+                is_type_checking_only: self.in_type_checking(),
                 package_context: None,
             };
             self.imports.push(import);
@@ -498,14 +504,76 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             execution_contexts: FxIndexSet::default(),
             is_used_in_init: false,
             is_movable: false,
-            is_type_checking_only: self.in_type_checking,
+            is_type_checking_only: self.in_type_checking(),
             package_context: None,
         };
         self.imports.push(import);
     }
 }
 
-impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
+impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
+    fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
+        match node {
+            // Handle scope-creating nodes
+            AnyNodeRef::StmtFunctionDef(func) => {
+                self.scope_stack
+                    .push(ScopeElement::Function(func.name.to_string()));
+                self.imported_names_stack.push(FxIndexMap::default());
+            }
+            AnyNodeRef::StmtClassDef(class) => {
+                self.scope_stack
+                    .push(ScopeElement::Class(class.name.to_string()));
+                self.imported_names_stack.push(FxIndexMap::default());
+            }
+            AnyNodeRef::StmtIf(if_stmt) => {
+                // Check if this is a TYPE_CHECKING block and push state
+                let is_type_checking = self.is_type_checking_condition(&if_stmt.test);
+                self.type_checking_stack.push(is_type_checking);
+                self.scope_stack.push(ScopeElement::If);
+            }
+            AnyNodeRef::StmtWhile(_) => {
+                self.scope_stack.push(ScopeElement::While);
+            }
+            AnyNodeRef::StmtFor(_) => {
+                self.scope_stack.push(ScopeElement::For);
+            }
+            AnyNodeRef::StmtWith(_) => {
+                self.scope_stack.push(ScopeElement::With);
+            }
+            AnyNodeRef::StmtTry(_) => {
+                self.scope_stack.push(ScopeElement::Try);
+            }
+            _ => {}
+        }
+        TraversalSignal::Traverse
+    }
+
+    fn leave_node(&mut self, node: AnyNodeRef<'a>) {
+        match node {
+            // Clean up scope stack when leaving scope-creating nodes
+            AnyNodeRef::StmtFunctionDef(_) => {
+                self.scope_stack.pop();
+                self.imported_names_stack.pop();
+            }
+            AnyNodeRef::StmtClassDef(_) => {
+                self.scope_stack.pop();
+                self.imported_names_stack.pop();
+            }
+            AnyNodeRef::StmtIf(_) => {
+                // Pop type checking state
+                self.type_checking_stack.pop();
+                self.scope_stack.pop();
+            }
+            AnyNodeRef::StmtWhile(_)
+            | AnyNodeRef::StmtFor(_)
+            | AnyNodeRef::StmtWith(_)
+            | AnyNodeRef::StmtTry(_) => {
+                self.scope_stack.pop();
+            }
+            _ => {}
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::Import(import_stmt) => {
@@ -516,70 +584,9 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                 log::debug!("Processing import from statement");
                 self.record_import_from(import_from);
             }
-            Stmt::Assign(_assign_stmt) => {
+            Stmt::Assign(_) => {
                 log::debug!("Processing assignment statement");
-                // Just walk the statement - ImportlibStatic imports are handled in visit_expr
-                walk_stmt(self, stmt);
-                return; // Don't call walk_stmt again
-            }
-            Stmt::FunctionDef(func) => {
-                self.scope_stack
-                    .push(ScopeElement::Function(func.name.to_string()));
-                self.imported_names_stack.push(FxIndexMap::default());
-                // Visit the function body
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                self.imported_names_stack.pop();
-                return; // Don't call walk_stmt again
-            }
-            Stmt::ClassDef(class) => {
-                self.scope_stack
-                    .push(ScopeElement::Class(class.name.to_string()));
-                self.imported_names_stack.push(FxIndexMap::default());
-                // Visit the class body
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                self.imported_names_stack.pop();
-                return;
-            }
-            Stmt::If(if_stmt) => {
-                // Check if this is a TYPE_CHECKING block
-                let was_type_checking = self.in_type_checking;
-                if self.is_type_checking_condition(&if_stmt.test) {
-                    self.in_type_checking = true;
-                }
-
-                self.scope_stack.push(ScopeElement::If);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-
-                // Restore the previous type checking state
-                self.in_type_checking = was_type_checking;
-                return;
-            }
-            Stmt::While(_) => {
-                self.scope_stack.push(ScopeElement::While);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
-            }
-            Stmt::For(_) => {
-                self.scope_stack.push(ScopeElement::For);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
-            }
-            Stmt::With(_) => {
-                self.scope_stack.push(ScopeElement::With);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
-            }
-            Stmt::Try(_) => {
-                self.scope_stack.push(ScopeElement::Try);
-                walk_stmt(self, stmt);
-                self.scope_stack.pop();
-                return;
+                // ImportlibStatic imports are handled in visit_expr
             }
             _ => {}
         }
@@ -619,7 +626,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                         execution_contexts: FxIndexSet::default(),
                         is_used_in_init: false,
                         is_movable: false,
-                        is_type_checking_only: self.in_type_checking,
+                        is_type_checking_only: self.in_type_checking(),
                         package_context,
                     };
                     self.imports.push(import);
@@ -677,7 +684,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use ruff_python_ast::visitor::Visitor;
+    use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
     use ruff_python_parser::parse_module;
 
     use super::*;
