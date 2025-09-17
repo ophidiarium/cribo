@@ -315,7 +315,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
     /// - Some(true)  => `if TYPE_CHECKING:` (then-branch is type-checking)
     /// - Some(false) => `if not TYPE_CHECKING:` (else-branch is type-checking)
     /// - None        => not a `TYPE_CHECKING` guard
-    fn type_checking_branch(&self, expr: &Expr) -> Option<bool> {
+    fn type_checking_branch(expr: &Expr) -> Option<bool> {
         match expr {
             Expr::Name(name) if name.id.as_str() == "TYPE_CHECKING" => Some(true),
             Expr::Attribute(attr)
@@ -330,7 +330,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 ..
             }) => {
                 // Handle `if not TYPE_CHECKING:`
-                match self.type_checking_branch(operand) {
+                match Self::type_checking_branch(operand) {
                     Some(true) => Some(false), // not TYPE_CHECKING
                     Some(false) => Some(true), // not (not TYPE_CHECKING)
                     None => None,
@@ -583,7 +583,7 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
         match stmt {
             Stmt::If(if_stmt) => {
                 // Determine which branch (if any) is TYPE_CHECKING
-                let branch = self.type_checking_branch(&if_stmt.test);
+                let branch = Self::type_checking_branch(&if_stmt.test);
 
                 // Visit IF body
                 self.scope_stack.push(ScopeElement::If);
@@ -604,10 +604,7 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
                     self.scope_stack.push(ScopeElement::If);
 
                     // Check if this is an elif with TYPE_CHECKING condition
-                    let elif_branch = clause
-                        .test
-                        .as_ref()
-                        .and_then(|test| self.type_checking_branch(test));
+                    let elif_branch = clause.test.as_ref().and_then(Self::type_checking_branch);
 
                     if matches!(branch, Some(false)) && clause.test.is_none() {
                         // This is an else clause after `if not TYPE_CHECKING:`

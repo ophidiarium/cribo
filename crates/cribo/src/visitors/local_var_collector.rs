@@ -1,7 +1,7 @@
 //! Local variable collector that respects `global` and `nonlocal` declarations
 //!
 //! This visitor traverses the AST in source order to collect local variable
-//! names, excluding names declared as `global`, and treating names
+//! names at module level, excluding names declared as `global`, and treating names
 //! declared `nonlocal` as locals for collection (to prevent module-attr rewrites).
 
 use ruff_python_ast::{
@@ -13,16 +13,13 @@ use ruff_python_ast::{
 
 use crate::types::FxIndexSet;
 
-/// Visitor that collects local variable names in source order,
+/// Visitor that collects local variable names at module level,
 /// excluding names declared as `global`, and treating `nonlocal` names as locals
-/// for the purposes of collection
 pub struct LocalVarCollector<'a> {
     /// Set to collect local variable names
     local_vars: &'a mut FxIndexSet<String>,
     /// Set of global names to exclude from collection
     global_vars: &'a FxIndexSet<String>,
-    /// Current depth in the AST (0 = module level, >0 = nested scopes)
-    depth: usize,
 }
 
 impl<'a> LocalVarCollector<'a> {
@@ -34,7 +31,6 @@ impl<'a> LocalVarCollector<'a> {
         Self {
             local_vars,
             global_vars,
-            depth: 0,
         }
     }
 
@@ -77,116 +73,85 @@ impl<'a> LocalVarCollector<'a> {
 
 impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
     fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
-        // Track when we're entering nested scopes
+        // Skip traversing into functions and classes - we only collect module-level variables
         match node {
             AnyNodeRef::StmtFunctionDef(func_def) => {
-                // Only collect the function name if we're at depth 0
-                if self.depth == 0 {
-                    self.insert_if_not_global(&func_def.name);
-                }
-                // Increment depth to skip collecting variables inside the function
-                self.depth += 1;
+                // Collect the function name itself as a module-level variable
+                self.insert_if_not_global(&func_def.name);
                 // Skip traversing into the function body
-                return TraversalSignal::Skip;
+                TraversalSignal::Skip
             }
             AnyNodeRef::StmtClassDef(class_def) => {
-                // Only collect the class name if we're at depth 0
-                if self.depth == 0 {
-                    self.insert_if_not_global(&class_def.name);
-                }
-                // Increment depth to skip collecting variables inside the class
-                self.depth += 1;
+                // Collect the class name itself as a module-level variable
+                self.insert_if_not_global(&class_def.name);
                 // Skip traversing into the class body
-                return TraversalSignal::Skip;
+                TraversalSignal::Skip
             }
-            _ => {}
-        }
-        TraversalSignal::Traverse
-    }
-
-    fn leave_node(&mut self, node: AnyNodeRef<'a>) {
-        // Clean up depth tracking when exiting scopes
-        match node {
-            AnyNodeRef::StmtFunctionDef(_) | AnyNodeRef::StmtClassDef(_) => {
-                self.depth -= 1;
-            }
-            _ => {}
+            _ => TraversalSignal::Traverse,
         }
     }
 
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        // Only collect variables if we're at the top level (depth == 0)
-        if self.depth == 0 {
-            match stmt {
-                Stmt::Assign(assign) => {
-                    // Collect names from assignment targets
-                    for target in &assign.targets {
-                        self.collect_from_target(target);
-                    }
+        // Process statements to collect variable bindings
+        match stmt {
+            Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    self.collect_from_target(target);
                 }
-                Stmt::AnnAssign(ann_assign) => {
-                    // Collect names from annotated assignment targets
-                    self.collect_from_target(&ann_assign.target);
-                }
-                Stmt::AugAssign(aug_assign) => {
-                    // Augmented assignments (x += 1) bind names in current scope
-                    self.collect_from_target(&aug_assign.target);
-                }
-                Stmt::For(for_stmt) => {
-                    // Collect for loop targets (including async for)
-                    // Note: is_async is a flag on For, not a separate statement type
-                    self.collect_from_target(&for_stmt.target);
-                }
-                Stmt::With(with_stmt) => {
-                    // Collect with statement targets (including async with)
-                    // Note: is_async is a flag on With, not a separate statement type
-                    for item in &with_stmt.items {
-                        if let Some(ref optional_vars) = item.optional_vars {
-                            self.collect_from_target(optional_vars);
-                        }
-                    }
-                }
-                Stmt::Nonlocal(nonlocal_stmt) => {
-                    // Nonlocal declarations create local names in the enclosing scope
-                    // This prevents incorrect module attribute rewrites in nested functions
-                    for name in &nonlocal_stmt.names {
-                        self.insert_if_not_global(name);
-                    }
-                }
-                Stmt::Import(import_stmt) => {
-                    // Import statements bind names in the current scope
-                    for alias in &import_stmt.names {
-                        let name = if let Some(asname) = &alias.asname {
-                            asname.to_string()
-                        } else {
-                            // For dotted imports like 'import a.b.c', bind only the top-level
-                            // package 'a'
-                            let full_name = alias.name.to_string();
-                            full_name
-                                .split('.')
-                                .next()
-                                .unwrap_or(&full_name)
-                                .to_string()
-                        };
-                        self.insert_if_not_global(&name);
-                    }
-                }
-                Stmt::ImportFrom(from_stmt) => {
-                    // From imports bind the imported names or their aliases
-                    for alias in &from_stmt.names {
-                        // Skip wildcard imports (from m import *)
-                        if alias.name.as_str() == "*" {
-                            continue;
-                        }
-                        let binding = alias
-                            .asname
-                            .as_ref()
-                            .map_or_else(|| alias.name.to_string(), ToString::to_string);
-                        self.insert_if_not_global(&binding);
-                    }
-                }
-                _ => {}
             }
+            Stmt::AnnAssign(ann_assign) => {
+                self.collect_from_target(&ann_assign.target);
+            }
+            Stmt::AugAssign(aug_assign) => {
+                self.collect_from_target(&aug_assign.target);
+            }
+            Stmt::For(for_stmt) => {
+                self.collect_from_target(&for_stmt.target);
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    if let Some(ref optional_vars) = item.optional_vars {
+                        self.collect_from_target(optional_vars);
+                    }
+                }
+            }
+            Stmt::Nonlocal(nonlocal_stmt) => {
+                // Nonlocal declarations create local names in the enclosing scope
+                // This prevents incorrect module attribute rewrites in nested functions
+                for name in &nonlocal_stmt.names {
+                    self.insert_if_not_global(name);
+                }
+            }
+            Stmt::Import(import_stmt) => {
+                for alias in &import_stmt.names {
+                    let name = if let Some(asname) = &alias.asname {
+                        asname.to_string()
+                    } else {
+                        // For dotted imports like 'import a.b.c', bind only 'a'
+                        let full_name = alias.name.to_string();
+                        full_name
+                            .split('.')
+                            .next()
+                            .unwrap_or(&full_name)
+                            .to_string()
+                    };
+                    self.insert_if_not_global(&name);
+                }
+            }
+            Stmt::ImportFrom(from_stmt) => {
+                for alias in &from_stmt.names {
+                    // Skip wildcard imports (from m import *)
+                    if alias.name.as_str() == "*" {
+                        continue;
+                    }
+                    let binding = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| alias.name.to_string(), ToString::to_string);
+                    self.insert_if_not_global(&binding);
+                }
+            }
+            _ => {}
         }
 
         // Continue traversal to children
@@ -194,14 +159,10 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
     }
 
     fn visit_except_handler(&mut self, handler: &'a ExceptHandler) {
-        // Only collect variables if we're at the top level (depth == 0)
-        if self.depth == 0 {
-            let ExceptHandler::ExceptHandler(eh) = handler;
-            // Collect exception name if present, respecting global declarations
-            if let Some(ref name) = eh.name {
-                // Exception names can be global if previously declared
-                self.insert_if_not_global(name);
-            }
+        let ExceptHandler::ExceptHandler(eh) = handler;
+        // Collect exception name if present, respecting global declarations
+        if let Some(ref name) = eh.name {
+            self.insert_if_not_global(name);
         }
         // Continue traversal to children
         walk_except_handler(self, handler);
