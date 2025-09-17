@@ -28,10 +28,14 @@ def bundled_pyyaml():
     # Ensure test directories exist
     tmp_dir = ensure_test_directories()
 
+    # Create isolated directory for pyyaml output
+    pyyaml_output_dir = tmp_dir / "pyyaml"
+    pyyaml_output_dir.mkdir(parents=True, exist_ok=True)
+
     # Paths
     package_root = Path(__file__).resolve().parent.parent / "packages" / "pyyaml"
     yaml_init = package_root / "lib" / "yaml"
-    bundled_output = tmp_dir / "pyyaml_bundled.py"
+    bundled_output = pyyaml_output_dir / "pyyaml_bundled.py"
 
     print("\n🔧 Bundling pyyaml library...")
     print("   Note: PyYAML has an optional C extension (_yaml) that will be ignored")

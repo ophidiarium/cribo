@@ -1,6 +1,7 @@
 """Shared utilities for ecosystem test scenarios."""
 
 import importlib.util
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -40,22 +41,36 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     Returns:
         CompletedProcess instance with the result of running cribo
     """
-    # Always use cargo run to ensure we're using the latest development version
-    # This is important for local development to test changes immediately
-    if verbose:
-        print(f"  Using cargo run --bin cribo for latest development version")
+    # Check if we're running from cargo test (CARGO_BIN_EXE_cribo is set)
+    # This is much faster than cargo run since it uses the already-built binary
+    cargo_bin = os.environ.get("CARGO_BIN_EXE_cribo")
 
-    cmd: List[str] = [
-        "cargo",
-        "run",
-        "--bin",
-        "cribo",
-        "--",
-        "--entry",
-        entry_point,
-        "--output",
-        output_path,
-    ]
+    if cargo_bin and Path(cargo_bin).exists():
+        # Use the pre-built binary from cargo test
+        if verbose:
+            print(f"  Using pre-built binary: {cargo_bin}")
+        cmd: List[str] = [
+            cargo_bin,
+            "--entry",
+            entry_point,
+            "--output",
+            output_path,
+        ]
+    else:
+        # Fallback to cargo run for development
+        if verbose:
+            print(f"  Using cargo run --bin cribo for latest development version")
+        cmd = [
+            "cargo",
+            "run",
+            "--bin",
+            "cribo",
+            "--",
+            "--entry",
+            entry_point,
+            "--output",
+            output_path,
+        ]
 
     if emit_requirements:
         cmd.append("--emit-requirements")

@@ -32,10 +32,14 @@ def bundled_httpx():
     # Ensure test directories exist
     tmp_dir = ensure_test_directories()
 
+    # Create isolated directory for httpx output
+    httpx_output_dir = tmp_dir / "httpx"
+    httpx_output_dir.mkdir(parents=True, exist_ok=True)
+
     # Paths
     package_root = Path(__file__).resolve().parent.parent / "packages" / "httpx"
     httpx_init = package_root / "httpx"
-    bundled_output = tmp_dir / "httpx_bundled.py"
+    bundled_output = httpx_output_dir / "httpx_bundled.py"
     bundled_output.unlink(missing_ok=True)  # Remove if exists
 
     print("\n🔧 Bundling httpx library...")
