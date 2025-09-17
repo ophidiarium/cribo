@@ -226,7 +226,7 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
             _ => {}
         }
 
-        // The framework handles the traversal - we don't call walk_stmt
+        // Continue traversal to children
         walk_stmt(self, stmt);
     }
 }

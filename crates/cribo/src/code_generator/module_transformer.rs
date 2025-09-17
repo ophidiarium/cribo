@@ -712,7 +712,7 @@ pub fn transform_module_to_init_function<'a>(
             }
 
             fn visit_stmt(&mut self, stmt: &'a Stmt) {
-                // The framework handles the traversal
+                // Continue traversal to children
                 walk_stmt(self, stmt);
             }
         }

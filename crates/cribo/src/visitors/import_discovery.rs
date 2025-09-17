@@ -591,7 +591,7 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
             _ => {}
         }
 
-        // For other statement types, use default traversal
+        // Continue traversal to children
         walk_stmt(self, stmt);
     }
 

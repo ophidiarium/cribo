@@ -189,7 +189,7 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
             }
         }
 
-        // The framework handles the traversal - we don't call walk_stmt manually
+        // Continue traversal to children
         walk_stmt(self, stmt);
     }
 
@@ -203,7 +203,7 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                 self.insert_if_not_global(name);
             }
         }
-        // Continue default traversal for the handler body
+        // Continue traversal to children
         walk_except_handler(self, handler);
     }
 }
