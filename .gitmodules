@@ -17,3 +17,9 @@
 	path = ecosystem/packages/httpx
 	url = https://github.com/encode/httpx
 	shallow = true
+[submodule "ecosystem/packages/idna"]
+	path = ecosystem/packages/idna
+	url = https://github.com/kjd/idna.git
+	shallow = true
+	branch = v3.10
+

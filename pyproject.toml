@@ -48,6 +48,7 @@ fixtures = [
 # dependencies for ecosystem testing
 ecosystem = [
     "httpx[http2]>=0.28.1",
+    "idna>=3.10",
     "pyyaml>=6.0.2",
     "requests>=2.32.0",
     "rich>=14.1.0",
@@ -73,3 +74,25 @@ workspace = { exclude = ["ecosystem"] }
 exclude        = [".venv", "references", "ecosystem"]
 force-exclude  = true
 target-version = "py312"
+
+[tool.pytest.ini_options]
+# Pytest configuration for ecosystem tests
+minversion = "7.0"
+# Test paths - only look in ecosystem/scenarios directory
+testpaths = ["ecosystem/scenarios"]
+# Test discovery patterns
+python_files     = "test_*.py"
+python_classes   = "Test*"
+python_functions = "test_*"
+# Add options for better output
+addopts = [
+    "--tb=short",
+    "--strict-markers",
+    "-ra",
+]
+# Markers
+markers = [
+    "network: marks tests as requiring network access",
+    "slow: marks tests as slow running",
+    "xfail: marks tests as expected to fail",
+]

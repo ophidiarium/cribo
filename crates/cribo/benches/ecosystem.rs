@@ -1,6 +1,48 @@
-use std::time::Duration;
+use std::{path::PathBuf, process::Command, time::Duration};
 
 use criterion::{Criterion, criterion_group, criterion_main};
+
+fn get_workspace_root() -> PathBuf {
+    let output = Command::new("cargo")
+        .args(["locate-project", "--workspace", "--message-format", "plain"])
+        .output()
+        .expect("Failed to get workspace root");
+
+    let cargo_toml_path = String::from_utf8(output.stdout)
+        .expect("Invalid UTF-8")
+        .trim()
+        .to_string();
+
+    PathBuf::from(cargo_toml_path)
+        .parent()
+        .expect("Failed to get parent directory")
+        .to_path_buf()
+}
+
+fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
+    let workspace_root = get_workspace_root();
+    let package_path = workspace_root
+        .join("ecosystem")
+        .join("packages")
+        .join(package_name)
+        .join(package_name);
+
+    let output_path = workspace_root
+        .join("target")
+        .join("tmp")
+        .join(format!("{}_bundled_bench.py", package_name));
+
+    Command::new("cargo")
+        .args(["run", "--release", "--"])
+        .arg("--entry")
+        .arg(package_path)
+        .arg("--output")
+        .arg(output_path)
+        .arg("--emit-requirements")
+        .current_dir(&workspace_root)
+        .output()
+        .expect("Failed to run cribo")
+}
 
 fn benchmark_ecosystem_bundling(c: &mut Criterion) {
     let mut group = c.benchmark_group("ecosystem_bundling");
@@ -9,9 +51,29 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(30));
 
-    // TODO: Implement ecosystem benchmarks
-    // This is a work in progress - ecosystem benchmarks will be implemented
-    // once the ecosystem test infrastructure is complete
+    // Benchmark bundling for each package
+    let packages = ["requests", "rich", "idna", "pyyaml", "httpx"];
+
+    for package in packages {
+        // Check if package exists
+        let workspace_root = get_workspace_root();
+        let package_path = workspace_root
+            .join("ecosystem")
+            .join("packages")
+            .join(package);
+
+        if !package_path.exists() {
+            eprintln!(
+                "Skipping {} - package not found at {:?}",
+                package, package_path
+            );
+            continue;
+        }
+
+        group.bench_function(format!("bundle_{}", package), |b| {
+            b.iter(|| bundle_ecosystem_package(package));
+        });
+    }
 
     group.finish();
 }
