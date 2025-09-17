@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/ophidiarium/cribo/compare/v0.6.1...v0.7.0) (2025-09-17)
+
+
+### Bug Fixes
+
+* attach entry module exports to namespace for package imports ([#366](https://github.com/ophidiarium/cribo/issues/366)) ([c299d4c](https://github.com/ophidiarium/cribo/commit/c299d4ca82f6d5fd2fbce141081fcb399043a1a8))
+* handle circular imports from parent __init__ modules ([#362](https://github.com/ophidiarium/cribo/issues/362)) ([ac4348c](https://github.com/ophidiarium/cribo/commit/ac4348c744ffb32635fec913d6f5fcd710c14e70))
+* prefer __init__.py over __main__.py for directory entry points ([#364](https://github.com/ophidiarium/cribo/issues/364)) ([6082ce0](https://github.com/ophidiarium/cribo/commit/6082ce0ed9e6b5ca2480369ba53a46a4a3b33931))
+* prevent globals() transformation in functions within circular dependency modules ([#368](https://github.com/ophidiarium/cribo/issues/368)) ([5cb639b](https://github.com/ophidiarium/cribo/commit/5cb639beb532d947a92aa05be0772fe7aa6f4389))
+
+
+### Miscellaneous Chores
+
+* release 0.7.0 ([f043cff](https://github.com/ophidiarium/cribo/commit/f043cffd65ffd65ef4c7cd4d2e37bda20b16488b))
+
 ## [0.6.1](https://github.com/ophidiarium/cribo/compare/v0.6.0...v0.6.1) (2025-09-13)
 
 
