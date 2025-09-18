@@ -21,5 +21,4 @@
 	path = ecosystem/packages/idna
 	url = https://github.com/kjd/idna.git
 	shallow = true
-	branch = v3.10
 
