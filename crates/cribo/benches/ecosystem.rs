@@ -53,10 +53,10 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
 
     // Benchmark bundling for each package
     let packages = ["requests", "rich", "idna", "pyyaml", "httpx"];
+    let workspace_root = get_workspace_root();
 
     for package in packages {
         // Check if package exists
-        let workspace_root = get_workspace_root();
         let package_path = workspace_root
             .join("ecosystem")
             .join("packages")
