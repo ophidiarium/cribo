@@ -76,7 +76,10 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Fetch all history for tags
-          submodules: recursive
+
+      - name: Initialize ecosystem submodules
+        run: |
+          git submodule update --init --recursive ecosystem/
 
       - name: Set up Rust toolchain
         run: |
@@ -536,7 +539,10 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Fetch all history for tags
-          submodules: recursive
+
+      - name: Initialize ecosystem submodules
+        run: |
+          git submodule update --init --recursive ecosystem/
 
       - name: Download version info
         uses: actions/download-artifact@v5
@@ -768,8 +774,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          submodules: recursive
+
+      - name: Initialize ecosystem submodules
+        run: |
+          git submodule update --init --recursive ecosystem/
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
