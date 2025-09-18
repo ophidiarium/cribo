@@ -41,6 +41,9 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     Returns:
         CompletedProcess instance with the result of running cribo
     """
+    # Resolve workspace root (ecosystem/scenarios/utils.py -> ../../)
+    project_root = Path(__file__).resolve().parent.parent.parent
+
     # Check if we're running from cargo test (CARGO_BIN_EXE_cribo is set)
     # This is much faster than cargo run since it uses the already-built binary
     cargo_bin = os.environ.get("CARGO_BIN_EXE_cribo")
@@ -84,7 +87,7 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     # Debug: print the command being run
     print(f"  Running command: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
 
     if result.returncode != 0:
         print(f"Cribo failed with exit code {result.returncode}")
