@@ -540,10 +540,6 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history for tags
 
-      - name: Initialize ecosystem submodules
-        run: |
-          git submodule update --init --recursive ecosystem/
-
       - name: Download version info
         uses: actions/download-artifact@v5
         with:
