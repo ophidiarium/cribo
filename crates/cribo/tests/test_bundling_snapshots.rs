@@ -202,8 +202,10 @@ fn test_bundling_fixtures() {
         let expects_bundling_failure = fixture_name.starts_with("xfail_");
         let expects_python_failure = fixture_name.starts_with("pyfail_");
 
-        // First, run the original fixture to ensure it's valid Python code
+        // Get Python executable once for the entire test
         let python_cmd = common::get_python_executable();
+
+        // First, run the original fixture to ensure it's valid Python code
         let original_output = Command::new(&python_cmd)
             .arg(path)
             .current_dir(fixture_dir)
@@ -337,7 +339,6 @@ fn test_bundling_fixtures() {
         };
 
         // Optionally validate Python syntax before execution
-        let python_cmd = common::get_python_executable();
         let syntax_check = Command::new(&python_cmd)
             .args(["-m", "py_compile", "-"])
             .stdin(std::process::Stdio::piped())
