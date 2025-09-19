@@ -129,24 +129,28 @@ def test_emoji_domains(idna_module: "IdnaType"):
     print("\n🧪 Testing emoji domains...")
 
     # Note: IDNA 2008 (strict mode) doesn't allow emoji in domain names
-    # The emoji test would fail with InvalidCodepoint error
-    # Testing decoding of a previously valid emoji domain instead
+    # Strict IDNA 2008 must reject emoji - test this explicitly
+    with pytest.raises(idna_module.core.IDNAError):
+        idna_module.encode("💩.la")  # strict=True by default
+    print("  ✅ Emoji domain correctly rejected in strict mode")
 
+    # UTS46 relaxed mode behavior varies across versions
+    # Test it but don't fail if it's not supported
     try:
-        # This will likely fail in strict IDNA 2008 mode
         emoji_encoded = idna_module.encode("💩.la", uts46=True, strict=False)
-        print(f"  ✅ Emoji domain encoding (UTS46 mode): {emoji_encoded}")
-    except Exception as e:
-        # Expected in strict mode
-        print(f"  ℹ️  Emoji encoding not supported in strict mode: {type(e).__name__}")
+        print(f"  ✅ Emoji domain encoding (UTS46 relaxed mode): {emoji_encoded}")
+    except idna_module.core.IDNAError as e:
+        # This is acceptable - some versions don't support emoji even in relaxed mode
+        print(f"  ℹ️  Emoji encoding not supported even in UTS46 mode: {type(e).__name__}")
 
-    # Test decoding (should work)
+    # Test decoding - in strict IDNA 2008, even decoding emoji is restricted
     try:
         emoji_decoded = idna_module.decode(b"xn--ls8h.la")
         assert emoji_decoded == "💩.la"
-        print("  ✅ Emoji domain decoding")
-    except Exception:
-        print("  ℹ️  Emoji decoding also restricted in this version")
+        print("  ✅ Emoji domain decoding works")
+    except idna_module.core.IDNAError:
+        # This is expected in strict IDNA 2008 implementations
+        print("  ✅ Emoji domain decoding correctly rejected (strict IDNA 2008)")
 
 
 def test_mixed_scripts(idna_module: "IdnaType"):
