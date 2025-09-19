@@ -33,21 +33,44 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
         .join(package_name)
         .join(package_name);
 
-    let output_path = workspace_root
+    // Create per-package output directory
+    let output_dir = workspace_root
         .join("target")
         .join("tmp")
-        .join(format!("{}_bundled_bench.py", package_name));
+        .join(package_name);
+    std::fs::create_dir_all(&output_dir).ok();
+    let output_path = output_dir.join("bundled_bench.py");
 
-    Command::new("cargo")
-        .args(["run", "--release", "--"])
+    // Prefer prebuilt binary if available
+    let mut cmd = if let Some(exe) = option_env!("CARGO_BIN_EXE_cribo") {
+        Command::new(exe)
+    } else {
+        let mut c = Command::new("cargo");
+        c.args(["run", "--release", "--"]);
+        c
+    };
+
+    let output = cmd
         .arg("--entry")
-        .arg(package_path)
+        .arg(&package_path)
         .arg("--output")
-        .arg(output_path)
+        .arg(&output_path)
         .arg("--emit-requirements")
         .current_dir(&workspace_root)
         .output()
-        .expect("Failed to run cribo")
+        .expect("Failed to run cribo");
+
+    // Fail fast on bundling errors
+    if !output.status.success() {
+        panic!(
+            "Bundling {} failed\nSTDOUT:\n{}\nSTDERR:\n{}",
+            package_name,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    output
 }
 
 fn benchmark_ecosystem_bundling(c: &mut Criterion) {
