@@ -23,8 +23,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+
+      - name: Initialize ecosystem submodules
+        run: |
+          git submodule update --init --recursive ecosystem/
 
       - name: Setup Rust
         run: rustup show
@@ -215,13 +217,11 @@ jobs:
             # Add bundle size information if available
             if [ -d target/tmp ]; then
               echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | sort | awk '{
-                # Extract package name from path like "target/tmp/requests_bundled.py"
-                split($9, path_parts, "/")
-                filename = path_parts[length(path_parts)]
-                gsub(/_bundled\.py$/, "", filename)
-                print "- **" filename "**: " $5
-              }'
+              find target/tmp -name "*_bundled.py" -type f | while read -r file; do
+                size=$(ls -lh "$file" | awk '{print $5}')
+                basename=$(basename "$file" _bundled.py)
+                echo "- **${basename}**: ${size}"
+              done | sort -u
             fi
           } > ecosystem-report.md
 

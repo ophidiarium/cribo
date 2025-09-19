@@ -31,9 +31,13 @@ def bundled_requests():
     # Ensure test directories exist
     tmp_dir = ensure_test_directories()
 
+    # Create isolated directory for requests output
+    requests_output_dir = tmp_dir / "requests"
+    requests_output_dir.mkdir(parents=True, exist_ok=True)
+
     # Paths
     requests_init = Path(__file__).parent.parent / "packages" / "requests" / "src" / "requests"
-    bundled_output = tmp_dir / "requests_bundled.py"
+    bundled_output = requests_output_dir / "requests_bundled.py"
 
     print("\n🔧 Bundling requests library...")
     result = run_cribo(

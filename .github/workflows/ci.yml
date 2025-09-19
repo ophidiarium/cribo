@@ -37,6 +37,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Initialize ecosystem submodules
+        run: |
+          git submodule update --init --recursive ecosystem/
+
       - name: Set up Rust toolchain
         run: rustup show
 
