@@ -1236,7 +1236,10 @@ pub fn transform_module_to_init_function<'a>(
                 // After the try block, assign all collected symbols to self
                 // This ensures they're available regardless of which branch was taken
                 for symbol_name in symbols_to_export {
-                    // Only export if it should be exported
+                    // Use should_export_symbol directly for dynamically discovered symbols
+                    // from try-except blocks, as they won't be in module_scope_symbols.
+                    // The emit_module_attr_if_exportable helper is designed for statically
+                    // known symbols and would incorrectly filter these out.
                     if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
                         debug!(
                             "Exporting symbol '{}' from try-except block in module '{}'",
