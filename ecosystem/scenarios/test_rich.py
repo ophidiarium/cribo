@@ -9,7 +9,6 @@ This script:
 
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,7 +17,7 @@ from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_te
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
-    import rich as RichType
+    pass
 
 
 @pytest.fixture(scope="module")
@@ -27,10 +26,14 @@ def bundled_rich():
     # Ensure test directories exist
     tmp_dir = ensure_test_directories()
 
+    # Create isolated directory for rich output
+    rich_output_dir = tmp_dir / "rich"
+    rich_output_dir.mkdir(parents=True, exist_ok=True)
+
     # Paths - Updated to use Path.resolve() for robustness
     package_root = Path(__file__).resolve().parent.parent / "packages" / "rich"
     rich_init = package_root / "rich"
-    bundled_output = tmp_dir / "rich_bundled.py"
+    bundled_output = rich_output_dir / "rich_bundled.py"
 
     print("\n🔧 Bundling rich library...")
     result = run_cribo(

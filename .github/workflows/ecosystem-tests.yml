@@ -57,6 +57,9 @@ jobs:
       - name: Run ecosystem tests
         continue-on-error: true
         run: |
+          # Prefer the prebuilt binary for the runner
+          echo "CARGO_BIN_EXE_cribo=$PWD/target/release/cribo" >> "$GITHUB_ENV"
+
           # Run all ecosystem tests with pytest
           # --tb=short for shorter tracebacks
           # -v for verbose output
@@ -156,9 +159,48 @@ jobs:
             } >> $GITHUB_ENV
           fi
 
+      - name: Download main branch benchmark baseline
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          # Try to download the most recent benchmark baseline from main branch
+          echo "Attempting to download benchmark baseline from main branch..."
+
+          # Get the most recent successful workflow run on main branch
+          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ecosystem-tests.yml/runs?branch=main&status=completed&per_page=10" \
+            --jq '.workflow_runs[] | select(.conclusion=="success") | .id' \
+            | head -1)
+
+          if [ -n "$RUN_ID" ]; then
+            echo "Found workflow run: $RUN_ID"
+            # Download the artifact - it contains the criterion results
+            gh run download "$RUN_ID" -n ecosystem-test-results -D /tmp/artifact 2>/dev/null || {
+              echo "Could not download artifact from run $RUN_ID"
+              exit 0
+            }
+
+            # Copy the criterion data if it exists
+            if [ -d "/tmp/artifact/target/criterion" ]; then
+              echo "Copying benchmark baseline from artifact..."
+              mkdir -p target
+              cp -r /tmp/artifact/target/criterion target/
+              echo "Baseline copied successfully"
+            else
+              echo "No criterion data found in artifact"
+            fi
+            rm -rf /tmp/artifact
+          else
+            echo "No successful main branch runs found"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Run ecosystem benchmarks
         id: bench
         run: |
+          # Prefer the prebuilt binary for the runner
+          export CARGO_BIN_EXE_cribo="$PWD/target/release/cribo"
+
           # Run benchmarks and save results
           cargo bench --bench ecosystem --features bench -- --save-baseline pr-${{ github.event.pull_request.number || 'main' }}
 
@@ -215,13 +257,15 @@ jobs:
             # Add bundle size information if available
             if [ -d target/tmp ]; then
               echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | sort | awk '{
-                # Extract package name from path like "target/tmp/requests_bundled.py"
-                split($9, path_parts, "/")
-                filename = path_parts[length(path_parts)]
-                gsub(/_bundled\.py$/, "", filename)
-                print "- **" filename "**: " $5
-              }'
+              find target/tmp -name "*_bundled.py" -type f -print0 \
+                | while IFS= read -r -d '' file; do
+                    size_bytes=$(stat -c%s "$file" 2>/dev/null || wc -c <"$file")
+                    size_human=$(numfmt --to=iec --suffix=B "$size_bytes" 2>/dev/null || echo "${size_bytes}B")
+                    pkg=$(basename "$(dirname "$file")")  # target/tmp/<pkg>/...
+                    echo "${size_bytes} - **${pkg}**: ${size_human}"
+                  done \
+                | sort -nr \
+                | sed 's/^[0-9]\+ //'  # drop the numeric sort key
             fi
           } > ecosystem-report.md
 
