@@ -167,18 +167,30 @@ jobs:
           echo "Attempting to download benchmark baseline from main branch..."
 
           # Get the most recent successful workflow run on main branch
-          RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/ecosystem-tests.yml/runs \
-            --jq '.workflow_runs[] | select(.head_branch=="main" and .status=="completed" and .conclusion=="success") | .id' \
+          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ecosystem-tests.yml/runs?branch=main&status=completed&per_page=10" \
+            --jq '.workflow_runs[] | select(.conclusion=="success") | .id' \
             | head -1)
 
           if [ -n "$RUN_ID" ]; then
             echo "Found workflow run: $RUN_ID"
-            # Download the artifact
-            gh run download "$RUN_ID" -n ecosystem-benchmark-baseline-main -D target/criterion/ 2>/dev/null || {
-              echo "Could not download baseline from run $RUN_ID"
+            # Download the artifact - it contains the criterion results
+            gh run download "$RUN_ID" -n ecosystem-test-results -D /tmp/artifact 2>/dev/null || {
+              echo "Could not download artifact from run $RUN_ID"
+              exit 0
             }
+
+            # Copy the criterion data if it exists
+            if [ -d "/tmp/artifact/target/criterion" ]; then
+              echo "Copying benchmark baseline from artifact..."
+              mkdir -p target
+              cp -r /tmp/artifact/target/criterion target/
+              echo "Baseline copied successfully"
+            else
+              echo "No criterion data found in artifact"
+            fi
+            rm -rf /tmp/artifact
           else
-            echo "No successful main branch runs found with benchmark baseline"
+            echo "No successful main branch runs found"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
@@ -312,13 +324,3 @@ jobs:
             target/criterion/
             ecosystem-report.md
             benchmark_results.txt
-
-      - name: Upload main branch benchmark baseline
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ecosystem-benchmark-baseline-main
-          retention-days: 30
-          if-no-files-found: ignore
-          path: |
-            target/criterion/ecosystem_bundling/
