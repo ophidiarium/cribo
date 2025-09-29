@@ -159,6 +159,30 @@ jobs:
             } >> $GITHUB_ENV
           fi
 
+      - name: Download main branch benchmark baseline
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          # Try to download the most recent benchmark baseline from main branch
+          echo "Attempting to download benchmark baseline from main branch..."
+
+          # Get the most recent successful workflow run on main branch
+          RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/ecosystem-tests.yml/runs \
+            --jq '.workflow_runs[] | select(.head_branch=="main" and .status=="completed" and .conclusion=="success") | .id' \
+            | head -1)
+
+          if [ -n "$RUN_ID" ]; then
+            echo "Found workflow run: $RUN_ID"
+            # Download the artifact
+            gh run download "$RUN_ID" -n ecosystem-benchmark-baseline-main -D target/criterion/ 2>/dev/null || {
+              echo "Could not download baseline from run $RUN_ID"
+            }
+          else
+            echo "No successful main branch runs found with benchmark baseline"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Run ecosystem benchmarks
         id: bench
         run: |
@@ -288,3 +312,13 @@ jobs:
             target/criterion/
             ecosystem-report.md
             benchmark_results.txt
+
+      - name: Upload main branch benchmark baseline
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-benchmark-baseline-main
+          retention-days: 30
+          if-no-files-found: ignore
+          path: |
+            target/criterion/ecosystem_bundling/
