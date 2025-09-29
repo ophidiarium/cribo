@@ -34,10 +34,7 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
         .join(package_name);
 
     // Create per-package output directory
-    let output_dir = workspace_root
-        .join("target")
-        .join("tmp")
-        .join(package_name);
+    let output_dir = workspace_root.join("target").join("tmp").join(package_name);
     std::fs::create_dir_all(&output_dir).ok();
     let output_path = output_dir.join("bundled_bench.py");
 
