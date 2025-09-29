@@ -45,7 +45,8 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
     let possible_paths = [
         package_base.join(module_name), // Direct: packages/idna/idna
         package_base.join("src").join(module_name), // In src: packages/requests/src/requests
-        package_base.join("lib").join(module_name), // In lib: packages/pyyaml/lib/yaml
+        package_base.join("lib3").join(module_name), // In lib3: packages/pyyaml/lib3/yaml
+        package_base.join("lib").join(module_name), // In lib: packages/pyyaml/lib/yaml (fallback)
     ];
 
     let package_path = possible_paths
@@ -157,7 +158,9 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
         let possible_entries = [
             package_dir.join(module_name),             // Direct: packages/idna/idna
             package_dir.join("src").join(module_name), // In src: packages/requests/src/requests
-            package_dir.join("lib").join(module_name), // In lib: packages/pyyaml/lib/yaml
+            package_dir.join("lib3").join(module_name), // In lib3: packages/pyyaml/lib3/yaml
+            package_dir.join("lib").join(module_name), /* In lib: packages/pyyaml/lib/yaml
+                                                        * (fallback) */
         ];
 
         let entry_exists = possible_entries.iter().any(|p| p.exists());
