@@ -59,6 +59,9 @@ jobs:
       - name: Run ecosystem tests
         continue-on-error: true
         run: |
+          # Prefer the prebuilt binary for the runner
+          echo "CARGO_BIN_EXE_cribo=$PWD/target/release/cribo" >> "$GITHUB_ENV"
+
           # Run all ecosystem tests with pytest
           # --tb=short for shorter tracebacks
           # -v for verbose output
@@ -161,6 +164,9 @@ jobs:
       - name: Run ecosystem benchmarks
         id: bench
         run: |
+          # Prefer the prebuilt binary for the runner
+          export CARGO_BIN_EXE_cribo="$PWD/target/release/cribo"
+
           # Run benchmarks and save results
           cargo bench --bench ecosystem --features bench -- --save-baseline pr-${{ github.event.pull_request.number || 'main' }}
 
