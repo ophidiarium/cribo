@@ -58,7 +58,8 @@ jobs:
         continue-on-error: true
         run: |
           # Prefer the prebuilt binary for the runner
-          echo "CARGO_BIN_EXE_cribo=$PWD/target/release/cribo" >> "$GITHUB_ENV"
+          export CARGO_BIN_EXE_cribo="$PWD/target/release/cribo"
+          echo "CARGO_BIN_EXE_cribo=$CARGO_BIN_EXE_cribo" >> "$GITHUB_ENV"
 
           # Run all ecosystem tests with pytest
           # --tb=short for shorter tracebacks
