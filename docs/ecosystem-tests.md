@@ -310,7 +310,7 @@ jobs:
           python -m pip install -e ecosystem/packages/httpx
 
       - name: Run ecosystem tests
-        run: cargo test --test test_ecosystem -- --ignored
+        run: cargo test --test test_ecosystem
 
       - name: Run benchmarks
         run: cargo bench --bench ecosystem_bench -- --save-baseline pr-${{ github.event.pull_request.number }}
