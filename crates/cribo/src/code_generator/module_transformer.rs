@@ -1208,6 +1208,11 @@ pub fn transform_module_to_init_function<'a>(
                             Stmt::With(with_stmt) => {
                                 collect_exportable_symbols(&with_stmt.body, symbols);
                             }
+                            Stmt::Match(match_stmt) => {
+                                for case_ in &match_stmt.cases {
+                                    collect_exportable_symbols(&case_.body, symbols);
+                                }
+                            }
                             _ => {
                                 // Other statements don't contain nested definitions we care about
                             }
