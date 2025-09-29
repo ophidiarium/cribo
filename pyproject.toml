@@ -71,7 +71,7 @@ required-environments = [
 workspace = { exclude = ["ecosystem"] }
 
 [tool.ruff]
-exclude        = [".venv", "references", "ecosystem"]
+exclude        = [".venv", "references", "ecosystem/packages"]
 force-exclude  = true
 target-version = "py312"
 

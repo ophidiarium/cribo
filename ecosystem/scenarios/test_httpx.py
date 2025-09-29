@@ -10,7 +10,6 @@ This script:
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,7 +18,7 @@ from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_te
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
-    import httpx as HttpxType
+    pass
 
 
 # Default timeout for HTTP requests - longer in CI environments
