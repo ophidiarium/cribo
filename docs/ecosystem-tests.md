@@ -184,6 +184,57 @@ print("✓ All rich tests passed")
 ```
 
 ```python
+# ecosystem/scenarios/test_idna.py (simplified example)
+import pytest
+from pathlib import Path
+from .utils import run_cribo, ensure_test_directories
+
+
+@pytest.fixture(scope="module")
+def bundled_idna():
+    """Bundle the idna library with isolated output."""
+    tmp_dir = ensure_test_directories()
+
+    # Create isolated directory for idna
+    idna_output_dir = tmp_dir / "idna"
+    idna_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Bundle using run_cribo utility (uses CARGO_BIN_EXE_cribo if available)
+    package_root = Path(__file__).parent.parent / "packages" / "idna"
+    result = run_cribo(
+        str(package_root / "idna"),
+        str(idna_output_dir / "idna_bundled.py"),
+        emit_requirements=True,
+    )
+
+    assert result.returncode == 0
+
+    # Verify no requirements.txt for pure Python package
+    assert not (idna_output_dir / "requirements.txt").exists()
+
+    return str(idna_output_dir / "idna_bundled.py")
+
+
+@pytest.mark.parametrize(
+    "domain,expected",
+    [
+        ("example.com", b"example.com"),
+        ("münchen.de", b"xn--mnchen-3ya.de"),
+        ("中国.cn", b"xn--fiqs8s.cn"),
+    ],
+)
+def test_idna_encoding(bundled_idna, domain, expected):
+    """Test international domain encoding with parametrization."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("idna", bundled_idna)
+    idna = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(idna)
+
+    assert idna.encode(domain) == expected
+```
+
+```python
 # ecosystem/scenarios/test_requests.py
 import subprocess
 import json
@@ -254,10 +305,12 @@ jobs:
         run: |
           python -m pip install -e ecosystem/packages/requests
           python -m pip install -e ecosystem/packages/rich
-          # ... other packages
+          python -m pip install -e ecosystem/packages/idna
+          python -m pip install -e ecosystem/packages/pyyaml
+          python -m pip install -e ecosystem/packages/httpx
 
       - name: Run ecosystem tests
-        run: cargo test --test ecosystem_tests
+        run: cargo test --test test_ecosystem
 
       - name: Run benchmarks
         run: cargo bench --bench ecosystem_bench -- --save-baseline pr-${{ github.event.pull_request.number }}
@@ -284,15 +337,33 @@ jobs:
 
 ### Running Tests
 
+#### From Project Root (Recommended)
+
 ```bash
-# Run all ecosystem tests
-cargo test --test ecosystem_tests
+# Run all ecosystem tests (uses pytest configuration in pyproject.toml)
+pytest
 
 # Run specific package test
-cargo test --test ecosystem_tests test_requests
+pytest ecosystem/scenarios/test_idna.py
+
+# Run specific test function
+pytest ecosystem/scenarios/test_idna.py::test_basic_encoding
 
 # Run with verbose output
-RUST_LOG=debug cargo test --test ecosystem_tests
+pytest -v
+```
+
+#### Using Cargo
+
+```bash
+# Run all ecosystem tests via Rust test runner
+cargo test --test test_ecosystem -- --ignored
+
+# Run specific package test
+cargo test --test test_ecosystem test_ecosystem_idna -- --ignored
+
+# Run with output
+cargo test --test test_ecosystem -- --ignored --nocapture
 ```
 
 ### Running Benchmarks
@@ -311,9 +382,18 @@ cargo bench --bench ecosystem_bench -- --baseline main
 ### Adding New Packages
 
 1. Add submodule: `git submodule add https://github.com/org/package ecosystem/packages/package`
-2. Create test scenario in `ecosystem/scenarios/test_package.py`
-3. Add to benchmark suite in `ecosystem_bench.rs`
-4. Update CI workflow dependencies
+2. Pin to specific version: `cd ecosystem/packages/package && git checkout vX.Y.Z`
+3. Create test scenario in `ecosystem/scenarios/test_package.py`
+4. Add Rust test function in `crates/cribo/tests/test_ecosystem.rs`
+5. Add to benchmark suite in `crates/cribo/benches/ecosystem.rs`
+6. Update dependencies in `pyproject.toml` under `[dependency-groups.ecosystem]`
+
+### Test Organization
+
+- **Isolated Output**: Each package's test outputs go to `target/tmp/<package>/` to prevent interference
+- **Smart Binary Selection**: Tests prefer `CARGO_BIN_EXE_cribo` (set by cargo test) for speed, falling back to `cargo run` for development
+- **Pytest Configuration**: Located in `pyproject.toml`, tests can be run from project root with just `pytest`
+- **Convention-based Discovery**: Any `test_*.py` file in `ecosystem/scenarios/` is automatically discovered
 
 ## Performance Metrics
 

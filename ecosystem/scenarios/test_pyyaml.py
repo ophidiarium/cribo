@@ -9,8 +9,6 @@ This script:
 
 import sys
 from pathlib import Path
-from io import StringIO
-from types import ModuleType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,7 +17,7 @@ from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_te
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
-    import yaml as YamlType
+    pass
 
 
 @pytest.fixture(scope="module")
@@ -28,10 +26,14 @@ def bundled_pyyaml():
     # Ensure test directories exist
     tmp_dir = ensure_test_directories()
 
+    # Create isolated directory for pyyaml output
+    pyyaml_output_dir = tmp_dir / "pyyaml"
+    pyyaml_output_dir.mkdir(parents=True, exist_ok=True)
+
     # Paths
     package_root = Path(__file__).resolve().parent.parent / "packages" / "pyyaml"
     yaml_init = package_root / "lib" / "yaml"
-    bundled_output = tmp_dir / "pyyaml_bundled.py"
+    bundled_output = pyyaml_output_dir / "pyyaml_bundled.py"
 
     print("\n🔧 Bundling pyyaml library...")
     print("   Note: PyYAML has an optional C extension (_yaml) that will be ignored")

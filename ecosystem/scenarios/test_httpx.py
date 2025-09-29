@@ -10,7 +10,6 @@ This script:
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,7 +18,7 @@ from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_te
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
-    import httpx as HttpxType
+    pass
 
 
 # Default timeout for HTTP requests - longer in CI environments
@@ -32,10 +31,14 @@ def bundled_httpx():
     # Ensure test directories exist
     tmp_dir = ensure_test_directories()
 
+    # Create isolated directory for httpx output
+    httpx_output_dir = tmp_dir / "httpx"
+    httpx_output_dir.mkdir(parents=True, exist_ok=True)
+
     # Paths
     package_root = Path(__file__).resolve().parent.parent / "packages" / "httpx"
     httpx_init = package_root / "httpx"
-    bundled_output = tmp_dir / "httpx_bundled.py"
+    bundled_output = httpx_output_dir / "httpx_bundled.py"
     bundled_output.unlink(missing_ok=True)  # Remove if exists
 
     print("\n🔧 Bundling httpx library...")

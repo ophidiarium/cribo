@@ -1,10 +1,11 @@
 """Shared utilities for ecosystem test scenarios."""
 
 import importlib.util
+import os
 import sys
 import subprocess
 from pathlib import Path
-from typing import List, Optional, Any, Set, Dict
+from typing import List, Set, Dict
 from contextlib import contextmanager
 
 
@@ -40,22 +41,39 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     Returns:
         CompletedProcess instance with the result of running cribo
     """
-    # Always use cargo run to ensure we're using the latest development version
-    # This is important for local development to test changes immediately
-    if verbose:
-        print(f"  Using cargo run --bin cribo for latest development version")
+    # Resolve workspace root (ecosystem/scenarios/utils.py -> ../../)
+    project_root = Path(__file__).resolve().parent.parent.parent
 
-    cmd: List[str] = [
-        "cargo",
-        "run",
-        "--bin",
-        "cribo",
-        "--",
-        "--entry",
-        entry_point,
-        "--output",
-        output_path,
-    ]
+    # Check if we're running from cargo test (CARGO_BIN_EXE_cribo is set)
+    # This is much faster than cargo run since it uses the already-built binary
+    cargo_bin = os.environ.get("CARGO_BIN_EXE_cribo")
+
+    if cargo_bin and Path(cargo_bin).exists():
+        # Use the pre-built binary from cargo test
+        if verbose:
+            print(f"  Using pre-built binary: {cargo_bin}")
+        cmd: List[str] = [
+            cargo_bin,
+            "--entry",
+            entry_point,
+            "--output",
+            output_path,
+        ]
+    else:
+        # Fallback to cargo run for development
+        if verbose:
+            print("  Using cargo run --bin cribo for latest development version")
+        cmd = [
+            "cargo",
+            "run",
+            "--bin",
+            "cribo",
+            "--",
+            "--entry",
+            entry_point,
+            "--output",
+            output_path,
+        ]
 
     if emit_requirements:
         cmd.append("--emit-requirements")
@@ -69,7 +87,7 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     # Debug: print the command being run
     print(f"  Running command: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
 
     if result.returncode != 0:
         print(f"Cribo failed with exit code {result.returncode}")
