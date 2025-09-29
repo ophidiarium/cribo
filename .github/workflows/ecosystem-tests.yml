@@ -223,11 +223,15 @@ jobs:
             # Add bundle size information if available
             if [ -d target/tmp ]; then
               echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -type f | while read -r file; do
-                size=$(ls -lh "$file" | awk '{print $5}')
-                basename=$(basename "$file" _bundled.py)
-                echo "- **${basename}**: ${size}"
-              done | sort -u
+              find target/tmp -name "*_bundled.py" -type f -print0 \
+                | while IFS= read -r -d '' file; do
+                    size_bytes=$(stat -c%s "$file" 2>/dev/null || wc -c <"$file")
+                    size_human=$(numfmt --to=iec --suffix=B "$size_bytes" 2>/dev/null || echo "${size_bytes}B")
+                    pkg=$(basename "$(dirname "$file")")  # target/tmp/<pkg>/...
+                    echo "${size_bytes} - **${pkg}**: ${size_human}"
+                  done \
+                | sort -nr \
+                | sed 's/^[0-9]\+ //'  # drop the numeric sort key
             fi
           } > ecosystem-report.md
 
