@@ -1159,10 +1159,63 @@ pub fn transform_module_to_init_function<'a>(
                     body.push(stmt.clone());
                 }
             }
-            Stmt::Try(_try_stmt) => {
-                // Let the new conditional logic in bundler.rs handle try/except processing
-                // This avoids duplicate module attribute assignments
-                body.push(stmt.clone());
+            Stmt::Try(try_stmt) => {
+                // Clone the try statement for transformation
+                let try_stmt_clone = try_stmt.clone();
+
+                // Collect all function and class definitions from all branches
+                let mut symbols_to_export = FxIndexSet::default();
+
+                // Helper to collect symbols from a statement list
+                fn collect_exportable_symbols(stmts: &[Stmt], symbols: &mut FxIndexSet<String>) {
+                    for stmt in stmts {
+                        match stmt {
+                            Stmt::FunctionDef(func_def) => {
+                                symbols.insert(func_def.name.to_string());
+                            }
+                            Stmt::ClassDef(class_def) => {
+                                symbols.insert(class_def.name.to_string());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Collect from try body
+                collect_exportable_symbols(&try_stmt.body, &mut symbols_to_export);
+
+                // Collect from except handlers
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(except_handler) = handler;
+                    collect_exportable_symbols(&except_handler.body, &mut symbols_to_export);
+                }
+
+                // Collect from else clause
+                collect_exportable_symbols(&try_stmt.orelse, &mut symbols_to_export);
+
+                // Collect from finally clause
+                collect_exportable_symbols(&try_stmt.finalbody, &mut symbols_to_export);
+
+                // Add the try statement
+                body.push(Stmt::Try(try_stmt_clone));
+
+                // After the try block, assign all collected symbols to self
+                // This ensures they're available regardless of which branch was taken
+                for symbol_name in symbols_to_export {
+                    // Only export if it should be exported
+                    if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
+                        debug!(
+                            "Exporting symbol '{}' from try-except block in module '{}'",
+                            symbol_name, ctx.module_name
+                        );
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                SELF_PARAM,
+                                &symbol_name,
+                            ),
+                        );
+                    }
+                }
             }
             _ => {
                 // Clone and transform other statements to handle __name__ references

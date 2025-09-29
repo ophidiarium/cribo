@@ -1,0 +1,10 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 541
+input_file: crates/cribo/tests/fixtures/try_except_function_export/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "fallback function",
+    stderr: "",
+}

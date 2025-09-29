@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 538
 input_file: crates/cribo/tests/fixtures/namespace_attribute_reference/main.py
 ---
 #!/usr/bin/env python3
@@ -47,6 +48,7 @@ def _cribo_init___cribo_19d82f_mypkg_compat(self):
                 self.msg = msg
                 self.doc = doc
                 self.pos = pos
+    self.JSONDecodeError = JSONDecodeError
     bytes = __import__('builtins').bytes
     self.bytes = bytes
     basestring = str
