@@ -50,11 +50,27 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
 
     let package_path = possible_paths
         .iter()
-        .find(|p| p.exists())
+        .find(|p| {
+            if p.exists() {
+                // Check if it's a Python package directory
+                let has_init = p.join("__init__.py").exists() || p.join("__main__.py").exists();
+                if !has_init {
+                    eprintln!(
+                        "Warning: Directory {:?} exists but doesn't contain __init__.py or \
+                         __main__.py",
+                        p
+                    );
+                }
+                has_init
+            } else {
+                false
+            }
+        })
         .cloned()
         .unwrap_or_else(|| {
             panic!(
-                "Package {} not found in any of the expected locations: {:?}",
+                "Package {} not found in any of the expected locations with valid Python module: \
+                 {:?}",
                 package_name, possible_paths
             );
         });
