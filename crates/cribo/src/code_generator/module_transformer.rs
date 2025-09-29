@@ -1167,16 +1167,50 @@ pub fn transform_module_to_init_function<'a>(
                 let mut symbols_to_export = FxIndexSet::default();
 
                 // Helper to collect symbols from a statement list
+                // Recursively finds function and class definitions, but doesn't descend into
+                // function or class bodies (only into control flow like if/for/while/with/try)
                 fn collect_exportable_symbols(stmts: &[Stmt], symbols: &mut FxIndexSet<String>) {
                     for stmt in stmts {
                         match stmt {
-                            Stmt::FunctionDef(func_def) => {
-                                symbols.insert(func_def.name.to_string());
+                            Stmt::FunctionDef(f) => {
+                                symbols.insert(f.name.to_string());
+                                // Don't recurse into function bodies
                             }
-                            Stmt::ClassDef(class_def) => {
-                                symbols.insert(class_def.name.to_string());
+                            Stmt::ClassDef(c) => {
+                                symbols.insert(c.name.to_string());
+                                // Don't recurse into class bodies
                             }
-                            _ => {}
+                            Stmt::If(if_stmt) => {
+                                collect_exportable_symbols(&if_stmt.body, symbols);
+                                for clause in &if_stmt.elif_else_clauses {
+                                    collect_exportable_symbols(&clause.body, symbols);
+                                }
+                            }
+                            Stmt::Try(try_stmt) => {
+                                collect_exportable_symbols(&try_stmt.body, symbols);
+                                for handler in &try_stmt.handlers {
+                                    let ruff_python_ast::ExceptHandler::ExceptHandler(
+                                        except_handler,
+                                    ) = handler;
+                                    collect_exportable_symbols(&except_handler.body, symbols);
+                                }
+                                collect_exportable_symbols(&try_stmt.orelse, symbols);
+                                collect_exportable_symbols(&try_stmt.finalbody, symbols);
+                            }
+                            Stmt::For(for_stmt) => {
+                                collect_exportable_symbols(&for_stmt.body, symbols);
+                                collect_exportable_symbols(&for_stmt.orelse, symbols);
+                            }
+                            Stmt::While(while_stmt) => {
+                                collect_exportable_symbols(&while_stmt.body, symbols);
+                                collect_exportable_symbols(&while_stmt.orelse, symbols);
+                            }
+                            Stmt::With(with_stmt) => {
+                                collect_exportable_symbols(&with_stmt.body, symbols);
+                            }
+                            _ => {
+                                // Other statements don't contain nested definitions we care about
+                            }
                         }
                     }
                 }
