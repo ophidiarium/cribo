@@ -27,11 +27,37 @@ fn get_workspace_root() -> PathBuf {
 
 fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
     let workspace_root = get_workspace_root();
-    let package_path = workspace_root
+
+    // Different packages have different structures
+    let package_base = workspace_root
         .join("ecosystem")
         .join("packages")
-        .join(package_name)
         .join(package_name);
+
+    // Try different common locations for the package
+    // Special handling for pyyaml which uses "yaml" as module name
+    let module_name = if package_name == "pyyaml" {
+        "yaml"
+    } else {
+        package_name
+    };
+
+    let possible_paths = [
+        package_base.join(module_name), // Direct: packages/idna/idna
+        package_base.join("src").join(module_name), // In src: packages/requests/src/requests
+        package_base.join("lib").join(module_name), // In lib: packages/pyyaml/lib/yaml
+    ];
+
+    let package_path = possible_paths
+        .iter()
+        .find(|p| p.exists())
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "Package {} not found in any of the expected locations: {:?}",
+                package_name, possible_paths
+            );
+        });
 
     // Create per-package output directory
     let output_dir = workspace_root.join("target").join("tmp").join(package_name);
@@ -81,18 +107,51 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
     let packages = ["requests", "rich", "idna", "pyyaml", "httpx"];
     let workspace_root = get_workspace_root();
 
-    for package in packages {
-        // Check if package exists
-        let package_path = workspace_root
-            .join("ecosystem")
-            .join("packages")
-            .join(package);
+    // Check if ecosystem packages are available
+    let ecosystem_dir = workspace_root.join("ecosystem").join("packages");
+    if !ecosystem_dir.exists() {
+        eprintln!(
+            "WARNING: Ecosystem packages directory does not exist at {:?}",
+            ecosystem_dir
+        );
+        eprintln!(
+            "Skipping ecosystem benchmarks. Run 'git submodule update --init --recursive \
+             ecosystem/' to initialize."
+        );
+        group.finish();
+        return;
+    }
 
-        if !package_path.exists() {
+    for package in packages {
+        // Check if package directory exists (the parent directory)
+        let package_dir = ecosystem_dir.join(package);
+
+        if !package_dir.exists() {
             eprintln!(
-                "Skipping {} - package not found at {:?}",
-                package, package_path
+                "Skipping {} - package directory not found at {:?}",
+                package, package_dir
             );
+            continue;
+        }
+
+        // Check various possible locations for the package entry point
+        // Special handling for pyyaml which uses "yaml" as module name
+        let module_name = if package == "pyyaml" { "yaml" } else { package };
+
+        let possible_entries = [
+            package_dir.join(module_name),             // Direct: packages/idna/idna
+            package_dir.join("src").join(module_name), // In src: packages/requests/src/requests
+            package_dir.join("lib").join(module_name), // In lib: packages/pyyaml/lib/yaml
+        ];
+
+        let entry_exists = possible_entries.iter().any(|p| p.exists());
+
+        if !entry_exists {
+            eprintln!(
+                "Skipping {} - package entry point not found in any expected location",
+                package
+            );
+            eprintln!("  Checked: {:?}", possible_entries);
             continue;
         }
 
