@@ -54,7 +54,9 @@ def bundled_idna():
     # idna is a pure Python package with no runtime dependencies
     # Therefore, no requirements.txt should be created even with --emit-requirements
     requirements_path = idna_output_dir / "requirements.txt"
-    assert not requirements_path.exists(), "requirements.txt should not be created for idna (no dependencies)"
+    assert not requirements_path.exists(), (
+        "requirements.txt should not be created for idna (no dependencies)"
+    )
     print("📦 No third-party dependencies (pure Python package)")
 
     return str(bundled_output)
@@ -140,7 +142,9 @@ def test_emoji_domains(idna_module: "IdnaType"):
         print(f"  ✅ Emoji domain encoding (UTS46 relaxed mode): {emoji_encoded}")
     except idna_module.core.IDNAError as e:
         # This is acceptable - some versions don't support emoji even in relaxed mode
-        print(f"  ℹ️  Emoji encoding not supported even in UTS46 mode: {type(e).__name__}")
+        print(
+            f"  ℹ️  Emoji encoding not supported even in UTS46 mode: {type(e).__name__}"
+        )
 
     # Test decoding - in strict IDNA 2008, even decoding emoji is restricted
     try:
@@ -208,12 +212,9 @@ def test_error_handling(idna_module: "IdnaType"):
     print("  ✅ Label length error handling")
 
     # Test invalid character in domain
-    try:
-        # Some invalid characters should raise an error
+    with pytest.raises(idna_module.core.IDNAError):
         idna_module.encode("example@.com")
-        print("  ⚠️  Invalid character handling may vary")
-    except idna_module.core.IDNAError:
-        print("  ✅ Invalid character error handling")
+    print("  ✅ Invalid character error handling")
 
 
 def test_idna_version(idna_module: "IdnaType"):
@@ -269,7 +270,9 @@ def test_submodules(idna_module: "IdnaType"):
         "greek",
     ],
 )
-def test_comprehensive_suite(idna_module: "IdnaType", input_domain: str, expected_encoded: bytes):
+def test_comprehensive_suite(
+    idna_module: "IdnaType", input_domain: str, expected_encoded: bytes
+):
     """Test encoding and decoding of various domain names."""
     # Test encoding
     encoded = idna_module.encode(input_domain)
