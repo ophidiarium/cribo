@@ -42,12 +42,18 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
         package_name
     };
 
-    let possible_paths = [
-        package_base.join(module_name), // Direct: packages/idna/idna
-        package_base.join("src").join(module_name), // In src: packages/requests/src/requests
-        package_base.join("lib3").join(module_name), // In lib3: packages/pyyaml/lib3/yaml
-        package_base.join("lib").join(module_name), // In lib: packages/pyyaml/lib/yaml (fallback)
-    ];
+    let possible_paths = if package_name == "pyyaml" {
+        // PyYAML has a yaml/ directory with Cython files, skip it
+        vec![
+            package_base.join("lib3").join(module_name), // In lib3: packages/pyyaml/lib3/yaml
+            package_base.join("lib").join(module_name),  // In lib: packages/pyyaml/lib/yaml
+        ]
+    } else {
+        vec![
+            package_base.join(module_name), // Direct: packages/idna/idna
+            package_base.join("src").join(module_name), // In src: packages/requests/src/requests
+        ]
+    };
 
     let package_path = possible_paths
         .iter()
@@ -155,13 +161,19 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
         // Special handling for pyyaml which uses "yaml" as module name
         let module_name = if package == "pyyaml" { "yaml" } else { package };
 
-        let possible_entries = [
-            package_dir.join(module_name),             // Direct: packages/idna/idna
-            package_dir.join("src").join(module_name), // In src: packages/requests/src/requests
-            package_dir.join("lib3").join(module_name), // In lib3: packages/pyyaml/lib3/yaml
-            package_dir.join("lib").join(module_name), /* In lib: packages/pyyaml/lib/yaml
-                                                        * (fallback) */
-        ];
+        let possible_entries = if package == "pyyaml" {
+            // PyYAML has a yaml/ directory with Cython files, skip it
+            vec![
+                package_dir.join("lib3").join(module_name), // In lib3: packages/pyyaml/lib3/yaml
+                package_dir.join("lib").join(module_name),  // In lib: packages/pyyaml/lib/yaml
+            ]
+        } else {
+            vec![
+                package_dir.join(module_name), // Direct: packages/idna/idna
+                package_dir.join("src").join(module_name), /* In src: packages/requests/src/
+                                                * requests */
+            ]
+        };
 
         let entry_exists = possible_entries.iter().any(|p| p.exists());
 
