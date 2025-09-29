@@ -10,7 +10,6 @@ This script:
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -22,7 +21,7 @@ DEFAULT_TIMEOUT = 30 if os.environ.get("CI") else 10
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
-    import requests as RequestsType
+    pass
 
 
 @pytest.fixture(scope="module")

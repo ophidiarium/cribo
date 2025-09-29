@@ -5,7 +5,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from typing import List, Optional, Any, Set, Dict
+from typing import List, Set, Dict
 from contextlib import contextmanager
 
 
@@ -62,7 +62,7 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     else:
         # Fallback to cargo run for development
         if verbose:
-            print(f"  Using cargo run --bin cribo for latest development version")
+            print("  Using cargo run --bin cribo for latest development version")
         cmd = [
             "cargo",
             "run",

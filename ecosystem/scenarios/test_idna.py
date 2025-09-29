@@ -8,7 +8,6 @@ This script:
 """
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -56,7 +55,7 @@ def bundled_idna():
     # Therefore, no requirements.txt should be created even with --emit-requirements
     requirements_path = idna_output_dir / "requirements.txt"
     assert not requirements_path.exists(), "requirements.txt should not be created for idna (no dependencies)"
-    print(f"📦 No third-party dependencies (pure Python package)")
+    print("📦 No third-party dependencies (pure Python package)")
 
     return str(bundled_output)
 
