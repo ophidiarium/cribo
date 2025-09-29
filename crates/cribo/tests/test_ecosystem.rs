@@ -31,12 +31,17 @@ fn test_ecosystem_all() {
         .env("CARGO_BIN_EXE_cribo", cribo_bin)
         .current_dir(workspace_root)
         .output()
-        .unwrap_or_else(|e| panic!("Failed to execute pytest: {e}. Python: {python_cmd}"));
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to execute pytest: {e}. Python: {}",
+                python_cmd.display()
+            )
+        });
 
     // Print output for debugging
     if !output.status.success() {
         eprintln!("=== PYTEST OUTPUT ===");
-        eprintln!("Python executable: {python_cmd}");
+        eprintln!("Python executable: {}", python_cmd.display());
         eprintln!("STDOUT:\n{}", String::from_utf8_lossy(&output.stdout));
         eprintln!("STDERR:\n{}", String::from_utf8_lossy(&output.stderr));
         eprintln!("=== END PYTEST OUTPUT ===");
@@ -45,7 +50,7 @@ fn test_ecosystem_all() {
     assert!(
         output.status.success(),
         "Ecosystem tests failed. Python: {}. Exit code: {:?}",
-        python_cmd,
+        python_cmd.display(),
         output.status.code()
     );
 }
