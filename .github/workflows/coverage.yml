@@ -16,10 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-
-      - name: Initialize ecosystem submodules
-        run: |
-          git submodule update --init --recursive ecosystem/
+        with:
+          submodules: recursive
 
       - name: Set up Rust toolchain
         run: rustup show
