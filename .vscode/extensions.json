@@ -12,7 +12,6 @@
         "llvm-vs-code-extensions.lldb-dap",
         "meta.pyrefly",
         "ms-python.python",
-        "ms-vscode.vscode-commander",
         "ms-vscode.vscode-websearchforcopilot",
         "redhat.vscode-yaml",
         "joshbolduc.commitlint",
