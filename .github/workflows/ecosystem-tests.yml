@@ -203,7 +203,8 @@ jobs:
           export CARGO_BIN_EXE_cribo="$PWD/target/release/cribo"
 
           # Run benchmarks and save results
-          cargo bench --bench ecosystem --features bench -- --save-baseline pr-${{ github.event.pull_request.number || 'main' }}
+          # Save as "main" on main branch, "pr-<number>" on PRs
+          cargo bench --bench ecosystem --features bench -- --save-baseline ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || 'main' }}
 
           # If this is a PR, compare against main
           if [ "${{ github.event_name }}" = "pull_request" ]; then
