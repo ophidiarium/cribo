@@ -199,7 +199,7 @@ jobs:
             CI_FLAGS=()
           fi
 
-          # Submit metrics to Bencher with proper branch handling
+          # Submit metrics to Bencher with proper branch handling and thresholds
           bencher run \
             --project "$BENCHER_PROJECT" \
             --token "$BENCHER_API_TOKEN" \
@@ -209,7 +209,17 @@ jobs:
             --adapter json \
             --file benchmark_output.json \
             --github-actions "${{ secrets.GITHUB_TOKEN }}" \
-            "${CI_FLAGS[@]}"
+            "${CI_FLAGS[@]}" \
+            --threshold-measure bundle_time \
+            --threshold-test t_test \
+            --threshold-min-sample-size 5 \
+            --threshold-max-sample-size 64 \
+            --threshold-upper-boundary 0.95 \
+            --threshold-measure bundle_size \
+            --threshold-test t_test \
+            --threshold-min-sample-size 5 \
+            --threshold-max-sample-size 64 \
+            --threshold-upper-boundary 0.95
 
       - name: Generate test summary report
         if: always()
