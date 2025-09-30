@@ -201,6 +201,7 @@ jobs:
 
           # Submit metrics to Bencher with proper branch handling and thresholds
           # Use --format json to capture report UUID for direct linking
+          # Capture JSON output while allowing diagnostics to stderr
           bencher run \
             --project "$BENCHER_PROJECT" \
             --token "$BENCHER_API_TOKEN" \
@@ -221,16 +222,24 @@ jobs:
             --threshold-min-sample-size 5 \
             --threshold-max-sample-size 64 \
             --threshold-upper-boundary 0.95 \
-            --format json > bencher_report.json
+            --format json 2>&1 | tee bencher_output.txt
+
+          # Extract JSON from output (skip non-JSON lines)
+          # The JSON response is typically at the end after diagnostic output
+          grep -E '^\s*\{' bencher_output.txt | tail -1 > bencher_report.json || true
 
           # Extract report UUID for direct linking
-          if [ -f bencher_report.json ]; then
-            REPORT_UUID=$(jq -r '.uuid // empty' bencher_report.json)
+          if [ -f bencher_report.json ] && [ -s bencher_report.json ]; then
+            REPORT_UUID=$(jq -r '.uuid // empty' bencher_report.json 2>/dev/null || echo "")
             if [ -n "$REPORT_UUID" ]; then
               echo "BENCHER_REPORT_UUID=$REPORT_UUID" >> "$GITHUB_ENV"
               echo "📊 Report UUID: $REPORT_UUID"
               echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
+            else
+              echo "⚠️ Could not extract report UUID from Bencher output"
             fi
+          else
+            echo "⚠️ Bencher report JSON not found or empty"
           fi
 
       - name: Generate test summary report
