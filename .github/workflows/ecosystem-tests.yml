@@ -173,8 +173,16 @@ jobs:
           # Prefer the prebuilt binary for the runner
           export CARGO_BIN_EXE_cribo="$PWD/target/release/cribo"
 
+          set -e  # Exit on error
+
           # Run the bundling benchmark script - outputs BMF JSON
           python3 ecosystem/benchmark_bundling.py > benchmark_output.json
+
+          # Verify the script succeeded and produced valid output
+          if [ ! -s benchmark_output.json ]; then
+            echo "Error: benchmark_output.json is empty or missing"
+            exit 1
+          fi
 
           # Display the metrics for debugging
           echo "📊 Benchmark metrics generated:"
