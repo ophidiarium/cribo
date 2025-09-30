@@ -46,6 +46,10 @@ def bundle_package(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Validate entry point exists
+    if not entry_point.exists():
+        raise FileNotFoundError(f"Entry point not found: {entry_point}")
+
     # Remove existing output
     output_path.unlink(missing_ok=True)
 
