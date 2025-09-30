@@ -279,6 +279,34 @@ jobs:
               echo ""
             fi
 
+            # Parse and display benchmark results in a collapsible table
+            if [ -f bencher_output.txt ]; then
+              # Extract the last JSON object (the report) and parse results
+              BENCHER_RESULTS=$(grep -n '^{$' bencher_output.txt | tail -1 | cut -d: -f1 | xargs -I {} tail -n +{} bencher_output.txt | jq -r '
+                .results[0] // [] |
+                map({
+                  benchmark: .benchmark.name,
+                  bundle_time: (.measures[] | select(.measure.name == "bundle_time") | "\(.metric.value | tonumber | . * 100 | round / 100) \(.measure.units)"),
+                  bundle_size: (.measures[] | select(.measure.name == "bundle_size") | "\(.metric.value | tonumber | . * 100 | round / 100) \(.measure.units)")
+                }) |
+                sort_by(.benchmark) |
+                .[] |
+                "| \(.benchmark) | \(.bundle_time) | \(.bundle_size) |"
+              ' 2>/dev/null || echo "")
+
+              if [ -n "$BENCHER_RESULTS" ]; then
+                echo "<details>"
+                echo "<summary>📦 Package Bundling Metrics</summary>"
+                echo ""
+                echo "| Package | Bundle Time | Bundle Size |"
+                echo "|---------|-------------|-------------|"
+                echo "$BENCHER_RESULTS"
+                echo ""
+                echo "</details>"
+                echo ""
+              fi
+            fi
+
             echo "Benchmark metrics are tracked via [Bencher.dev](https://bencher.dev/console/projects/cribo/perf)"
             echo ""
             echo "📊 View detailed performance trends and comparisons on the Bencher dashboard."
