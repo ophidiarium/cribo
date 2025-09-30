@@ -1166,9 +1166,16 @@ pub fn transform_module_to_init_function<'a>(
                 // Collect all function and class definitions from all branches
                 let mut symbols_to_export = FxIndexSet::default();
 
-                // Helper to collect symbols from a statement list
-                // Recursively finds function and class definitions, but doesn't descend into
-                // function or class bodies (only into control flow like if/for/while/with/try)
+                /// Recursively collects function and class definitions from control-flow
+                /// statements.
+                ///
+                /// Traverses If, Try, For, While, With, and Match constructs to find function and
+                /// class definitions that may be conditionally defined, but intentionally stops at
+                /// function/class boundaries to avoid collecting internal methods.
+                ///
+                /// # Parameters
+                /// - `stmts`: Slice of statements to traverse
+                /// - `symbols`: Mutable set where collected symbol names are inserted
                 fn collect_exportable_symbols(stmts: &[Stmt], symbols: &mut FxIndexSet<String>) {
                     for stmt in stmts {
                         match stmt {
