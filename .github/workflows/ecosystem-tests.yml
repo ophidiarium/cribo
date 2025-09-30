@@ -224,9 +224,10 @@ jobs:
             --threshold-upper-boundary 0.95 \
             --format json 2>&1 | tee bencher_output.txt
 
-          # Extract JSON from output (skip non-JSON lines)
-          # The JSON response is typically at the end after diagnostic output
-          grep -E '^\s*\{' bencher_output.txt | tail -1 > bencher_report.json || true
+          # Extract JSON from output - find the complete JSON object starting after the metrics
+          # The report JSON starts after "No alerts found" or similar messages
+          # Use awk to extract from the last opening brace to the end
+          awk '/^{$/,0' bencher_output.txt > bencher_report.json
 
           # Extract report UUID for direct linking
           if [ -f bencher_report.json ] && [ -s bencher_report.json ]; then
@@ -237,6 +238,8 @@ jobs:
               echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
             else
               echo "⚠️ Could not extract report UUID from Bencher output"
+              echo "Debug: bencher_report.json contents:"
+              cat bencher_report.json
             fi
           else
             echo "⚠️ Bencher report JSON not found or empty"
