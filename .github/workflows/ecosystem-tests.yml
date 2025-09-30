@@ -183,13 +183,12 @@ jobs:
           # Determine branch and comparison settings
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BRANCH_NAME="pr-${{ github.event.pull_request.number }}"
-            START_POINT="main"
-            START_POINT_FLAG="--start-point $START_POINT --start-point-reset"
-            CI_FLAGS="--ci-only-on-alert --ci-id ${{ github.event.number }} --ci-number ${{ github.event.number }}"
+            START_POINT_FLAGS=(--start-point main --start-point-reset)
+            CI_FLAGS=(--ci-only-on-alert --ci-id "${{ github.event.number }}" --ci-number "${{ github.event.number }}")
           else
             BRANCH_NAME="main"
-            START_POINT_FLAG=""
-            CI_FLAGS=""
+            START_POINT_FLAGS=()
+            CI_FLAGS=()
           fi
 
           # Submit metrics to Bencher with proper branch handling
@@ -197,12 +196,12 @@ jobs:
             --project "$BENCHER_PROJECT" \
             --token "$BENCHER_API_TOKEN" \
             --branch "$BRANCH_NAME" \
-            $START_POINT_FLAG \
+            "${START_POINT_FLAGS[@]}" \
             --testbed "$BENCHER_TESTBED" \
             --adapter json \
             --file benchmark_output.json \
             --github-actions "${{ secrets.GITHUB_TOKEN }}" \
-            $CI_FLAGS
+            "${CI_FLAGS[@]}"
 
       - name: Generate test summary report
         if: always()
