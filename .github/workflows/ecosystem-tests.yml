@@ -185,9 +185,11 @@ jobs:
             BRANCH_NAME="pr-${{ github.event.pull_request.number }}"
             START_POINT="main"
             START_POINT_FLAG="--start-point $START_POINT --start-point-reset"
+            CI_FLAGS="--ci-only-on-alert --ci-id ${{ github.event.number }} --ci-number ${{ github.event.number }}"
           else
             BRANCH_NAME="main"
             START_POINT_FLAG=""
+            CI_FLAGS=""
           fi
 
           # Submit metrics to Bencher with proper branch handling
@@ -200,9 +202,7 @@ jobs:
             --adapter json \
             --file benchmark_output.json \
             --github-actions "${{ secrets.GITHUB_TOKEN }}" \
-            --ci-only-on-alert \
-            --ci-id "${{ github.event.number }}" \
-            --ci-number "${{ github.event.number }}"
+            $CI_FLAGS
 
       - name: Generate test summary report
         if: always()
