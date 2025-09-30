@@ -1189,9 +1189,7 @@ pub fn transform_module_to_init_function<'a>(
                             Stmt::Try(try_stmt) => {
                                 collect_exportable_symbols(&try_stmt.body, symbols);
                                 for handler in &try_stmt.handlers {
-                                    let ruff_python_ast::ExceptHandler::ExceptHandler(
-                                        except_handler,
-                                    ) = handler;
+                                    let ExceptHandler::ExceptHandler(except_handler) = handler;
                                     collect_exportable_symbols(&except_handler.body, symbols);
                                 }
                                 collect_exportable_symbols(&try_stmt.orelse, symbols);
