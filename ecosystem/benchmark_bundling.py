@@ -25,7 +25,7 @@ def find_cribo_binary() -> str:
         return cribo_path
 
     # Try release build
-    release_path = Path("target/release/cribo")
+    release_path = Path(__file__).parent.parent / "target/release/cribo"
     if release_path.exists():
         return str(release_path.absolute())
 
