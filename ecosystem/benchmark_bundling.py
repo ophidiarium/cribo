@@ -169,9 +169,12 @@ def main():
             )
 
             # Add to BMF output - each package is a benchmark with time and size measures
+            # Convert to more readable units:
+            # - time: seconds -> milliseconds
+            # - size: bytes -> kilobytes
             bmf_metrics[pkg["name"]] = {
-                "bundle_time": {"value": metrics["time"]},
-                "bundle_size": {"value": metrics["size"]},
+                "bundle_time": {"value": metrics["time"] * 1000},  # s -> ms
+                "bundle_size": {"value": metrics["size"] / 1000},  # B -> KB
             }
         else:
             print(f"   ❌ Failed", file=sys.stderr)
