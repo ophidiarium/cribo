@@ -224,25 +224,16 @@ jobs:
             --threshold-upper-boundary 0.95 \
             --format json 2>&1 | tee bencher_output.txt
 
-          # Extract JSON from output - find the complete JSON object starting after the metrics
-          # The report JSON starts after "No alerts found" or similar messages
-          # Use awk to extract from the last opening brace to the end
-          awk '/^{$/,0' bencher_output.txt > bencher_report.json
+          # Extract report UUID directly from bencher output using jq
+          # jq -R -s splits input into lines and slurps, then we parse JSON objects
+          REPORT_UUID=$(jq -R -s 'split("\n") | map(select(startswith("{"))) | join("\n") | fromjson | .uuid' bencher_output.txt 2>/dev/null || echo "")
 
-          # Extract report UUID for direct linking
-          if [ -f bencher_report.json ] && [ -s bencher_report.json ]; then
-            REPORT_UUID=$(jq -r '.uuid // empty' bencher_report.json 2>/dev/null || echo "")
-            if [ -n "$REPORT_UUID" ]; then
-              echo "BENCHER_REPORT_UUID=$REPORT_UUID" >> "$GITHUB_ENV"
-              echo "📊 Report UUID: $REPORT_UUID"
-              echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
-            else
-              echo "⚠️ Could not extract report UUID from Bencher output"
-              echo "Debug: bencher_report.json contents:"
-              cat bencher_report.json
-            fi
+          if [ -n "$REPORT_UUID" ]; then
+            echo "BENCHER_REPORT_UUID=$REPORT_UUID" >> "$GITHUB_ENV"
+            echo "📊 Report UUID: $REPORT_UUID"
+            echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
           else
-            echo "⚠️ Bencher report JSON not found or empty"
+            echo "⚠️ Could not extract report UUID from Bencher output"
           fi
 
       - name: Generate test summary report
