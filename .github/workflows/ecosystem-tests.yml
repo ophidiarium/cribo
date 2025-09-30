@@ -161,10 +161,7 @@ jobs:
           fi
 
       - name: Install Bencher CLI
-        run: |
-          # Install Bencher CLI
-          curl --proto '=https' --tlsv1.2 -sSfL https://bencher.dev/download/install-cli.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        uses: bencherdev/bencher@main
 
       - name: Run ecosystem benchmarks with Bencher
         id: bench
