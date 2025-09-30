@@ -13,6 +13,12 @@ fi
 echo "Installing Rust dev tools via cargo-binstall..."
 cargo binstall -y cargo-nextest cargo-insta insta-cmd taplo-cli cargo-llvm-cov
 
+# install rust-analyzer if not already present
+if ! command -v rust-analyzer &> /dev/null; then
+    echo "Installing rust-analyzer..."
+    rustup component add rust-analyzer
+fi
+
 # Install bencher CLI for benchmarking
 if ! command -v bencher &> /dev/null; then
     echo "Installing bencher CLI via install script..."
