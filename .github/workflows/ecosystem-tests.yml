@@ -224,9 +224,12 @@ jobs:
             --threshold-upper-boundary 0.95 \
             --format json 2>&1 | tee bencher_output.txt
 
-          # Extract report UUID directly from bencher output using jq
-          # jq -R -s splits input into lines and slurps, then we parse JSON objects
-          REPORT_UUID=$(jq -R -s 'split("\n") | map(select(startswith("{"))) | join("\n") | fromjson | .uuid' bencher_output.txt 2>/dev/null || echo "")
+          # Extract report UUID from bencher output
+          # The output contains benchmark metrics JSON followed by the report JSON
+          # We need to extract the last complete JSON object which is the report
+          # Use grep to find the line with standalone { that starts the report JSON
+          # then tail to get everything from that point, and jq to parse
+          REPORT_UUID=$(grep -n '^{$' bencher_output.txt | tail -1 | cut -d: -f1 | xargs -I {} tail -n +{} bencher_output.txt | jq -r '.uuid' 2>/dev/null || echo "")
 
           if [ -n "$REPORT_UUID" ]; then
             echo "BENCHER_REPORT_UUID=$REPORT_UUID" >> "$GITHUB_ENV"
@@ -234,6 +237,8 @@ jobs:
             echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
           else
             echo "⚠️ Could not extract report UUID from Bencher output"
+            echo "Debug: Checking for JSON start markers in output..."
+            grep -n '^{$' bencher_output.txt | head -3
           fi
 
       - name: Generate test summary report
