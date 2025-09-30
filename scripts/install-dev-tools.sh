@@ -14,8 +14,12 @@ echo "Installing Rust dev tools via cargo-binstall..."
 cargo binstall -y cargo-nextest cargo-insta insta-cmd taplo-cli cargo-llvm-cov
 
 # Install bencher CLI for benchmarking
-echo "Installing bencher CLI..."
-cargo binstall -y bencher-cli
+if ! command -v bencher &> /dev/null; then
+    echo "Installing bencher CLI via install script..."
+    curl --proto '=https' --tlsv1.2 -sSfL https://bencher.dev/download/install-cli.sh | sh
+else
+    echo "✓ bencher CLI installed successfully"
+fi
 
 # Install uv for Python package management
 if ! command -v uv &> /dev/null; then
