@@ -44,9 +44,17 @@
             "label": "rust: cargo clippy"
         },
         {
-            "label": "Init",
+            "label": "Init submodules",
             "type": "shell",
             "command": "git submodule update --init --recursive",
+            "runOptions": {
+                "runOn": "folderOpen"
+            }
+        },
+        {
+            "label": "Install dev tools",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/install-dev-tools.sh",
             "runOptions": {
                 "runOn": "folderOpen"
             }
