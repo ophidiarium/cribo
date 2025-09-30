@@ -171,7 +171,7 @@ def main():
             # Add to BMF output - each package is a benchmark with time and size measures
             bmf_metrics[pkg["name"]] = {
                 "bundle_time": {"value": metrics["time"]},
-                "bundle_size": {"value": float(metrics["size"])},
+                "bundle_size": {"value": metrics["size"]},
             }
         else:
             print(f"   ❌ Failed", file=sys.stderr)
