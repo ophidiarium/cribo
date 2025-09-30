@@ -200,6 +200,7 @@ jobs:
           fi
 
           # Submit metrics to Bencher with proper branch handling and thresholds
+          # Use --format json to capture report UUID for direct linking
           bencher run \
             --project "$BENCHER_PROJECT" \
             --token "$BENCHER_API_TOKEN" \
@@ -219,7 +220,18 @@ jobs:
             --threshold-test t_test \
             --threshold-min-sample-size 5 \
             --threshold-max-sample-size 64 \
-            --threshold-upper-boundary 0.95
+            --threshold-upper-boundary 0.95 \
+            --format json > bencher_report.json
+
+          # Extract report UUID for direct linking
+          if [ -f bencher_report.json ]; then
+            REPORT_UUID=$(jq -r '.uuid // empty' bencher_report.json)
+            if [ -n "$REPORT_UUID" ]; then
+              echo "BENCHER_REPORT_UUID=$REPORT_UUID" >> "$GITHUB_ENV"
+              echo "📊 Report UUID: $REPORT_UUID"
+              echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
+            fi
+          fi
 
       - name: Generate test summary report
         if: always()
@@ -252,6 +264,13 @@ jobs:
 
             echo "### 📈 Benchmark Results"
             echo ""
+
+            # Add direct report link if available
+            if [ -n "$BENCHER_REPORT_UUID" ]; then
+              echo "📊 [View detailed benchmark report](https://bencher.dev/console/projects/cribo/reports/$BENCHER_REPORT_UUID)"
+              echo ""
+            fi
+
             echo "Benchmark metrics are tracked via [Bencher.dev](https://bencher.dev/console/projects/cribo/perf)"
             echo ""
             echo "📊 View detailed performance trends and comparisons on the Bencher dashboard."
