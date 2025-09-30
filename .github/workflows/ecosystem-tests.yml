@@ -160,65 +160,90 @@ jobs:
             } >> $GITHUB_ENV
           fi
 
-      - name: Download main branch benchmark baseline
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        run: |
-          # Try to download the most recent benchmark baseline from main branch
-          echo "Attempting to download benchmark baseline from main branch..."
+      - name: Install Bencher CLI
+        uses: bencherdev/bencher@main
 
-          # Get the most recent successful workflow run on main branch
-          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ecosystem-tests.yml/runs?branch=main&status=completed&per_page=10" \
-            --jq '.workflow_runs[] | select(.conclusion=="success") | .id' \
-            | head -1)
-
-          if [ -n "$RUN_ID" ]; then
-            echo "Found workflow run: $RUN_ID"
-            # Download the artifact - it contains the criterion results
-            gh run download "$RUN_ID" -n ecosystem-test-results -D /tmp/artifact 2>/dev/null || {
-              echo "Could not download artifact from run $RUN_ID"
-              exit 0
-            }
-
-            # Copy the criterion data if it exists
-            if [ -d "/tmp/artifact/target/criterion" ]; then
-              echo "Copying benchmark baseline from artifact..."
-              mkdir -p target
-              cp -r /tmp/artifact/target/criterion target/
-              echo "Baseline copied successfully"
-            else
-              echo "No criterion data found in artifact"
-            fi
-            rm -rf /tmp/artifact
-          else
-            echo "No successful main branch runs found"
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Run ecosystem benchmarks
+      - name: Run ecosystem benchmarks with Bencher
         id: bench
+        env:
+          BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
+          BENCHER_PROJECT: cribo
+          BENCHER_TESTBED: ubuntu-latest
         run: |
           # Prefer the prebuilt binary for the runner
           export CARGO_BIN_EXE_cribo="$PWD/target/release/cribo"
 
-          # Run benchmarks and save results
-          # Save as "main" on main branch, "pr-<number>" on PRs
-          cargo bench --bench ecosystem --features bench -- --save-baseline ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || 'main' }}
+          set -e  # Exit on error
 
-          # If this is a PR, compare against main
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Try to load main baseline for comparison
-            if cargo bench --bench ecosystem --features bench -- --load-baseline main &>/dev/null; then
-              cargo bench --bench ecosystem --features bench -- --baseline main > benchmark_results.txt 2>&1 || true
-            else
-              echo "No main baseline found for comparison" > benchmark_results.txt
-            fi
+          # Run the bundling benchmark script - outputs BMF JSON
+          python3 ecosystem/benchmark_bundling.py > benchmark_output.json
+
+          # Verify the script succeeded and produced valid output
+          if [ ! -s benchmark_output.json ]; then
+            echo "Error: benchmark_output.json is empty or missing"
+            exit 1
           fi
 
-      - name: Generate benchmark report
-        if: github.event_name == 'pull_request'
-        id: benchmark-report
+          # Display the metrics for debugging
+          echo "📊 Benchmark metrics generated:"
+          cat benchmark_output.json
+
+          # Determine branch and comparison settings
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BRANCH_NAME="pr-${{ github.event.pull_request.number }}"
+            START_POINT_FLAGS=(--start-point main --start-point-reset)
+            CI_FLAGS=(--ci-only-on-alert --ci-id "${{ github.event.number }}" --ci-number "${{ github.event.number }}")
+          else
+            BRANCH_NAME="main"
+            START_POINT_FLAGS=()
+            CI_FLAGS=()
+          fi
+
+          # Submit metrics to Bencher with proper branch handling and thresholds
+          # Use --format json to capture report UUID for direct linking
+          # Capture JSON output while allowing diagnostics to stderr
+          bencher run \
+            --project "$BENCHER_PROJECT" \
+            --token "$BENCHER_API_TOKEN" \
+            --branch "$BRANCH_NAME" \
+            "${START_POINT_FLAGS[@]}" \
+            --testbed "$BENCHER_TESTBED" \
+            --adapter json \
+            --file benchmark_output.json \
+            --github-actions "${{ secrets.GITHUB_TOKEN }}" \
+            "${CI_FLAGS[@]}" \
+            --threshold-measure bundle_time \
+            --threshold-test t_test \
+            --threshold-min-sample-size 5 \
+            --threshold-max-sample-size 64 \
+            --threshold-upper-boundary 0.95 \
+            --threshold-measure bundle_size \
+            --threshold-test t_test \
+            --threshold-min-sample-size 5 \
+            --threshold-max-sample-size 64 \
+            --threshold-upper-boundary 0.95 \
+            --format json 2>&1 | tee bencher_output.txt
+
+          # Extract report UUID from bencher output
+          # The output contains benchmark metrics JSON followed by the report JSON
+          # We need to extract the last complete JSON object which is the report
+          # Use grep to find the line with standalone { that starts the report JSON
+          # then tail to get everything from that point, and jq to parse
+          REPORT_UUID=$(grep -n '^{$' bencher_output.txt | tail -1 | cut -d: -f1 | xargs -I {} tail -n +{} bencher_output.txt | jq -r '.uuid' 2>/dev/null || echo "")
+
+          if [ -n "$REPORT_UUID" ]; then
+            echo "BENCHER_REPORT_UUID=$REPORT_UUID" >> "$GITHUB_ENV"
+            echo "📊 Report UUID: $REPORT_UUID"
+            echo "📊 Direct link: https://bencher.dev/console/projects/cribo/reports/$REPORT_UUID"
+          else
+            echo "⚠️ Could not extract report UUID from Bencher output"
+            echo "Debug: Checking for JSON start markers in output..."
+            grep -n '^{$' bencher_output.txt | head -3
+          fi
+
+      - name: Generate test summary report
+        if: always()
+        id: test-report
         run: |
           # Create a markdown report using grouped commands to avoid shellcheck SC2129
           {
@@ -248,27 +273,43 @@ jobs:
             echo "### 📈 Benchmark Results"
             echo ""
 
-            if [ -f benchmark_results.txt ]; then
-              echo "\`\`\`"
-              cat benchmark_results.txt
-              echo "\`\`\`"
-            else
-              echo "No benchmark comparison available."
+            # Add direct report link if available
+            if [ -n "$BENCHER_REPORT_UUID" ]; then
+              echo "📊 [View detailed benchmark report](https://bencher.dev/console/projects/cribo/reports/$BENCHER_REPORT_UUID)"
+              echo ""
             fi
 
-            # Add bundle size information if available
-            if [ -d target/tmp ]; then
-              echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -type f -print0 \
-                | while IFS= read -r -d '' file; do
-                    size_bytes=$(stat -c%s "$file" 2>/dev/null || wc -c <"$file")
-                    size_human=$(numfmt --to=iec --suffix=B "$size_bytes" 2>/dev/null || echo "${size_bytes}B")
-                    pkg=$(basename "$(dirname "$file")")  # target/tmp/<pkg>/...
-                    echo "${size_bytes} - **${pkg}**: ${size_human}"
-                  done \
-                | sort -nr \
-                | sed 's/^[0-9]\+ //'  # drop the numeric sort key
+            # Parse and display benchmark results in a collapsible table
+            if [ -f bencher_output.txt ]; then
+              # Extract the last JSON object (the report) and parse results
+              BENCHER_RESULTS=$(grep -n '^{$' bencher_output.txt | tail -1 | cut -d: -f1 | xargs -I {} tail -n +{} bencher_output.txt | jq -r '
+                .results[0] // [] |
+                map({
+                  benchmark: .benchmark.name,
+                  bundle_time: (.measures[] | select(.measure.name == "bundle_time") | "\(.metric.value | tonumber | . * 100 | round / 100) \(.measure.units)"),
+                  bundle_size: (.measures[] | select(.measure.name == "bundle_size") | "\(.metric.value | tonumber | . * 100 | round / 100) \(.measure.units)")
+                }) |
+                sort_by(.benchmark) |
+                .[] |
+                "| \(.benchmark) | \(.bundle_time) | \(.bundle_size) |"
+              ' 2>/dev/null || echo "")
+
+              if [ -n "$BENCHER_RESULTS" ]; then
+                echo "<details>"
+                echo "<summary>📦 Package Bundling Metrics</summary>"
+                echo ""
+                echo "| Package | Bundle Time | Bundle Size |"
+                echo "|---------|-------------|-------------|"
+                echo "$BENCHER_RESULTS"
+                echo ""
+                echo "</details>"
+                echo ""
+              fi
             fi
+
+            echo "Benchmark metrics are tracked via [Bencher.dev](https://bencher.dev/console/projects/cribo/perf)"
+            echo ""
+            echo "📊 View detailed performance trends and comparisons on the Bencher dashboard."
           } > ecosystem-report.md
 
           # Also publish to GitHub Actions Summary tab
@@ -314,7 +355,7 @@ jobs:
               });
             }
 
-      - name: Upload test and benchmark results
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -323,6 +364,5 @@ jobs:
           if-no-files-found: ignore
           path: |
             test-results.xml
-            target/criterion/
             ecosystem-report.md
-            benchmark_results.txt
+            benchmark_output.json
