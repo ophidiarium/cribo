@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.2](https://github.com/ophidiarium/cribo/compare/v0.7.1...v0.7.2) (2025-10-01)
+
+
+### Features
+
+* integrate Bencher.dev for ecosystem bundling metrics ([#379](https://github.com/ophidiarium/cribo/issues/379)) ([5518554](https://github.com/ophidiarium/cribo/commit/5518554dfeaedbbb7346927f49f109f9abfb27f4))
+
+
+### Bug Fixes
+
+* address review comments from PR [#372](https://github.com/ophidiarium/cribo/issues/372) ([#377](https://github.com/ophidiarium/cribo/issues/377)) ([931e2ef](https://github.com/ophidiarium/cribo/commit/931e2efca2b97adbcca0ac9140aa9c9d6a9327b6))
+* bencher install ([d700482](https://github.com/ophidiarium/cribo/commit/d7004820c7a8494c3febb3c5194aeb91f7d73917))
+* regenerate lockfile ([f9c0831](https://github.com/ophidiarium/cribo/commit/f9c083158fe155de2f9aa68201f2c73e45960301))
+
 ## [0.7.1](https://github.com/ophidiarium/cribo/compare/v0.7.0...v0.7.1) (2025-09-29)
 
 
