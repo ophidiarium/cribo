@@ -449,9 +449,3 @@ See the [LICENSE](LICENSE) file for the MIT license text and [docs/LICENSE](docs
 
 - **Ruff**: Python AST parsing and import resolution logic inspiration
 - **Maturin**: Python-Rust integration
-
----
-
-For more examples and detailed documentation, visit our [documentation site](https://github.com/ophidiarium/cribo#readme).
-
-For detailed documentation on the unused import trimmer, see [`docs/unused_import_trimmer.md`](docs/unused_import_trimmer.md).
