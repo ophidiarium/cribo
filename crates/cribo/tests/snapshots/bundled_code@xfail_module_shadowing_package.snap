@@ -56,7 +56,7 @@ def _cribo_init___cribo_a6eb08_test_import(self):
     self.__initializing__ = True
     global pandera
     """Test module that tries to import pandera.polars.
-    
+
 This demonstrates what happens when we have a local 'pandera' package
 that shadows the third-party pandera package, and we try to import
 a submodule that only exists in the third-party package.
