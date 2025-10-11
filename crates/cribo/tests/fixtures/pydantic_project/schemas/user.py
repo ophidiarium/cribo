@@ -1,11 +1,26 @@
 """User schema definitions using Pydantic."""
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
 
 
 class UserSchema(BaseModel):
     """User model with Pydantic validation."""
+
+    model_config = ConfigDict(
+        json_encoders={
+            # Custom encoders if needed
+        },
+        json_schema_extra={
+            "example": {
+                "name": "John Doe",
+                "email": "john@example.com",
+                "age": 30,
+                "is_active": True,
+                "bio": "Software developer",
+            }
+        },
+    )
 
     name: str = Field(..., min_length=1, max_length=100, description="User's full name")
     email: EmailStr = Field(..., description="User's email address")
@@ -14,22 +29,6 @@ class UserSchema(BaseModel):
     bio: Optional[str] = Field(
         default=None, max_length=500, description="User's biography"
     )
-
-    class Config:
-        """Pydantic configuration."""
-
-        json_encoders = {
-            # Custom encoders if needed
-        }
-        json_schema_extra = {
-            "example": {
-                "name": "John Doe",
-                "email": "john@example.com",
-                "age": 30,
-                "is_active": True,
-                "bio": "Software developer",
-            }
-        }
 
 
 class CreateUserRequest(BaseModel):
