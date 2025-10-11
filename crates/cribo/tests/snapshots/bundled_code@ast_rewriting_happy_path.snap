@@ -31,7 +31,10 @@ _cribo = _Cribo()
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
 utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
 utils.helpers = utils_helpers
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+"""
+Utility helper functions for the happy path test.
+These functions have unique names that shouldn't conflict.
+"""
 def format_message(greeting: str, name: str) -> str:
     """Format a greeting message."""
     return f"{greeting}, {name}!"
@@ -43,7 +46,10 @@ utils_helpers.format_message = format_message
 models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.user = models_user
-"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
+"""
+User model with role enumeration.
+No naming conflicts with other modules.
+"""
 class UserRole(_cribo.enum.Enum):
     """User role enumeration."""
     ADMIN = "admin"
@@ -78,7 +84,10 @@ models_user.UserRole = UserRole
 services_database = _cribo.types.SimpleNamespace(__name__='services.database')
 services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
 services.database = services_database
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+"""
+Database service module.
+Contains database-related functionality with unique names.
+"""
 class DatabaseConnection:
     """Represents a database connection."""
 
@@ -119,7 +128,10 @@ class DatabaseService:
 DatabaseService.__module__ = 'services.database'
 services_database.DatabaseConnection = DatabaseConnection
 services_database.DatabaseService = DatabaseService
-"""\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
+"""
+Happy path main module that uses multiple nested modules without name collisions.
+This should bundle cleanly without any AST rewriting for conflicts.
+"""
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)
     db = DatabaseService("test.db")

@@ -35,7 +35,12 @@ core.utils = core_utils
 core_utils.helpers = core_utils_helpers
 """Helper utilities for the core package."""
 def validate(value: str) -> bool:
-    """Validate a string value.\n\n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
+    """Validate a string value.
+
+    This function is imported by core.database.connection using
+    a relative import (..utils.helpers), demonstrating relative
+    imports within the same package hierarchy.
+    """
     return bool(value and not value.startswith("_"))
 core_utils_helpers.validate = validate
 core_version = _cribo.types.SimpleNamespace(__name__='core.version')
@@ -135,7 +140,11 @@ models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models.user = models_user
 """User model providing cross-package functionality."""
 def process_user(name: str) -> str:
-    """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
+    """Process a user-related string.
+
+    This function is imported by core.database.connection,
+    demonstrating a cross-package absolute import.
+    """
     return f"user_{name}_processed"
 models_user.process_user = process_user
 _cribo_models__base_model = None
@@ -208,7 +217,14 @@ def _cribo_init___cribo_1f0c3d_core_database_connection(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    """Database connection module demonstrating mixed import patterns.\n\nThis module combines:\n1. Absolute import from a different package (models.user)\n2. Relative import from within the same package (..utils.helpers)\n3. Import from parent package's version module (not __init__.py)\n4. No imports from parent package's __init__.py to avoid circular dependencies\n"""
+    """Database connection module demonstrating mixed import patterns.
+
+This module combines:
+1. Absolute import from a different package (models.user)
+2. Relative import from within the same package (..utils.helpers)
+3. Import from parent package's version module (not __init__.py)
+4. No imports from parent package's __init__.py to avoid circular dependencies
+"""
     process_user = models_user.process_user
     core_database_connection.process_user = process_user
     helper_validate = validate
@@ -317,7 +333,13 @@ def _cribo_init___cribo_782908_core_database(self):
     self.__initializing__ = False
     return self
 core_database.__init__ = _cribo_init___cribo_782908_core_database
-"""Test fixture demonstrating cross-package mixed import patterns.\n\nThis tests the specific pattern where a module uses both:\n1. Deep absolute imports crossing package boundaries (e.g., from models.user)\n2. Relative imports within its package (e.g., from ..utils.helpers)\n3. Import order dependencies with __init__.py files\n"""
+"""Test fixture demonstrating cross-package mixed import patterns.
+
+This tests the specific pattern where a module uses both:
+1. Deep absolute imports crossing package boundaries (e.g., from models.user)
+2. Relative imports within its package (e.g., from ..utils.helpers)
+3. Import order dependencies with __init__.py files
+"""
 __cribo_init_result = _cribo_init___cribo_f00e4b_core(core)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

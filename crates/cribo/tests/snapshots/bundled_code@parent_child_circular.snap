@@ -109,7 +109,13 @@ def _cribo_init___cribo_f2ecbb_foo_boo(self):
     self.__initializing__ = False
     return self
 foo_boo.__init__ = _cribo_init___cribo_f2ecbb_foo_boo
-"""Test parent-child circular dependencies.\n\nThis tests the case where:\n1. foo/__init__.py imports from foo.boo\n2. foo.boo imports foo.zoo\n3. This creates a circular dependency because foo.zoo requires foo to be initialized first\n"""
+"""Test parent-child circular dependencies.
+
+This tests the case where:
+1. foo/__init__.py imports from foo.boo
+2. foo.boo imports foo.zoo
+3. This creates a circular dependency because foo.zoo requires foo to be initialized first
+"""
 print("Initializing main module")
 __cribo_init_result = _cribo_init___cribo_97cb47_foo(foo)
 for attr in dir(__cribo_init_result):

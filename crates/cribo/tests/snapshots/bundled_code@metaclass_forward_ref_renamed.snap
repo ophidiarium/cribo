@@ -78,7 +78,13 @@ def _cribo_init___cribo_1309dd_yaml_module(self):
     self.Dumper = yaml_module_loader.Dumper
     self.Loader = yaml_module_loader.Loader
     global yaml_module_other
-    """\nModule that mimics PyYAML's pattern where:\n1. It uses wildcard imports\n2. It defines YAMLObjectMetaclass and YAMLObject (causing collisions with other.py)\n3. YAMLObject references symbols from wildcard imports in its class body\n4. When bundled, the renamed class still references the original metaclass name\n"""
+    """
+Module that mimics PyYAML's pattern where:
+1. It uses wildcard imports
+2. It defines YAMLObjectMetaclass and YAMLObject (causing collisions with other.py)
+3. YAMLObject references symbols from wildcard imports in its class body
+4. When bundled, the renamed class still references the original metaclass name
+"""
     yaml_module_other = _cribo_init___cribo_1fd8cb_yaml_module_other(yaml_module_other)
     OtherYAMLObject = yaml_module_other.YAMLObject
     self.OtherYAMLObject = OtherYAMLObject
@@ -100,7 +106,12 @@ def _cribo_init___cribo_1309dd_yaml_module(self):
     self.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
-        """\n    YAMLObject that references wildcard-imported symbols in class body.\n    When bundled and renamed, this will become something like:\n    class YAMLObject_1(metaclass=YAMLObjectMetaclass):\n    But YAMLObjectMetaclass won't exist - only YAMLObjectMetaclass_1 will.\n    """
+        """
+    YAMLObject that references wildcard-imported symbols in class body.
+    When bundled and renamed, this will become something like:
+    class YAMLObject_1(metaclass=YAMLObjectMetaclass):
+    But YAMLObjectMetaclass won't exist - only YAMLObjectMetaclass_1 will.
+    """
         __slots__ = ()
         yaml_loader = Loader
         yaml_dumper = Dumper
@@ -120,7 +131,12 @@ def _cribo_init___cribo_1309dd_yaml_module(self):
     self.__initializing__ = False
     return self
 yaml_module.__init__ = _cribo_init___cribo_1309dd_yaml_module
-"""\nTest case that reproduces the PyYAML metaclass renaming bug.\n\nExpected behavior: The bundled code should work correctly.\nActual behavior: NameError because renamed class references original metaclass name.\n"""
+"""
+Test case that reproduces the PyYAML metaclass renaming bug.
+
+Expected behavior: The bundled code should work correctly.
+Actual behavior: NameError because renamed class references original metaclass name.
+"""
 __cribo_init_result = _cribo_init___cribo_1309dd_yaml_module(yaml_module)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

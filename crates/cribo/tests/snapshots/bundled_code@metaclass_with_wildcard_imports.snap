@@ -82,7 +82,9 @@ def _cribo_init___cribo_5b2acd_yaml_pkg(self):
     self.Loader = yaml_pkg_loader.Loader
 
     class YAMLObjectMetaclass(type):
-        """\n    The metaclass for YAMLObject.\n    """
+        """
+    The metaclass for YAMLObject.
+    """
 
         def __init__(cls, name, bases, kwds):
             super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
@@ -96,7 +98,10 @@ def _cribo_init___cribo_5b2acd_yaml_pkg(self):
     self.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
-        """\n    An object that uses a metaclass and references classes from wildcard imports.\n    This mimics PyYAML's structure.\n    """
+        """
+    An object that uses a metaclass and references classes from wildcard imports.
+    This mimics PyYAML's structure.
+    """
         __slots__ = ()
         yaml_loader = [Loader, FullLoader]
         yaml_dumper = Dumper
@@ -117,7 +122,14 @@ def _cribo_init___cribo_5b2acd_yaml_pkg(self):
     self.__initializing__ = False
     return self
 yaml_pkg.__init__ = _cribo_init___cribo_5b2acd_yaml_pkg
-"""\nTest case for metaclass forward reference issue with wildcard imports.\n\nThis reproduces the PyYAML bundling issue where:\n1. A class uses a metaclass that's defined later in the same module\n2. The class body references symbols imported via wildcard imports\n3. When bundled, the metaclass definition gets placed after its usage\n"""
+"""
+Test case for metaclass forward reference issue with wildcard imports.
+
+This reproduces the PyYAML bundling issue where:
+1. A class uses a metaclass that's defined later in the same module
+2. The class body references symbols imported via wildcard imports
+3. When bundled, the metaclass definition gets placed after its usage
+"""
 __cribo_init_result = _cribo_init___cribo_5b2acd_yaml_pkg(yaml_pkg)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

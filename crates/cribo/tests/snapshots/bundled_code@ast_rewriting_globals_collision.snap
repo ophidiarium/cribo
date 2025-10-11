@@ -552,7 +552,11 @@ def _cribo_init___cribo_84bf42_services_auth(self):
     self.__initializing__ = False
     return self
 services_auth.__init__ = _cribo_init___cribo_84bf42_services_auth
-"""\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
+"""
+Comprehensive AST rewriter test fixture - Main entry point
+This module demonstrates complex naming conflicts and import scenarios
+WITHOUT circular dependencies
+"""
 __cribo_init_result = _cribo_init___cribo_0ac752_core(core)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

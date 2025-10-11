@@ -25,6 +25,7 @@ ruff_python_parser   = { git = "https://github.com/astral-sh/ruff/", tag = "0.14
 ruff_python_semantic = { git = "https://github.com/astral-sh/ruff/", tag = "0.14.0" }
 ruff_python_stdlib   = { git = "https://github.com/astral-sh/ruff/", tag = "0.14.0" }
 ruff_python_trivia   = { git = "https://github.com/astral-sh/ruff/", tag = "0.14.0" }
+ruff_python_literal  = { git = "https://github.com/astral-sh/ruff/", tag = "0.14.0" }
 ruff_text_size       = { git = "https://github.com/astral-sh/ruff/", tag = "0.14.0" }
 
 # Serialization and configuration

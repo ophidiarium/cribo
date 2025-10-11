@@ -58,7 +58,12 @@ HTTPBasicAuth_1.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_1.__qualname__ = 'HTTPBasicAuth'
 another_auth.HTTPBasicAuth = HTTPBasicAuth_1
 proxy = _cribo.types.SimpleNamespace(__name__='proxy')
-"""Proxy module that inherits from HTTPBasicAuth in a different module.\n\nThis is the key part - proxy.py imports HTTPBasicAuth from auth.py\nand creates a class that inherits from it. When HTTPBasicAuth gets\nrenamed due to collision, this inheritance needs to be updated.\n"""
+"""Proxy module that inherits from HTTPBasicAuth in a different module.
+
+This is the key part - proxy.py imports HTTPBasicAuth from auth.py
+and creates a class that inherits from it. When HTTPBasicAuth gets
+renamed due to collision, this inheritance needs to be updated.
+"""
 HTTPBasicAuth = auth.HTTPBasicAuth
 class HTTPProxyAuth(HTTPBasicAuth):
     """Proxy authentication that inherits from HTTPBasicAuth."""
@@ -71,7 +76,12 @@ class HTTPProxyAuth(HTTPBasicAuth):
         return f"<HTTPProxyAuth user={self.username}>"
 HTTPProxyAuth.__module__ = 'proxy'
 proxy.HTTPProxyAuth = HTTPProxyAuth
-"""Test cross-module inheritance with symbol collision.\n\nThis reproduces the exact error from requests where HTTPBasicAuth\nis renamed to HTTPBasicAuth_1 in one module but another module\ntries to inherit from HTTPBasicAuth.\n"""
+"""Test cross-module inheritance with symbol collision.
+
+This reproduces the exact error from requests where HTTPBasicAuth
+is renamed to HTTPBasicAuth_1 in one module but another module
+tries to inherit from HTTPBasicAuth.
+"""
 proxy = HTTPProxyAuth("user", "pass")
 print(f"Created proxy auth: {proxy}")
 basic = HTTPBasicAuth("user2", "pass2")

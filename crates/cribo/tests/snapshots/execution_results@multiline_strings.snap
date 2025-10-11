@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/multiline_strings/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Start Time:\n    2024-01-02 03:04:05\n    Module: multiline_strings.side_effect_module\n    Status: ready\n    Computed Values:\n        length=62\n    Generated output\n        includes a blank line\n        appended\nInline Section\n- maintains indentation\n- uses single quotes\nDouble-quoted block demonstrating nested 'single quotes'\nand maintaining the original quoting style.\nReport:\n    name=Cribo\n    value=42\n    Trailing piece\n    spans multiple\n    lines\n    with extra info\nSummary:\n    keys=name, value\n    \nLoading side effect module:\n    - timestamps\n    - values\n        Captured context:\n        module={__name__}\n            status=ready",
+    stderr: "",
+}

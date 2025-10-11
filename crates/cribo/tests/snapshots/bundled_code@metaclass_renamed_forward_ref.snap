@@ -86,7 +86,12 @@ def _cribo_init___cribo_c0fc3d_other(self):
     self.__initializing__ = False
     return self
 other.__init__ = _cribo_init___cribo_c0fc3d_other
-"""\nTest fixture for metaclass forward reference with renaming issue.\n\nThis reproduces the bug where class renaming causes forward references\nto metaclasses, similar to what happens with PyYAML.\n"""
+"""
+Test fixture for metaclass forward reference with renaming issue.
+
+This reproduces the bug where class renaming causes forward references
+to metaclasses, similar to what happens with PyYAML.
+"""
 base = _cribo_init___cribo_a6386c_base(base)
 MyMetaclass = base.MyMetaclass
 MyObject = base.MyObject

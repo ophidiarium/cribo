@@ -373,6 +373,7 @@ dependencies = [
  "ruff_linter",
  "ruff_python_ast",
  "ruff_python_codegen",
+ "ruff_python_literal",
  "ruff_python_parser",
  "ruff_python_semantic",
  "ruff_python_stdlib",

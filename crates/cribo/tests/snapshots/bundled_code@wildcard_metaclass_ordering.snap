@@ -119,7 +119,10 @@ def _cribo_init___cribo_952a76_yaml_module(self):
     self.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
-        """\n    An object that can be serialized to/from YAML.\n    Uses wildcard-imported symbols in class body.\n    """
+        """
+    An object that can be serialized to/from YAML.
+    Uses wildcard-imported symbols in class body.
+    """
         __slots__ = ()
         yaml_loader = [Loader, FullLoader, UnsafeLoader]
         yaml_dumper = Dumper
@@ -144,7 +147,12 @@ def _cribo_init___cribo_952a76_yaml_module(self):
     self.__initializing__ = False
     return self
 yaml_module.__init__ = _cribo_init___cribo_952a76_yaml_module
-"""\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__\nare properly included even if not directly used in the class body.\n"""
+"""
+Test fixture for wildcard imports with metaclass ordering.
+
+This tests that when using wildcard imports, symbols from __all__
+are properly included even if not directly used in the class body.
+"""
 __cribo_init_result = _cribo_init___cribo_952a76_yaml_module(yaml_module)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

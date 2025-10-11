@@ -52,7 +52,10 @@ FullLoader.__module__ = 'loader'
 loader.BaseLoader = BaseLoader
 loader.Loader = Loader
 loader.FullLoader = FullLoader
-"""\nTest case where entry file has metaclasses and wildcard imports.\nThis reproduces the PyYAML issue.\n"""
+"""
+Test case where entry file has metaclasses and wildcard imports.
+This reproduces the PyYAML issue.
+"""
 class YAMLObjectMetaclass(type):
     """The metaclass for YAMLObject."""
 
@@ -60,7 +63,10 @@ class YAMLObjectMetaclass(type):
         super().__init__(name, bases, kwds)
         print(f"Metaclass __init__ for {name}")
 class YAMLObject(metaclass=YAMLObjectMetaclass):
-    """\n    An object that can be serialized to/from YAML.\n    Uses wildcard-imported symbols in class body.\n    """
+    """
+    An object that can be serialized to/from YAML.
+    Uses wildcard-imported symbols in class body.
+    """
     yaml_loader = [Loader, FullLoader]
 
     def __repr__(self):

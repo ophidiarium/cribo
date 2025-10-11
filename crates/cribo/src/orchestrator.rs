@@ -14,7 +14,7 @@ use crate::{
         CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
         ResolutionStrategy,
     },
-    code_generator::Bundler,
+    code_generator::{Bundler, multiline_strings},
     config::Config,
     cribo_graph::CriboGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
@@ -1019,10 +1019,7 @@ impl BundleOrchestrator {
             .file_stem()
             .and_then(|name| name.to_str())
             .ok_or_else(|| {
-                anyhow!(
-                    "Cannot determine module name from entry path: {:?}",
-                    entry_path
-                )
+                anyhow!("Cannot determine module name from entry path: {entry_path:?}")
             })?;
 
         log::debug!("Using file stem as module name: {module_name}");
@@ -1663,11 +1660,9 @@ impl BundleOrchestrator {
                             self.add_to_discovery_queue_if_new(import, import_path, params);
                         } else if !is_in_error_handler {
                             return Err(anyhow!(
-                                "Failed to resolve ImportlibStatic module '{}'. \nThis import \
-                                 would fail at runtime with: ModuleNotFoundError: No module named \
-                                 '{}'",
-                                import,
-                                import
+                                "Failed to resolve ImportlibStatic module '{import}'. \nThis \
+                                 import would fail at runtime with: ModuleNotFoundError: No \
+                                 module named '{import}'"
                             ));
                         }
                     }
@@ -1698,10 +1693,9 @@ impl BundleOrchestrator {
                             );
                         } else {
                             return Err(anyhow!(
-                                "Failed to resolve first-party module '{}'. \nThis import would \
-                                 fail at runtime with: ModuleNotFoundError: No module named '{}'",
-                                import,
-                                import
+                                "Failed to resolve first-party module '{import}'. \nThis import \
+                                 would fail at runtime with: ModuleNotFoundError: No module named \
+                                 '{import}'"
                             ));
                         }
                     }
@@ -1958,8 +1952,7 @@ impl BundleOrchestrator {
                     std::mem::discriminant(stmt)
                 );
             }
-            let generator = ruff_python_codegen::Generator::from(&stylist);
-            let stmt_code = generator.stmt(stmt);
+            let stmt_code = multiline_strings::render_statement(&stylist, stmt);
             code_parts.push(stmt_code);
         }
 

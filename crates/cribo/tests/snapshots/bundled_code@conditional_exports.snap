@@ -35,7 +35,10 @@ def _cribo_init___cribo_244765_compat_module(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    """\nModule that mimics requests.compat structure.\nNo __all__ defined, so all non-underscore symbols should be exported.\n"""
+    """
+Module that mimics requests.compat structure.
+No __all__ defined, so all non-underscore symbols should be exported.
+"""
     sys = _cribo.sys
     self.sys = sys
     self.sys = sys

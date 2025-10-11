@@ -62,6 +62,13 @@ def get_result():
 pkg.base_value = base_value
 pkg.get_base = get_base
 pkg.get_result = get_result
-"""Test where submodule imports function from parent package.\n\nThis test works in Python but fails when bundled because:\n1. pkg.submodule imports get_base from parent at module level\n2. pkg.submodule uses the imported function at module level\n3. The bundler fails to properly initialize pkg.submodule\n4. When get_result() tries to access pkg.submodule.process(), it fails\n"""
+"""Test where submodule imports function from parent package.
+
+This test works in Python but fails when bundled because:
+1. pkg.submodule imports get_base from parent at module level
+2. pkg.submodule uses the imported function at module level
+3. The bundler fails to properly initialize pkg.submodule
+4. When get_result() tries to access pkg.submodule.process(), it fails
+"""
 print(pkg.get_result())
 submodule = pkg.submodule

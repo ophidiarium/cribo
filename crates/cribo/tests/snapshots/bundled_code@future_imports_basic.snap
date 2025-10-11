@@ -44,7 +44,10 @@ def _cribo_init___cribo_41d36f_mypackage_core(self):
     self.Any = Any
 
     def process_data(data: _cribo.typing.Dict[str, _cribo.typing.Any]) -> _cribo.typing.Dict[str, _cribo.typing.Any]:
-        """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
+        """Process input data and return results.
+
+    This function uses forward references in type hints.
+    """
         result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
         return result
     self.process_data = process_data
@@ -80,7 +83,10 @@ def _cribo_init___cribo_c3d681_mypackage_submodule_utils(self):
     self.Union = Union
 
     def validate_input(data: InputData) -> bool:
-        """Validate input data structure.\n\n    Uses forward reference that requires future import.\n    """
+        """Validate input data structure.
+
+    Uses forward reference that requires future import.
+    """
         if not isinstance(data, dict):
             return False
         return "key" in data and isinstance(data.get("numbers"), list)

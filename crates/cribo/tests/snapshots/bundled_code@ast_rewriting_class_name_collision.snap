@@ -29,7 +29,10 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 models = _cribo.types.SimpleNamespace(__name__='models')
-"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
+"""
+Models module with User and Product classes.
+These will conflict with entities.py when bundled.
+"""
 class User_2:
     """User model for data persistence."""
 
@@ -59,7 +62,10 @@ Product_2.__qualname__ = 'Product'
 models.Product = Product_2
 models.User = User_2
 entities = _cribo.types.SimpleNamespace(__name__='entities')
-"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
+"""
+Entities module with User and Product classes.
+These will conflict with models.py when bundled.
+"""
 class User_1:
     """User entity for business logic."""
 
@@ -88,7 +94,10 @@ Product_1.__name__ = 'Product'
 Product_1.__qualname__ = 'Product'
 entities.Product = Product_1
 entities.User = User_1
-"""\nClass name collision test.\nBoth modules define classes with the same names.\n"""
+"""
+Class name collision test.
+Both modules define classes with the same names.
+"""
 ModelUser = models.User
 ModelProduct = models.Product
 EntityUser = entities.User

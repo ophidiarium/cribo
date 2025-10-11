@@ -35,7 +35,12 @@ def _cribo_init___cribo_7c69fc_mypackage_utils(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    """Utils module with contextlib decorator.\n\nThis module must have side effects to become a wrapper module,\nand uses contextlib as a decorator which should be preserved in\nthe init function but currently isn't.\n"""
+    """Utils module with contextlib decorator.
+    
+This module must have side effects to become a wrapper module,
+and uses contextlib as a decorator which should be preserved in
+the init function but currently isn't.
+"""
     contextlib = _cribo.contextlib
     self.contextlib = contextlib
     self.contextlib = contextlib
@@ -82,7 +87,12 @@ def _cribo_init___cribo_41b947_mypackage(self):
     self.__initializing__ = False
     return self
 mypackage.__init__ = _cribo_init___cribo_41b947_mypackage
-"""Test contextlib import missing in wrapper module init functions.\n\nThis test reproduces the bug found when bundling requests where contextlib\nis used as @contextlib.contextmanager decorator but not imported in the\ngenerated init function for wrapper modules with side effects.\n"""
+"""Test contextlib import missing in wrapper module init functions.
+
+This test reproduces the bug found when bundling requests where contextlib
+is used as @contextlib.contextmanager decorator but not imported in the
+generated init function for wrapper modules with side effects.
+"""
 __cribo_init_result = _cribo_init___cribo_41b947_mypackage(mypackage)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

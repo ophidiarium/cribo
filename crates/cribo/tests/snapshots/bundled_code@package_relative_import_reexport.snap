@@ -73,7 +73,13 @@ def _cribo_init___cribo_814350_pkg_module_with_sideeffects(self):
     return self
 pkg_module_with_sideeffects.__init__ = _cribo_init___cribo_814350_pkg_module_with_sideeffects
 pkg.module_with_sideeffects = pkg_module_with_sideeffects
-"""Test case for package with relative imports and re-exports.\n\nThis tests the scenario where:\n1. A package has a module with just class definitions (pkg.definitions)\n2. Another module with side effects imports and re-exports those classes (pkg.module_with_sideeffects)\n3. The main code accesses the re-exported classes\n"""
+"""Test case for package with relative imports and re-exports.
+
+This tests the scenario where:
+1. A package has a module with just class definitions (pkg.definitions)
+2. Another module with side effects imports and re-exports those classes (pkg.module_with_sideeffects)
+3. The main code accesses the re-exported classes
+"""
 pkg_module_with_sideeffects = _cribo_init___cribo_814350_pkg_module_with_sideeffects(pkg_module_with_sideeffects)
 try:
     raise pkg.module_with_sideeffects.CustomError("test")

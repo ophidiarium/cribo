@@ -29,18 +29,27 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 module_a = _cribo.types.SimpleNamespace(__name__='module_a')
-"""\nModule A with a process_data function.\nThis will conflict with module_b.process_data when bundled.\n"""
+"""
+Module A with a process_data function.
+This will conflict with module_b.process_data when bundled.
+"""
 def process_data_2(input_data: str) -> str:
     """Process data in module A's way."""
     return f"Module A processed: {input_data.upper()}"
 module_a.process_data = process_data_2
 module_b = _cribo.types.SimpleNamespace(__name__='module_b')
-"""\nModule B with a process_data function.\nThis will conflict with module_a.process_data when bundled.\n"""
+"""
+Module B with a process_data function.
+This will conflict with module_a.process_data when bundled.
+"""
 def process_data_1(input_data: str) -> str:
     """Process data in module B's way."""
     return f"Module B processed: {input_data.lower()}"
 module_b.process_data = process_data_1
-"""\nFunction name collision test.\nBoth modules define a function with the same name.\n"""
+"""
+Function name collision test.
+Both modules define a function with the same name.
+"""
 process_a = module_a.process_data
 process_b = module_b.process_data
 def main():

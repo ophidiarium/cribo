@@ -55,7 +55,10 @@ def get_config():
     return DEFAULT_CONFIG.copy()
 utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
 utils_config.get_config = get_config
-'''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
+"""
+Test fixture for regular import statements with aliases (non-"from" imports).
+This exercises the code path in ast_rewriter.rs around lines 216-228.
+"""
 operating_system = _cribo.os
 j = _cribo.json
 system_module = _cribo.sys

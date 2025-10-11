@@ -35,7 +35,12 @@ def _cribo_init___cribo_97f65c_compat_module(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    """Module with side effects that assigns builtin types to variables.\n\nThis minimal test case reproduces the bug where builtin types are incorrectly\ntransformed to module.str, module.int, etc. when the bundler wraps modules\nwith side effects in init functions.\n"""
+    """Module with side effects that assigns builtin types to variables.
+
+This minimal test case reproduces the bug where builtin types are incorrectly
+transformed to module.str, module.int, etc. when the bundler wraps modules
+with side effects in init functions.
+"""
     print("Loading compat module...")
     str = __import__('builtins').str
     self.str = str

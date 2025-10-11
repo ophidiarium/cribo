@@ -29,7 +29,10 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 constants = _cribo.types.SimpleNamespace(__name__='constants')
-"""\nConstants module with global variables.\nThese will conflict with config.py when bundled.\n"""
+"""
+Constants module with global variables.
+These will conflict with config.py when bundled.
+"""
 API_URL_2 = "https://api.constants.com"
 VERSION_2 = "1.0.0"
 DEFAULT_TIMEOUT = 30
@@ -37,14 +40,20 @@ constants.API_URL = API_URL_2
 constants.DEFAULT_TIMEOUT = DEFAULT_TIMEOUT
 constants.VERSION = VERSION_2
 config = _cribo.types.SimpleNamespace(__name__='config')
-"""\nConfig module with global variables.\nThese will conflict with constants.py when bundled.\n"""
+"""
+Config module with global variables.
+These will conflict with constants.py when bundled.
+"""
 API_URL_1 = "https://api.config.com"
 VERSION_1 = "2.1.0"
 MAX_RETRIES = 3
 config.API_URL = API_URL_1
 config.MAX_RETRIES = MAX_RETRIES
 config.VERSION = VERSION_1
-"""\nVariable name collision test.\nBoth modules define variables with the same names.\n"""
+"""
+Variable name collision test.
+Both modules define variables with the same names.
+"""
 API_URL = constants.API_URL
 VERSION = constants.VERSION
 CONFIG_API_URL = config.API_URL

@@ -1210,7 +1210,6 @@ impl<'a> Bundler<'a> {
 
         // Store for re-export resolution (modules already use ModuleId)
         self.module_asts = Some(modules.clone());
-
         // Track bundled modules
         for module_id in modules.keys() {
             self.bundled_modules.insert(*module_id);
@@ -1798,19 +1797,21 @@ impl<'a> Bundler<'a> {
                     }
                 }
 
-                // Create inline context for this specific module
-                let mut inline_ctx = InlineContext {
-                    module_exports_map: &module_exports_map,
-                    global_symbols: &mut global_symbols,
-                    module_renames: &mut symbol_renames,
-                    inlined_stmts: &mut all_inlined_stmts,
-                    import_aliases: FxIndexMap::default(),
-                    import_sources: FxIndexMap::default(),
-                    python_version,
-                };
+                {
+                    // Create inline context for this specific module
+                    let mut inline_ctx = InlineContext {
+                        module_exports_map: &module_exports_map,
+                        global_symbols: &mut global_symbols,
+                        module_renames: &mut symbol_renames,
+                        inlined_stmts: &mut all_inlined_stmts,
+                        import_aliases: FxIndexMap::default(),
+                        import_sources: FxIndexMap::default(),
+                        python_version,
+                    };
 
-                // Inline just this module
-                self.inline_module(&module_name, ast, &path, &mut inline_ctx);
+                    // Inline just this module
+                    self.inline_module(&module_name, ast, &path, &mut inline_ctx);
+                }
 
                 // Note: deferred imports functionality has been removed
                 // Import assignments were previously collected and processed here

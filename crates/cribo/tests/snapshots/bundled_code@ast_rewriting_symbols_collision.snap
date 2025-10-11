@@ -35,7 +35,9 @@ core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
 core_utils.helpers = core_utils_helpers
-"""\nUtility helpers module with extensive naming conflicts\n"""
+"""
+Utility helpers module with extensive naming conflicts
+"""
 result_5 = 0
 User_4 = "helper_user_string"
 class Logger_3:
@@ -117,7 +119,9 @@ services.auth = services_auth
 models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.user = models_user
-"""\nUser model with extensive naming conflicts across the project\n"""
+"""
+User model with extensive naming conflicts across the project
+"""
 util_process = core_utils_helpers.process
 UtilLogger = core_utils_helpers.Logger
 result_3 = {"model": "user"}
@@ -260,7 +264,9 @@ models_user.result = result_3
 models_user.validate = validate_3
 core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection')
 core_database.connection = core_database_connection
-"""\nDatabase connection module with naming conflicts\n"""
+"""
+Database connection module with naming conflicts
+"""
 helper_validate = core_utils_helpers.validate
 result_6 = []
 connection_3 = None
@@ -310,7 +316,9 @@ core_database_connection.result = result_6
 core_database_connection.validate = validate_6
 models_base = _cribo.types.SimpleNamespace(__name__='models.base')
 models.base = models_base
-"""\nBase model functionality with relative import conflicts\n"""
+"""
+Base model functionality with relative import conflicts
+"""
 core_validate = core_utils_helpers.validate
 UserLogger = models_user.Logger
 result_2 = "base_result"
@@ -409,7 +417,9 @@ def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    """\nAuthentication manager with complex naming conflicts\n"""
+    """
+Authentication manager with complex naming conflicts
+"""
     Optional = _cribo.typing.Optional
     self.Optional = Optional
     Dict = _cribo.typing.Dict
@@ -546,7 +556,10 @@ def _cribo_init___cribo_6ccb3a_services_auth_manager(self):
     return self
 services_auth_manager.__init__ = _cribo_init___cribo_6ccb3a_services_auth_manager
 services_auth.manager = services_auth_manager
-"""\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
+"""
+Comprehensive AST rewriter test fixture - Main entry point
+This module demonstrates complex naming conflicts and import scenarios
+"""
 db_process = core_database_connection.process
 services_auth_manager = _cribo_init___cribo_6ccb3a_services_auth_manager(services_auth_manager)
 auth_process = services.auth.manager.process

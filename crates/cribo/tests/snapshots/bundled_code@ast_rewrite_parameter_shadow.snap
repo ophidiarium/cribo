@@ -58,7 +58,11 @@ class Connection:
 Connection.__module__ = 'models'
 models.Connection = Connection
 models.User = User
-"""Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""
+"""Test fixture for parameter names shadowing global/class names.
+
+This fixture demonstrates the pattern where function parameters shadow
+important module-level names (classes, functions, constants).
+"""
 result = "global_result"
 def process_user(User: "User") -> str:
     """Function with parameter shadowing the imported User class."""

@@ -328,7 +328,14 @@ def _cribo_init___cribo_4c91ba_pkg_style(self):
     self.__initializing__ = False
     return self
 pkg_style.__init__ = _cribo_init___cribo_4c91ba_pkg_style
-"""Test circular dependencies with stdlib-conflicting module names.\n\nThis fixture tests the bundler's ability to handle:\n1. A local module named 'abc' that conflicts with stdlib 'abc'\n2. Circular dependencies that require wrapper functions\n3. Proper stdlib normalization when hard dependencies are involved\n4. Ensuring no incorrect imports are generated for stdlib or bundled modules\n"""
+"""Test circular dependencies with stdlib-conflicting module names.
+
+This fixture tests the bundler's ability to handle:
+1. A local module named 'abc' that conflicts with stdlib 'abc'
+2. Circular dependencies that require wrapper functions
+3. Proper stdlib normalization when hard dependencies are involved
+4. Ensuring no incorrect imports are generated for stdlib or bundled modules
+"""
 __cribo_init_result = _cribo_init___cribo_6b1af6_pkg(pkg)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

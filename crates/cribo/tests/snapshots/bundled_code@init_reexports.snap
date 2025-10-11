@@ -95,7 +95,14 @@ def _cribo_init___cribo_a81151_mypackage(self):
         return self
     self.__initializing__ = True
     global mypackage_config
-    """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
+    """
+Package initialization with re-exports.
+
+This __init__.py demonstrates the pattern where imports are made but not directly used
+within this file - they are re-exports for the package interface.
+These imports should NOT be stripped as unused, even though they don't appear
+to be used within this file itself.
+"""
     process_data = mypackage_data_processor.process_data
     mypackage.process_data = process_data
     format_data = mypackage_formatter.format_data
@@ -141,7 +148,12 @@ def _cribo_init___cribo_99e487_mypackage_utils(self):
     self.__initializing__ = False
     return self
 mypackage_utils.__init__ = _cribo_init___cribo_99e487_mypackage_utils
-'''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
+"""
+Test script demonstrating __init__.py re-export preservation.
+
+This fixture tests that imports in __init__.py files are preserved even if they
+appear "unused" within that file, as they are typically re-exports for the package interface.
+"""
 __cribo_init_result = _cribo_init___cribo_a81151_mypackage(mypackage)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

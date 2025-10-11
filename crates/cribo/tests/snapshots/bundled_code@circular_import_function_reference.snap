@@ -171,7 +171,12 @@ def _cribo_init___cribo_bdb497_pkg_utils(self):
     self.__initializing__ = False
     return self
 pkg_utils.__init__ = _cribo_init___cribo_bdb497_pkg_utils
-"""Test fixture for circular import with function reference issue.\n\nThis reproduces the _basic_auth_str issue from requests where a function\ndefined in one module (auth) is imported by another module (adapters),\nbut due to circular dependencies, the function is not available when needed.\n"""
+"""Test fixture for circular import with function reference issue.
+
+This reproduces the _basic_auth_str issue from requests where a function
+defined in one module (auth) is imported by another module (adapters),
+but due to circular dependencies, the function is not available when needed.
+"""
 __cribo_init_result = _cribo_init___cribo_6d9930_pkg(pkg)
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

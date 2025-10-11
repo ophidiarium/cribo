@@ -29,7 +29,10 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils = _cribo.types.SimpleNamespace(__name__='utils')
-"""\nUtility module with no dependencies on other modules in this package.\nThis can be safely imported at module level by everyone.\n"""
+"""
+Utility module with no dependencies on other modules in this package.
+This can be safely imported at module level by everyone.
+"""
 def format_message(message):
     """Format a message with decorative borders"""
     return f">>> {message} <<<"
@@ -49,7 +52,10 @@ def _cribo_init___cribo_f96d2c_config(self):
     self.__initializing__ = True
     global _cribo_config__config
     global logger
-    """\nConfiguration module that logs its initialization process.\nThis creates a circular dependency: config -> logger -> config\n"""
+    """
+Configuration module that logs its initialization process.
+This creates a circular dependency: config -> logger -> config
+"""
     logger = _cribo_init___cribo_0639af_logger(logger)
     get_logger = logger.get_logger
     self.get_logger = get_logger
@@ -108,7 +114,10 @@ def _cribo_init___cribo_0639af_logger(self):
         return self
     self.__initializing__ = True
     global _cribo_logger__logger
-    """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""
+    """
+Logger module that needs configuration to determine log level.
+This creates a circular dependency: logger -> config -> logger
+"""
     format_message = utils.format_message
     logger.format_message = format_message
     get_timestamp = utils.get_timestamp
@@ -150,7 +159,10 @@ def _cribo_init___cribo_0639af_logger(self):
     return self
 logger.__init__ = _cribo_init___cribo_0639af_logger
 app = _cribo.types.SimpleNamespace(__name__='app')
-"""\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
+"""
+Application module that uses both config and logger.
+No circular dependencies here - just normal imports.
+"""
 config = config.__init__(config)
 get_config = config.get_config
 logger = logger.__init__(logger)
@@ -180,7 +192,13 @@ class Application:
         local_logger.log("Function-level import gives same logger instance", "DEBUG")
 Application.__module__ = 'app'
 app.Application = Application
-"""\nSimulates a software architecture with:\n- A logger that needs configuration\n- A configuration system that logs its initialization\n- An application that uses both\n- Utilities that are used everywhere (no circular deps)\n"""
+"""
+Simulates a software architecture with:
+- A logger that needs configuration
+- A configuration system that logs its initialization
+- An application that uses both
+- Utilities that are used everywhere (no circular deps)
+"""
 def main():
     print(format_message("=== Application Starting ==="))
     Config = _cribo_init___cribo_f96d2c_config(globals()['config']).Config
