@@ -1,3 +1,5 @@
 {
-    "contextFileName": "CLAUDE.md"
+    "context": {
+        "fileName": "CLAUDE.md"
+    }
 }
