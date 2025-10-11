@@ -25,6 +25,16 @@
 - 🚀 **Fast** and memory-efficient
 - 📊 **Performance tracking** with built-in benchmarking
 
+## Reliability and Production Readiness
+
+Cribo is built with production use cases in mind and is rigorously tested to ensure reliability and performance. You can confidently use it for production-grade code, backed by the following guarantees:
+
+- **Comprehensive Test Suite**: Cribo is continuously validated against a set of approximately 100 test fixtures that cover the full spectrum of Python's import system—from simple relative imports to complex scenarios involving circular dependencies and `importlib` constructs.
+
+- **Real-World Ecosystem Testing**: As part of every pull request, we run an "ecosystem" test suite. This involves bundling several popular open-source libraries (such as `requests`, `httpx`, `pyyaml`, `idna`, and `rich`) and executing test code against the resulting bundle to ensure real-world compatibility.
+
+- **Performance Monitoring**: We monitor microbenchmark regressions and ecosystem build time/size performance with every change. This ensures that Cribo's performance and efficiency are maintained and improved over time, preventing regressions from making their way into releases.
+
 ## Installation
 
 > **🔐 Supply Chain Security**: All npm and pypi packages include provenance attestations for enhanced security and verification.
@@ -337,6 +347,7 @@ Cribo preserves class identity and module structure to ensure Pydantic models wo
 class User(BaseModel):
     name: str
 
+
 # Bundled output preserves **module** and class structure
 ```
 
@@ -349,6 +360,7 @@ Function and class decorators are preserved with their original module context:
 @pa.check_types
 def validate_dataframe(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
     return df
+
 
 # Bundled output maintains decorator functionality
 ```
@@ -364,11 +376,18 @@ Function-level circular imports are automatically resolved and bundled successfu
 ```python
 # module_a.py
 from module_b import process_b
-def process_a(): return process_b() + "->A"
 
-# module_b.py  
+
+def process_a():
+    return process_b() + "->A"
+
+
+# module_b.py
 from module_a import get_value_a
-def process_b(): return f"B(using_{get_value_a()})"
+
+
+def process_b():
+    return f"B(using_{get_value_a()})"
 ```
 
 **Result**: ✅ Bundles successfully with warning log
@@ -380,10 +399,12 @@ Temporal paradox patterns are detected and reported with detailed diagnostics:
 ```python
 # constants_a.py
 from constants_b import B_VALUE
+
 A_VALUE = B_VALUE + 1  # ❌ Unresolvable
 
 # constants_b.py
-from constants_a import A_VALUE  
+from constants_a import A_VALUE
+
 B_VALUE = A_VALUE * 2  # ❌ Temporal paradox
 ```
 
@@ -406,146 +427,9 @@ Cycle 1: constants_b → constants_a
 | Nuitka      | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 | Pex         | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 
-## Development
-
-### Building from Source
-
-```bash
-git clone https://github.com/ophidiarium/cribo.git
-cd cribo
-
-# Build Rust CLI
-cargo build --release
-
-# Build Python package
-pip install maturin
-maturin develop
-
-# Run tests
-cargo test
-```
-
-### Performance Benchmarking
-
-Cribo uses [Bencher.dev](https://bencher.dev) for comprehensive performance tracking with statistical analysis and regression detection:
-
-```bash
-# Run all benchmarks
-cargo bench
-
-# Save a performance baseline
-./scripts/bench.sh --save-baseline main
-
-# Compare against baseline
-./scripts/bench.sh --baseline main
-
-# View detailed HTML report
-./scripts/bench.sh --open
-```
-
-**Key benchmarks:**
-
-- **End-to-end bundling**: Full project bundling performance (Criterion.rs)
-- **AST parsing**: Python code parsing speed (Criterion.rs)
-- **Module resolution**: Import resolution efficiency (Criterion.rs)
-- **CLI performance**: Command-line interface speed (Hyperfine)
-
-**CI Integration:**
-
-- Automated PR comments with performance comparisons and visual charts
-- Historical performance tracking with trend analysis
-- Statistical significance testing to prevent false positives
-- Dashboard available at [bencher.dev/perf/cribo](https://bencher.dev/perf/cribo)
-
-See [docs/benchmarking.md](docs/benchmarking.md) for detailed benchmarking guide.
-
-### Project Structure
-
-```text
-cribo/
-├── src/                    # Rust source code
-│   ├── main.rs            # CLI entry point
-│   ├── orchestrator.rs    # Bundle orchestration and coordination
-│   ├── code_generator.rs  # Python code generation (sys.modules approach)
-│   ├── resolver.rs        # Import resolution and classification
-│   ├── cribo_graph.rs     # Advanced dependency graph with item-level tracking
-│   ├── graph_builder.rs   # AST to dependency graph bridge
-│   ├── tree_shaking.rs    # Dead code elimination (enabled by default)
-│   ├── semantic_analysis.rs # Enhanced import and symbol analysis
-│   ├── ast_indexer.rs     # Deterministic AST node indexing
-│   ├── unused_imports.rs  # Legacy import cleanup
-│   ├── visitors/          # AST visitors for various analyses
-│   │   ├── import_discovery.rs
-│   │   ├── side_effect_detector.rs
-│   │   └── no_ops_removal.rs
-│   └── ...
-├── python/cribo/          # Python package
-├── tests/                 # Test suites
-│   └── fixtures/          # Test projects
-├── docs/                  # Documentation
-└── Cargo.toml            # Rust dependencies
-```
-
 ## Contributing
 
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/ophidiarium/cribo.git
-cd cribo
-
-# Install Rust toolchain and components
-rustup component add llvm-tools-preview
-cargo install cargo-llvm-cov
-
-# Build Rust CLI
-cargo build --release
-
-# Build Python package
-pip install maturin
-maturin develop
-
-# Run tests
-cargo test
-```
-
-### Code Coverage
-
-The project uses `cargo-llvm-cov` for code coverage analysis:
-
-```bash
-# Generate text coverage report (Istanbul-style)
-cargo coverage-text
-
-# Generate HTML coverage report and open in browser
-cargo coverage
-
-# Generate LCOV format for CI
-cargo coverage-lcov
-
-# Clean coverage data
-cargo coverage-clean
-```
-
-**Branch Coverage (Experimental)**:
-
-```bash
-# Requires nightly Rust for branch coverage
-cargo +nightly coverage-branch
-```
-
-Coverage reports are automatically generated in CI and uploaded to Codecov. See [`docs/coverage.md`](docs/coverage.md) for detailed coverage documentation.
-
-**Note**: If you see zeros in the "Branch Coverage" column in HTML reports, this is expected with stable Rust. Branch coverage requires nightly Rust and is experimental.
-
-### Contributing Guidelines
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to contribute to the project.
 
 ## License
 
