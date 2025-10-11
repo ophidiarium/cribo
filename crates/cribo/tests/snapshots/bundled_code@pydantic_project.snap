@@ -29,29 +29,25 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 schemas_user = _cribo.types.SimpleNamespace(__name__='schemas.user', __initializing__=False, __initialized__=False)
-def _cribo_init___cribo_f275a8_schemas_user(self):
+def _cribo_init___cribo_e6d2b7_schemas_user(self):
     if getattr(self, '__initialized__', False):
         return self
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
     """User schema definitions using Pydantic."""
-    from pydantic import BaseModel, EmailStr, Field
+    from pydantic import BaseModel, ConfigDict, EmailStr, Field
     Optional = _cribo.typing.Optional
     self.Optional = Optional
 
     class UserSchema(BaseModel):
         """User model with Pydantic validation."""
+        model_config = ConfigDict(json_encoders={}, json_schema_extra={"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}})
         name: str = Field(..., min_length=1, max_length=100, description="User's full name")
         email: EmailStr = Field(..., description="User's email address")
         age: int = Field(..., ge=0, le=150, description="User's age")
         is_active: bool = Field(default=True, description="Whether the user is active")
         bio: _cribo.typing.Optional[str] = Field(default=None, max_length=500, description="User's biography")
-
-        class Config:
-            """Pydantic configuration."""
-            json_encoders = {}
-            json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
     UserSchema.__module__ = 'schemas.user'
     self.UserSchema = UserSchema
 
@@ -78,7 +74,7 @@ def _cribo_init___cribo_f275a8_schemas_user(self):
     self.__initialized__ = True
     self.__initializing__ = False
     return self
-schemas_user.__init__ = _cribo_init___cribo_f275a8_schemas_user
+schemas_user.__init__ = _cribo_init___cribo_e6d2b7_schemas_user
 schemas = _cribo.types.SimpleNamespace(__name__='schemas', __initializing__=False, __initialized__=False)
 schemas.user = schemas_user
 """Schemas package initialization."""
@@ -115,7 +111,7 @@ utils_validation.validate_email = validate_email
 """Pydantic test project entry point."""
 json = _cribo.json
 from pydantic import ValidationError
-schemas_user = _cribo_init___cribo_f275a8_schemas_user(schemas_user)
+schemas_user = _cribo_init___cribo_e6d2b7_schemas_user(schemas_user)
 def main():
     """Main function demonstrating Pydantic usage."""
     user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}
