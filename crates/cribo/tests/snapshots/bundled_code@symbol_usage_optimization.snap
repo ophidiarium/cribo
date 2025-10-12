@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-submodule_helpers = _cribo.types.SimpleNamespace(__name__='submodule.helpers')
+submodule_helpers = _cribo.types.SimpleNamespace(__name__='submodule.helpers', __doc__='Helper functions module.')
 submodule = _cribo.types.SimpleNamespace(__name__='submodule', __initializing__=False, __initialized__=False)
 submodule.helpers = submodule_helpers
 """Helper functions module."""

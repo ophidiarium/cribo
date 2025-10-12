@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
+mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__', __doc__='Version information for the package.')
 mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.__version__ = mypackage___version__
 """Version information for the package."""
@@ -38,7 +38,7 @@ mypackage___version__.__version__ = __version__
 mypackage___version__.__build__ = __build__
 """Main package module."""
 mypackage.__version__ = __version__
-mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils')
+mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __doc__='Utilities module that needs version from sibling module.')
 mypackage.utils = mypackage_utils
 """Utilities module that needs version from sibling module."""
 def get_user_agent():

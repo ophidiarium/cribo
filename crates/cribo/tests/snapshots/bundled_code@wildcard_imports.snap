@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-explicit_all = _cribo.types.SimpleNamespace(__name__='explicit_all')
+explicit_all = _cribo.types.SimpleNamespace(__name__='explicit_all', __doc__='Module with no side-effects and explicit __all__.')
 """Module with no side-effects and explicit __all__."""
 def safe_function():
     """A function that will be exported via __all__."""
@@ -97,7 +97,7 @@ def _cribo_init___cribo_9a9871_with_side_effects(self):
     self.__initializing__ = False
     return self
 with_side_effects.__init__ = _cribo_init___cribo_9a9871_with_side_effects
-clash_module_a = _cribo.types.SimpleNamespace(__name__='clash_module_a')
+clash_module_a = _cribo.types.SimpleNamespace(__name__='clash_module_a', __doc__='First module with potentially clashing names (no side-effects).')
 """First module with potentially clashing names (no side-effects)."""
 def shared_function_2():
     """Function with same name in multiple modules."""
@@ -118,7 +118,7 @@ clash_module_a.shared_function = shared_function_2
 clash_module_a.SharedClass = SharedClass_2
 clash_module_a.SHARED_CONSTANT = SHARED_CONSTANT_2
 clash_module_a.unique_a_function = unique_a_function
-clash_module_b = _cribo.types.SimpleNamespace(__name__='clash_module_b')
+clash_module_b = _cribo.types.SimpleNamespace(__name__='clash_module_b', __doc__='Second module with potentially clashing names (no side-effects).')
 """Second module with potentially clashing names (no side-effects)."""
 def shared_function_1():
     """Function with same name in multiple modules."""

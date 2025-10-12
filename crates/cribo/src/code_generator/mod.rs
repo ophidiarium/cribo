@@ -9,6 +9,7 @@
 pub mod bundler;
 pub mod circular_deps;
 pub mod context;
+pub mod docstring_extractor;
 pub mod expression_handlers;
 pub mod globals;
 pub mod import_deduplicator;

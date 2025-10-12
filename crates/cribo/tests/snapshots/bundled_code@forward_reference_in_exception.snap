@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-myrequests_compat = _cribo.types.SimpleNamespace(__name__='myrequests.compat')
+myrequests_compat = _cribo.types.SimpleNamespace(__name__='myrequests.compat', __doc__='Compatibility module similar to requests.compat')
 myrequests = _cribo.types.SimpleNamespace(__name__='myrequests', __initializing__=False, __initialized__=False)
 myrequests.compat = myrequests_compat
 """Compatibility module similar to requests.compat"""

@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types')
+pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types', __doc__='Types module with stream classes.')
 pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
 pkg._types = pkg__types
 """Types module with stream classes."""
@@ -46,7 +46,7 @@ class SyncStream:
 SyncStream.__module__ = 'pkg._types'
 pkg__types.AsyncStream = AsyncStream
 pkg__types.SyncStream = SyncStream
-pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models')
+pkg__models = _cribo.types.SimpleNamespace(__name__='pkg._models', __doc__='Models module that also imports from parent.')
 pkg._models = pkg__models
 """Models module that also imports from parent."""
 class Request:

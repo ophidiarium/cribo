@@ -64,7 +64,7 @@ def _cribo_init___cribo_73cafd_pkg__internal(self):
 pkg__internal.__init__ = _cribo_init___cribo_73cafd_pkg__internal
 pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
 pkg._internal = pkg__internal
-pkg_consumer = _cribo.types.SimpleNamespace(__name__='pkg.consumer')
+pkg_consumer = _cribo.types.SimpleNamespace(__name__='pkg.consumer', __doc__='Consumer module that imports private variables from _internal module.')
 pkg.consumer = pkg_consumer
 """Consumer module that imports private variables from _internal module."""
 pkg__internal = pkg__internal.__init__(pkg__internal)

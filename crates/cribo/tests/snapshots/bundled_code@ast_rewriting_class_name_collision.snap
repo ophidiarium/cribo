@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-models = _cribo.types.SimpleNamespace(__name__='models')
+models = _cribo.types.SimpleNamespace(__name__='models', __doc__='\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n')
 """\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
 class User_2:
     """User model for data persistence."""
@@ -58,7 +58,7 @@ Product_2.__name__ = 'Product'
 Product_2.__qualname__ = 'Product'
 models.Product = Product_2
 models.User = User_2
-entities = _cribo.types.SimpleNamespace(__name__='entities')
+entities = _cribo.types.SimpleNamespace(__name__='entities', __doc__='\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n')
 """\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
 class User_1:
     """User entity for business logic."""

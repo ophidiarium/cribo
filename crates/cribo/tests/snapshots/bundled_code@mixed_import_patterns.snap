@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __doc__='\nUtility module with no dependencies on other modules in this package.\nThis can be safely imported at module level by everyone.\n')
 """\nUtility module with no dependencies on other modules in this package.\nThis can be safely imported at module level by everyone.\n"""
 def format_message(message):
     """Format a message with decorative borders"""
@@ -149,7 +149,7 @@ def _cribo_init___cribo_0639af_logger(self):
     self.__initializing__ = False
     return self
 logger.__init__ = _cribo_init___cribo_0639af_logger
-app = _cribo.types.SimpleNamespace(__name__='app')
+app = _cribo.types.SimpleNamespace(__name__='app', __doc__='\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n')
 """\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
 config = config.__init__(config)
 get_config = config.get_config

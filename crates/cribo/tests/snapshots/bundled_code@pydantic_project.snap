@@ -82,7 +82,7 @@ schemas_user = schemas_user.__init__(schemas_user)
 UserSchema = schemas.user.UserSchema
 CreateUserRequest = schemas.user.CreateUserRequest
 UserResponse = schemas.user.UserResponse
-utils_validation = _cribo.types.SimpleNamespace(__name__='utils.validation')
+utils_validation = _cribo.types.SimpleNamespace(__name__='utils.validation', __doc__='Validation utilities.')
 utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
 utils.validation = utils_validation
 """Validation utilities."""

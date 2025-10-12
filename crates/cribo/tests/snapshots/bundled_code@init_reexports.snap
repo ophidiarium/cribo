@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage_data_processor = _cribo.types.SimpleNamespace(__name__='mypackage.data_processor')
+mypackage_data_processor = _cribo.types.SimpleNamespace(__name__='mypackage.data_processor', __doc__='Data processing module.')
 mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.data_processor = mypackage_data_processor
 """Data processing module."""
@@ -38,7 +38,7 @@ def process_data(data):
     processed["processed"] = True
     return processed
 mypackage_data_processor.process_data = process_data
-mypackage_formatter = _cribo.types.SimpleNamespace(__name__='mypackage.formatter')
+mypackage_formatter = _cribo.types.SimpleNamespace(__name__='mypackage.formatter', __doc__='Data formatting module.')
 mypackage.formatter = mypackage_formatter
 """Data formatting module."""
 def format_data(data):
@@ -72,7 +72,7 @@ def _cribo_init___cribo_de6c46_mypackage_config(self):
     return self
 mypackage_config.__init__ = _cribo_init___cribo_de6c46_mypackage_config
 mypackage.config = mypackage_config
-mypackage_utils_helper = _cribo.types.SimpleNamespace(__name__='mypackage.utils.helper')
+mypackage_utils_helper = _cribo.types.SimpleNamespace(__name__='mypackage.utils.helper', __doc__='Helper utilities.')
 mypackage_utils = _cribo.types.SimpleNamespace(__name__='mypackage.utils', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.utils = mypackage_utils
 mypackage_utils.helper = mypackage_utils_helper
@@ -81,7 +81,7 @@ def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
 mypackage_utils_helper.helper_function = helper_function
-mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants')
+mypackage_utils_constants = _cribo.types.SimpleNamespace(__name__='mypackage.utils.constants', __doc__='Constants module.')
 mypackage_utils.constants = mypackage_utils_constants
 """Constants module."""
 MAX_ITEMS = 100

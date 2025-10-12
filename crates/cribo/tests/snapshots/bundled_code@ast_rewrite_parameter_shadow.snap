@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-models = _cribo.types.SimpleNamespace(__name__='models')
+models = _cribo.types.SimpleNamespace(__name__='models', __doc__='Models module containing classes that will be shadowed by parameters.')
 """Models module containing classes that will be shadowed by parameters."""
 class User:
     """User class that will be shadowed by function parameters."""

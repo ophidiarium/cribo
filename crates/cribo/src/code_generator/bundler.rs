@@ -14,7 +14,7 @@ use crate::{
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{BundleParams, InlineContext, ModuleTransformContext, SemanticContext},
-        expression_handlers, import_deduplicator,
+        docstring_extractor, expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
         module_transformer,
@@ -1770,17 +1770,34 @@ impl<'a> Bundler<'a> {
                     let namespace_var = sanitize_module_name_for_identifier(&module_name);
                     if !self.created_namespaces.contains(&namespace_var) {
                         log::debug!("Creating namespace for inlinable module '{module_name}'");
+
+                        // Extract module docstring if it exists
+                        let module_docstring = docstring_extractor::extract_module_docstring(&ast);
+
+                        // Create keywords for SimpleNamespace: __name__ and optionally __doc__
+                        let mut keywords = vec![Keyword {
+                            node_index: self.create_node_index(),
+                            arg: Some(Identifier::new("__name__", TextRange::default())),
+                            value: expressions::string_literal(&module_name),
+                            range: TextRange::default(),
+                        }];
+
+                        // Add __doc__ if module has a docstring
+                        if let Some(docstring) = module_docstring {
+                            keywords.push(Keyword {
+                                node_index: self.create_node_index(),
+                                arg: Some(Identifier::new("__doc__", TextRange::default())),
+                                value: expressions::string_literal(&docstring),
+                                range: TextRange::default(),
+                            });
+                        }
+
                         let namespace_stmt = statements::simple_assign(
                             &namespace_var,
                             expressions::call(
                                 expressions::simple_namespace_ctor(),
                                 vec![],
-                                vec![Keyword {
-                                    node_index: self.create_node_index(),
-                                    arg: Some(Identifier::new("__name__", TextRange::default())),
-                                    value: expressions::string_literal(&module_name),
-                                    range: TextRange::default(),
-                                }],
+                                keywords,
                             ),
                         );
                         all_inlined_stmts.push(namespace_stmt);

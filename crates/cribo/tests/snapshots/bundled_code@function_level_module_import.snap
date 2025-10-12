@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils = _cribo.types.SimpleNamespace(__name__='utils')
-utils_calculator = _cribo.types.SimpleNamespace(__name__='utils.calculator')
+utils_calculator = _cribo.types.SimpleNamespace(__name__='utils.calculator', __doc__='Calculator module with simple operations')
 utils.calculator = utils_calculator
 """Calculator module with simple operations"""
 description = "A simple calculator module"

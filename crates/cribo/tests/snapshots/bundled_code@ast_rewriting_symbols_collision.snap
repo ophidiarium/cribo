@@ -31,7 +31,7 @@ _cribo = _Cribo()
 core = _cribo.types.SimpleNamespace(__name__='core')
 core_database = _cribo.types.SimpleNamespace(__name__='core.database')
 core.database = core_database
-core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='\nUtility helpers module with extensive naming conflicts\n')
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
 core_utils.helpers = core_utils_helpers
@@ -114,7 +114,7 @@ core_utils_helpers.validate = validate_5
 services = _cribo.types.SimpleNamespace(__name__='services')
 services_auth = _cribo.types.SimpleNamespace(__name__='services.auth')
 services.auth = services_auth
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='\nUser model with extensive naming conflicts across the project\n')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.user = models_user
 """\nUser model with extensive naming conflicts across the project\n"""
@@ -258,7 +258,7 @@ models_user.process = process_3
 models_user.process_user = process_user
 models_user.result = result_3
 models_user.validate = validate_3
-core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection')
+core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection', __doc__='\nDatabase connection module with naming conflicts\n')
 core_database.connection = core_database_connection
 """\nDatabase connection module with naming conflicts\n"""
 helper_validate = core_utils_helpers.validate
@@ -308,7 +308,7 @@ core_database_connection.connection = connection_3
 core_database_connection.process = process_6
 core_database_connection.result = result_6
 core_database_connection.validate = validate_6
-models_base = _cribo.types.SimpleNamespace(__name__='models.base')
+models_base = _cribo.types.SimpleNamespace(__name__='models.base', __doc__='\nBase model functionality with relative import conflicts\n')
 models.base = models_base
 """\nBase model functionality with relative import conflicts\n"""
 core_validate = core_utils_helpers.validate
