@@ -4,9 +4,10 @@ use ruff_python_ast::{
     AnyStringFlags, Expr, ExprFString, ExprStringLiteral, FString, FStringPart,
     InterpolatedElement, InterpolatedStringElement, InterpolatedStringLiteralElement, Stmt,
     StringFlags, StringLiteral,
+    helpers::is_docstring_stmt,
     str::{Quote, TripleQuotes},
     str_prefix::StringLiteralPrefix,
-    visitor::{Visitor, walk_expr},
+    visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_literal::{
@@ -20,31 +21,54 @@ use crate::types::FxIndexMap;
 struct StringReplacement {
     original: String,
     desired: String,
+    should_indent: bool,
 }
 
 struct StringExprReplacementCollector<'sty> {
     stylist: &'sty Stylist<'sty>,
-    replacements: FxIndexMap<String, String>,
+    replacements: FxIndexMap<String, ReplacementEntry>,
+    in_docstring: bool,
+}
+
+#[derive(Debug)]
+struct ReplacementEntry {
+    desired: String,
+    should_indent: bool,
 }
 
 impl StringExprReplacementCollector<'_> {
     fn handle_expr(&mut self, expr: &Expr) {
         let generated = Generator::from(self.stylist).expr(expr);
         let desired = match expr {
-            Expr::StringLiteral(expr_lit) => render_string_literal_expr(expr_lit),
+            Expr::StringLiteral(expr_lit) => {
+                render_string_literal_expr(expr_lit).map(|s| (s, self.in_docstring))
+            }
             Expr::FString(expr_f) => render_f_string_expr(self.stylist, expr_f),
             _ => None,
         };
-        let Some(desired) = desired else {
+        let Some((desired, should_indent)) = desired else {
             return;
         };
         if generated != desired {
-            self.replacements.insert(generated, desired);
+            self.replacements.insert(
+                generated,
+                ReplacementEntry {
+                    desired,
+                    should_indent,
+                },
+            );
         }
     }
 }
 
 impl<'ast> Visitor<'ast> for StringExprReplacementCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        let previous = self.in_docstring;
+        self.in_docstring = is_docstring_stmt(stmt);
+        walk_stmt(self, stmt);
+        self.in_docstring = previous;
+    }
+
     fn visit_expr(&mut self, expr: &'ast Expr) {
         if matches!(
             expr,
@@ -73,13 +97,18 @@ fn collect_string_expr_replacements(stylist: &Stylist, stmt: &Stmt) -> Vec<Strin
     let mut collector = StringExprReplacementCollector {
         stylist,
         replacements: FxIndexMap::default(),
+        in_docstring: false,
     };
     collector.visit_stmt(stmt);
 
     collector
         .replacements
         .into_iter()
-        .map(|(original, desired)| StringReplacement { original, desired })
+        .map(|(original, entry)| StringReplacement {
+            original,
+            desired: entry.desired,
+            should_indent: entry.should_indent,
+        })
         .collect()
 }
 
@@ -96,7 +125,11 @@ fn apply_replacement(mut rendered: String, replacement: &StringReplacement) -> S
             .take_while(|c| c.is_whitespace())
             .collect::<String>();
 
-        let adjusted = apply_indent(&replacement.desired, &indent);
+        let adjusted = if replacement.should_indent {
+            apply_indent(&replacement.desired, &indent)
+        } else {
+            replacement.desired.clone()
+        };
         rendered.replace_range(
             absolute_pos..absolute_pos + replacement.original.len(),
             &adjusted,
@@ -107,11 +140,24 @@ fn apply_replacement(mut rendered: String, replacement: &StringReplacement) -> S
 }
 
 fn apply_indent(desired: &str, indent: &str) -> String {
-    if indent.is_empty() {
-        desired.to_string()
-    } else {
-        desired.to_string()
+    if indent.is_empty() || !desired.contains('\n') {
+        return desired.to_string();
     }
+
+    let mut lines = desired.split('\n');
+    let mut result = String::new();
+
+    if let Some(first_line) = lines.next() {
+        result.push_str(first_line);
+    }
+
+    for line in lines {
+        result.push('\n');
+        result.push_str(indent);
+        result.push_str(line);
+    }
+
+    result
 }
 
 fn render_string_literal_expr(expr: &ExprStringLiteral) -> Option<String> {
@@ -143,7 +189,7 @@ fn render_string_literal_part(literal: &StringLiteral) -> Option<String> {
     }
 }
 
-fn render_f_string_expr(stylist: &Stylist, expr: &ExprFString) -> Option<String> {
+fn render_f_string_expr(stylist: &Stylist, expr: &ExprFString) -> Option<(String, bool)> {
     let mut rendered_parts = Vec::new();
     for part in &expr.value {
         match part {
@@ -157,7 +203,7 @@ fn render_f_string_expr(stylist: &Stylist, expr: &ExprFString) -> Option<String>
             }
         }
     }
-    Some(rendered_parts.join(" "))
+    Some((rendered_parts.join(" "), false))
 }
 
 fn render_f_string_part(stylist: &Stylist, fstring: &FString) -> Option<String> {
