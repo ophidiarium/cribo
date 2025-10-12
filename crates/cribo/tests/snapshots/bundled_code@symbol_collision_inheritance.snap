@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-auth_module = _cribo.types.SimpleNamespace(__name__='auth_module')
+auth_module = _cribo.types.SimpleNamespace(__name__='auth_module', __doc__='Module with classes that will have naming collision.')
 """Module with classes that will have naming collision."""
 class AuthBase:
     """Base authentication class."""
@@ -75,7 +75,7 @@ auth_module.AuthBase = AuthBase
 auth_module.HTTPBasicAuth = HTTPBasicAuth_2
 auth_module.HTTPProxyAuth = HTTPProxyAuth
 auth_module.make_auth = make_auth
-colliding_module = _cribo.types.SimpleNamespace(__name__='colliding_module')
+colliding_module = _cribo.types.SimpleNamespace(__name__='colliding_module', __doc__='Another module that exports HTTPBasicAuth to create a collision.')
 """Another module that exports HTTPBasicAuth to create a collision."""
 class HTTPBasicAuth_1:
     """Different implementation of HTTPBasicAuth to create collision."""

@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-first = _cribo.types.SimpleNamespace(__name__='first')
+first = _cribo.types.SimpleNamespace(__name__='first', __doc__='First module with shared and unique symbols.')
 """First module with shared and unique symbols."""
 def shared_value_2():
     return "from_first"
@@ -36,7 +36,7 @@ def unique_first():
     return "unique_to_first"
 first.shared_value = shared_value_2
 first.unique_first = unique_first
-second = _cribo.types.SimpleNamespace(__name__='second')
+second = _cribo.types.SimpleNamespace(__name__='second', __doc__='Second module with shared and unique symbols.')
 """Second module with shared and unique symbols."""
 def shared_value_1():
     return "from_second"

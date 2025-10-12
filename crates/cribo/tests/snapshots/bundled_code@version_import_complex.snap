@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__')
+mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__', __doc__='Version information.')
 mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
 mypackage.__version__ = mypackage___version__
 """Version information."""

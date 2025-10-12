@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-helper = _cribo.types.SimpleNamespace(__name__='helper')
+helper = _cribo.types.SimpleNamespace(__name__='helper', __doc__='Helper module that imports stdlib modules at module level.')
 """Helper module that imports stdlib modules at module level."""
 def process():
     """Use the imported modules."""

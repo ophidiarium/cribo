@@ -28,13 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-module_a = _cribo.types.SimpleNamespace(__name__='module_a')
+module_a = _cribo.types.SimpleNamespace(__name__='module_a', __doc__='\nModule A with a process_data function.\nThis will conflict with module_b.process_data when bundled.\n')
 """\nModule A with a process_data function.\nThis will conflict with module_b.process_data when bundled.\n"""
 def process_data_2(input_data: str) -> str:
     """Process data in module A's way."""
     return f"Module A processed: {input_data.upper()}"
 module_a.process_data = process_data_2
-module_b = _cribo.types.SimpleNamespace(__name__='module_b')
+module_b = _cribo.types.SimpleNamespace(__name__='module_b', __doc__='\nModule B with a process_data function.\nThis will conflict with module_a.process_data when bundled.\n')
 """\nModule B with a process_data function.\nThis will conflict with module_a.process_data when bundled.\n"""
 def process_data_1(input_data: str) -> str:
     """Process data in module B's way."""

@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-pkg_definitions = _cribo.types.SimpleNamespace(__name__='pkg.definitions')
+pkg_definitions = _cribo.types.SimpleNamespace(__name__='pkg.definitions', __doc__='Simple class definitions without side effects.')
 pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
 pkg.definitions = pkg_definitions
 """Simple class definitions without side effects."""

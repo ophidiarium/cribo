@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='Core utility helpers module - NO external dependencies to avoid circular imports')
 core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils

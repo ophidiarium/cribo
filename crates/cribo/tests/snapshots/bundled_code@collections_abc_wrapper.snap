@@ -47,7 +47,7 @@ def _cribo_init___cribo_f0aa89_compat(self):
     self.__initializing__ = False
     return self
 compat.__init__ = _cribo_init___cribo_f0aa89_compat
-structures = _cribo.types.SimpleNamespace(__name__='structures')
+structures = _cribo.types.SimpleNamespace(__name__='structures', __doc__='structures.py - Contains data structures.')
 """structures.py - Contains data structures."""
 compat = compat.__init__(compat)
 MutableMapping = compat.MutableMapping
