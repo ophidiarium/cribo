@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='\nUtility helpers module with extensive naming conflicts\n')
 core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
@@ -148,7 +148,7 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     self.__initializing__ = False
     return self
 core_utils.__init__ = _cribo_init___cribo_c57a32_core_utils
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='\nUser model with extensive naming conflicts across the project\n')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.user = models_user
 """\nUser model with extensive naming conflicts across the project\n"""
@@ -447,7 +447,7 @@ def _cribo_init___cribo_bca2f6_models_base(self):
     self.__initializing__ = False
     return self
 models_base.__init__ = _cribo_init___cribo_bca2f6_models_base
-core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection')
+core_database_connection = _cribo.types.SimpleNamespace(__name__='core.database.connection', __doc__='\nDatabase connection module with naming conflicts\n')
 core_database = _cribo.types.SimpleNamespace(__name__='core.database', __initializing__=False, __initialized__=False, __path__=[])
 core.database = core_database
 core_database.connection = core_database_connection

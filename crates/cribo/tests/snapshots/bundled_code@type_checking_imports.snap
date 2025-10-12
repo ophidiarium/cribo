@@ -28,13 +28,13 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-module_a = _cribo.types.SimpleNamespace(__name__='module_a')
+module_a = _cribo.types.SimpleNamespace(__name__='module_a', __doc__='Module A with a simple function.')
 """Module A with a simple function."""
 def function_a(value):
     """Process a value."""
     return f"Processed: {value}"
 module_a.function_a = function_a
-module_b = _cribo.types.SimpleNamespace(__name__='module_b')
+module_b = _cribo.types.SimpleNamespace(__name__='module_b', __doc__='Module B with a type definition.')
 """Module B with a type definition."""
 class TypeB:
     """A type that's only used for type hints."""

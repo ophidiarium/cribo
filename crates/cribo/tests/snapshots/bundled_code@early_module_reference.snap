@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-mypkg_sessions = _cribo.types.SimpleNamespace(__name__='mypkg.sessions')
+mypkg_sessions = _cribo.types.SimpleNamespace(__name__='mypkg.sessions', __doc__='Sessions module with Session class.')
 mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
 mypkg.sessions = mypkg_sessions
 """Sessions module with Session class."""

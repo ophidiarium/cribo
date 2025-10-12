@@ -33,13 +33,13 @@ utils = _cribo.types.SimpleNamespace(__name__='utils')
 def transform(text):
     return "TOP_LEVEL_UTILS"
 utils.transform = transform
-package_a_processor = _cribo.types.SimpleNamespace(__name__='package_a.processor')
+package_a_processor = _cribo.types.SimpleNamespace(__name__='package_a.processor', __doc__='Package A processor that imports utils expecting package_a.utils')
 package_a.processor = package_a_processor
 """Package A processor that imports utils expecting package_a.utils"""
 def process_a(data):
     return transform(data)
 package_a_processor.process_a = process_a
-package_b_processor = _cribo.types.SimpleNamespace(__name__='package_b.processor')
+package_b_processor = _cribo.types.SimpleNamespace(__name__='package_b.processor', __doc__='Package B processor that imports utils expecting package_b.utils')
 package_b = _cribo.types.SimpleNamespace(__name__='package_b', __initializing__=False, __initialized__=False)
 package_b.processor = package_b_processor
 """Package B processor that imports utils expecting package_b.utils"""

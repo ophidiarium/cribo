@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-constants = _cribo.types.SimpleNamespace(__name__='constants')
+constants = _cribo.types.SimpleNamespace(__name__='constants', __doc__='\nConstants module with global variables.\nThese will conflict with config.py when bundled.\n')
 """\nConstants module with global variables.\nThese will conflict with config.py when bundled.\n"""
 API_URL_2 = "https://api.constants.com"
 VERSION_2 = "1.0.0"
@@ -36,7 +36,7 @@ DEFAULT_TIMEOUT = 30
 constants.API_URL = API_URL_2
 constants.DEFAULT_TIMEOUT = DEFAULT_TIMEOUT
 constants.VERSION = VERSION_2
-config = _cribo.types.SimpleNamespace(__name__='config')
+config = _cribo.types.SimpleNamespace(__name__='config', __doc__='\nConfig module with global variables.\nThese will conflict with constants.py when bundled.\n')
 """\nConfig module with global variables.\nThese will conflict with constants.py when bundled.\n"""
 API_URL_1 = "https://api.config.com"
 VERSION_1 = "2.1.0"

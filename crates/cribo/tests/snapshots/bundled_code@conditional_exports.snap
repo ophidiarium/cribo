@@ -91,7 +91,7 @@ def _cribo_init___cribo_244765_compat_module(self):
     self.__initializing__ = False
     return self
 compat_module.__init__ = _cribo_init___cribo_244765_compat_module
-exceptions_module = _cribo.types.SimpleNamespace(__name__='exceptions_module')
+exceptions_module = _cribo.types.SimpleNamespace(__name__='exceptions_module', __doc__='Module that uses imports from compat_module (like requests.exceptions).')
 """Module that uses imports from compat_module (like requests.exceptions)."""
 compat_module = compat_module.__init__(compat_module)
 CompatJSONDecodeError = compat_module.JSONDecodeError

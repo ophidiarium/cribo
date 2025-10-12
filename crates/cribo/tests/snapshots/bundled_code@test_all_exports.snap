@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils = _cribo.types.SimpleNamespace(__name__='utils', __doc__='\nUtility module that demonstrates __all__ handling.\nOnly exports helper_function and UtilityClass, not _internal_function.\n')
 """\nUtility module that demonstrates __all__ handling.\nOnly exports helper_function and UtilityClass, not _internal_function.\n"""
 def helper_function():
     """A public helper function."""

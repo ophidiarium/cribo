@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-worker = _cribo.types.SimpleNamespace(__name__='worker')
+worker = _cribo.types.SimpleNamespace(__name__='worker', __doc__='Worker module with globals that need lifting when using f-strings')
 """Worker module with globals that need lifting when using f-strings"""
 status = "idle"
 counter = 0

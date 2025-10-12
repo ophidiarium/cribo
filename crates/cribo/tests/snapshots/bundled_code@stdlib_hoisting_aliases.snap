@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-file_utils = _cribo.types.SimpleNamespace(__name__='file_utils')
+file_utils = _cribo.types.SimpleNamespace(__name__='file_utils', __doc__='File utilities module - no side effects, uses aliased stdlib imports.')
 """File utilities module - no side effects, uses aliased stdlib imports."""
 def get_current_directory() -> str:
     """Get current directory using aliased os module."""

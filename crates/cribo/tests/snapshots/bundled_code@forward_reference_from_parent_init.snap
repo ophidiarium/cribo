@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-parent_base = _cribo.types.SimpleNamespace(__name__='parent.base')
+parent_base = _cribo.types.SimpleNamespace(__name__='parent.base', __doc__='Base module defining base classes.')
 parent = _cribo.types.SimpleNamespace(__name__='parent', __initializing__=False, __initialized__=False)
 parent.base = parent_base
 """Base module defining base classes."""
@@ -39,7 +39,7 @@ class BaseClass:
         self.base_value = "base"
 BaseClass.__module__ = 'parent.base'
 parent_base.BaseClass = BaseClass
-parent_another = _cribo.types.SimpleNamespace(__name__='parent.another')
+parent_another = _cribo.types.SimpleNamespace(__name__='parent.another', __doc__='Another module.')
 parent.another = parent_another
 """Another module."""
 class AnotherClass:
@@ -49,7 +49,7 @@ class AnotherClass:
         self.another_value = "another"
 AnotherClass.__module__ = 'parent.another'
 parent_another.AnotherClass = AnotherClass
-parent_child = _cribo.types.SimpleNamespace(__name__='parent.child')
+parent_child = _cribo.types.SimpleNamespace(__name__='parent.child', __doc__='Child module that defines the actual symbols.')
 parent.child = parent_child
 """Child module that defines the actual symbols."""
 class MyClass:
@@ -66,7 +66,7 @@ def helper_function():
     return "helper"
 parent_child.MyClass = MyClass
 parent_child.helper_function = helper_function
-parent_subpkg_submodule = _cribo.types.SimpleNamespace(__name__='parent.subpkg.submodule')
+parent_subpkg_submodule = _cribo.types.SimpleNamespace(__name__='parent.subpkg.submodule', __doc__='Submodule in subpackage.')
 parent_subpkg = _cribo.types.SimpleNamespace(__name__='parent.subpkg', __initializing__=False, __initialized__=False, __path__=[])
 parent.subpkg = parent_subpkg
 parent_subpkg.submodule = parent_subpkg_submodule

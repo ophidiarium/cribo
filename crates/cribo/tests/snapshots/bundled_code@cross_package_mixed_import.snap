@@ -28,7 +28,7 @@ class _Cribo():
         m = _sys.modules.get(n) or _importlib.import_module(n)
         return _CriboModule(m, n)
 _cribo = _Cribo()
-core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='Helper utilities for the core package.')
 core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
@@ -38,12 +38,12 @@ def validate(value: str) -> bool:
     """Validate a string value.\n\n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
     return bool(value and not value.startswith("_"))
 core_utils_helpers.validate = validate
-core_version = _cribo.types.SimpleNamespace(__name__='core.version')
+core_version = _cribo.types.SimpleNamespace(__name__='core.version', __doc__='Version module separate from __init__ to avoid circular imports.')
 core.version = core_version
 """Version module separate from __init__ to avoid circular imports."""
 CORE_MODEL_VERSION = "1.0.0"
 core_version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
-core_utils_config = _cribo.types.SimpleNamespace(__name__='core.utils.config')
+core_utils_config = _cribo.types.SimpleNamespace(__name__='core.utils.config', __doc__='Configuration utilities for the core package.')
 core_utils.config = core_utils_config
 """Configuration utilities for the core package."""
 _module_config = None
@@ -113,7 +113,7 @@ def _cribo_init___cribo_f00e4b_core(self):
     self.__initializing__ = False
     return self
 core.__init__ = _cribo_init___cribo_f00e4b_core
-models_base = _cribo.types.SimpleNamespace(__name__='models.base')
+models_base = _cribo.types.SimpleNamespace(__name__='models.base', __doc__='Base model module.')
 models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
 models.base = models_base
 """Base model module."""
@@ -131,7 +131,7 @@ class BaseModel:
         return {"name": self.name, "type": "base", "model_version": self.version}
 BaseModel.__module__ = 'models.base'
 models_base.BaseModel = BaseModel
-models_user = _cribo.types.SimpleNamespace(__name__='models.user')
+models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='User model providing cross-package functionality.')
 models.user = models_user
 """User model providing cross-package functionality."""
 def process_user(name: str) -> str:

@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mymodule = _cribo.types.SimpleNamespace(__name__='mymodule')
-mymodule_utils = _cribo.types.SimpleNamespace(__name__='mymodule.utils')
+mymodule_utils = _cribo.types.SimpleNamespace(__name__='mymodule.utils', __doc__='Simple utilities module')
 mymodule.utils = mymodule_utils
 """Simple utilities module"""
 CONSTANT = 42
