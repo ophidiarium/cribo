@@ -7,8 +7,8 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 
 /// Extract the module-level docstring from a Python module AST.
 ///
-/// Returns `Some(docstring)` if the module has a docstring (first statement is a string literal),
-/// or `None` if there is no docstring.
+/// Returns `Some(docstring)` if the module has a docstring, or `None` if there is no docstring.
+/// Module docstrings can appear either as the first statement or after `__future__` imports.
 ///
 /// # Examples
 ///
@@ -17,16 +17,38 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 /// import os
 /// ```
 ///
-/// The above module would return `Some("This is a module docstring.")`.
+/// ```python
+/// from __future__ import annotations
+/// """This is also a valid module docstring."""
+/// ```
+///
+/// Both examples above would extract the docstring successfully.
 pub fn extract_module_docstring(module: &ModModule) -> Option<String> {
-    // Module docstring is the first statement if it's a string literal expression
-    if let Some(first_stmt) = module.body.first()
-        && let Stmt::Expr(expr_stmt) = first_stmt
-        && let Expr::StringLiteral(string_lit) = expr_stmt.value.as_ref()
-    {
-        // Convert the string literal value to a String
-        let docstring = string_lit.value.to_str().to_string();
-        return Some(docstring);
+    // Module docstring can appear after `__future__` imports.
+    // We need to skip them to find the first "real" statement.
+    for stmt in &module.body {
+        if let Stmt::Expr(expr_stmt) = stmt {
+            if let Expr::StringLiteral(string_lit) = expr_stmt.value.as_ref() {
+                // This is the first non-__future__ import statement, and it's a string literal.
+                // It's a docstring.
+                let docstring = string_lit.value.to_str().to_string();
+                return Some(docstring);
+            }
+            // The first non-`__future__` statement is not a string literal, so there's no
+            // docstring.
+            return None;
+        }
+
+        if let Stmt::ImportFrom(import_from) = stmt
+            && let Some(module_name) = &import_from.module
+            && module_name.as_str() == "__future__"
+        {
+            // It's a `__future__` import, continue searching.
+            continue;
+        }
+
+        // Any other statement type means we're past the docstring.
+        return None;
     }
     None
 }
@@ -125,9 +147,11 @@ def foo():
 "#;
         let module = parse_module(source).expect("Failed to parse").into_syntax();
         let docstring = extract_module_docstring(&module);
-        // Docstring after __future__ import is not a module docstring
-        // (it would be the second statement)
-        assert_eq!(docstring, None);
+        // Docstring after __future__ import IS a valid module docstring
+        assert_eq!(
+            docstring,
+            Some("This is a module docstring after __future__ import.".to_string())
+        );
     }
 
     #[test]
