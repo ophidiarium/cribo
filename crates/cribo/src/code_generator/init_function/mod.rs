@@ -3,7 +3,12 @@
 //! This module contains the refactored implementation of module-to-init-function
 //! transformation, decomposed into manageable phases.
 
+mod state;
+
 use std::fmt;
+
+#[allow(unused_imports)] // Will be used as phases are extracted
+pub use state::InitFunctionState;
 
 /// Errors that can occur during init function transformation
 #[derive(Debug)]
