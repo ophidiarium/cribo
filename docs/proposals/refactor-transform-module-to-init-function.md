@@ -875,7 +875,12 @@ Start with simplest phases (initialization, finalization) and work inward.
    - Adds **initialized** and **initializing** guards
    - Handles globals lifting
    - All tests pass (148/148), clippy clean
-2. Finalization
+2. ✅ **Finalization** - COMPLETED in `finalization.rs`
+   - Extracted lines 1494-1544 into FinalizationPhase::build_function_stmt()
+   - Marks module as initialized and clears initializing flag
+   - Returns module object and creates function definition
+   - Looks up init function name from bundler.module_init_functions
+   - All tests pass (148/148), clippy clean
 3. Import Analysis
 4. Import Transformation
 5. Wrapper Symbol Setup

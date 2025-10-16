@@ -3,11 +3,14 @@
 //! This module contains the refactored implementation of module-to-init-function
 //! transformation, decomposed into manageable phases.
 
+mod finalization;
 mod initialization;
 mod state;
 
 use std::fmt;
 
+#[allow(unused_imports)] // Will be used as phases are extracted
+pub use finalization::FinalizationPhase;
 #[allow(unused_imports)] // Will be used as phases are extracted
 pub use initialization::InitializationPhase;
 #[allow(unused_imports)] // Will be used as phases are extracted
