@@ -1,3 +1,5 @@
+    Blocking waiting for file lock on build directory
+   Compiling cribo v0.7.2 (/Volumes/workplace/GitHub/ophidiarium/cribo/crates/cribo)
 warning: this `continue` expression is redundant
    --> crates/cribo/src/analyzers/import_analyzer.rs:803:36
     |
@@ -264,6 +266,33 @@ help: remove the `else` block and move the contents out
 944 +                     return import_type;
     |
 
+warning: all fields have the same postfix: `violations`
+   --> crates/cribo/tests/test_bundling_snapshots.rs:108:1
+    |
+108 | / struct RuffLintResults {
+109 | |     f401_violations: Vec<String>, // Unused imports
+110 | |     f404_violations: Vec<String>, // Late future imports
+111 | |     other_violations: Vec<String>,
+112 | |     total_violations: usize,
+113 | | }
+    | |_^
+    |
+    = help: remove the postfixes
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_field_names
+    = note: `-W clippy::struct-field-names` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_field_names)]`
+
+warning: this function has too many lines (265/200)
+   --> crates/cribo/tests/test_bundling_snapshots.rs:186:1
+    |
+186 | fn test_bundling_fixtures() {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+    = note: `-W clippy::too-many-lines` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::too_many_lines)]`
+
+warning: `cribo` (test "test_bundling_snapshots") generated 2 warnings
 warning: more than 3 bools in a struct
   --> crates/cribo/src/analyzers/dependency_analyzer.rs:16:1
    |
@@ -1054,21 +1083,6 @@ warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
     = note: `-W clippy::ref-option` implied by `-W clippy::pedantic`
     = help: to override `-W clippy::pedantic` add `#[allow(clippy::ref_option)]`
 
-warning: variables can be used directly in the `format!` string
-   --> crates/cribo/src/config.rs:214:22
-    |
-214 |               _ => Err(anyhow!(
-    |  ______________________^
-215 | |                 "Invalid target version '{}'. Supported versions: py38, py39, py310, py311, \
-216 | |                  py312, py313",
-217 | |                 version_str
-218 | |             )),
-    | |_____________^
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
-    = note: `-W clippy::uninlined-format-args` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::uninlined_format_args)]`
-
 warning: possible intra-doc link using quotes instead of backticks
    --> crates/cribo/src/cribo_graph.rs:113:30
     |
@@ -1319,118 +1333,107 @@ warning: unnecessary `Debug` formatting in `debug!` args
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
 
 warning: unnecessary `Debug` formatting in `anyhow!` args
-    --> crates/cribo/src/orchestrator.rs:1024:21
+    --> crates/cribo/src/orchestrator.rs:1022:73
      |
-1024 |                     entry_path
-     |                     ^^^^^^^^^^
+1022 |                 anyhow!("Cannot determine module name from entry path: {entry_path:?}")
+     |                                                                         ^^^^^^^^^^
      |
      = help: use `Display` formatting and change this to `entry_path.display()`
      = note: switching to `Display` formatting will change how the value is shown; escaped characters will no longer be escaped and surrounding quotes will be removed
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
 
-warning: variables can be used directly in the `format!` string
-    --> crates/cribo/src/orchestrator.rs:1022:17
-     |
-1022 | /                 anyhow!(
-1023 | |                     "Cannot determine module name from entry path: {:?}",
-1024 | |                     entry_path
-1025 | |                 )
-     | |_________________^
-     |
-     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
-
 warning: unused `self` argument
-    --> crates/cribo/src/orchestrator.rs:1033:28
+    --> crates/cribo/src/orchestrator.rs:1030:28
      |
-1033 |     fn path_to_module_name(&self, relative_path: &Path) -> Option<String> {
+1030 |     fn path_to_module_name(&self, relative_path: &Path) -> Option<String> {
      |                            ^^^^^
      |
      = help: consider refactoring to an associated function
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
 warning: adding items after statements is confusing, since items exist from the start of the scope
-    --> crates/cribo/src/orchestrator.rs:1056:9
+    --> crates/cribo/src/orchestrator.rs:1053:9
      |
-1056 |         type DiscoveryData = (ModuleId, PathBuf, Vec<String>, ModModule, String); // (id, path, imports, ast, source) for discovery phase
+1053 |         type DiscoveryData = (ModuleId, PathBuf, Vec<String>, ModModule, String); // (id, path, imports, ast, source) for discovery phase
      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
      |
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
 
 warning: unused `self` argument
-    --> crates/cribo/src/orchestrator.rs:1356:9
+    --> crates/cribo/src/orchestrator.rs:1353:9
      |
-1356 |         &self,
+1353 |         &self,
      |         ^^^^^
      |
      = help: consider refactoring to an associated function
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
 warning: unused `self` argument
-    --> crates/cribo/src/orchestrator.rs:1368:9
+    --> crates/cribo/src/orchestrator.rs:1365:9
      |
-1368 |         &self,
+1365 |         &self,
      |         ^^^^^
      |
      = help: consider refactoring to an associated function
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
 warning: this could be rewritten as `let...else`
-    --> crates/cribo/src/orchestrator.rs:1375:9
+    --> crates/cribo/src/orchestrator.rs:1372:9
      |
-1375 | /         let resolver_ref = if let Some(resolver) = resolver {
-1376 | |             resolver
-1377 | |         } else {
-1378 | |             debug!("No resolver available for relative import resolution");
-1379 | |             return;
-1380 | |         };
+1372 | /         let resolver_ref = if let Some(resolver) = resolver {
+1373 | |             resolver
+1374 | |         } else {
+1375 | |             debug!("No resolver available for relative import resolution");
+1376 | |             return;
+1377 | |         };
      | |__________^
      |
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_let_else
 help: consider writing
      |
-1375 ~         let Some(resolver_ref) = resolver else {
-1376 +             debug!("No resolver available for relative import resolution");
-1377 +             return;
-1378 +         };
+1372 ~         let Some(resolver_ref) = resolver else {
+1373 +             debug!("No resolver available for relative import resolution");
+1374 +             return;
+1375 +         };
      |
 
 warning: this could be rewritten as `let...else`
-    --> crates/cribo/src/orchestrator.rs:1382:9
+    --> crates/cribo/src/orchestrator.rs:1379:9
      |
-1382 | /         let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
-1383 | |             import.level,
-1384 | |             None, // Don't include module_name here, we'll handle it separately
-1385 | |             file_path,
+1379 | /         let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
+1380 | |             import.level,
+1381 | |             None, // Don't include module_name here, we'll handle it separately
+1382 | |             file_path,
 ...    |
-1395 | |         };
+1392 | |         };
      | |__________^
      |
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_let_else
 help: consider writing
      |
-1382 ~         let Some(base_module) = resolver_ref.resolve_relative_to_absolute_module_name(
-1383 +             import.level,
-1384 +             None, // Don't include module_name here, we'll handle it separately
-1385 +             file_path,
-1386 +         ) else {
-1387 +                 debug!(
-1388 +                     "Could not resolve relative import with level {}",
-1389 +                     import.level
-1390 +                 );
-1391 +                 return;
-1392 +             };
+1379 ~         let Some(base_module) = resolver_ref.resolve_relative_to_absolute_module_name(
+1380 +             import.level,
+1381 +             None, // Don't include module_name here, we'll handle it separately
+1382 +             file_path,
+1383 +         ) else {
+1384 +                 debug!(
+1385 +                     "Could not resolve relative import with level {}",
+1386 +                     import.level
+1387 +                 );
+1388 +                 return;
+1389 +             };
      |
 
 warning: you seem to be trying to use `match` for destructuring a single pattern. Consider using `if let`
-    --> crates/cribo/src/orchestrator.rs:1382:27
+    --> crates/cribo/src/orchestrator.rs:1379:27
      |
-1382 |           let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
+1379 |           let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
      |  ___________________________^
-1383 | |             import.level,
-1384 | |             None, // Don't include module_name here, we'll handle it separately
-1385 | |             file_path,
+1380 | |             import.level,
+1381 | |             None, // Don't include module_name here, we'll handle it separately
+1382 | |             file_path,
 ...    |
-1395 | |         };
+1392 | |         };
      | |_________^
      |
      = note: you might want to preserve the comments from inside the `match`
@@ -1439,87 +1442,58 @@ warning: you seem to be trying to use `match` for destructuring a single pattern
      = help: to override `-W clippy::pedantic` add `#[allow(clippy::single_match_else)]`
 help: try
      |
-1382 ~         let base_module = if let Some(module) = resolver_ref.resolve_relative_to_absolute_module_name(
-1383 +             import.level,
-1384 +             None, // Don't include module_name here, we'll handle it separately
-1385 +             file_path,
-1386 +         ) { module } else {
-1387 +             debug!(
-1388 +                 "Could not resolve relative import with level {}",
-1389 +                 import.level
-1390 +             );
-1391 +             return;
-1392 ~         };
+1379 ~         let base_module = if let Some(module) = resolver_ref.resolve_relative_to_absolute_module_name(
+1380 +             import.level,
+1381 +             None, // Don't include module_name here, we'll handle it separately
+1382 +             file_path,
+1383 +         ) { module } else {
+1384 +             debug!(
+1385 +                 "Could not resolve relative import with level {}",
+1386 +                 import.level
+1387 +             );
+1388 +             return;
+1389 ~         };
      |
 
 warning: unused `self` argument
-    --> crates/cribo/src/orchestrator.rs:1434:9
+    --> crates/cribo/src/orchestrator.rs:1431:9
      |
-1434 |         &self,
+1431 |         &self,
      |         ^^^^^
      |
      = help: consider refactoring to an associated function
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
 warning: unused `self` argument
-    --> crates/cribo/src/orchestrator.rs:1451:9
+    --> crates/cribo/src/orchestrator.rs:1448:9
      |
-1451 |         &self,
+1448 |         &self,
      |         ^^^^^
      |
      = help: consider refactoring to an associated function
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
 warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
-    --> crates/cribo/src/orchestrator.rs:1631:5
+    --> crates/cribo/src/orchestrator.rs:1628:5
      |
-1631 | /     fn process_import_for_discovery_with_context(
-1632 | |         &self,
-1633 | |         import: &str,
-1634 | |         is_in_error_handler: bool,
-1635 | |         import_type: Option<crate::visitors::ImportType>,
-1636 | |         package_context: &Option<String>,
+1628 | /     fn process_import_for_discovery_with_context(
+1629 | |         &self,
+1630 | |         import: &str,
+1631 | |         is_in_error_handler: bool,
+1632 | |         import_type: Option<crate::visitors::ImportType>,
+1633 | |         package_context: &Option<String>,
      | |                          --------------- help: change this to: `Option<&String>`
 ...    |
-1714 | |         Ok(())
-1715 | |     }
+1708 | |         Ok(())
+1709 | |     }
      | |_____^
      |
      = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
 
-warning: variables can be used directly in the `format!` string
-    --> crates/cribo/src/orchestrator.rs:1665:40
-     |
-1665 |   ...                   return Err(anyhow!(
-     |  __________________________________^
-1666 | | ...                       "Failed to resolve ImportlibStatic module '{}'. \nThis import \
-1667 | | ...                        would fail at runtime with: ModuleNotFoundError: No module named \
-1668 | | ...                        '{}'",
-1669 | | ...                       import,
-1670 | | ...                       import
-1671 | | ...                   ));
-     | |_______________________^
-     |
-     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
-
-warning: variables can be used directly in the `format!` string
-    --> crates/cribo/src/orchestrator.rs:1700:40
-     |
-1700 |   ...                   return Err(anyhow!(
-     |  __________________________________^
-1701 | | ...                       "Failed to resolve first-party module '{}'. \nThis import would \
-1702 | | ...                        fail at runtime with: ModuleNotFoundError: No module named '{}'",
-1703 | | ...                       import,
-1704 | | ...                       import
-1705 | | ...                   ));
-     | |_______________________^
-     |
-     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
-
 warning: unused `self` argument
-    --> crates/cribo/src/orchestrator.rs:1769:34
+    --> crates/cribo/src/orchestrator.rs:1763:34
      |
-1769 |     fn try_add_parent_dependency(&self, parent_module: &str, context: &mut DependencyContext<'_>) {
+1763 |     fn try_add_parent_dependency(&self, parent_module: &str, context: &mut DependencyContext<'_>) {
      |                                  ^^^^^
      |
      = help: consider refactoring to an associated function
@@ -1775,33 +1749,7 @@ warning: unused `self` argument
     = help: consider refactoring to an associated function
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
-warning: `cribo` (bin "cribo") generated 138 warnings (run `cargo clippy --fix --bin "cribo"` to apply 4 suggestions)
-warning: all fields have the same postfix: `violations`
-   --> crates/cribo/tests/test_bundling_snapshots.rs:108:1
-    |
-108 | / struct RuffLintResults {
-109 | |     f401_violations: Vec<String>, // Unused imports
-110 | |     f404_violations: Vec<String>, // Late future imports
-111 | |     other_violations: Vec<String>,
-112 | |     total_violations: usize,
-113 | | }
-    | |_^
-    |
-    = help: remove the postfixes
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_field_names
-    = note: `-W clippy::struct-field-names` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_field_names)]`
-
-warning: this function has too many lines (265/200)
-   --> crates/cribo/tests/test_bundling_snapshots.rs:186:1
-    |
-186 | fn test_bundling_fixtures() {
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
-    = note: `-W clippy::too-many-lines` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::too_many_lines)]`
-
+warning: `cribo` (bin "cribo") generated 134 warnings
 warning: wildcard matches only a single variant and will also match any future added variants
    --> crates/cribo/src/visitors/symbol_usage_visitor.rs:223:13
     |
@@ -1810,6 +1758,5 @@ warning: wildcard matches only a single variant and will also match any future a
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_wildcard_for_single_variants
 
-warning: `cribo` (test "test_bundling_snapshots") generated 2 warnings
-warning: `cribo` (bin "cribo" test) generated 139 warnings (138 duplicates)
-    Finished `dev` profile [optimized + debuginfo] target(s) in 0.69s
+warning: `cribo` (bin "cribo" test) generated 135 warnings (134 duplicates)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 8.88s

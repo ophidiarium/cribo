@@ -870,7 +870,11 @@ Start with simplest phases (initialization, finalization) and work inward.
 
 **Order:**
 
-1. Initialization
+1. ✅ **Initialization** - COMPLETED in `initialization.rs`
+   - Extracted lines 34-126 into InitializationPhase::execute()
+   - Adds **initialized** and **initializing** guards
+   - Handles globals lifting
+   - All tests pass (148/148), clippy clean
 2. Finalization
 3. Import Analysis
 4. Import Transformation
