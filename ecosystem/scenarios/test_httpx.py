@@ -14,7 +14,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_test_directories, get_package_requirements, parse_requirements_file
+from .utils import (
+    run_cribo,
+    format_bundle_size,
+    load_bundled_module,
+    ensure_test_directories,
+    get_package_requirements,
+    parse_requirements_file,
+)
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
@@ -46,7 +53,6 @@ def bundled_httpx():
         str(httpx_init),
         str(bundled_output),
         emit_requirements=True,
-        # tree_shake=False,
     )
 
     assert result.returncode == 0, f"Failed to bundle httpx: {result.stderr}"
@@ -132,7 +138,9 @@ def test_bundled_post_request(bundled_httpx):
     """Test POST request with JSON data using bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         test_data = {"key": "value", "number": 42}
-        resp = httpx.post("https://httpbingo.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
+        resp = httpx.post(
+            "https://httpbingo.org/post", json=test_data, timeout=DEFAULT_TIMEOUT
+        )
         assert resp.status_code == 200
         response_data = resp.json()
         assert response_data["json"] == test_data
@@ -142,7 +150,9 @@ def test_bundled_custom_headers(bundled_httpx):
     """Test custom headers with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         headers = {"User-Agent": "cribo-test/1.0", "X-Test-Header": "test-value"}
-        resp = httpx.get("https://httpbingo.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get(
+            "https://httpbingo.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT
+        )
         assert resp.status_code == 200
         response_headers = resp.json()["headers"]
         assert response_headers.get("User-Agent") == ["cribo-test/1.0"]
@@ -153,7 +163,9 @@ def test_bundled_query_params(bundled_httpx):
     """Test query parameters with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         params = {"foo": "bar", "baz": "123"}
-        resp = httpx.get("https://httpbingo.org/get", params=params, timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get(
+            "https://httpbingo.org/get", params=params, timeout=DEFAULT_TIMEOUT
+        )
         assert resp.status_code == 200
         args = resp.json()["args"]
         assert args["foo"] == [params["foo"]]

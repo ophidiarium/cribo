@@ -14,6 +14,7 @@ pub mod expression_handlers;
 pub mod globals;
 pub mod import_deduplicator;
 pub mod import_transformer;
+pub mod init_function;
 pub mod inliner;
 pub mod module_registry;
 pub mod module_transformer;

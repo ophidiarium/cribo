@@ -43,7 +43,6 @@ def bundled_idna():
         str(idna_init),
         str(bundled_output),
         emit_requirements=True,
-        # tree_shake=False,
     )
 
     assert result.returncode == 0, f"Failed to bundle idna: {result.stderr}"

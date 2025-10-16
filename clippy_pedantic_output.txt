@@ -1,0 +1,1815 @@
+warning: this `continue` expression is redundant
+   --> crates/cribo/src/analyzers/import_analyzer.rs:803:36
+    |
+803 |                 Stmt::Import(_) => continue,
+    |                                    ^^^^^^^^
+    |
+    = help: consider dropping the `continue` expression
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
+    = note: `-W clippy::needless-continue` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::needless_continue)]`
+
+warning: redundant else block
+    --> crates/cribo/src/code_generator/bundler.rs:5218:14
+     |
+5218 |               } else {
+     |  ______________^
+5219 | |                 // Simple module name, check if it has a flattened variable
+5220 | |                 let flattened_name = sanitize_module_name_for_identifier(module_name);
+5221 | |                 let should_use_flattened = self
+...    |
+5236 | |                 );
+5237 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#redundant_else
+     = note: `-W clippy::redundant-else` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::redundant_else)]`
+help: remove the `else` block and move the contents out
+     |
+5218 ~             }
+5219 +             // Simple module name, check if it has a flattened variable
+5220 +             let flattened_name = sanitize_module_name_for_identifier(module_name);
+5221 +             let should_use_flattened = self
+5222 +                 .get_module_id(module_name)
+5223 +                 .is_some_and(|id| self.inlined_modules.contains(&id));
+5224 + 
+5225 +             if should_use_flattened {
+5226 +                 // Reference the flattened namespace
+5227 +                 return statements::simple_assign(
+5228 +                     target_name,
+5229 +                     expressions::name(&flattened_name, ExprContext::Load),
+5230 +                 );
+5231 +             }
+5232 +             // Reference the module directly
+5233 +             return statements::simple_assign(
+5234 +                 target_name,
+5235 +                 expressions::name(module_name, ExprContext::Load),
+5236 +             );
+     |
+
+warning: redundant else block
+   --> crates/cribo/src/code_generator/import_transformer/expr_rewriter.rs:253:30
+    |
+253 |   ...                   } else {
+    |  ________________________^
+254 | | ...                       // For deeper paths like j.decoder.JSONDecoder, build the full path
+255 | | ...                       let mut full_path = stdlib_path.clone();
+256 | | ...                       for part in &attr_path {
+...   |
+276 | | ...                       return;
+277 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#redundant_else
+help: remove the `else` block and move the contents out
+    |
+253 ~                             }
+254 +                             // For deeper paths like j.decoder.JSONDecoder, build the full path
+255 +                             let mut full_path = stdlib_path.clone();
+256 +                             for part in &attr_path {
+257 +                                 full_path.push('.');
+258 +                                 full_path.push_str(part);
+259 +                             }
+260 +                             log::debug!(
+261 +                                 "Transforming {base}.{} to {full_path} (stdlib import alias, \
+262 +                                  deep path)",
+263 +                                 attr_path.join(".")
+264 +                             );
+265 + 
+266 +                             let parts: Vec<&str> = full_path.split('.').collect();
+267 +                             let mut new_expr = crate::ast_builder::expressions::dotted_name(
+268 +                                 &parts,
+269 +                                 attr_expr.ctx,
+270 +                             );
+271 +                             // Preserve the original range
+272 +                             if let Expr::Attribute(attr) = &mut new_expr {
+273 +                                 attr.range = attr_expr.range;
+274 +                             }
+275 +                             *expr = new_expr;
+276 +                             return;
+    |
+
+warning: redundant else block
+   --> crates/cribo/src/code_generator/import_transformer/handlers/inlined.rs:601:14
+    |
+601 |               } else {
+    |  ______________^
+602 | |                 log::debug!("  Module '{resolved}' is inlined, handling import assignments");
+...   |
+634 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#redundant_else
+help: remove the `else` block and move the contents out
+    |
+601 ~             }
+602 +             log::debug!("  Module '{resolved}' is inlined, handling import assignments");
+603 +             // For the entry module, we should not defer these imports
+604 +             // because they need to be available when the entry module's code runs
+605 +             let import_stmts = Self::handle_imports_from_inlined_module_with_context(
+606 +                 transformer.state.bundler,
+607 +                 import_from,
+608 +                 resolved_id,
+609 +                 transformer.state.symbol_renames,
+610 +                 transformer.state.is_wrapper_init,
+611 +                 Some(transformer.state.module_id),
+612 +             );
+613 + 
+614 +             // Only defer if we're not in the entry module or wrapper init
+615 +             if transformer.state.module_id.is_entry() || transformer.state.is_wrapper_init {
+616 +                 // For entry module and wrapper init functions, return the imports
+617 +                 // immediately In wrapper init functions, module
+618 +                 // attributes need to be set where the import was
+619 +                 if !import_stmts.is_empty() {
+620 +                     return Some(import_stmts);
+621 +                 }
+622 +                 // If handle_imports_from_inlined_module returned empty (e.g., for submodule
+623 +                 // imports), fall through to check if we need to
+624 +                 // handle it differently
+625 +                 log::debug!(
+626 +                     "  handle_imports_from_inlined_module returned empty for entry module or \
+627 +                      wrapper init, checking for submodule imports"
+628 +                 );
+629 +             } else {
+630 +                 // Return the import statements immediately
+631 +                 // These were previously deferred but now need to be added immediately
+632 +                 return Some(import_stmts);
+633 +             }
+    |
+
+warning: this `continue` expression is redundant
+   --> crates/cribo/src/code_generator/import_transformer/handlers/submodule.rs:153:21
+    |
+153 |                     continue;
+    |                     ^^^^^^^^
+    |
+    = help: consider dropping the `continue` expression
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
+
+warning: this `continue` expression is redundant
+   --> crates/cribo/src/code_generator/module_registry.rs:265:17
+    |
+265 |                 continue;
+    |                 ^^^^^^^^
+    |
+    = help: consider dropping the `continue` expression
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
+
+warning: there is no need for an explicit `else` block for this `if` expression
+   --> crates/cribo/src/code_generator/module_transformer.rs:460:9
+    |
+460 | /         if let Stmt::Assign(assign) = stmt
+461 | |             && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+462 | |             && name == "__all__"
+...   |
+470 | |             continue;
+471 | |         }
+    | |_________^
+    |
+    = help: consider dropping the `else` clause
+                    if let Stmt::Assign(assign) = stmt
+                        && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+                        && name == "__all__" {
+                        continue;
+                    }
+                    if let Stmt::AnnAssign(ann_assign) = stmt
+                        && let Expr::Name(target) = ann_assign.target.as_ref()
+                        && target.id.as_str() == "__all__"
+                    {
+                        // Skip annotated assignments to __all__ as a "reference"
+                        continue;
+                    }
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
+
+warning: binding's name is too similar to existing binding
+   --> crates/cribo/src/code_generator/namespace_manager.rs:947:21
+    |
+947 |                 let resolved = crate::code_generator::symbol_source::resolve_import_module(
+    |                     ^^^^^^^^
+    |
+note: existing binding defined here
+   --> crates/cribo/src/code_generator/namespace_manager.rs:926:5
+    |
+926 |     resolver: &crate::resolver::ModuleResolver,
+    |     ^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#similar_names
+    = note: `-W clippy::similar-names` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::similar_names)]`
+
+warning: redundant else block
+   --> crates/cribo/src/resolver.rs:893:22
+    |
+893 |                       } else {
+    |  ______________________^
+...   |
+944 | |                         return import_type;
+945 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#redundant_else
+help: remove the `else` block and move the contents out
+    |
+893 ~                     }
+894 +                     // Check if the parent module is a package
+895 +                     // If parent is NOT a package (just a .py file), then submodules can't exist
+896 +                     // This preserves Python's shadowing behavior
+897 + 
+898 +                     // First, try to resolve the parent module to get its path
+899 +                     let parent_descriptor =
+900 +                         ImportModuleDescriptor::from_module_name(parent_module);
+901 +                     let mut parent_is_package = false;
+902 +                     let mut parent_found = false;
+903 + 
+904 +                     for search_dir in &search_dirs {
+905 +                         if let Some(parent_path) =
+906 +                             self.resolve_in_directory(search_dir, &parent_descriptor)
+907 +                         {
+908 +                             parent_found = true;
+909 +                             // Check if it's a package (__init__.py) or a module (.py file)
+910 +                             parent_is_package = parent_path
+911 +                                 .file_name()
+912 +                                 .and_then(|n| n.to_str())
+913 +                                 .is_some_and(crate::python::module_path::is_init_file_name);
+914 +                             break;
+915 +                         }
+916 +                     }
+917 + 
+918 +                     if parent_found && !parent_is_package {
+919 +                         // Parent is a module file, not a package - submodules can't exist
+920 +                         // This mimics Python's behavior where a .py file shadows a package
+921 +                         debug!(
+922 +                             "Module '{module_name}' cannot exist - parent '{parent_module}' \
+923 +                              is a module file, not a package (shadowing behavior)"
+924 +                         );
+925 +                         // Return FirstParty to trigger an error during bundling
+926 +                         // (the module won't be found and will cause an appropriate error)
+927 +                         let import_type = ImportType::FirstParty;
+928 +                         self.classification_cache
+929 +                             .borrow_mut()
+930 +                             .insert(module_name.to_string(), import_type.clone());
+931 +                         return import_type;
+932 +                     }
+933 + 
+934 +                     // Can't find source file, treat as third-party
+935 +                     // This could be a C extension or dynamically available module
+936 +                     debug!(
+937 +                         "Module '{module_name}' has first-party parent '{parent_module}' but \
+938 +                          no source file found - treating as third-party"
+939 +                     );
+940 +                     let import_type = ImportType::ThirdParty;
+941 +                     self.classification_cache
+942 +                         .borrow_mut()
+943 +                         .insert(module_name.to_string(), import_type.clone());
+944 +                     return import_type;
+    |
+
+warning: more than 3 bools in a struct
+  --> crates/cribo/src/analyzers/dependency_analyzer.rs:16:1
+   |
+16 | / struct CycleAnalysisResult {
+17 | |     /// Whether the modules contain only constants (no functions or classes)
+18 | |     has_only_constants: bool,
+19 | |     /// Whether any module contains class definitions
+...  |
+24 | |     imports_used_in_functions_only: bool,
+25 | | }
+   | |_^
+   |
+   = help: consider using a state machine or refactoring bools into two-variant enums
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_excessive_bools
+   = note: `-W clippy::struct-excessive-bools` implied by `-W clippy::pedantic`
+   = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_excessive_bools)]`
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:287:25
+    |
+287 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+    = note: `-W clippy::used-underscore-binding` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::used_underscore_binding)]`
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:297:25
+    |
+297 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:307:25
+    |
+307 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:315:29
+    |
+315 | ...                   _module_path,
+    |                       ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:326:25
+    |
+326 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:334:25
+    |
+334 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:344:25
+    |
+344 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:352:25
+    |
+352 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:362:25
+    |
+362 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:372:29
+    |
+372 | ...                   _module_path,
+    |                       ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:381:25
+    |
+381 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:389:25
+    |
+389 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:399:25
+    |
+399 |                         _module_path,
+    |                         ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: used underscore-prefixed binding
+   --> crates/cribo/src/analyzers/import_analyzer.rs:410:29
+    |
+410 | ...                   _module_path,
+    |                       ^^^^^^^^^^^^
+    |
+note: binding is defined here
+   --> crates/cribo/src/analyzers/import_analyzer.rs:265:9
+    |
+265 |         _module_path: &std::path::Path,
+    |         ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#used_underscore_binding
+
+warning: this function has too many lines (211/200)
+  --> crates/cribo/src/analyzers/module_classifier.rs:62:5
+   |
+62 | /     pub fn classify_modules(
+63 | |         mut self,
+64 | |         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+65 | |         python_version: u8,
+66 | |     ) -> ClassificationResult {
+   | |_____________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+   = note: `-W clippy::too-many-lines` implied by `-W clippy::pedantic`
+   = help: to override `-W clippy::pedantic` add `#[allow(clippy::too_many_lines)]`
+
+warning: this could be rewritten as `let...else`
+   --> crates/cribo/src/analyzers/module_classifier.rs:309:17
+    |
+309 | /                 let source_id = match self.resolver.get_module_id_by_name(source_module) {
+310 | |                     Some(id) => id,
+311 | |                     None => continue,
+312 | |                 };
+    | |__________________^ help: consider writing: `let Some(source_id) = self.resolver.get_module_id_by_name(source_module) else { continue };`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_let_else
+    = note: `-W clippy::manual-let-else` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::manual_let_else)]`
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 16 byte)
+  --> crates/cribo/src/analyzers/symbol_analyzer.rs:69:20
+   |
+69 |         module_id: &crate::resolver::ModuleId,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider passing by value instead: `crate::resolver::ModuleId`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+   = note: `-W clippy::trivially-copy-pass-by-ref` implied by `-W clippy::pedantic`
+   = help: to override `-W clippy::pedantic` add `#[allow(clippy::trivially_copy_pass_by_ref)]`
+
+warning: field name ends with the struct's name
+   --> crates/cribo/src/code_generator/bundler.rs:122:5
+    |
+122 |     pub(crate) semantic_bundler: Option<&'a crate::semantic_bundler::SemanticBundler>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_field_names
+    = note: `-W clippy::struct-field-names` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_field_names)]`
+
+warning: unused `self` argument
+   --> crates/cribo/src/code_generator/bundler.rs:204:9
+    |
+204 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+    = note: `-W clippy::unused-self` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::unused_self)]`
+
+warning: this argument is passed by value, but not consumed in the function body
+   --> crates/cribo/src/code_generator/bundler.rs:643:18
+    |
+643 |         context: BundledImportContext<'_>,
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: or consider marking this type as `Copy`
+   --> crates/cribo/src/code_generator/bundler.rs:40:1
+    |
+ 40 | pub(super) struct BundledImportContext<'a> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_pass_by_value
+    = note: `-W clippy::needless-pass-by-value` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::needless_pass_by_value)]`
+help: consider taking a reference instead
+    |
+643 |         context: &BundledImportContext<'_>,
+    |                  +
+
+warning: this function has too many lines (993/200)
+    --> crates/cribo/src/code_generator/bundler.rs:1263:5
+     |
+1263 |     pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: assigning the result of `Clone::clone()` may be inefficient
+    --> crates/cribo/src/code_generator/bundler.rs:1309:9
+     |
+1309 |         self.modules_with_explicit_all = classification.modules_with_explicit_all.clone();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use `clone_from()`: `self.modules_with_explicit_all.clone_from(&classification.modules_with_explicit_all)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#assigning_clones
+     = note: `-W clippy::assigning-clones` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::assigning_clones)]`
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:2960:9
+     |
+2960 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:2988:9
+     |
+2988 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:3025:9
+     |
+3025 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: this function has too many lines (240/200)
+    --> crates/cribo/src/code_generator/bundler.rs:3071:5
+     |
+3071 | /     fn process_body_recursive_impl(
+3072 | |         &self,
+3073 | |         body: Vec<Stmt>,
+3074 | |         module_name: &str,
+3075 | |         module_scope_symbols: Option<&FxIndexSet<String>>,
+3076 | |         in_conditional_context: bool,
+3077 | |     ) -> Vec<Stmt> {
+     | |__________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (218/200)
+    --> crates/cribo/src/code_generator/bundler.rs:3825:5
+     |
+3825 | /     fn transform_stmt_for_lifted_globals(
+3826 | |         &self,
+3827 | |         stmt: &mut Stmt,
+3828 | |         lifted_names: &FxIndexMap<String, String>,
+...    |
+3831 | |         module_name: Option<&str>,
+3832 | |     ) {
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:4202:9
+     |
+4202 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+    --> crates/cribo/src/code_generator/bundler.rs:4402:17
+     |
+4402 |                 use crate::code_generator::symbol_source::resolve_import_module;
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+     = note: `-W clippy::items-after-statements` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::items_after_statements)]`
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 16 byte)
+    --> crates/cribo/src/code_generator/bundler.rs:4430:45
+     |
+4430 |     fn is_symbol_exported(&self, module_id: &ModuleId, symbol_name: &str) -> bool {
+     |                                             ^^^^^^^^^ help: consider passing by value instead: `ModuleId`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 16 byte)
+    --> crates/cribo/src/code_generator/bundler.rs:4448:21
+     |
+4448 |         wrapper_id: &ModuleId,
+     |                     ^^^^^^^^^ help: consider passing by value instead: `ModuleId`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+    --> crates/cribo/src/code_generator/bundler.rs:4468:25
+     |
+4468 |                         use crate::code_generator::symbol_source::resolve_import_module;
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:4669:9
+     |
+4669 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:5121:37
+     |
+5121 |     fn is_namespace_already_created(&self, parent_path: &str, result_stmts: &[Stmt]) -> bool {
+     |                                     ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/code_generator/bundler.rs:5423:9
+     |
+5423 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: this function has too many lines (242/200)
+   --> crates/cribo/src/code_generator/expression_handlers.rs:224:1
+    |
+224 | pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: wildcard matches only a single variant and will also match any future added variants
+   --> crates/cribo/src/code_generator/expression_handlers.rs:469:25
+    |
+469 |                         _ => None,
+    |                         ^ help: try: `ruff_python_ast::FStringPart::Literal(_)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_wildcard_for_single_variants
+    = note: `-W clippy::match-wildcard-for-single-variants` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::match_wildcard_for_single_variants)]`
+
+warning: these match arms have identical bodies
+    --> crates/cribo/src/code_generator/expression_handlers.rs:1198:9
+     |
+1198 |         (Expr::NoneLiteral(_), Expr::NoneLiteral(_)) => true,
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1201 |         (Expr::EllipsisLiteral(_), Expr::EllipsisLiteral(_)) => true,
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is unintentional make the arms return different values
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_same_arms
+     = note: `-W clippy::match-same-arms` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::match_same_arms)]`
+help: otherwise merge the patterns into a single arm
+     |
+1198 ~         (Expr::NoneLiteral(_), Expr::NoneLiteral(_)) | (Expr::EllipsisLiteral(_), Expr::EllipsisLiteral(_)) => true,
+1199 |
+1200 |         // Ellipsis (...)
+1201 ~         // Different types or complex expressions - conservatively return false
+     |
+
+warning: this function has too many lines (389/200)
+  --> crates/cribo/src/code_generator/globals.rs:73:1
+   |
+73 | / fn transform_introspection_in_expr(
+74 | |     expr: &mut Expr,
+75 | |     target_fn: Introspection,
+76 | |     recurse_into_scopes: bool,
+77 | |     module_var_name: &str,
+78 | | ) {
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: these match arms have identical bodies
+   --> crates/cribo/src/code_generator/globals.rs:287:9
+    |
+287 | /         Expr::Generator(_) => {
+...   |
+290 | |         }
+    | |_________^
+...
+497 |           _ => {}
+    |           ^^^^^^^ the wildcard arm
+    |
+    = help: if this is unintentional make the arms return different values
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_same_arms
+help: otherwise remove the non-wildcard arm
+    |
+287 -         Expr::Generator(_) => {
+288 -             // Don't transform locals() inside generators at module level
+289 -             // They have their own isolated scope
+290 -         }
+    |
+
+warning: this function has too many lines (374/200)
+   --> crates/cribo/src/code_generator/globals.rs:504:1
+    |
+504 | / fn transform_introspection_in_stmt(
+505 | |     stmt: &mut Stmt,
+506 | |     target_fn: Introspection,
+507 | |     recurse_into_scopes: bool,
+508 | |     module_var_name: &str,
+509 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (287/200)
+   --> crates/cribo/src/code_generator/import_deduplicator.rs:125:1
+    |
+125 | / pub(super) fn trim_unused_imports_from_modules(
+126 | |     modules: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
+127 | |     graph: &DependencyGraph,
+128 | |     tree_shaker: Option<&crate::tree_shaking::TreeShaker<'_>>,
+129 | |     python_version: u8,
+130 | |     circular_modules: &FxIndexSet<crate::resolver::ModuleId>,
+131 | | ) -> FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)> {
+    | |________________________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (475/200)
+  --> crates/cribo/src/code_generator/import_transformer/expr_rewriter.rs:22:5
+   |
+22 |     pub(super) fn transform_expr(transformer: &mut RecursiveImportTransformer, expr: &mut Expr) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: possible intra-doc link using quotes instead of backticks
+   --> crates/cribo/src/code_generator/import_transformer/expr_rewriter.rs:608:78
+    |
+608 |     /// For example: greetings.greeting.message returns (Some("greetings"), ["greeting", "message"])
+    |                                                                              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#doc_link_with_quotes
+    = note: `-W clippy::doc-link-with-quotes` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::doc_link_with_quotes)]`
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+  --> crates/cribo/src/code_generator/import_transformer/handlers/dynamic.rs:57:37
+   |
+57 |                         let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#cast_possible_truncation
+   = note: `-W clippy::cast-possible-truncation` implied by `-W clippy::pedantic`
+   = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_possible_truncation)]`
+help: ... or use `try_from` and handle the error accordingly
+   |
+57 -                         let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+57 +                         let level = u32::try_from(module_name.chars().take_while(|&c| c == '.').count());
+   |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+  --> crates/cribo/src/code_generator/import_transformer/handlers/dynamic.rs:74:37
+   |
+74 |                         let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+   |
+74 -                         let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+74 +                         let level = u32::try_from(module_name.chars().take_while(|&c| c == '.').count());
+   |
+
+warning: this function has too many lines (245/200)
+   --> crates/cribo/src/code_generator/import_transformer/handlers/inlined.rs:120:5
+    |
+120 | /     pub(in crate::code_generator::import_transformer) fn handle_imports_from_inlined_module_with_context(
+121 | |         bundler: &Bundler,
+122 | |         import_from: &StmtImportFrom,
+123 | |         source_module_id: crate::resolver::ModuleId,
+...   |
+126 | |         importing_module_id: Option<crate::resolver::ModuleId>,
+127 | |     ) -> Vec<Stmt> {
+    | |__________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (232/200)
+  --> crates/cribo/src/code_generator/import_transformer/handlers/submodule.rs:10:5
+   |
+10 | /     pub(in crate::code_generator::import_transformer) fn handle_from_import_submodules(
+11 | |         transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+12 | |         import_from: &StmtImportFrom,
+13 | |         resolved_base: &str,
+14 | |     ) -> Option<Vec<Stmt>> {
+   | |__________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (255/200)
+   --> crates/cribo/src/code_generator/import_transformer/handlers/wrapper.rs:357:5
+    |
+357 | /     pub(in crate::code_generator::import_transformer) fn handle_from_import_on_resolved_wrapper(
+358 | |         transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+359 | |         import_from: &StmtImportFrom,
+360 | |         resolved: &str,
+361 | |     ) -> Option<Vec<Stmt>> {
+    | |__________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (418/200)
+   --> crates/cribo/src/code_generator/import_transformer/handlers/wrapper.rs:770:5
+    |
+770 | /     pub(in crate::code_generator::import_transformer) fn handle_symbol_imports_from_wrapper(
+771 | |         context: &WrapperContext,
+772 | |         import_from: &StmtImportFrom,
+773 | |         module_name: &str,
+774 | |     ) -> Vec<Stmt> {
+    | |__________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (234/200)
+   --> crates/cribo/src/code_generator/import_transformer/mod.rs:696:5
+    |
+696 |     fn transform_statement(&mut self, stmt: &mut Stmt) -> Vec<Stmt> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (206/200)
+  --> crates/cribo/src/code_generator/inliner.rs:58:5
+   |
+58 | /     pub(crate) fn inline_module(
+59 | |         &mut self,
+60 | |         module_name: &str,
+61 | |         mut ast: ModModule,
+62 | |         _module_path: &Path,
+63 | |         ctx: &mut InlineContext,
+64 | |     ) {
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this argument is passed by value, but not consumed in the function body
+   --> crates/cribo/src/code_generator/module_registry.rs:236:13
+    |
+236 |     params: InlinedImportParams,
+    |             ^^^^^^^^^^^^^^^^^^^
+    |
+help: or consider marking this type as `Copy`
+   --> crates/cribo/src/code_generator/module_registry.rs:220:1
+    |
+220 | pub struct InlinedImportParams<'a> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_pass_by_value
+help: consider taking a reference instead
+    |
+236 |     params: &InlinedImportParams,
+    |             +
+
+warning: this function has too many lines (1113/200)
+  --> crates/cribo/src/code_generator/module_transformer.rs:34:1
+   |
+34 | / pub fn transform_module_to_init_function<'a>(
+35 | |     bundler: &'a Bundler<'a>,
+36 | |     ctx: &ModuleTransformContext,
+37 | |     mut ast: ModModule,
+38 | |     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+39 | | ) -> Stmt {
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: called `map(<f>).unwrap_or_else(<g>)` on an `Option` value
+   --> crates/cribo/src/code_generator/module_transformer.rs:296:34
+    |
+296 |                   let local_name = alias
+    |  __________________________________^
+297 | |                     .asname
+298 | |                     .as_ref()
+299 | |                     .map(Identifier::as_str)
+...   |
+302 | |                         full.split('.').next().unwrap_or(full)
+303 | |                     });
+    | |______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#map_unwrap_or
+    = note: `-W clippy::map-unwrap-or` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::map_unwrap_or)]`
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+    --> crates/cribo/src/code_generator/module_transformer.rs:1179:17
+     |
+1179 | /                 fn collect_exportable_symbols(stmts: &[Stmt], symbols: &mut FxIndexSet<String>) {
+1180 | |                     for stmt in stmts {
+1181 | |                         match stmt {
+1182 | |                             Stmt::FunctionDef(f) => {
+...    |
+1226 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: this function has too many lines (375/200)
+    --> crates/cribo/src/code_generator/module_transformer.rs:1548:1
+     |
+1548 | / fn transform_expr_for_module_vars(
+1549 | |     expr: &mut Expr,
+1550 | |     module_level_vars: &FxIndexSet<String>,
+1551 | |     module_var_name: &str,
+1552 | |     python_version: u8,
+1553 | | ) {
+     | |_^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: this function has too many lines (355/200)
+    --> crates/cribo/src/code_generator/module_transformer.rs:1945:1
+     |
+1945 | / fn transform_stmt_for_module_vars(
+1946 | |     stmt: &mut Stmt,
+1947 | |     module_level_vars: &FxIndexSet<String>,
+1948 | |     module_var_name: &str,
+1949 | |     python_version: u8,
+1950 | | ) {
+     | |_^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+    --> crates/cribo/src/code_generator/module_transformer.rs:3015:9
+     |
+3015 | /         const COMMON_DUNDERS: &[&str] = &[
+3016 | |             "__version__",
+3017 | |             "__author__",
+3018 | |             "__license__",
+...    |
+3021 | |             "__all__",
+3022 | |         ];
+     | |__________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: this could be rewritten as `let...else`
+    --> crates/cribo/src/code_generator/module_transformer.rs:3517:25
+     |
+3517 | /                         let source_module_id = match bundler.get_module_id(source_module) {
+3518 | |                             Some(id) => id,
+3519 | |                             None => continue,
+3520 | |                         };
+     | |__________________________^ help: consider writing: `let Some(source_module_id) = bundler.get_module_id(source_module) else { continue };`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_let_else
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/code_generator/namespace_manager.rs:181:17
+    |
+181 |                 use crate::code_generator::module_registry::get_module_var_identifier;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: this function has too many lines (452/200)
+   --> crates/cribo/src/code_generator/namespace_manager.rs:222:1
+    |
+222 | / pub fn populate_namespace_with_module_symbols(
+223 | |     ctx: &mut NamespacePopulationContext,
+224 | |     target_name: &str,
+225 | |     module_id: ModuleId,
+226 | |     symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+227 | | ) -> Vec<Stmt> {
+    | |______________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+
+warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
+   --> crates/cribo/src/code_generator/namespace_manager.rs:924:1
+    |
+924 | / fn any_module_wildcard_imports_and_uses_setattr(
+925 | |     module_asts: &Option<FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>>,
+    | |                  ---------------------------------------------------------------------- help: change this to: `Option<&FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>>`
+926 | |     resolver: &crate::resolver::ModuleResolver,
+927 | |     target_module: &str,
+...   |
+994 | |     false
+995 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
+    = note: `-W clippy::ref-option` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::ref_option)]`
+
+warning: variables can be used directly in the `format!` string
+   --> crates/cribo/src/config.rs:214:22
+    |
+214 |               _ => Err(anyhow!(
+    |  ______________________^
+215 | |                 "Invalid target version '{}'. Supported versions: py38, py39, py310, py311, \
+216 | |                  py312, py313",
+217 | |                 version_str
+218 | |             )),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+    = note: `-W clippy::uninlined-format-args` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::uninlined_format_args)]`
+
+warning: possible intra-doc link using quotes instead of backticks
+   --> crates/cribo/src/cribo_graph.rs:113:30
+    |
+113 |     /// e.g., {"greetings": ["message"]} for greetings.message
+    |                              ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#doc_link_with_quotes
+
+warning: unused `self` argument
+    --> crates/cribo/src/graph_builder.rs:1040:35
+     |
+1040 |     fn extract_assignment_targets(&self, expr: &Expr) -> Option<Vec<String>> {
+     |                                   ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/graph_builder.rs:1513:28
+     |
+1513 |     fn extract_dotted_name(&self, attr: &ast::ExprAttribute) -> Option<String> {
+     |                            ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/import_rewriter.rs:249:9
+    |
+249 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
+   --> crates/cribo/src/import_rewriter.rs:354:5
+    |
+354 | /     fn import_matches_statement(
+355 | |         &self,
+356 | |         import: &ImportStatement,
+357 | |         stmt_module: &Option<String>,
+    | |                      --------------- help: change this to: `Option<&String>`
+...   |
+377 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
+
+warning: wildcard matches only a single variant and will also match any future added variants
+   --> crates/cribo/src/import_rewriter.rs:375:13
+    |
+375 |             _ => false,
+    |             ^ help: try: `ImportStatement::Import { .. }`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_wildcard_for_single_variants
+
+warning: unused `self` argument
+   --> crates/cribo/src/import_rewriter.rs:381:9
+    |
+381 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/import_rewriter.rs:417:9
+    |
+417 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/import_rewriter.rs:535:32
+    |
+535 |     fn create_import_statement(&self, import: &ImportStatement) -> Stmt {
+    |                                ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 16 byte)
+   --> crates/cribo/src/orchestrator.rs:108:39
+    |
+108 |     pub fn contains_module(&self, id: &ModuleId) -> bool {
+    |                                       ^^^^^^^^^ help: consider passing by value instead: `ModuleId`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+
+warning: `format!(..)` appended to existing `String`
+   --> crates/cribo/src/orchestrator.rs:341:13
+    |
+341 |             error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, module_names.join(" → ")));
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `write!` to avoid the extra allocation
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#format_push_string
+    = note: `-W clippy::format-push-string` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::format_push_string)]`
+
+warning: `format!(..)` appended to existing `String`
+   --> crates/cribo/src/orchestrator.rs:342:13
+    |
+342 |             error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `write!` to avoid the extra allocation
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#format_push_string
+
+warning: `format!(..)` appended to existing `String`
+   --> crates/cribo/src/orchestrator.rs:345:17
+    |
+345 |                 error_msg.push_str(&format!("  Reason: {reason}\n"));
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `write!` to avoid the extra allocation
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#format_push_string
+
+warning: unused `self` argument
+   --> crates/cribo/src/orchestrator.rs:762:9
+    |
+762 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:768:9
+    |
+768 | /         use petgraph::{
+769 | |             algo::{tarjan_scc, toposort},
+770 | |             graph::DiGraph,
+771 | |             visit::{DfsPostOrder, EdgeRef},
+772 | |         };
+    | |__________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:769:13
+    |
+769 |             algo::{tarjan_scc, toposort},
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:769:20
+    |
+769 |             algo::{tarjan_scc, toposort},
+    |                    ^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:769:32
+    |
+769 |             algo::{tarjan_scc, toposort},
+    |                                ^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:770:13
+    |
+770 |             graph::DiGraph,
+    |             ^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:771:13
+    |
+771 |             visit::{DfsPostOrder, EdgeRef},
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:771:21
+    |
+771 |             visit::{DfsPostOrder, EdgeRef},
+    |                     ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+   --> crates/cribo/src/orchestrator.rs:771:35
+    |
+771 |             visit::{DfsPostOrder, EdgeRef},
+    |                                   ^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: unused `self` argument
+   --> crates/cribo/src/orchestrator.rs:921:9
+    |
+921 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unnecessary `Debug` formatting in `debug!` args
+   --> crates/cribo/src/orchestrator.rs:945:39
+    |
+945 |             log::debug!("Checking if {canonical_entry:?} starts with {src_dir:?}");
+    |                                       ^^^^^^^^^^^^^^^
+    |
+    = help: use `Display` formatting and change this to `canonical_entry.display()`
+    = note: switching to `Display` formatting will change how the value is shown; escaped characters will no longer be escaped and surrounding quotes will be removed
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
+    = note: `-W clippy::unnecessary-debug-formatting` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::unnecessary_debug_formatting)]`
+
+warning: unnecessary `Debug` formatting in `debug!` args
+   --> crates/cribo/src/orchestrator.rs:945:71
+    |
+945 |             log::debug!("Checking if {canonical_entry:?} starts with {src_dir:?}");
+    |                                                                       ^^^^^^^
+    |
+    = help: use `Display` formatting and change this to `src_dir.display()`
+    = note: switching to `Display` formatting will change how the value is shown; escaped characters will no longer be escaped and surrounding quotes will be removed
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
+
+warning: unnecessary `Debug` formatting in `debug!` args
+   --> crates/cribo/src/orchestrator.rs:949:42
+    |
+949 |             log::debug!("Relative path: {relative_path:?}");
+    |                                          ^^^^^^^^^^^^^
+    |
+    = help: use `Display` formatting and change this to `relative_path.display()`
+    = note: switching to `Display` formatting will change how the value is shown; escaped characters will no longer be escaped and surrounding quotes will be removed
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
+
+warning: unnecessary `Debug` formatting in `debug!` args
+   --> crates/cribo/src/orchestrator.rs:965:60
+    |
+965 |         log::debug!("find_entry_module_name: entry_path = {entry_path:?}");
+    |                                                            ^^^^^^^^^^
+    |
+    = help: use `Display` formatting and change this to `entry_path.display()`
+    = note: switching to `Display` formatting will change how the value is shown; escaped characters will no longer be escaped and surrounding quotes will be removed
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
+
+warning: unnecessary `Debug` formatting in `anyhow!` args
+    --> crates/cribo/src/orchestrator.rs:1024:21
+     |
+1024 |                     entry_path
+     |                     ^^^^^^^^^^
+     |
+     = help: use `Display` formatting and change this to `entry_path.display()`
+     = note: switching to `Display` formatting will change how the value is shown; escaped characters will no longer be escaped and surrounding quotes will be removed
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_debug_formatting
+
+warning: variables can be used directly in the `format!` string
+    --> crates/cribo/src/orchestrator.rs:1022:17
+     |
+1022 | /                 anyhow!(
+1023 | |                     "Cannot determine module name from entry path: {:?}",
+1024 | |                     entry_path
+1025 | |                 )
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+warning: unused `self` argument
+    --> crates/cribo/src/orchestrator.rs:1033:28
+     |
+1033 |     fn path_to_module_name(&self, relative_path: &Path) -> Option<String> {
+     |                            ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+    --> crates/cribo/src/orchestrator.rs:1056:9
+     |
+1056 |         type DiscoveryData = (ModuleId, PathBuf, Vec<String>, ModModule, String); // (id, path, imports, ast, source) for discovery phase
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_statements
+
+warning: unused `self` argument
+    --> crates/cribo/src/orchestrator.rs:1356:9
+     |
+1356 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/orchestrator.rs:1368:9
+     |
+1368 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: this could be rewritten as `let...else`
+    --> crates/cribo/src/orchestrator.rs:1375:9
+     |
+1375 | /         let resolver_ref = if let Some(resolver) = resolver {
+1376 | |             resolver
+1377 | |         } else {
+1378 | |             debug!("No resolver available for relative import resolution");
+1379 | |             return;
+1380 | |         };
+     | |__________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_let_else
+help: consider writing
+     |
+1375 ~         let Some(resolver_ref) = resolver else {
+1376 +             debug!("No resolver available for relative import resolution");
+1377 +             return;
+1378 +         };
+     |
+
+warning: this could be rewritten as `let...else`
+    --> crates/cribo/src/orchestrator.rs:1382:9
+     |
+1382 | /         let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
+1383 | |             import.level,
+1384 | |             None, // Don't include module_name here, we'll handle it separately
+1385 | |             file_path,
+...    |
+1395 | |         };
+     | |__________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_let_else
+help: consider writing
+     |
+1382 ~         let Some(base_module) = resolver_ref.resolve_relative_to_absolute_module_name(
+1383 +             import.level,
+1384 +             None, // Don't include module_name here, we'll handle it separately
+1385 +             file_path,
+1386 +         ) else {
+1387 +                 debug!(
+1388 +                     "Could not resolve relative import with level {}",
+1389 +                     import.level
+1390 +                 );
+1391 +                 return;
+1392 +             };
+     |
+
+warning: you seem to be trying to use `match` for destructuring a single pattern. Consider using `if let`
+    --> crates/cribo/src/orchestrator.rs:1382:27
+     |
+1382 |           let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
+     |  ___________________________^
+1383 | |             import.level,
+1384 | |             None, // Don't include module_name here, we'll handle it separately
+1385 | |             file_path,
+...    |
+1395 | |         };
+     | |_________^
+     |
+     = note: you might want to preserve the comments from inside the `match`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#single_match_else
+     = note: `-W clippy::single-match-else` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::single_match_else)]`
+help: try
+     |
+1382 ~         let base_module = if let Some(module) = resolver_ref.resolve_relative_to_absolute_module_name(
+1383 +             import.level,
+1384 +             None, // Don't include module_name here, we'll handle it separately
+1385 +             file_path,
+1386 +         ) { module } else {
+1387 +             debug!(
+1388 +                 "Could not resolve relative import with level {}",
+1389 +                 import.level
+1390 +             );
+1391 +             return;
+1392 ~         };
+     |
+
+warning: unused `self` argument
+    --> crates/cribo/src/orchestrator.rs:1434:9
+     |
+1434 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/orchestrator.rs:1451:9
+     |
+1451 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
+    --> crates/cribo/src/orchestrator.rs:1631:5
+     |
+1631 | /     fn process_import_for_discovery_with_context(
+1632 | |         &self,
+1633 | |         import: &str,
+1634 | |         is_in_error_handler: bool,
+1635 | |         import_type: Option<crate::visitors::ImportType>,
+1636 | |         package_context: &Option<String>,
+     | |                          --------------- help: change this to: `Option<&String>`
+...    |
+1714 | |         Ok(())
+1715 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
+
+warning: variables can be used directly in the `format!` string
+    --> crates/cribo/src/orchestrator.rs:1665:40
+     |
+1665 |   ...                   return Err(anyhow!(
+     |  __________________________________^
+1666 | | ...                       "Failed to resolve ImportlibStatic module '{}'. \nThis import \
+1667 | | ...                        would fail at runtime with: ModuleNotFoundError: No module named \
+1668 | | ...                        '{}'",
+1669 | | ...                       import,
+1670 | | ...                       import
+1671 | | ...                   ));
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+warning: variables can be used directly in the `format!` string
+    --> crates/cribo/src/orchestrator.rs:1700:40
+     |
+1700 |   ...                   return Err(anyhow!(
+     |  __________________________________^
+1701 | | ...                       "Failed to resolve first-party module '{}'. \nThis import would \
+1702 | | ...                        fail at runtime with: ModuleNotFoundError: No module named '{}'",
+1703 | | ...                       import,
+1704 | | ...                       import
+1705 | | ...                   ));
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+warning: unused `self` argument
+    --> crates/cribo/src/orchestrator.rs:1769:34
+     |
+1769 |     fn try_add_parent_dependency(&self, parent_module: &str, context: &mut DependencyContext<'_>) {
+     |                                  ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 16 byte)
+  --> crates/cribo/src/resolver.rs:48:33
+   |
+48 |     pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
+   |                                 ^^^^^ help: consider passing by value instead: `self`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+
+warning: possible intra-doc link using quotes instead of backticks
+   --> crates/cribo/src/resolver.rs:294:35
+    |
+294 |     /// Module name parts (e.g., ["foo", "bar"] for "foo.bar")
+    |                                   ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#doc_link_with_quotes
+
+warning: unused `self` argument
+   --> crates/cribo/src/resolver.rs:340:26
+    |
+340 |     fn canonicalize_path(&self, path: PathBuf) -> PathBuf {
+    |                          ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/resolver.rs:531:33
+    |
+531 |     fn add_pythonpath_directory(&self, unique_dirs: &mut IndexSet<PathBuf>, path_str: &str) {
+    |                                 ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/cribo/src/resolver.rs:664:29
+    |
+664 |                 let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+664 -                 let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+664 +                 let level = u32::try_from(module_name.chars().take_while(|&c| c == '.').count());
+    |
+
+warning: unused `self` argument
+    --> crates/cribo/src/resolver.rs:1017:41
+     |
+1017 |     fn detect_fallback_virtualenv_paths(&self) -> Vec<PathBuf> {
+     |                                         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/resolver.rs:1042:49
+     |
+1042 |     fn get_virtualenv_site_packages_directories(&self, venv_path: &Path) -> Vec<PathBuf> {
+     |                                                 ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/resolver.rs:1072:9
+     |
+1072 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+    --> crates/cribo/src/resolver.rs:1177:9
+     |
+1177 |         &self,
+     |         ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: this argument is passed by value, but not consumed in the function body
+    --> crates/cribo/src/resolver.rs:1432:41
+     |
+1432 |     pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
+     |                                         ^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_pass_by_value
+help: consider changing the type to
+     |
+1432 -     pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
+1432 +     pub fn register_module(&self, name: &str, path: &Path) -> ModuleId {
+     |
+help: change `name.clone()` to
+     |
+1436 -         let id = registry.register(name.clone(), &canonical);
+1436 +         let id = registry.register(name.to_string(), &canonical);
+     |
+
+warning: this function's return value is unnecessary
+   --> crates/cribo/src/semantic_bundler.rs:463:5
+    |
+463 | /     pub fn analyze_module(
+464 | |         &mut self,
+465 | |         module_id: ModuleId,
+466 | |         ast: &ModModule,
+467 | |         path: &Path,
+468 | |     ) -> Result<()> {
+    | |___________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+    = note: `-W clippy::unnecessary-wraps` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::unnecessary_wraps)]`
+help: remove the return type...
+    |
+468 -     ) -> Result<()> {
+468 +     ) -> () {
+    |
+help: ...and then remove returned values
+    |
+476 ~             return ;
+477 |         }
+...
+550 |
+551 ~         
+    |
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 16 byte)
+   --> crates/cribo/src/tree_shaking.rs:715:29
+    |
+715 |         imported_module_id: &ModuleId,
+    |                             ^^^^^^^^^ help: consider passing by value instead: `ModuleId`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+
+warning: unused `self` argument
+    --> crates/cribo/src/tree_shaking.rs:1167:39
+     |
+1167 |     fn module_uses_dynamic_all_access(&self, items: &[ItemData]) -> bool {
+     |                                       ^^^^^
+     |
+     = help: consider refactoring to an associated function
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/import_discovery.rs:344:30
+    |
+344 |     fn is_side_effect_import(&self, module_name: &str) -> bool {
+    |                              ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/import_discovery.rs:415:36
+    |
+415 |     fn extract_literal_module_name(&self, call: &ExprCall) -> Option<String> {
+    |                                    ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/import_discovery.rs:425:32
+    |
+425 |     fn extract_package_context(&self, call: &ExprCall) -> Option<String> {
+    |                                ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: these match arms have identical bodies
+   --> crates/cribo/src/visitors/import_discovery.rs:563:13
+    |
+563 | /             AnyNodeRef::StmtFunctionDef(_) => {
+564 | |                 self.scope_stack.pop();
+565 | |                 self.imported_names_stack.pop();
+566 | |             }
+    | |_____________^
+567 | /             AnyNodeRef::StmtClassDef(_) => {
+568 | |                 self.scope_stack.pop();
+569 | |                 self.imported_names_stack.pop();
+570 | |             }
+    | |_____________^
+    |
+    = help: if this is unintentional make the arms return different values
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_same_arms
+help: otherwise merge the patterns into a single arm
+    |
+563 -             AnyNodeRef::StmtFunctionDef(_) => {
+564 -                 self.scope_stack.pop();
+565 -                 self.imported_names_stack.pop();
+566 -             }
+567 -             AnyNodeRef::StmtClassDef(_) => {
+563 +             AnyNodeRef::StmtFunctionDef(_) | AnyNodeRef::StmtClassDef(_) => {
+    |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/cribo/src/visitors/import_discovery.rs:667:25
+    |
+667 |                         module_name.chars().take_while(|&c| c == '.').count() as u32
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+667 -                         module_name.chars().take_while(|&c| c == '.').count() as u32
+667 +                         u32::try_from(module_name.chars().take_while(|&c| c == '.').count())
+    |
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/side_effect_detector.rs:121:26
+    |
+121 |     fn is_all_assignment(&self, assign: &StmtAssign) -> bool {
+    |                          ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/side_effect_detector.rs:129:36
+    |
+129 |     fn is_all_augmented_assignment(&self, stmt: &Stmt) -> bool {
+    |                                    ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/side_effect_detector.rs:138:27
+    |
+138 |     fn is_all_method_call(&self, expr: &Expr) -> bool {
+    |                           ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/cribo/src/visitors/symbol_usage_visitor.rs:156:46
+    |
+156 |     fn is_attribute_from_known_typing_module(&self, attr: &ruff_python_ast::ExprAttribute) -> bool {
+    |                                              ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
+
+warning: `cribo` (bin "cribo") generated 138 warnings (run `cargo clippy --fix --bin "cribo"` to apply 4 suggestions)
+warning: all fields have the same postfix: `violations`
+   --> crates/cribo/tests/test_bundling_snapshots.rs:108:1
+    |
+108 | / struct RuffLintResults {
+109 | |     f401_violations: Vec<String>, // Unused imports
+110 | |     f404_violations: Vec<String>, // Late future imports
+111 | |     other_violations: Vec<String>,
+112 | |     total_violations: usize,
+113 | | }
+    | |_^
+    |
+    = help: remove the postfixes
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_field_names
+    = note: `-W clippy::struct-field-names` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_field_names)]`
+
+warning: this function has too many lines (265/200)
+   --> crates/cribo/tests/test_bundling_snapshots.rs:186:1
+    |
+186 | fn test_bundling_fixtures() {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+    = note: `-W clippy::too-many-lines` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::too_many_lines)]`
+
+warning: wildcard matches only a single variant and will also match any future added variants
+   --> crates/cribo/src/visitors/symbol_usage_visitor.rs:223:13
+    |
+223 |             _ => panic!("Expected module"),
+    |             ^ help: try: `ruff_python_ast::Mod::Expression(_)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_wildcard_for_single_variants
+
+warning: `cribo` (test "test_bundling_snapshots") generated 2 warnings
+warning: `cribo` (bin "cribo" test) generated 139 warnings (138 duplicates)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.69s

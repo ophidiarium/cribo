@@ -23,7 +23,6 @@
 - 📦 **Requirements generation** with optional `requirements.txt` output
 - 🔧 **Configurable** import classification and source directories
 - 🚀 **Fast** and memory-efficient
-- 📊 **Performance tracking** with built-in benchmarking
 
 ## Reliability and Production Readiness
 
