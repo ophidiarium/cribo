@@ -1545,7 +1545,7 @@ pub fn transform_module_to_init_function<'a>(
 }
 
 /// Transform an expression to use module attributes for module-level variables
-fn transform_expr_for_module_vars(
+pub(crate) fn transform_expr_for_module_vars(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
     module_var_name: &str,
@@ -2795,7 +2795,10 @@ pub fn transform_ast_with_lifted_globals(
 /// Transform expressions to handle built-in name shadowing in init functions
 /// When a built-in name like 'str' is assigned as a local variable in the function,
 /// any reference to that built-in before the assignment needs to use __builtins__.name
-fn transform_expr_for_builtin_shadowing(expr: &mut Expr, builtin_locals: &FxIndexSet<String>) {
+pub(crate) fn transform_expr_for_builtin_shadowing(
+    expr: &mut Expr,
+    builtin_locals: &FxIndexSet<String>,
+) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
             // If this name refers to a built-in that will be shadowed by a local assignment,
@@ -2966,7 +2969,7 @@ fn transform_expr_for_builtin_shadowing(expr: &mut Expr, builtin_locals: &FxInde
 }
 
 /// Helper function to determine if a symbol should be included in the module namespace
-fn should_include_symbol(
+pub(crate) fn should_include_symbol(
     bundler: &Bundler,
     symbol_name: &str,
     module_name: &str,
@@ -3036,7 +3039,7 @@ fn should_include_symbol(
 }
 
 /// Add module attribute assignment if the symbol should be exported
-fn add_module_attr_if_exported(
+pub(crate) fn add_module_attr_if_exported(
     bundler: &Bundler,
     assign: &StmtAssign,
     module_name: &str,
@@ -3057,7 +3060,7 @@ fn add_module_attr_if_exported(
 
 /// Helper to emit module attribute if a symbol should be exported
 /// This centralizes the logic for both Assign and `AnnAssign` paths
-fn emit_module_attr_if_exportable(
+pub(crate) fn emit_module_attr_if_exportable(
     bundler: &Bundler,
     symbol_name: &str,
     module_name: &str,

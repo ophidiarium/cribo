@@ -24,7 +24,7 @@ pub use finalization::FinalizationPhase;
 pub use import_analysis::ImportAnalysisPhase;
 pub use import_transformation::ImportTransformationPhase;
 pub use initialization::InitializationPhase;
- // WIP - not yet production ready
+// WIP - not yet production ready
 pub use state::InitFunctionState;
 pub use submodules::SubmoduleHandlingPhase;
 pub use wildcard_imports::WildcardImportPhase;
