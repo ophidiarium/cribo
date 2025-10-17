@@ -8,18 +8,14 @@ pub(crate) const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{
-    ExceptHandler, Expr, ExprContext, ModModule, Stmt, StmtAssign,
-    StmtFunctionDef,
+    ExceptHandler, Expr, ExprContext, ModModule, Stmt, StmtAssign, StmtFunctionDef,
 };
 
 use crate::{
     ast_builder,
     code_generator::{
-        bundler::Bundler,
-        context::ModuleTransformContext,
-        expression_handlers,
-        import_deduplicator,
-        module_registry::sanitize_module_name_for_identifier,
+        bundler::Bundler, context::ModuleTransformContext, expression_handlers,
+        import_deduplicator, module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
