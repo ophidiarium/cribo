@@ -200,7 +200,8 @@ impl SubmoduleHandlingPhase {
         state: &mut InitFunctionState,
     ) {
         debug!(
-            "Binding existing global namespace for inlined submodule '{full_name}' inside wrapper module"
+            "Binding existing global namespace for inlined submodule '{full_name}' inside wrapper \
+             module"
         );
 
         let namespace_var =
@@ -224,9 +225,7 @@ impl SubmoduleHandlingPhase {
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
-        debug!(
-            "Creating namespace for inlined submodule '{full_name}' in non-wrapper context"
-        );
+        debug!("Creating namespace for inlined submodule '{full_name}' in non-wrapper context");
 
         // Use the existing helper function from module_transformer
         let create_namespace_stmts =

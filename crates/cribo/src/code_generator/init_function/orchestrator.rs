@@ -3,6 +3,16 @@
 //! This module provides the `InitFunctionBuilder` which coordinates the execution
 //! of all transformation phases to convert a Python module AST into an initialization
 //! function.
+//!
+//! **STATUS**: Work in Progress - NOT YET READY FOR PRODUCTION
+//!
+//! The orchestrator successfully wires up 10 of 11 phases, but is missing the critical
+//! **Statement Processing phase** (580 lines, lines 718-1297 in `module_transformer.rs`).
+//! This phase processes each statement type and adds module attributes, handles lifted
+//! globals, etc.
+//!
+//! Until Statement Processing is extracted, production code should continue calling
+//! `module_transformer::transform_module_to_init_function` directly.
 
 use ruff_python_ast::{ModModule, Stmt};
 
@@ -98,10 +108,25 @@ impl<'a> InitFunctionBuilder<'a> {
         WrapperGlobalsPhase::execute(&prep_context.processed_body, &mut state)?;
 
         // Phase 8: Statement Processing
-        // TODO: This phase is not yet extracted - currently remains inline in
-        // transform_module_to_init_function. The 580-line statement processing loop
-        // will be extracted in a future iteration. For now, the orchestrator calls
-        // the original function which includes this phase inline.
+        // ⚠️  CRITICAL MISSING PHASE ⚠️
+        //
+        // This phase processes each statement from `prep_context.processed_body` and:
+        // - Handles Import statements (skip hoisted)
+        // - Handles ImportFrom statements (complex relative import logic)
+        // - Handles ClassDef statements (set __module__, add as module attribute)
+        // - Handles FunctionDef statements (transform nested functions, add as attribute)
+        // - Handles Assign statements (MOST COMPLEX: 140+ lines of special cases)
+        //   - __all__ handling
+        //   - Self-referential detection
+        //   - Builtin shadowing
+        //   - Lifted global propagation
+        //   - Module attribute assignment logic
+        // - Handles AnnAssign statements (similar to Assign with annotations)
+        // - Handles Try statements (collect exportable symbols from branches)
+        // - Handles default statements (transform for module vars)
+        //
+        // This 580-line phase is the reason the orchestrator is not yet production-ready.
+        // Until extracted, use `module_transformer::transform_module_to_init_function`.
         //
         // Once extracted, this will be:
         // StatementProcessingPhase::execute(
@@ -112,6 +137,13 @@ impl<'a> InitFunctionBuilder<'a> {
         //     &state.lifted_names,
         //     &mut state,
         // )?;
+
+        // For now, return an error to prevent incorrect usage
+        return Err(TransformError::General(
+            "Orchestrator is incomplete - Statement Processing phase not yet extracted. Use \
+             module_transformer::transform_module_to_init_function instead."
+                .to_string(),
+        ));
 
         // Phase 9: Submodule Handling
         SubmoduleHandlingPhase::execute(self.bundler, self.ctx, self.symbol_renames, &mut state)?;
