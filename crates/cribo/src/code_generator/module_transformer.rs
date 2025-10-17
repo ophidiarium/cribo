@@ -580,23 +580,6 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // Helper function to get exported module-level variables
-    let get_exported_module_vars =
-        |bundler: &Bundler, ctx: &ModuleTransformContext| -> FxIndexSet<String> {
-            if let Some(ref global_info) = ctx.global_info {
-                let all_vars = &global_info.module_level_vars;
-                let mut exported_vars = FxIndexSet::default();
-                for var in all_vars {
-                    if bundler.should_export_symbol(var, ctx.module_name) {
-                        exported_vars.insert(var.clone());
-                    }
-                }
-                exported_vars
-            } else {
-                FxIndexSet::default()
-            }
-        };
-
     // Process the body with a new recursive approach
     let processed_body_raw =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
@@ -715,586 +698,19 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Process each statement from the transformed module body
-    for (idx, stmt) in processed_body.into_iter().enumerate() {
-        match &stmt {
-            Stmt::Assign(_) => debug!("Processing statement {idx} in init function: Assign"),
-            Stmt::ImportFrom(_) => {
-                debug!("Processing statement {idx} in init function: ImportFrom");
-            }
-            Stmt::Expr(_) => debug!("Processing statement {idx} in init function: Expr"),
-            Stmt::For(_) => debug!("Processing statement {idx} in init function: For"),
-            _ => debug!("Processing statement {idx} in init function: Other"),
-        }
-        match &stmt {
-            Stmt::Import(_import_stmt) => {
-                // Skip imports that are already hoisted
-                if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
-                    body.push(stmt.clone());
-                }
-            }
-            Stmt::ImportFrom(import_from) => {
-                // Skip __future__ imports - they cannot appear inside functions
-                if import_from
-                    .module
-                    .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str)
-                    == Some("__future__")
-                {
-                    continue;
-                }
-
-                // Skip imports that are already hoisted
-                if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
-                    // Handle relative imports that reference the same module (e.g., from . import
-                    // errors) These should be converted to simple assignments
-                    // since the symbols are already available
-                    if import_from.level > 0 {
-                        log::debug!(
-                            "Found relative import in init function for module '{}': from {} \
-                             import {:?}",
-                            ctx.module_name,
-                            ".".repeat(import_from.level as usize),
-                            import_from
-                                .names
-                                .iter()
-                                .map(|a| a.name.as_str())
-                                .collect::<Vec<_>>()
-                        );
-
-                        // Get the module path for the current module
-                        let module_id = bundler.resolver.get_module_id_by_name(ctx.module_name);
-                        let module_path =
-                            module_id.and_then(|id| bundler.resolver.get_module_path(id));
-
-                        log::debug!("Module '{}' has path: {:?}", ctx.module_name, module_path);
-
-                        // Resolve the relative import to absolute module name
-                        let resolved_module = module_path.and_then(|path| {
-                            bundler.resolver.resolve_relative_to_absolute_module_name(
-                                import_from.level,
-                                import_from
-                                    .module
-                                    .as_ref()
-                                    .map(ruff_python_ast::Identifier::as_str),
-                                &path,
-                            )
-                        });
-
-                        log::debug!("Resolved relative import to: {resolved_module:?}");
-
-                        // For wrapper modules doing `from . import`, we need to determine the
-                        // correct base:
-                        // - Package __init__ files: resolved module gives the package itself
-                        // - Regular module files: resolved module is empty (""), use parent package
-                        if import_from.level == 1 && import_from.module.is_none() {
-                            log::debug!(
-                                "Handling 'from . import' in wrapper module '{}', converting to \
-                                 assignments",
-                                ctx.module_name
-                            );
-
-                            // Determine the base module for imports:
-                            // If resolved_module is empty, it means we're in a regular module file
-                            // importing from its parent package, so extract the parent package
-                            // name. Otherwise use the resolved module.
-                            let base_module = match resolved_module.as_deref() {
-                                Some("") | None => {
-                                    // Regular module file: extract parent package
-                                    let parent = ctx
-                                        .module_name
-                                        .rsplit_once('.')
-                                        .map_or("", |(parent, _)| parent);
-                                    log::debug!(
-                                        "Using parent package '{}' as base for relative imports \
-                                         in '{}'",
-                                        parent,
-                                        ctx.module_name
-                                    );
-                                    parent
-                                }
-                                Some(resolved) => {
-                                    log::debug!(
-                                        "Using resolved module '{}' as base for relative imports \
-                                         in '{}'",
-                                        resolved,
-                                        ctx.module_name
-                                    );
-                                    resolved
-                                }
-                            };
-
-                            // Use shared helper to transform relative import aliases
-                            crate::code_generator::import_transformer::handlers::relative::transform_relative_import_aliases(
-                                bundler,
-                                import_from,
-                                base_module,
-                                ctx.module_name,
-                                &mut body,
-                                false, // use emit_module_attr_if_exportable instead
-                            );
-
-                            // Handle module attributes with proper exportability checks
-                            for alias in &import_from.names {
-                                let imported_name = alias.name.as_str();
-                                if imported_name != "*" {
-                                    let local_name =
-                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                                    emit_module_attr_if_exportable(
-                                        bundler,
-                                        local_name,
-                                        ctx.module_name,
-                                        &mut body,
-                                        module_scope_symbols,
-                                        None, // not a lifted var
-                                    );
-                                }
-                            }
-                            // Skip adding the original import statement
-                            continue;
-                        }
-
-                        // For other relative imports that don't match our pattern, keep the
-                        // original
-                        body.push(stmt.clone());
-                    } else {
-                        // For non-relative imports, keep the original
-                        body.push(stmt.clone());
-                    }
-                }
-
-                // Module attribute assignments for imported names are already handled by
-                // process_body_recursive in the bundler, so we don't need to add them here
-            }
-            Stmt::ClassDef(class_def) => {
-                // Add class definition
-                body.push(stmt.clone());
-
-                let symbol_name = class_def.name.to_string();
-
-                // Note: We set __module__ for the class, but Python still shows the full scope path
-                // in the class repr when it's defined inside a function. This is expected behavior.
-                // Setting __module__ helps with introspection but doesn't change the repr.
-                body.push(ast_builder::statements::assign_attribute(
-                    &symbol_name,
-                    "__module__",
-                    ast_builder::expressions::string_literal(ctx.module_name),
-                ));
-
-                // Set as module attribute via centralized helper
-                emit_module_attr_if_exportable(
-                    bundler,
-                    &symbol_name,
-                    ctx.module_name,
-                    &mut body,
-                    module_scope_symbols,
-                    None, // not a lifted var
-                );
-            }
-            Stmt::FunctionDef(func_def) => {
-                // Clone the function for transformation
-                let mut func_def_clone = func_def.clone();
-
-                // Transform nested functions to use module attributes for module-level vars
-                if let Some(ref global_info) = ctx.global_info {
-                    bundler.transform_nested_function_for_module_vars_with_global_info(
-                        &mut func_def_clone,
-                        &global_info.module_level_vars,
-                        &global_info.global_declarations,
-                        lifted_names.as_ref(),
-                        SELF_PARAM,
-                    );
-                }
-
-                // Add transformed function definition
-                body.push(Stmt::FunctionDef(func_def_clone));
-
-                // Set as module attribute via centralized helper
-                let symbol_name = func_def.name.to_string();
-                emit_module_attr_if_exportable(
-                    bundler,
-                    &symbol_name,
-                    ctx.module_name,
-                    &mut body,
-                    module_scope_symbols,
-                    None, // not a lifted var
-                );
-            }
-            Stmt::Assign(assign) => {
-                // Handle __all__ assignments - skip unless it's referenced elsewhere
-                if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
-                    && name == "__all__"
-                {
-                    if all_is_referenced {
-                        // __all__ is referenced elsewhere, include the assignment
-                        body.push(stmt.clone());
-                    }
-                    // Skip further processing for __all__ assignments
-                    continue;
-                }
-
-                // Skip self-referential assignments like `process = process`
-                // These are meaningless in the init function context and cause errors
-                if expression_handlers::is_self_referential_assignment(assign, ctx.python_version) {
-                    debug!(
-                        "Skipping self-referential assignment in module '{}': {:?}",
-                        ctx.module_name,
-                        assign.targets.first().and_then(|t| match t {
-                            Expr::Name(name) => Some(name.id.as_str()),
-                            _ => None,
-                        })
-                    );
-                } else {
-                    // Clone and transform the assignment to handle __name__ references
-                    let mut assign_clone = assign.clone();
-
-                    // Use actual module-level variables if available, but filter to only
-                    // exported ones
-                    let module_level_vars = get_exported_module_vars(bundler, ctx);
-
-                    // Special handling for assignments involving built-in types
-                    // We need to transform any reference to a built-in that will be assigned
-                    // as a local variable later in this function
-                    transform_expr_for_builtin_shadowing(&mut assign_clone.value, &builtin_locals);
-
-                    // Also transform module-level variable references
-                    // Inside the init function, use "self" to refer to the module
-                    transform_expr_for_module_vars(
-                        &mut assign_clone.value,
-                        &module_level_vars,
-                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
-                        ctx.python_version,
-                    );
-
-                    // For simple assignments, also set as module attribute if it should be
-                    // exported
-                    body.push(Stmt::Assign(assign_clone.clone()));
-
-                    // If this variable is being lifted to a global, update the global
-                    let mut lifted_var_handled = false;
-                    if let Some(ref lifted_names) = lifted_names
-                        && let Some(name) =
-                            expression_handlers::extract_simple_assign_target(&assign_clone)
-                        && let Some(lifted_name) = lifted_names.get(&name)
-                    {
-                        // Always propagate to the lifted binding to keep it in sync
-                        body.push(ast_builder::statements::assign(
-                            vec![ast_builder::expressions::name(
-                                lifted_name,
-                                ExprContext::Store,
-                            )],
-                            ast_builder::expressions::name(&name, ExprContext::Load),
-                        ));
-
-                        // Keep the module attribute consistent with the current value
-                        body.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                                SELF_PARAM,
-                                &name,
-                                lifted_name,
-                            ),
-                        );
-
-                        if initialized_lifted_globals.insert(name.clone()) {
-                            debug!("Initialized lifted global '{lifted_name}' from '{name}'");
-                        } else {
-                            debug!(
-                                "Refreshed lifted global '{lifted_name}' after reassignment of \
-                                 '{name}'"
-                            );
-                        }
-                        lifted_var_handled = true;
-                    }
-
-                    // Skip further module attribute handling if this was a lifted variable
-                    if lifted_var_handled {
-                        // Already handled as a lifted variable
-                    } else if let Some(name) =
-                        expression_handlers::extract_simple_assign_target(assign)
-                    {
-                        debug!(
-                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: \
-                             {:?})",
-                            name, ctx.module_name, inlined_import_bindings
-                        );
-
-                        if inlined_import_bindings.contains(&name) {
-                            // This was imported from an inlined module
-                            // Module attributes for imports are now handled by import_transformer
-                            // to ensure correct value assignment (original_name vs local_name)
-                            debug!(
-                                "Skipping module attribute for imported symbol '{name}' - handled \
-                                 by import_transformer"
-                            );
-                        } else if vars_used_by_exported_functions.contains(&name) {
-                            // Check if this variable is used by exported functions
-                            // Use a special case: if no scope info available, include vars used
-                            // by exported functions
-                            let should_include =
-                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
-
-                            if should_include {
-                                debug!("Exporting '{name}' as it's used by exported functions");
-                                body.push(crate::code_generator::module_registry::create_module_attr_assignment(
-                                    SELF_PARAM,
-                                    &name,
-                                ));
-                            }
-                        } else {
-                            // Regular assignment, use the normal export logic
-                            add_module_attr_if_exported(
-                                bundler,
-                                assign,
-                                ctx.module_name,
-                                &mut body,
-                                module_scope_symbols,
-                            );
-                        }
-                    } else {
-                        // Not a simple assignment
-                        add_module_attr_if_exported(
-                            bundler,
-                            assign,
-                            ctx.module_name,
-                            &mut body,
-                            module_scope_symbols,
-                        );
-                    }
-                }
-            }
-            Stmt::AnnAssign(ann_assign) => {
-                // Handle annotated assignments similar to regular assignments
-                if ann_assign.value.is_some() {
-                    // Skip __all__ annotated assignments unless it's referenced elsewhere
-                    if let Expr::Name(target) = ann_assign.target.as_ref()
-                        && target.id.as_str() == "__all__"
-                        && !all_is_referenced
-                    {
-                        continue;
-                    }
-
-                    let mut ann_assign_clone = ann_assign.clone();
-
-                    // Use actual module-level variables if available, but filter to only exported
-                    // ones
-                    let module_level_vars = get_exported_module_vars(bundler, ctx);
-
-                    // Transform references to built-ins that will be shadowed
-                    if let Some(ref mut value) = ann_assign_clone.value {
-                        transform_expr_for_builtin_shadowing(value, &builtin_locals);
-
-                        // Also transform module-level variable references
-                        // Inside the init function, use "self" to refer to the module
-                        transform_expr_for_module_vars(
-                            value,
-                            &module_level_vars,
-                            SELF_PARAM, /* Use "self" instead of module_var_name inside init
-                                         * function */
-                            ctx.python_version,
-                        );
-                    }
-
-                    // Transform the annotation expression as well
-                    transform_expr_for_builtin_shadowing(
-                        &mut ann_assign_clone.annotation,
-                        &builtin_locals,
-                    );
-                    transform_expr_for_module_vars(
-                        &mut ann_assign_clone.annotation,
-                        &module_level_vars,
-                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
-                        ctx.python_version,
-                    );
-
-                    body.push(Stmt::AnnAssign(ann_assign_clone.clone()));
-
-                    // If this variable is being lifted to a global, handle it
-                    if let Some(ref lifted_names) = lifted_names
-                        && let Expr::Name(target) = ann_assign_clone.target.as_ref()
-                        && let Some(lifted_name) = lifted_names.get(target.id.as_str())
-                    {
-                        // Always propagate to the lifted binding to keep it in sync
-                        body.push(ast_builder::statements::assign(
-                            vec![ast_builder::expressions::name(
-                                lifted_name,
-                                ExprContext::Store,
-                            )],
-                            ast_builder::expressions::name(&target.id, ExprContext::Load),
-                        ));
-
-                        // Keep the module attribute consistent with the current value
-                        body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                            SELF_PARAM,
-                            target.id.as_str(),
-                            lifted_name,
-                        ));
-
-                        if initialized_lifted_globals.insert(target.id.to_string()) {
-                            debug!(
-                                "Initialized lifted global '{lifted_name}' from annotated \
-                                 assignment '{}'",
-                                target.id
-                            );
-                        } else {
-                            debug!(
-                                "Refreshed lifted global '{lifted_name}' after annotated \
-                                 reassignment '{}'",
-                                target.id
-                            );
-                        }
-                    }
-
-                    // Also set as module attribute if it should be exported (for non-lifted vars)
-                    if let Expr::Name(target) = ann_assign.target.as_ref() {
-                        emit_module_attr_if_exportable(
-                            bundler,
-                            &target.id,
-                            ctx.module_name,
-                            &mut body,
-                            module_scope_symbols,
-                            lifted_names.as_ref(),
-                        );
-                    }
-                } else {
-                    // Type annotation without value, just add it
-                    body.push(stmt.clone());
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                // Clone the try statement for transformation
-                let try_stmt_clone = try_stmt.clone();
-
-                // Collect all function and class definitions from all branches
-                let mut symbols_to_export = FxIndexSet::default();
-
-                /// Recursively collects function and class definitions from control-flow
-                /// statements.
-                ///
-                /// Traverses If, Try, For, While, With, and Match constructs to find function and
-                /// class definitions that may be conditionally defined, but intentionally stops at
-                /// function/class boundaries to avoid collecting internal methods.
-                ///
-                /// # Parameters
-                /// - `stmts`: Slice of statements to traverse
-                /// - `symbols`: Mutable set where collected symbol names are inserted
-                fn collect_exportable_symbols(stmts: &[Stmt], symbols: &mut FxIndexSet<String>) {
-                    for stmt in stmts {
-                        match stmt {
-                            Stmt::FunctionDef(f) => {
-                                symbols.insert(f.name.to_string());
-                                // Don't recurse into function bodies
-                            }
-                            Stmt::ClassDef(c) => {
-                                symbols.insert(c.name.to_string());
-                                // Don't recurse into class bodies
-                            }
-                            Stmt::If(if_stmt) => {
-                                collect_exportable_symbols(&if_stmt.body, symbols);
-                                for clause in &if_stmt.elif_else_clauses {
-                                    collect_exportable_symbols(&clause.body, symbols);
-                                }
-                            }
-                            Stmt::Try(try_stmt) => {
-                                collect_exportable_symbols(&try_stmt.body, symbols);
-                                for handler in &try_stmt.handlers {
-                                    let ExceptHandler::ExceptHandler(except_handler) = handler;
-                                    collect_exportable_symbols(&except_handler.body, symbols);
-                                }
-                                collect_exportable_symbols(&try_stmt.orelse, symbols);
-                                collect_exportable_symbols(&try_stmt.finalbody, symbols);
-                            }
-                            Stmt::For(for_stmt) => {
-                                collect_exportable_symbols(&for_stmt.body, symbols);
-                                collect_exportable_symbols(&for_stmt.orelse, symbols);
-                            }
-                            Stmt::While(while_stmt) => {
-                                collect_exportable_symbols(&while_stmt.body, symbols);
-                                collect_exportable_symbols(&while_stmt.orelse, symbols);
-                            }
-                            Stmt::With(with_stmt) => {
-                                collect_exportable_symbols(&with_stmt.body, symbols);
-                            }
-                            Stmt::Match(match_stmt) => {
-                                for case_ in &match_stmt.cases {
-                                    collect_exportable_symbols(&case_.body, symbols);
-                                }
-                            }
-                            _ => {
-                                // Other statements don't contain nested definitions we care about
-                            }
-                        }
-                    }
-                }
-
-                // Collect from try body
-                collect_exportable_symbols(&try_stmt.body, &mut symbols_to_export);
-
-                // Collect from except handlers
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(except_handler) = handler;
-                    collect_exportable_symbols(&except_handler.body, &mut symbols_to_export);
-                }
-
-                // Collect from else clause
-                collect_exportable_symbols(&try_stmt.orelse, &mut symbols_to_export);
-
-                // Collect from finally clause
-                collect_exportable_symbols(&try_stmt.finalbody, &mut symbols_to_export);
-
-                // Add the try statement
-                body.push(Stmt::Try(try_stmt_clone));
-
-                // After the try block, assign all collected symbols to self
-                // This ensures they're available regardless of which branch was taken
-                for symbol_name in symbols_to_export {
-                    // Use should_export_symbol directly for dynamically discovered symbols
-                    // from try-except blocks, as they won't be in module_scope_symbols.
-                    // The emit_module_attr_if_exportable helper is designed for statically
-                    // known symbols and would incorrectly filter these out.
-                    if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
-                        debug!(
-                            "Exporting symbol '{}' from try-except block in module '{}'",
-                            symbol_name, ctx.module_name
-                        );
-                        body.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment(
-                                SELF_PARAM,
-                                &symbol_name,
-                            ),
-                        );
-                    }
-                }
-            }
-            _ => {
-                // Clone and transform other statements to handle __name__ references
-                let mut stmt_clone = stmt.clone();
-                // Use actual module-level variables if available, but filter to only exported
-                // ones
-                let module_level_vars = if let Some(ref global_info) = ctx.global_info {
-                    let all_vars = &global_info.module_level_vars;
-                    let mut exported_vars = FxIndexSet::default();
-                    for var in all_vars {
-                        if bundler.should_export_symbol(var, ctx.module_name) {
-                            exported_vars.insert(var.clone());
-                        }
-                    }
-                    exported_vars
-                } else {
-                    FxIndexSet::default()
-                };
-                let transform_ctx = ModuleVarTransformContext {
-                    bundler,
-                    module_level_vars: &module_level_vars,
-                    module_var_name: SELF_PARAM, /* Use "self" instead of module_var_name inside
-                                                  * init function */
-                    global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
-                    lifted_names: lifted_names.as_ref(),
-                    python_version: ctx.python_version,
-                };
-                transform_stmt_for_module_vars_with_bundler(&mut stmt_clone, &transform_ctx);
-                body.push(stmt_clone);
-            }
-        }
-    }
+    process_statements_for_init_function(
+        processed_body,
+        bundler,
+        ctx,
+        all_is_referenced,
+        &vars_used_by_exported_functions,
+        module_scope_symbols,
+        &builtin_locals,
+        &lifted_names,
+        &inlined_import_bindings,
+        &mut body,
+        &mut initialized_lifted_globals,
+    );
 
     // Set submodules as attributes on this module BEFORE processing deferred imports
     // This is needed because deferred imports may reference these submodules
@@ -1542,6 +958,625 @@ pub fn transform_module_to_init_function<'a>(
         None,   // No return type annotation
         false,  // Not async
     )
+}
+
+/// Process each statement from the transformed module body
+/// and add appropriate module attributes for exported symbols
+///
+/// This function handles the core statement-by-statement processing within an init function,
+/// applying transformations and adding module attributes as needed for different statement types.
+#[allow(clippy::too_many_arguments)] // Necessary for extracting complex logic
+pub(crate) fn process_statements_for_init_function(
+    processed_body: Vec<Stmt>,
+    bundler: &Bundler,
+    ctx: &ModuleTransformContext,
+    all_is_referenced: bool,
+    vars_used_by_exported_functions: &FxIndexSet<String>,
+    module_scope_symbols: Option<&FxIndexSet<String>>,
+    builtin_locals: &FxIndexSet<String>,
+    lifted_names: &Option<FxIndexMap<String, String>>,
+    inlined_import_bindings: &[String],
+    body: &mut Vec<Stmt>,
+    initialized_lifted_globals: &mut FxIndexSet<String>,
+) {
+    // Helper function to get exported module-level variables
+    let get_exported_module_vars =
+        |bundler: &Bundler, ctx: &ModuleTransformContext| -> FxIndexSet<String> {
+            if let Some(ref global_info) = ctx.global_info {
+                let all_vars = &global_info.module_level_vars;
+                let mut exported_vars = FxIndexSet::default();
+                for var in all_vars {
+                    if bundler.should_export_symbol(var, ctx.module_name) {
+                        exported_vars.insert(var.clone());
+                    }
+                }
+                exported_vars
+            } else {
+                FxIndexSet::default()
+            }
+        };
+
+    // Process each statement from the transformed module body
+    for (idx, stmt) in processed_body.into_iter().enumerate() {
+        match &stmt {
+            Stmt::Assign(_) => debug!("Processing statement {idx} in init function: Assign"),
+            Stmt::ImportFrom(_) => {
+                debug!("Processing statement {idx} in init function: ImportFrom");
+            }
+            Stmt::Expr(_) => debug!("Processing statement {idx} in init function: Expr"),
+            Stmt::For(_) => debug!("Processing statement {idx} in init function: For"),
+            _ => debug!("Processing statement {idx} in init function: Other"),
+        }
+        match &stmt {
+            Stmt::Import(_import_stmt) => {
+                // Skip imports that are already hoisted
+                if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
+                    body.push(stmt.clone());
+                }
+            }
+            Stmt::ImportFrom(import_from) => {
+                // Skip __future__ imports - they cannot appear inside functions
+                if import_from
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str)
+                    == Some("__future__")
+                {
+                    continue;
+                }
+
+                // Skip imports that are already hoisted
+                if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
+                    // Handle relative imports that reference the same module (e.g., from . import
+                    // errors) These should be converted to simple assignments
+                    // since the symbols are already available
+                    if import_from.level > 0 {
+                        log::debug!(
+                            "Found relative import in init function for module '{}': from {} \
+                             import {:?}",
+                            ctx.module_name,
+                            ".".repeat(import_from.level as usize),
+                            import_from
+                                .names
+                                .iter()
+                                .map(|a| a.name.as_str())
+                                .collect::<Vec<_>>()
+                        );
+
+                        // Get the module path for the current module
+                        let module_id = bundler.resolver.get_module_id_by_name(ctx.module_name);
+                        let module_path =
+                            module_id.and_then(|id| bundler.resolver.get_module_path(id));
+
+                        log::debug!("Module '{}' has path: {:?}", ctx.module_name, module_path);
+
+                        // Resolve the relative import to absolute module name
+                        let resolved_module = module_path.and_then(|path| {
+                            bundler.resolver.resolve_relative_to_absolute_module_name(
+                                import_from.level,
+                                import_from
+                                    .module
+                                    .as_ref()
+                                    .map(ruff_python_ast::Identifier::as_str),
+                                &path,
+                            )
+                        });
+
+                        log::debug!("Resolved relative import to: {resolved_module:?}");
+
+                        // For wrapper modules doing `from . import`, we need to determine the
+                        // correct base:
+                        // - Package __init__ files: resolved module gives the package itself
+                        // - Regular module files: resolved module is empty (""), use parent package
+                        if import_from.level == 1 && import_from.module.is_none() {
+                            log::debug!(
+                                "Handling 'from . import' in wrapper module '{}', converting to \
+                                 assignments",
+                                ctx.module_name
+                            );
+
+                            // Determine the base module for imports:
+                            // If resolved_module is empty, it means we're in a regular module file
+                            // importing from its parent package, so extract the parent package
+                            // name. Otherwise use the resolved module.
+                            let base_module = match resolved_module.as_deref() {
+                                Some("") | None => {
+                                    // Regular module file: extract parent package
+                                    let parent = ctx
+                                        .module_name
+                                        .rsplit_once('.')
+                                        .map_or("", |(parent, _)| parent);
+                                    log::debug!(
+                                        "Using parent package '{}' as base for relative imports \
+                                         in '{}'",
+                                        parent,
+                                        ctx.module_name
+                                    );
+                                    parent
+                                }
+                                Some(resolved) => {
+                                    log::debug!(
+                                        "Using resolved module '{}' as base for relative imports \
+                                         in '{}'",
+                                        resolved,
+                                        ctx.module_name
+                                    );
+                                    resolved
+                                }
+                            };
+
+                            // Use shared helper to transform relative import aliases
+                            crate::code_generator::import_transformer::handlers::relative::transform_relative_import_aliases(
+                                bundler,
+                                import_from,
+                                base_module,
+                                ctx.module_name,
+                                body,
+                                false, // use emit_module_attr_if_exportable instead
+                            );
+
+                            // Handle module attributes with proper exportability checks
+                            for alias in &import_from.names {
+                                let imported_name = alias.name.as_str();
+                                if imported_name != "*" {
+                                    let local_name =
+                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                                    emit_module_attr_if_exportable(
+                                        bundler,
+                                        local_name,
+                                        ctx.module_name,
+                                        body,
+                                        module_scope_symbols,
+                                        None, // not a lifted var
+                                    );
+                                }
+                            }
+                            // Skip adding the original import statement
+                            continue;
+                        }
+
+                        // For other relative imports that don't match our pattern, keep the
+                        // original
+                        body.push(stmt.clone());
+                    } else {
+                        // For non-relative imports, keep the original
+                        body.push(stmt.clone());
+                    }
+                }
+
+                // Module attribute assignments for imported names are already handled by
+                // process_body_recursive in the bundler, so we don't need to add them here
+            }
+            Stmt::ClassDef(class_def) => {
+                // Add class definition
+                body.push(stmt.clone());
+
+                let symbol_name = class_def.name.to_string();
+
+                // Note: We set __module__ for the class, but Python still shows the full scope path
+                // in the class repr when it's defined inside a function. This is expected behavior.
+                // Setting __module__ helps with introspection but doesn't change the repr.
+                body.push(ast_builder::statements::assign_attribute(
+                    &symbol_name,
+                    "__module__",
+                    ast_builder::expressions::string_literal(ctx.module_name),
+                ));
+
+                // Set as module attribute via centralized helper
+                emit_module_attr_if_exportable(
+                    bundler,
+                    &symbol_name,
+                    ctx.module_name,
+                    body,
+                    module_scope_symbols,
+                    None, // not a lifted var
+                );
+            }
+            Stmt::FunctionDef(func_def) => {
+                // Clone the function for transformation
+                let mut func_def_clone = func_def.clone();
+
+                // Transform nested functions to use module attributes for module-level vars
+                if let Some(ref global_info) = ctx.global_info {
+                    bundler.transform_nested_function_for_module_vars_with_global_info(
+                        &mut func_def_clone,
+                        &global_info.module_level_vars,
+                        &global_info.global_declarations,
+                        lifted_names.as_ref(),
+                        SELF_PARAM,
+                    );
+                }
+
+                // Add transformed function definition
+                body.push(Stmt::FunctionDef(func_def_clone));
+
+                // Set as module attribute via centralized helper
+                let symbol_name = func_def.name.to_string();
+                emit_module_attr_if_exportable(
+                    bundler,
+                    &symbol_name,
+                    ctx.module_name,
+                    body,
+                    module_scope_symbols,
+                    None, // not a lifted var
+                );
+            }
+            Stmt::Assign(assign) => {
+                // Handle __all__ assignments - skip unless it's referenced elsewhere
+                if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+                    && name == "__all__"
+                {
+                    if all_is_referenced {
+                        // __all__ is referenced elsewhere, include the assignment
+                        body.push(stmt.clone());
+                    }
+                    // Skip further processing for __all__ assignments
+                    continue;
+                }
+
+                // Skip self-referential assignments like `process = process`
+                // These are meaningless in the init function context and cause errors
+                if expression_handlers::is_self_referential_assignment(assign, ctx.python_version) {
+                    debug!(
+                        "Skipping self-referential assignment in module '{}': {:?}",
+                        ctx.module_name,
+                        assign.targets.first().and_then(|t| match t {
+                            Expr::Name(name) => Some(name.id.as_str()),
+                            _ => None,
+                        })
+                    );
+                } else {
+                    // Clone and transform the assignment to handle __name__ references
+                    let mut assign_clone = assign.clone();
+
+                    // Use actual module-level variables if available, but filter to only
+                    // exported ones
+                    let module_level_vars = get_exported_module_vars(bundler, ctx);
+
+                    // Special handling for assignments involving built-in types
+                    // We need to transform any reference to a built-in that will be assigned
+                    // as a local variable later in this function
+                    transform_expr_for_builtin_shadowing(&mut assign_clone.value, builtin_locals);
+
+                    // Also transform module-level variable references
+                    // Inside the init function, use "self" to refer to the module
+                    transform_expr_for_module_vars(
+                        &mut assign_clone.value,
+                        &module_level_vars,
+                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
+                        ctx.python_version,
+                    );
+
+                    // For simple assignments, also set as module attribute if it should be
+                    // exported
+                    body.push(Stmt::Assign(assign_clone.clone()));
+
+                    // If this variable is being lifted to a global, update the global
+                    let mut lifted_var_handled = false;
+                    if let Some(lifted_names) = lifted_names
+                        && let Some(name) =
+                            expression_handlers::extract_simple_assign_target(&assign_clone)
+                        && let Some(lifted_name) = lifted_names.get(&name)
+                    {
+                        // Always propagate to the lifted binding to keep it in sync
+                        body.push(ast_builder::statements::assign(
+                            vec![ast_builder::expressions::name(
+                                lifted_name,
+                                ExprContext::Store,
+                            )],
+                            ast_builder::expressions::name(&name, ExprContext::Load),
+                        ));
+
+                        // Keep the module attribute consistent with the current value
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                                SELF_PARAM,
+                                &name,
+                                lifted_name,
+                            ),
+                        );
+
+                        if initialized_lifted_globals.insert(name.clone()) {
+                            debug!("Initialized lifted global '{lifted_name}' from '{name}'");
+                        } else {
+                            debug!(
+                                "Refreshed lifted global '{lifted_name}' after reassignment of \
+                                 '{name}'"
+                            );
+                        }
+                        lifted_var_handled = true;
+                    }
+
+                    // Skip further module attribute handling if this was a lifted variable
+                    if lifted_var_handled {
+                        // Already handled as a lifted variable
+                    } else if let Some(name) =
+                        expression_handlers::extract_simple_assign_target(assign)
+                    {
+                        debug!(
+                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: \
+                             {:?})",
+                            name, ctx.module_name, inlined_import_bindings
+                        );
+
+                        if inlined_import_bindings.contains(&name) {
+                            // This was imported from an inlined module
+                            // Module attributes for imports are now handled by import_transformer
+                            // to ensure correct value assignment (original_name vs local_name)
+                            debug!(
+                                "Skipping module attribute for imported symbol '{name}' - handled \
+                                 by import_transformer"
+                            );
+                        } else if vars_used_by_exported_functions.contains(&name) {
+                            // Check if this variable is used by exported functions
+                            // Use a special case: if no scope info available, include vars used
+                            // by exported functions
+                            let should_include =
+                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
+
+                            if should_include {
+                                debug!("Exporting '{name}' as it's used by exported functions");
+                                body.push(crate::code_generator::module_registry::create_module_attr_assignment(
+                                    SELF_PARAM,
+                                    &name,
+                                ));
+                            }
+                        } else {
+                            // Regular assignment, use the normal export logic
+                            add_module_attr_if_exported(
+                                bundler,
+                                assign,
+                                ctx.module_name,
+                                body,
+                                module_scope_symbols,
+                            );
+                        }
+                    } else {
+                        // Not a simple assignment
+                        add_module_attr_if_exported(
+                            bundler,
+                            assign,
+                            ctx.module_name,
+                            body,
+                            module_scope_symbols,
+                        );
+                    }
+                }
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                // Handle annotated assignments similar to regular assignments
+                if ann_assign.value.is_some() {
+                    // Skip __all__ annotated assignments unless it's referenced elsewhere
+                    if let Expr::Name(target) = ann_assign.target.as_ref()
+                        && target.id.as_str() == "__all__"
+                        && !all_is_referenced
+                    {
+                        continue;
+                    }
+
+                    let mut ann_assign_clone = ann_assign.clone();
+
+                    // Use actual module-level variables if available, but filter to only exported
+                    // ones
+                    let module_level_vars = get_exported_module_vars(bundler, ctx);
+
+                    // Transform references to built-ins that will be shadowed
+                    if let Some(ref mut value) = ann_assign_clone.value {
+                        transform_expr_for_builtin_shadowing(value, builtin_locals);
+
+                        // Also transform module-level variable references
+                        // Inside the init function, use "self" to refer to the module
+                        transform_expr_for_module_vars(
+                            value,
+                            &module_level_vars,
+                            SELF_PARAM, /* Use "self" instead of module_var_name inside init
+                                         * function */
+                            ctx.python_version,
+                        );
+                    }
+
+                    // Transform the annotation expression as well
+                    transform_expr_for_builtin_shadowing(
+                        &mut ann_assign_clone.annotation,
+                        builtin_locals,
+                    );
+                    transform_expr_for_module_vars(
+                        &mut ann_assign_clone.annotation,
+                        &module_level_vars,
+                        SELF_PARAM, // Use "self" instead of module_var_name inside init function
+                        ctx.python_version,
+                    );
+
+                    body.push(Stmt::AnnAssign(ann_assign_clone.clone()));
+
+                    // If this variable is being lifted to a global, handle it
+                    if let Some(lifted_names) = lifted_names
+                        && let Expr::Name(target) = ann_assign_clone.target.as_ref()
+                        && let Some(lifted_name) = lifted_names.get(target.id.as_str())
+                    {
+                        // Always propagate to the lifted binding to keep it in sync
+                        body.push(ast_builder::statements::assign(
+                            vec![ast_builder::expressions::name(
+                                lifted_name,
+                                ExprContext::Store,
+                            )],
+                            ast_builder::expressions::name(&target.id, ExprContext::Load),
+                        ));
+
+                        // Keep the module attribute consistent with the current value
+                        body.push(crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                            SELF_PARAM,
+                            target.id.as_str(),
+                            lifted_name,
+                        ));
+
+                        if initialized_lifted_globals.insert(target.id.to_string()) {
+                            debug!(
+                                "Initialized lifted global '{lifted_name}' from annotated \
+                                 assignment '{}'",
+                                target.id
+                            );
+                        } else {
+                            debug!(
+                                "Refreshed lifted global '{lifted_name}' after annotated \
+                                 reassignment '{}'",
+                                target.id
+                            );
+                        }
+                    }
+
+                    // Also set as module attribute if it should be exported (for non-lifted vars)
+                    if let Expr::Name(target) = ann_assign.target.as_ref() {
+                        emit_module_attr_if_exportable(
+                            bundler,
+                            &target.id,
+                            ctx.module_name,
+                            body,
+                            module_scope_symbols,
+                            lifted_names.as_ref(),
+                        );
+                    }
+                } else {
+                    // Type annotation without value, just add it
+                    body.push(stmt.clone());
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                // Clone the try statement for transformation
+                let try_stmt_clone = try_stmt.clone();
+
+                // Collect all function and class definitions from all branches
+                let mut symbols_to_export = FxIndexSet::default();
+
+                /// Recursively collects function and class definitions from control-flow
+                /// statements.
+                ///
+                /// Traverses If, Try, For, While, With, and Match constructs to find function and
+                /// class definitions that may be conditionally defined, but intentionally stops at
+                /// function/class boundaries to avoid collecting internal methods.
+                ///
+                /// # Parameters
+                /// - `stmts`: Slice of statements to traverse
+                /// - `symbols`: Mutable set where collected symbol names are inserted
+                fn collect_exportable_symbols(stmts: &[Stmt], symbols: &mut FxIndexSet<String>) {
+                    for stmt in stmts {
+                        match stmt {
+                            Stmt::FunctionDef(f) => {
+                                symbols.insert(f.name.to_string());
+                                // Don't recurse into function bodies
+                            }
+                            Stmt::ClassDef(c) => {
+                                symbols.insert(c.name.to_string());
+                                // Don't recurse into class bodies
+                            }
+                            Stmt::If(if_stmt) => {
+                                collect_exportable_symbols(&if_stmt.body, symbols);
+                                for clause in &if_stmt.elif_else_clauses {
+                                    collect_exportable_symbols(&clause.body, symbols);
+                                }
+                            }
+                            Stmt::Try(try_stmt) => {
+                                collect_exportable_symbols(&try_stmt.body, symbols);
+                                for handler in &try_stmt.handlers {
+                                    let ExceptHandler::ExceptHandler(except_handler) = handler;
+                                    collect_exportable_symbols(&except_handler.body, symbols);
+                                }
+                                collect_exportable_symbols(&try_stmt.orelse, symbols);
+                                collect_exportable_symbols(&try_stmt.finalbody, symbols);
+                            }
+                            Stmt::For(for_stmt) => {
+                                collect_exportable_symbols(&for_stmt.body, symbols);
+                                collect_exportable_symbols(&for_stmt.orelse, symbols);
+                            }
+                            Stmt::While(while_stmt) => {
+                                collect_exportable_symbols(&while_stmt.body, symbols);
+                                collect_exportable_symbols(&while_stmt.orelse, symbols);
+                            }
+                            Stmt::With(with_stmt) => {
+                                collect_exportable_symbols(&with_stmt.body, symbols);
+                            }
+                            Stmt::Match(match_stmt) => {
+                                for case_ in &match_stmt.cases {
+                                    collect_exportable_symbols(&case_.body, symbols);
+                                }
+                            }
+                            _ => {
+                                // Other statements don't contain nested definitions we care about
+                            }
+                        }
+                    }
+                }
+
+                // Collect from try body
+                collect_exportable_symbols(&try_stmt.body, &mut symbols_to_export);
+
+                // Collect from except handlers
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(except_handler) = handler;
+                    collect_exportable_symbols(&except_handler.body, &mut symbols_to_export);
+                }
+
+                // Collect from else clause
+                collect_exportable_symbols(&try_stmt.orelse, &mut symbols_to_export);
+
+                // Collect from finally clause
+                collect_exportable_symbols(&try_stmt.finalbody, &mut symbols_to_export);
+
+                // Add the try statement
+                body.push(Stmt::Try(try_stmt_clone));
+
+                // After the try block, assign all collected symbols to self
+                // This ensures they're available regardless of which branch was taken
+                for symbol_name in symbols_to_export {
+                    // Use should_export_symbol directly for dynamically discovered symbols
+                    // from try-except blocks, as they won't be in module_scope_symbols.
+                    // The emit_module_attr_if_exportable helper is designed for statically
+                    // known symbols and would incorrectly filter these out.
+                    if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
+                        debug!(
+                            "Exporting symbol '{}' from try-except block in module '{}'",
+                            symbol_name, ctx.module_name
+                        );
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                SELF_PARAM,
+                                &symbol_name,
+                            ),
+                        );
+                    }
+                }
+            }
+            _ => {
+                // Clone and transform other statements to handle __name__ references
+                let mut stmt_clone = stmt.clone();
+                // Use actual module-level variables if available, but filter to only exported
+                // ones
+                let module_level_vars = if let Some(ref global_info) = ctx.global_info {
+                    let all_vars = &global_info.module_level_vars;
+                    let mut exported_vars = FxIndexSet::default();
+                    for var in all_vars {
+                        if bundler.should_export_symbol(var, ctx.module_name) {
+                            exported_vars.insert(var.clone());
+                        }
+                    }
+                    exported_vars
+                } else {
+                    FxIndexSet::default()
+                };
+                let transform_ctx = ModuleVarTransformContext {
+                    bundler,
+                    module_level_vars: &module_level_vars,
+                    module_var_name: SELF_PARAM, /* Use "self" instead of module_var_name inside
+                                                  * init function */
+                    global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
+                    lifted_names: lifted_names.as_ref(),
+                    python_version: ctx.python_version,
+                };
+                transform_stmt_for_module_vars_with_bundler(&mut stmt_clone, &transform_ctx);
+                body.push(stmt_clone);
+            }
+        }
+    }
 }
 
 /// Transform an expression to use module attributes for module-level variables
