@@ -24,11 +24,13 @@ impl FinalizationPhase {
     /// Build the final function statement from accumulated state
     ///
     /// This phase:
-    /// 1. Marks the module as fully initialized (__initialized__ = True)
-    /// 2. Clears the initializing flag (__initializing__ = False)
-    /// 3. Returns the module object (return self)
-    /// 4. Creates function parameters with 'self' parameter
-    /// 5. Builds and returns the complete function definition
+    /// 1. Transforms `globals()` calls to module.__dict__
+    /// 2. Transforms `locals()` calls to vars(self)
+    /// 3. Marks the module as fully initialized (__initialized__ = True)
+    /// 4. Clears the initializing flag (__initializing__ = False)
+    /// 5. Returns the module object (return self)
+    /// 6. Creates function parameters with 'self' parameter
+    /// 7. Builds and returns the complete function definition
     ///
     /// Note: This phase consumes the state (takes ownership) as it's the final phase
     #[allow(dead_code)] // Will be called by orchestrator
@@ -37,6 +39,30 @@ impl FinalizationPhase {
         ctx: &ModuleTransformContext,
         mut state: InitFunctionState,
     ) -> Result<ruff_python_ast::Stmt, TransformError> {
+        // Transform globals() calls to module.__dict__ in the entire body
+        // For wrapper modules with circular dependencies, use the wrapper version that doesn't
+        // recurse into function bodies since those functions will be called later when 'self' is
+        // not in scope. For regular wrapper modules (with side effects but no circular
+        // deps), use normal transformation.
+        log::debug!(
+            "Transforming globals/locals for module '{}', is_wrapper_body={}, \
+             is_in_circular_deps={}",
+            ctx.module_name,
+            ctx.is_wrapper_body,
+            ctx.is_in_circular_deps
+        );
+        for stmt in &mut state.body {
+            if ctx.is_in_circular_deps {
+                // Module is in circular dependencies - don't transform globals() inside functions
+                crate::code_generator::globals::transform_globals_in_stmt_wrapper(stmt, SELF_PARAM);
+            } else {
+                // Regular module or wrapper without circular deps - transform globals() everywhere
+                crate::code_generator::globals::transform_globals_in_stmt(stmt, SELF_PARAM);
+            }
+            // Transform locals() calls to vars(self) in the entire body
+            crate::code_generator::globals::transform_locals_in_stmt(stmt, SELF_PARAM);
+        }
+
         // Mark as fully initialized (module is now fully populated)
         // self.__initialized__ = True  (set this first!)
         // self.__initializing__ = False

@@ -25,6 +25,7 @@ pub use finalization::FinalizationPhase;
 pub use import_analysis::ImportAnalysisPhase;
 pub use import_transformation::ImportTransformationPhase;
 pub use initialization::InitializationPhase;
+pub use orchestrator::InitFunctionBuilder;
 pub use state::InitFunctionState;
 pub use statement_processing::StatementProcessingPhase;
 pub use submodules::SubmoduleHandlingPhase;
