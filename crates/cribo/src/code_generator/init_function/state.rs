@@ -13,7 +13,7 @@ use crate::types::{FxIndexMap, FxIndexSet};
 /// monolithic function into a single, explicit state container. This makes data
 /// flow between phases clear and enables easier testing and debugging.
 #[derive(Debug)]
-pub struct InitFunctionState<'a> {
+pub struct InitFunctionState {
     /// Accumulated init function body statements
     pub body: Vec<Stmt>,
 
@@ -44,22 +44,9 @@ pub struct InitFunctionState<'a> {
 
     /// Track which lifted globals have been initialized
     pub initialized_lifted_globals: FxIndexSet<String>,
-
-    /// Built-in names that will be assigned as local variables
-    pub builtin_locals: FxIndexSet<String>,
-
-    /// Module-scope symbols from semantic analysis
-    /// Kept as reference to avoid copying large sets
-    pub module_scope_symbols: Option<&'a FxIndexSet<String>>,
-
-    /// Variables referenced by exported functions
-    pub vars_used_by_exported_functions: FxIndexSet<String>,
-
-    /// Whether __all__ is referenced in the module body
-    pub all_is_referenced: bool,
 }
 
-impl InitFunctionState<'_> {
+impl InitFunctionState {
     /// Create a new empty state container
     pub fn new() -> Self {
         Self {
@@ -71,15 +58,11 @@ impl InitFunctionState<'_> {
             stdlib_reexports: FxIndexSet::default(),
             lifted_names: None,
             initialized_lifted_globals: FxIndexSet::default(),
-            builtin_locals: FxIndexSet::default(),
-            module_scope_symbols: None,
-            vars_used_by_exported_functions: FxIndexSet::default(),
-            all_is_referenced: false,
         }
     }
 }
 
-impl Default for InitFunctionState<'_> {
+impl Default for InitFunctionState {
     fn default() -> Self {
         Self::new()
     }
