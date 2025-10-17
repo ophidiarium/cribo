@@ -2,9 +2,7 @@
 //!
 //! This phase builds the final function statement from the accumulated state.
 
-#![allow(unused_imports)] // Will be used when orchestrator calls this phase
-
-use ruff_python_ast::{AtomicNodeIndex, ExprContext, Identifier, ModModule};
+use ruff_python_ast::{AtomicNodeIndex, ExprContext, Identifier};
 use ruff_text_size::TextRange;
 
 use super::{TransformError, state::InitFunctionState};
