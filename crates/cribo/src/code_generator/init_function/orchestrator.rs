@@ -114,16 +114,7 @@ impl<'a> InitFunctionBuilder<'a> {
         WrapperGlobalsPhase::execute(&prep_context.processed_body, &mut state)?;
 
         // Phase 8: Statement Processing
-        StatementProcessingPhase::execute(
-            prep_context.processed_body,
-            self.bundler,
-            self.ctx,
-            prep_context.all_is_referenced,
-            &prep_context.vars_used_by_exported_functions,
-            prep_context.module_scope_symbols,
-            &prep_context.builtin_locals,
-            &mut state,
-        )?;
+        StatementProcessingPhase::execute(prep_context, self.bundler, self.ctx, &mut state)?;
 
         // Phase 9: Submodule Handling
         SubmoduleHandlingPhase::execute(self.bundler, self.ctx, self.symbol_renames, &mut state)?;

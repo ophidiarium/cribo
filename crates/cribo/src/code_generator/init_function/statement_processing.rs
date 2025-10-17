@@ -13,13 +13,9 @@
 //! - Try statements (collect exportable symbols from branches)
 //! - Default statements (transform for module vars)
 
-use ruff_python_ast::Stmt;
 
-use super::{InitFunctionState, TransformError};
-use crate::{
-    code_generator::{bundler::Bundler, context::ModuleTransformContext},
-    types::FxIndexSet,
-};
+use super::{InitFunctionState, TransformError, body_preparation::BodyPreparationContext};
+use crate::code_generator::{bundler::Bundler, context::ModuleTransformContext};
 
 /// Statement Processing phase - processes transformed statements
 pub struct StatementProcessingPhase;
@@ -27,27 +23,23 @@ pub struct StatementProcessingPhase;
 impl StatementProcessingPhase {
     /// Execute the statement processing phase
     ///
-    /// Takes the `processed_body` from `BodyPreparationPhase` and processes each statement,
+    /// Takes the preparation context from `BodyPreparationPhase` and processes each statement,
     /// applying transformations and adding module attributes for exported symbols.
     pub fn execute(
-        processed_body: Vec<Stmt>,
+        prep_context: BodyPreparationContext,
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
-        all_is_referenced: bool,
-        vars_used_by_exported_functions: &FxIndexSet<String>,
-        module_scope_symbols: Option<&FxIndexSet<String>>,
-        builtin_locals: &FxIndexSet<String>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
         // Call the extracted function from module_transformer
         crate::code_generator::module_transformer::process_statements_for_init_function(
-            processed_body,
+            prep_context.processed_body,
             bundler,
             ctx,
-            all_is_referenced,
-            vars_used_by_exported_functions,
-            module_scope_symbols,
-            builtin_locals,
+            prep_context.all_is_referenced,
+            &prep_context.vars_used_by_exported_functions,
+            prep_context.module_scope_symbols,
+            &prep_context.builtin_locals,
             &state.lifted_names,
             &state.inlined_import_bindings,
             &mut state.body,
