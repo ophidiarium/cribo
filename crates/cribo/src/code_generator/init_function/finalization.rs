@@ -8,11 +8,10 @@ use ruff_text_size::TextRange;
 use super::{TransformError, state::InitFunctionState};
 use crate::{
     ast_builder,
-    code_generator::{bundler::Bundler, context::ModuleTransformContext},
+    code_generator::{
+        bundler::Bundler, context::ModuleTransformContext, module_transformer::SELF_PARAM,
+    },
 };
-
-/// Module object parameter name used in generated init functions
-const SELF_PARAM: &str = "self";
 
 /// Phase responsible for finalizing and building the init function statement
 pub struct FinalizationPhase;

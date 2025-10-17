@@ -9,13 +9,12 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{
     ast_builder,
     code_generator::{
-        bundler::Bundler, context::ModuleTransformContext, globals::GlobalsLifter,
-        module_transformer::transform_ast_with_lifted_globals,
+        bundler::Bundler,
+        context::ModuleTransformContext,
+        globals::GlobalsLifter,
+        module_transformer::{SELF_PARAM, transform_ast_with_lifted_globals},
     },
 };
-
-/// Module object parameter name used in generated init functions
-const SELF_PARAM: &str = "self";
 
 /// Phase responsible for adding initialization guards and globals lifting
 pub struct InitializationPhase;
