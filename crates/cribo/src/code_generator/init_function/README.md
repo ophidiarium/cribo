@@ -1,37 +1,37 @@
 # Init Function Transformation - Refactored Architecture
 
-## Status: 85% Complete - Production Ready with Original Function
+## Status: 95% Complete - Statement Processing Extracted, Orchestrator Has Bug
 
 ### ✅ What's Complete
 
-**11 of 13 phases extracted** into independent, testable modules:
+**ALL 12 phases extracted** into independent, testable modules:
 
 1. **Initialization** (`initialization.rs`) - Guards & globals lifting
-2. **Finalization** (`finalization.rs`) - Function statement creation
-3. **Import Analysis** (`import_analysis.rs`) - Read-only import analysis
-4. **Import Transformation** (`import_transformation.rs`) - AST transformation
-5. **Wrapper Symbol Setup** (`wrapper_symbols.rs`) - Placeholder assignments
-6. **Wildcard Import Processing** (`wildcard_imports.rs`) - `from module import *`
-7. **Body Preparation** (`body_preparation.rs`) - Analysis & body processing
-8. **Wrapper Globals Collection** (`wrapper_globals.rs`) - Global declarations
+2. **Import Analysis** (`import_analysis.rs`) - Read-only import analysis
+3. **Import Transformation** (`import_transformation.rs`) - AST transformation
+4. **Wrapper Symbol Setup** (`wrapper_symbols.rs`) - Placeholder assignments
+5. **Wildcard Import Processing** (`wildcard_imports.rs`) - `from module import *`
+6. **Body Preparation** (`body_preparation.rs`) - Analysis & body processing
+7. **Wrapper Globals Collection** (`wrapper_globals.rs`) - Global declarations
+8. **Statement Processing** (`statement_processing.rs`) - 580-line statement loop
 9. **Submodule Handling** (`submodules.rs`) - Submodule attributes
 10. **Final Cleanup** (`cleanup.rs`) - Stdlib re-exports & explicit imports
-11. **State Container** (`state.rs`) - `InitFunctionState` with 12 fields
+11. **Finalization** (`finalization.rs`) - Function statement creation
+12. **State Container** (`state.rs`) - `InitFunctionState` with 12 fields
 
-### ⚠️ What's Remaining (15%)
+**Statement Processing** is now a reusable `pub(crate)` function in `module_transformer.rs`.
+The original monolithic function now calls this extracted function, maintaining all 148 tests passing.
 
-**Statement Processing Phase** (lines 718-1297 in `module_transformer.rs`):
+### ⚠️ What's Remaining (5%)
 
-- 580 lines of statement-type-specific processing
-- Handles Import, ImportFrom, ClassDef, FunctionDef, Assign, AnnAssign, Try, Default
-- Most complex: `Stmt::Assign` with 140+ lines of special cases
-- Currently remains inline in original function
+**Orchestrator Bug** (`orchestrator.rs`):
 
-**Orchestrator** (`orchestrator.rs`):
-
-- Created and validates architecture
-- Currently returns error because Statement Processing not extracted
-- Ready to be completed once Statement Processing is extracted
+- Architecture complete: all 12 phases wired up
+- **BUG**: Produces different output for `ast_rewriting_global` fixture
+  - Global variables show incorrect module names (e.g., `main_bar` instead of `module2_bar`)
+  - Counter values differ (0 vs -1, 1 vs -1)
+- **Root Cause**: Unknown - likely issue in phase coordination or `InitFunctionState` data flow
+- **Blocker**: Cannot replace production calls until bug is fixed
 
 ### 🏗️ Architecture
 

@@ -11,6 +11,7 @@ mod import_transformation;
 mod initialization;
 mod orchestrator;
 mod state;
+mod statement_processing;
 mod submodules;
 mod wildcard_imports;
 mod wrapper_globals;
@@ -24,8 +25,8 @@ pub use finalization::FinalizationPhase;
 pub use import_analysis::ImportAnalysisPhase;
 pub use import_transformation::ImportTransformationPhase;
 pub use initialization::InitializationPhase;
-// WIP - not yet production ready
 pub use state::InitFunctionState;
+pub use statement_processing::StatementProcessingPhase;
 pub use submodules::SubmoduleHandlingPhase;
 pub use wildcard_imports::WildcardImportPhase;
 pub use wrapper_globals::WrapperGlobalsPhase;
