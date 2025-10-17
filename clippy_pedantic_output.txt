@@ -1,5 +1,31 @@
-    Blocking waiting for file lock on build directory
    Compiling cribo v0.7.2 (/Volumes/workplace/GitHub/ophidiarium/cribo/crates/cribo)
+warning: all fields have the same postfix: `violations`
+   --> crates/cribo/tests/test_bundling_snapshots.rs:108:1
+    |
+108 | / struct RuffLintResults {
+109 | |     f401_violations: Vec<String>, // Unused imports
+110 | |     f404_violations: Vec<String>, // Late future imports
+111 | |     other_violations: Vec<String>,
+112 | |     total_violations: usize,
+113 | | }
+    | |_^
+    |
+    = help: remove the postfixes
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_field_names
+    = note: `-W clippy::struct-field-names` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_field_names)]`
+
+warning: this function has too many lines (265/200)
+   --> crates/cribo/tests/test_bundling_snapshots.rs:186:1
+    |
+186 | fn test_bundling_fixtures() {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
+    = note: `-W clippy::too-many-lines` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::too_many_lines)]`
+
+warning: `cribo` (test "test_bundling_snapshots") generated 2 warnings
 warning: this `continue` expression is redundant
    --> crates/cribo/src/analyzers/import_analyzer.rs:803:36
     |
@@ -149,6 +175,32 @@ warning: this `continue` expression is redundant
     = help: consider dropping the `continue` expression
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
 
+warning: there is no need for an explicit `else` block for this `if` expression
+   --> crates/cribo/src/code_generator/init_function/body_preparation.rs:99:13
+    |
+ 99 | /             if let Stmt::Assign(assign) = stmt
+100 | |                 && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+101 | |                 && name == "__all__"
+...   |
+109 | |                 continue;
+110 | |             }
+    | |_____________^
+    |
+    = help: consider dropping the `else` clause
+                        if let Stmt::Assign(assign) = stmt
+                            && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+                            && name == "__all__" {
+                            continue;
+                        }
+                        if let Stmt::AnnAssign(ann_assign) = stmt
+                            && let Expr::Name(target) = ann_assign.target.as_ref()
+                            && target.id.as_str() == "__all__"
+                        {
+                            // Skip annotated assignments to __all__ as a "reference"
+                            continue;
+                        }
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
+
 warning: this `continue` expression is redundant
    --> crates/cribo/src/code_generator/module_registry.rs:265:17
     |
@@ -266,33 +318,41 @@ help: remove the `else` block and move the contents out
 944 +                     return import_type;
     |
 
-warning: all fields have the same postfix: `violations`
-   --> crates/cribo/tests/test_bundling_snapshots.rs:108:1
+warning: unreachable statement
+   --> crates/cribo/src/code_generator/init_function/orchestrator.rs:149:9
     |
-108 | / struct RuffLintResults {
-109 | |     f401_violations: Vec<String>, // Unused imports
-110 | |     f404_violations: Vec<String>, // Late future imports
-111 | |     other_violations: Vec<String>,
-112 | |     total_violations: usize,
-113 | | }
-    | |_^
+142 | /         return Err(TransformError::General(
+143 | |             "Orchestrator is incomplete - Statement Processing phase not yet extracted. Use \
+144 | |              module_transformer::transform_module_to_init_function instead."
+145 | |                 .to_string(),
+146 | |         ));
+    | |__________- any code following this expression is unreachable
+...
+149 |           SubmoduleHandlingPhase::execute(self.bundler, self.ctx, self.symbol_renames, &mut state)?;
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
     |
-    = help: remove the postfixes
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#struct_field_names
-    = note: `-W clippy::struct-field-names` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_field_names)]`
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
 
-warning: this function has too many lines (265/200)
-   --> crates/cribo/tests/test_bundling_snapshots.rs:186:1
-    |
-186 | fn test_bundling_fixtures() {
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
-    = note: `-W clippy::too-many-lines` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::too_many_lines)]`
+warning: struct `InitFunctionBuilder` is never constructed
+  --> crates/cribo/src/code_generator/init_function/orchestrator.rs:32:12
+   |
+32 | pub struct InitFunctionBuilder<'a> {
+   |            ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
-warning: `cribo` (test "test_bundling_snapshots") generated 2 warnings
+warning: associated items `new` and `build` are never used
+  --> crates/cribo/src/code_generator/init_function/orchestrator.rs:40:12
+   |
+38 | impl<'a> InitFunctionBuilder<'a> {
+   | -------------------------------- associated items in this implementation
+39 |     /// Create a new builder with the required context
+40 |     pub fn new(
+   |            ^^^
+...
+66 |     pub fn build(self, mut ast: ModModule) -> Result<Stmt, TransformError> {
+   |            ^^^^^
+
 warning: more than 3 bools in a struct
   --> crates/cribo/src/analyzers/dependency_analyzer.rs:16:1
    |
@@ -920,6 +980,257 @@ warning: this function has too many lines (234/200)
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_lines
 
+warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
+  --> crates/cribo/src/code_generator/init_function/body_preparation.rs:49:5
+   |
+49 | /     pub fn execute<'a>(
+50 | |         bundler: &'a Bundler,
+51 | |         ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
+52 | |         ast: &ModModule,
+53 | |         state: &mut InitFunctionState,
+54 | |         lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
+   | |                       ------------------------------------------------- help: change this to: `Option<&crate::types::FxIndexMap<String, String>>`
+...  |
+91 | |         })
+92 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
+   = note: `-W clippy::ref-option` implied by `-W clippy::pedantic`
+   = help: to override `-W clippy::pedantic` add `#[allow(clippy::ref_option)]`
+
+warning: this function's return value is unnecessarily wrapped by `Result`
+  --> crates/cribo/src/code_generator/init_function/body_preparation.rs:49:5
+   |
+49 | /     pub fn execute<'a>(
+50 | |         bundler: &'a Bundler,
+51 | |         ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
+52 | |         ast: &ModModule,
+53 | |         state: &mut InitFunctionState,
+54 | |         lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
+55 | |     ) -> Result<BodyPreparationContext<'a>, TransformError> {
+   | |___________________________________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+   = note: `-W clippy::unnecessary-wraps` implied by `-W clippy::pedantic`
+   = help: to override `-W clippy::pedantic` add `#[allow(clippy::unnecessary_wraps)]`
+help: remove `Result` from the return type...
+   |
+55 -     ) -> Result<BodyPreparationContext<'a>, TransformError> {
+55 +     ) -> code_generator::init_function::body_preparation::BodyPreparationContext<'_> {
+   |
+help: ...and then remove the surrounding `Ok()` from returning expressions
+   |
+85 ~         BodyPreparationContext {
+86 +             all_is_referenced,
+87 +             vars_used_by_exported_functions,
+88 +             module_scope_symbols,
+89 +             builtin_locals,
+90 +             processed_body,
+91 +         }
+   |
+
+warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
+   --> crates/cribo/src/code_generator/init_function/body_preparation.rs:272:5
+    |
+272 | /     fn declare_lifted_globals(
+273 | |         lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
+    | |                       ------------------------------------------------- help: change this to: `Option<&crate::types::FxIndexMap<String, String>>`
+274 | |         state: &mut InitFunctionState,
+275 | |     ) {
+...   |
+296 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/cleanup.rs:26:5
+   |
+26 | /     pub fn execute(
+27 | |         bundler: &Bundler,
+28 | |         ctx: &crate::code_generator::context::ModuleTransformContext,
+29 | |         state: &mut InitFunctionState,
+30 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+30 -     ) -> Result<(), TransformError> {
+30 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+37 -         Ok(())
+   |
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/import_analysis.rs:36:5
+   |
+36 | /     pub fn execute(
+37 | |         bundler: &Bundler,
+38 | |         ctx: &ModuleTransformContext,
+39 | |         ast: &ModModule,
+40 | |         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+41 | |         state: &mut InitFunctionState,
+42 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+42 -     ) -> Result<(), TransformError> {
+42 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+185-         Ok(())
+   |
+
+warning: called `map(<f>).unwrap_or_else(<g>)` on an `Option` value
+   --> crates/cribo/src/code_generator/init_function/import_analysis.rs:168:38
+    |
+168 |                       let local_name = alias
+    |  ______________________________________^
+169 | |                         .asname
+170 | |                         .as_ref()
+171 | |                         .map(Identifier::as_str)
+...   |
+174 | |                             full.split('.').next().unwrap_or(full)
+175 | |                         });
+    | |__________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#map_unwrap_or
+    = note: `-W clippy::map-unwrap-or` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::map_unwrap_or)]`
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/import_transformation.rs:87:5
+   |
+87 | /     fn add_global_declarations(
+88 | |         bundler: &Bundler,
+89 | |         state: &mut InitFunctionState,
+90 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+90 -     ) -> Result<(), TransformError> {
+90 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+156-         Ok(())
+   |
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/initialization.rs:37:5
+   |
+37 | /     pub fn execute(
+38 | |         bundler: &Bundler,
+39 | |         ctx: &ModuleTransformContext,
+40 | |         ast: &mut ModModule,
+41 | |         state: &mut InitFunctionState,
+42 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+42 -     ) -> Result<(), TransformError> {
+42 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+125-         Ok(())
+   |
+
+warning: this function's return value is unnecessary
+   --> crates/cribo/src/code_generator/init_function/submodules.rs:221:5
+    |
+221 | /     fn create_inlined_namespace(
+222 | |         bundler: &Bundler,
+223 | |         full_name: &str,
+224 | |         relative_name: &str,
+225 | |         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+226 | |         state: &mut InitFunctionState,
+227 | |     ) -> Result<(), TransformError> {
+    | |___________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+    |
+227 -     ) -> Result<(), TransformError> {
+227 +     ) -> () {
+    |
+help: ...and then remove returned values
+    |
+242 -         Ok(())
+    |
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/wildcard_imports.rs:29:5
+   |
+29 | /     pub fn execute(
+30 | |         bundler: &Bundler,
+31 | |         ctx: &crate::code_generator::context::ModuleTransformContext,
+32 | |         state: &mut InitFunctionState,
+33 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+33 -     ) -> Result<(), TransformError> {
+33 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+75 -         Ok(())
+   |
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/wrapper_globals.rs:32:5
+   |
+32 | /     pub fn execute(
+33 | |         processed_body: &[Stmt],
+34 | |         state: &mut InitFunctionState,
+35 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+35 -     ) -> Result<(), TransformError> {
+35 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+56 -         Ok(())
+   |
+
+warning: this function's return value is unnecessary
+  --> crates/cribo/src/code_generator/init_function/wrapper_symbols.rs:26:5
+   |
+26 | /     pub fn execute(
+27 | |         _bundler: &Bundler,
+28 | |         state: &mut InitFunctionState,
+29 | |     ) -> Result<(), TransformError> {
+   | |___________________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
+help: remove the return type...
+   |
+29 -     ) -> Result<(), TransformError> {
+29 +     ) -> () {
+   |
+help: ...and then remove returned values
+   |
+57 -         Ok(())
+   |
+
 warning: this function has too many lines (206/200)
   --> crates/cribo/src/code_generator/inliner.rs:58:5
    |
@@ -978,8 +1289,6 @@ warning: called `map(<f>).unwrap_or_else(<g>)` on an `Option` value
     | |______________________^
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#map_unwrap_or
-    = note: `-W clippy::map-unwrap-or` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::map_unwrap_or)]`
 
 warning: adding items after statements is confusing, since items exist from the start of the scope
     --> crates/cribo/src/code_generator/module_transformer.rs:1179:17
@@ -1080,8 +1389,6 @@ warning: it is more idiomatic to use `Option<&T>` instead of `&Option<T>`
     | |_^
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#ref_option
-    = note: `-W clippy::ref-option` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::ref_option)]`
 
 warning: possible intra-doc link using quotes instead of backticks
    --> crates/cribo/src/cribo_graph.rs:113:30
@@ -1613,8 +1920,6 @@ warning: this function's return value is unnecessary
     | |___________________^
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_wraps
-    = note: `-W clippy::unnecessary-wraps` implied by `-W clippy::pedantic`
-    = help: to override `-W clippy::pedantic` add `#[allow(clippy::unnecessary_wraps)]`
 help: remove the return type...
     |
 468 -     ) -> Result<()> {
@@ -1749,7 +2054,7 @@ warning: unused `self` argument
     = help: consider refactoring to an associated function
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unused_self
 
-warning: `cribo` (bin "cribo") generated 134 warnings
+warning: `cribo` (bin "cribo") generated 150 warnings
 warning: wildcard matches only a single variant and will also match any future added variants
    --> crates/cribo/src/visitors/symbol_usage_visitor.rs:223:13
     |
@@ -1758,5 +2063,5 @@ warning: wildcard matches only a single variant and will also match any future a
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_wildcard_for_single_variants
 
-warning: `cribo` (bin "cribo" test) generated 135 warnings (134 duplicates)
-    Finished `dev` profile [optimized + debuginfo] target(s) in 8.88s
+warning: `cribo` (bin "cribo" test) generated 151 warnings (150 duplicates)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 8.54s
