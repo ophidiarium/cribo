@@ -13,7 +13,6 @@ use crate::{
 };
 
 /// Phase responsible for setting up submodules as module attributes
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct SubmoduleHandlingPhase;
 
 impl SubmoduleHandlingPhase {
@@ -29,7 +28,6 @@ impl SubmoduleHandlingPhase {
     ///
     /// **NOTE**: This must happen BEFORE processing deferred imports, as deferred imports
     /// may reference these submodules.
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,

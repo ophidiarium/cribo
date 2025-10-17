@@ -10,7 +10,6 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for final cleanup tasks
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct CleanupPhase;
 
 impl CleanupPhase {
@@ -22,7 +21,6 @@ impl CleanupPhase {
     ///
     /// **NOTE**: Wildcard imports (`imports_from_inlined`) were already handled earlier
     /// by the Wildcard Import Processing phase, so we only handle explicit imports here.
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute(
         bundler: &Bundler,
         ctx: &crate::code_generator::context::ModuleTransformContext,

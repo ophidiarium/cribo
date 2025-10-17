@@ -29,7 +29,6 @@ impl StatementProcessingPhase {
     ///
     /// Takes the `processed_body` from `BodyPreparationPhase` and processes each statement,
     /// applying transformations and adding module attributes for exported symbols.
-    #[allow(dead_code)] // Will be used once orchestrator is complete
     pub fn execute(
         processed_body: Vec<Stmt>,
         bundler: &Bundler,

@@ -35,7 +35,6 @@ pub use wrapper_symbols::WrapperSymbolSetupPhase;
 
 /// Errors that can occur during init function transformation
 #[derive(Debug)]
-#[allow(dead_code)] // Will be used as phases are extracted
 pub enum TransformError {
     /// Module ID not found
     ModuleIdNotFound { module_name: String },

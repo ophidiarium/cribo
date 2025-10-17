@@ -19,7 +19,6 @@ use crate::{
 };
 
 /// Phase responsible for transforming imports in the module AST
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct ImportTransformationPhase;
 
 impl ImportTransformationPhase {
@@ -33,7 +32,6 @@ impl ImportTransformationPhase {
     ///
     /// Note: This phase mutates the AST, unlike the Import Analysis phase which only
     /// analyzes it.
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,

@@ -10,7 +10,6 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{code_generator::bundler::Bundler, types::FxIndexSet};
 
 /// Phase responsible for processing wildcard imports
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct WildcardImportPhase;
 
 impl WildcardImportPhase {
@@ -25,7 +24,6 @@ impl WildcardImportPhase {
     /// **CRITICAL**: This must happen BEFORE processing the body, as the body may contain
     /// code that accesses these symbols via `vars(__cribo_module)` or `locals()`
     /// (e.g., the setattr pattern used by httpx and similar libraries).
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute(
         bundler: &Bundler,
         ctx: &crate::code_generator::context::ModuleTransformContext,

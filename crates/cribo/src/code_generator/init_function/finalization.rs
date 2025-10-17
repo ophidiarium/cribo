@@ -17,7 +17,6 @@ use crate::{
 const SELF_PARAM: &str = "self";
 
 /// Phase responsible for finalizing and building the init function statement
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct FinalizationPhase;
 
 impl FinalizationPhase {
@@ -33,7 +32,6 @@ impl FinalizationPhase {
     /// 7. Builds and returns the complete function definition
     ///
     /// Note: This phase consumes the state (takes ownership) as it's the final phase
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn build_function_stmt(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,

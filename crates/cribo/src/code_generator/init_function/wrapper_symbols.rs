@@ -9,7 +9,6 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for setting up placeholder assignments for wrapper module symbols
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct WrapperSymbolSetupPhase;
 
 impl WrapperSymbolSetupPhase {
@@ -22,7 +21,6 @@ impl WrapperSymbolSetupPhase {
     /// These symbols will be properly assigned later when wrapper modules are initialized,
     /// but we need them to exist in the local scope (not as module attributes yet).
     /// We use a sentinel object that can have attributes set on it.
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute(
         _bundler: &Bundler,
         state: &mut InitFunctionState,

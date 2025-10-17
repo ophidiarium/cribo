@@ -18,11 +18,9 @@ use crate::{
 };
 
 /// Module object parameter name used in generated init functions
-#[allow(dead_code)] // Will be used when orchestrator is created
 const SELF_PARAM: &str = "self";
 
 /// Phase responsible for adding initialization guards and globals lifting
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct InitializationPhase;
 
 impl InitializationPhase {
@@ -33,7 +31,6 @@ impl InitializationPhase {
     /// 2. __initializing__ check - return partial module if circular dependency
     /// 3. Set __initializing__ = True
     /// 4. Apply globals lifting if needed
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,

@@ -14,7 +14,6 @@ use crate::{
 };
 
 /// Context data computed during body preparation
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct BodyPreparationContext<'a> {
     /// Whether `__all__` is referenced in the module body
     pub all_is_referenced: bool,
@@ -29,7 +28,6 @@ pub struct BodyPreparationContext<'a> {
 }
 
 /// Phase responsible for preparing the body for processing
-#[allow(dead_code)] // Will be used when orchestrator is created
 pub struct BodyPreparationPhase;
 
 impl BodyPreparationPhase {
@@ -45,7 +43,6 @@ impl BodyPreparationPhase {
     /// 7. Declares lifted globals
     ///
     /// Returns a context with computed analysis results and the processed body.
-    #[allow(dead_code)] // Will be called by orchestrator
     pub fn execute<'a>(
         bundler: &'a Bundler,
         ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
