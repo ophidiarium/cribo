@@ -3092,7 +3092,7 @@ fn emit_module_attr_if_exportable(
 }
 
 /// Create namespace for inlined submodule
-fn create_namespace_for_inlined_submodule(
+pub(crate) fn create_namespace_for_inlined_submodule(
     bundler: &Bundler,
     full_module_name: &str,
     attr_name: &str,
@@ -3258,7 +3258,7 @@ fn renamed_symbol_exists(
 
 /// Process wildcard import from an inlined module
 /// Returns a list of symbols from wrapper modules that need deferred assignment
-fn process_wildcard_import(
+pub(crate) fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,

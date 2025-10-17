@@ -881,16 +881,55 @@ Start with simplest phases (initialization, finalization) and work inward.
    - Returns module object and creates function definition
    - Looks up init function name from bundler.module_init_functions
    - All tests pass (148/148), clippy clean
-3. Import Analysis
-4. Import Transformation
-5. Wrapper Symbol Setup
-6. Wildcard Import Processing
-7. Body Preparation
-8. Wrapper Globals Collection
-9. Submodule Handling
-10. Final Cleanup
-11. Globals/Locals Transformation
-12. Statement Processing (last, most complex)
+3. ✅ **Import Analysis** - COMPLETED in `import_analysis.rs`
+   - Extracted lines 128-311 into ImportAnalysisPhase::execute()
+   - Analyzes imports without modifying AST
+   - Tracks stdlib imports, inlined imports, wrapper symbols
+   - All tests pass (148/148), clippy clean
+4. ✅ **Import Transformation** - COMPLETED in `import_transformation.rs`
+   - Extracted lines 313-388 into ImportTransformationPhase::execute()
+   - Runs RecursiveImportTransformer on AST
+   - Adds global declarations for imported symbols
+   - All tests pass (148/148), clippy clean
+5. ✅ **Wrapper Symbol Setup** - COMPLETED in `wrapper_symbols.rs`
+   - Extracted lines 390-416 into WrapperSymbolSetupPhase::execute()
+   - Creates placeholder assignments using types.SimpleNamespace()
+   - All tests pass (148/148), clippy clean
+6. ✅ **Wildcard Import Processing** - COMPLETED in `wildcard_imports.rs`
+   - Extracted lines 418-454 into WildcardImportPhase::execute()
+   - Deduplicates and sorts wildcard imports for determinism
+   - Adds module attributes for wildcard-imported symbols
+   - All tests pass (148/148), clippy clean
+7. ✅ **Body Preparation** - COMPLETED in `body_preparation.rs`
+   - Extracted lines 456-645 into BodyPreparationPhase::execute()
+   - Checks **all** references, collects vars used by exported functions
+   - Gets module scope symbols, scans for builtin shadowing
+   - Processes body recursively, filters circular init attempts
+   - Declares lifted globals
+   - All tests pass (148/148), clippy clean
+8. ✅ **Wrapper Globals Collection** - COMPLETED in `wrapper_globals.rs`
+   - Extracted lines 647-715 into WrapperGlobalsPhase::execute()
+   - Uses visitor pattern to collect wrapper module namespace variables
+   - Adds sorted global declarations
+   - All tests pass (148/148), clippy clean
+9. ✅ **Submodule Handling** - COMPLETED in `submodules.rs`
+   - Extracted lines 1298-1416 into SubmoduleHandlingPhase::execute()
+   - Collects direct submodules from bundled and inlined sets
+   - Deduplicates and handles import conflicts
+   - Binds namespace objects or creates new namespaces as needed
+   - All tests pass (148/148), clippy clean
+10. ✅ **Final Cleanup** - COMPLETED in `cleanup.rs`
+    - Extracted lines 1418-1471 into CleanupPhase::execute()
+    - Adds stdlib re-exports to module namespace
+    - Handles explicit imports from inlined modules
+    - All tests pass (148/148), clippy clean
+11. ✅ **Globals/Locals Transformation** - INTEGRATED in `finalization.rs`
+    - Lines 1473-1492 integrated into finalization phase
+    - Transforms globals() and locals() calls throughout body
+    - No separate extraction needed
+12. **Statement Processing** (lines 717-1296) - REMAINING (580 lines!)
+    - Most complex phase, requires trait-based system
+    - Will be tackled in next refactoring session
 
 ### Step 4: Create Orchestrator
 
