@@ -29,6 +29,7 @@ use crate::{
 
 /// Builder for coordinating the multi-phase transformation of a module AST
 /// into an initialization function
+#[allow(dead_code)] // Not yet production-ready - Statement Processing phase incomplete
 pub struct InitFunctionBuilder<'a> {
     bundler: &'a Bundler<'a>,
     ctx: &'a ModuleTransformContext<'a>,
@@ -37,6 +38,7 @@ pub struct InitFunctionBuilder<'a> {
 
 impl<'a> InitFunctionBuilder<'a> {
     /// Create a new builder with the required context
+    #[allow(dead_code)] // Will be used once Statement Processing is extracted
     pub fn new(
         bundler: &'a Bundler<'a>,
         ctx: &'a ModuleTransformContext<'a>,
@@ -50,6 +52,9 @@ impl<'a> InitFunctionBuilder<'a> {
     }
 
     /// Build the initialization function by executing all transformation phases
+    ///
+    /// **WARNING**: This method is incomplete and will return an error.
+    /// Statement Processing phase must be extracted before this is usable.
     ///
     /// This method orchestrates the following phases in order:
     /// 1. Initialization - Add guards and handle globals lifting
