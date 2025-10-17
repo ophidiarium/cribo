@@ -13,7 +13,6 @@
 //! - Try statements (collect exportable symbols from branches)
 //! - Default statements (transform for module vars)
 
-
 use super::{InitFunctionState, TransformError, body_preparation::BodyPreparationContext};
 use crate::code_generator::{bundler::Bundler, context::ModuleTransformContext};
 

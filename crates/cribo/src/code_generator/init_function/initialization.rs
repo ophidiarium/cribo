@@ -2,8 +2,6 @@
 //!
 //! This phase adds initialization guards and setup to the function body.
 
-#![allow(unused_imports)] // Will be used when orchestrator calls this phase
-
 use log::debug;
 use ruff_python_ast::{ExprContext, ModModule};
 
@@ -14,7 +12,6 @@ use crate::{
         bundler::Bundler, context::ModuleTransformContext, globals::GlobalsLifter,
         module_transformer::transform_ast_with_lifted_globals,
     },
-    types::FxIndexMap,
 };
 
 /// Module object parameter name used in generated init functions

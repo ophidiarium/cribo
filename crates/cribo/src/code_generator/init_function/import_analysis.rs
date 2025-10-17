@@ -3,16 +3,14 @@
 //! This phase analyzes all imports in the module and populates tracking state
 //! without modifying the AST.
 
-#![allow(unused_imports)] // Will be used when orchestrator calls this phase
-
 use log::debug;
-use ruff_python_ast::{Expr, Identifier, ModModule, Stmt};
+use ruff_python_ast::{Identifier, ModModule, Stmt};
 
 use super::{TransformError, state::InitFunctionState};
 use crate::{
     code_generator::{bundler::Bundler, context::ModuleTransformContext},
     resolver::ModuleId,
-    types::{FxIndexMap, FxIndexSet},
+    types::FxIndexMap,
 };
 
 /// Phase responsible for analyzing imports in the module
