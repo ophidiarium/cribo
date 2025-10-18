@@ -41,30 +41,44 @@ impl WildcardImportPhase {
 
         for (exported_name, value_name, source_module) in wildcard_attrs {
             if bundler.should_export_symbol(&exported_name, ctx.module_name) {
-                // If the symbol comes from an inlined module, access it through the module's
-                // namespace
+                // Build the value expression: either a simple Name or Attribute access
                 let value_expr = if let Some(ref module) = source_module {
-                    // Access through the inlined module's namespace
+                    // Access through the inlined module's namespace as an Attribute node
                     let sanitized =
                         crate::code_generator::module_registry::sanitize_module_name_for_identifier(
                             module,
                         );
-                    format!("{sanitized}.{value_name}")
+                    crate::ast_builder::expressions::attribute(
+                        crate::ast_builder::expressions::name(
+                            &sanitized,
+                            ruff_python_ast::ExprContext::Load,
+                        ),
+                        &value_name,
+                        ruff_python_ast::ExprContext::Load,
+                    )
                 } else {
-                    value_name.clone()
+                    // Direct name reference
+                    crate::ast_builder::expressions::name(
+                        &value_name,
+                        ruff_python_ast::ExprContext::Load,
+                    )
                 };
 
-                state.body.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                        crate::code_generator::module_transformer::SELF_PARAM,
+                // Create assignment: self.exported_name = value_expr
+                state.body.push(crate::ast_builder::statements::assign(
+                    vec![crate::ast_builder::expressions::attribute(
+                        crate::ast_builder::expressions::name(
+                            crate::code_generator::module_transformer::SELF_PARAM,
+                            ruff_python_ast::ExprContext::Load,
+                        ),
                         &exported_name,
-                        &value_expr,
-                    ),
-                );
+                        ruff_python_ast::ExprContext::Store,
+                    )],
+                    value_expr,
+                ));
 
                 debug!(
-                    "Added wildcard-imported symbol '{exported_name}' = '{value_expr}' as module \
-                     attribute for '{}'",
+                    "Added wildcard-imported symbol '{exported_name}' as module attribute for '{}'",
                     ctx.module_name
                 );
             }
