@@ -1097,7 +1097,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Collect symbol renames from semantic analysis
-    fn collect_symbol_renames(
+    pub(crate) fn collect_symbol_renames(
         &mut self,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         semantic_ctx: &SemanticContext,
@@ -1113,7 +1113,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Prepare modules by trimming imports, indexing ASTs, and detecting circular dependencies
-    fn prepare_modules(
+    pub(crate) fn prepare_modules(
         &mut self,
         params: &BundleParams<'a>,
     ) -> FxIndexMap<ModuleId, (ModModule, PathBuf, String)> {

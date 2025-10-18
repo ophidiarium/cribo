@@ -373,19 +373,21 @@ impl<'a> EntryModulePhase<'a> {
 
         for child_module in entry_child_modules {
             if let Some(local_name) = child_module.strip_prefix(&format!("{package_name}."))
-                && !local_name.contains('.') && !existing_variables.contains(local_name) {
-                    log::debug!("Exposing child module {child_module} as {local_name}");
+                && !local_name.contains('.')
+                && !existing_variables.contains(local_name)
+            {
+                log::debug!("Exposing child module {child_module} as {local_name}");
 
-                    let expose_stmt = statements::simple_assign(
+                let expose_stmt = statements::simple_assign(
+                    local_name,
+                    expressions::attribute(
+                        expressions::name(&package_name, ExprContext::Load),
                         local_name,
-                        expressions::attribute(
-                            expressions::name(&package_name, ExprContext::Load),
-                            local_name,
-                            ExprContext::Load,
-                        ),
-                    );
-                    entry_statements.push(expose_stmt);
-                }
+                        ExprContext::Load,
+                    ),
+                );
+                entry_statements.push(expose_stmt);
+            }
         }
 
         // Ensure critical 'exceptions' alias exists for packages
