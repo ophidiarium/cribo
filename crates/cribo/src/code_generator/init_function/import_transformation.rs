@@ -1,7 +1,8 @@
 //! Import transformation phase for init function transformation
 //!
 //! This phase transforms all imports in the AST using `RecursiveImportTransformer`
-//! and adds global declarations for symbols imported from inlined modules.
+//! and adds global declarations for bare/global symbols (non-inlined) and wrapper
+//! placeholders. Symbols from inlined modules are accessed via their namespaces.
 
 use log::debug;
 use ruff_python_ast::{AtomicNodeIndex, Identifier, ModModule, Stmt, StmtGlobal};
@@ -27,7 +28,8 @@ impl ImportTransformationPhase {
     /// This phase:
     /// 1. Creates and runs `RecursiveImportTransformer` to transform all import statements
     /// 2. Checks if namespace objects were created during transformation
-    /// 3. Adds global declarations for symbols imported from inlined modules
+    /// 3. Adds global declarations for bare/global symbols and wrapper placeholders (symbols from
+    ///    inlined modules are accessed via namespaces, not globals)
     /// 4. Filters out tree-shaken symbols from global declarations
     ///
     /// Note: This phase mutates the AST, unlike the Import Analysis phase which only
