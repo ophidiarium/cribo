@@ -1266,7 +1266,27 @@ impl<'a> Bundler<'a> {
     }
 
     /// Bundle multiple modules using the hybrid approach
+    ///
+    /// This method now delegates to the `BundleOrchestrator` which coordinates
+    /// all bundling phases. The monolithic implementation has been successfully
+    /// decomposed into 6 testable phases:
+    /// - `InitializationPhase`
+    /// - `ClassificationPhase`
+    /// - `ProcessingPhase`
+    /// - `EntryModulePhase`
+    /// - `PostProcessingPhase`
+    /// - `BundleOrchestrator` (coordination)
     pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
+        use crate::code_generator::phases::orchestrator::BundleOrchestrator;
+
+        log::info!("Bundling modules using phase-based architecture");
+        BundleOrchestrator::bundle(self, params)
+    }
+
+    /// Legacy `bundle_modules` implementation (replaced by orchestrator)
+    /// Kept for reference during the transition period
+    #[allow(dead_code)]
+    fn bundle_modules_legacy(&mut self, params: &BundleParams<'a>) -> ModModule {
         let mut final_body = Vec::new();
 
         // Extract the Python version from params
