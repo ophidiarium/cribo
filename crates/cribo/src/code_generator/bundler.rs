@@ -624,7 +624,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Create a new node with a proper index from the transformation context
-    fn create_node_index(&mut self) -> AtomicNodeIndex {
+    pub(crate) fn create_node_index(&mut self) -> AtomicNodeIndex {
         self.transformation_context.create_node_index()
     }
 
@@ -5265,7 +5265,7 @@ impl Bundler<'_> {
     /// - `services_auth` namespace (if needed)
     /// - services.auth = `services_auth` assignment
     /// - `services_auth.manager` = `services_auth_manager` assignment
-    fn create_namespace_chain_for_module(
+    pub(crate) fn create_namespace_chain_for_module(
         &mut self,
         module_name: &str,
         module_var: &str,
