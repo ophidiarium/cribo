@@ -248,8 +248,7 @@ impl ImportAnalysisPhase {
         imports_from_inlined: &mut Vec<(String, String, Option<String>)>,
         current_module: &str,
     ) -> Vec<(String, String)> {
-        // This function is complex and spans lines 3134-3344 in module_transformer.rs
-        // We need to use the existing helper function
+        // Delegates to module_transformer::process_wildcard_import for complex wildcard handling
         super::super::module_transformer::process_wildcard_import(
             bundler,
             module,
