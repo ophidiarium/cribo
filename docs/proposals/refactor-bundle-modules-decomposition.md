@@ -302,11 +302,17 @@ process_circular_group(), process_inlinable_module(), process_wrapper_module(),
 analyze_wrapper_dependencies(), and build_circular_groups() methods. Added 4
 comprehensive unit tests. All 160 tests pass.
 
-### Phase 5: Extract Entry Module Logic (Week 3)
+### Phase 5: Extract Entry Module Logic ✅ COMPLETED
 
-1. Create `EntryModuleHandler`
-2. Move entry module processing (lines 2119-2449)
-3. Add tests for entry module scenarios
+1. ✅ Create `EntryModuleHandler` (implemented as EntryModulePhase)
+2. ✅ Move entry module processing (lines 2105-2442)
+3. ✅ Add tests for entry module scenarios
+
+**Status**: Completed in commit 9d8ae89. Created EntryModulePhase in
+`crates/cribo/src/code_generator/phases/entry_module.rs` with execute(),
+reorder_entry_module_statements(), collect_entry_symbols(), transform_entry_imports(),
+process_entry_statements(), expose_child_modules(), and check_duplicate_assignment()
+methods. Added 4 comprehensive unit tests. All 164 tests pass.
 
 ### Phase 6: Extract Post-Processing Logic (Week 4)
 
