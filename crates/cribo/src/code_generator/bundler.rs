@@ -2855,7 +2855,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Emit namespace attachments for entry module exports
-    fn emit_entry_namespace_attachments(
+    pub(crate) fn emit_entry_namespace_attachments(
         &mut self,
         entry_pkg: &str,
         final_body: &mut Vec<Stmt>,

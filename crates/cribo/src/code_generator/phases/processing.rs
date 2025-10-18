@@ -356,15 +356,16 @@ impl<'a> ProcessingPhase<'a> {
 
             // Insert lifted globals
             if let Some(ref info) = global_info
-                && !info.global_declarations.is_empty() {
-                    let lifter = crate::code_generator::globals::GlobalsLifter::new(info);
-                    for (_, lifted_name) in &lifter.lifted_names {
-                        all_inlined_stmts.push(statements::simple_assign(
-                            lifted_name,
-                            expressions::none_literal(),
-                        ));
-                    }
+                && !info.global_declarations.is_empty()
+            {
+                let lifter = crate::code_generator::globals::GlobalsLifter::new(info);
+                for (_, lifted_name) in &lifter.lifted_names {
+                    all_inlined_stmts.push(statements::simple_assign(
+                        lifted_name,
+                        expressions::none_literal(),
+                    ));
                 }
+            }
 
             if self.bundler.emitted_wrapper_inits.insert(*mid) {
                 let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
