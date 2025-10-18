@@ -5,11 +5,11 @@
 //! placeholders. Symbols from inlined modules are accessed via their namespaces.
 
 use log::debug;
-use ruff_python_ast::{AtomicNodeIndex, Identifier, ModModule, Stmt, StmtGlobal};
-use ruff_text_size::TextRange;
+use ruff_python_ast::ModModule;
 
 use super::{TransformError, state::InitFunctionState};
 use crate::{
+    ast_builder,
     code_generator::{
         bundler::Bundler,
         context::ModuleTransformContext,
@@ -143,14 +143,9 @@ impl ImportTransformationPhase {
                 "Adding global declaration for imported symbols from inlined modules: \
                  {unique_imports:?}"
             );
-            state.body.push(Stmt::Global(StmtGlobal {
-                node_index: AtomicNodeIndex::NONE,
-                names: unique_imports
-                    .iter()
-                    .map(|name| Identifier::new(name, TextRange::default()))
-                    .collect(),
-                range: TextRange::default(),
-            }));
+            state.body.push(ast_builder::statements::global(
+                unique_imports.iter().map(String::as_str).collect(),
+            ));
         }
 
         Ok(())
