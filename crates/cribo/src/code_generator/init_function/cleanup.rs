@@ -10,7 +10,7 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for final cleanup tasks
-pub struct CleanupPhase;
+pub(crate) struct CleanupPhase;
 
 impl CleanupPhase {
     /// Add final elements: stdlib re-exports and remaining imports

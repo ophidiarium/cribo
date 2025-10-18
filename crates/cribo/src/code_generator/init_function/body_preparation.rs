@@ -28,7 +28,7 @@ pub struct BodyPreparationContext<'a> {
 }
 
 /// Phase responsible for preparing the body for processing
-pub struct BodyPreparationPhase;
+pub(crate) struct BodyPreparationPhase;
 
 impl BodyPreparationPhase {
     /// Prepare for body processing by analyzing the module
