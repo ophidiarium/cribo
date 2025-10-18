@@ -34,7 +34,7 @@ impl ImportTransformationPhase {
     ///
     /// Note: This phase mutates the AST, unlike the Import Analysis phase which only
     /// analyzes it.
-    pub fn execute(
+    pub(crate) fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
         ast: &mut ModModule,

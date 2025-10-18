@@ -29,7 +29,7 @@ impl FinalizationPhase {
     /// 7. Builds and returns the complete function definition
     ///
     /// Note: This phase consumes the state (takes ownership) as it's the final phase
-    pub fn build_function_stmt(
+    pub(crate) fn build_function_stmt(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
         mut state: InitFunctionState,

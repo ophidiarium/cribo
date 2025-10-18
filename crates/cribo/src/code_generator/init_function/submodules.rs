@@ -28,7 +28,7 @@ impl SubmoduleHandlingPhase {
     ///
     /// **NOTE**: This phase runs after Statement Processing to ensure submodule
     /// namespace objects are available for any references in later phases.
-    pub fn execute(
+    pub(crate) fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,

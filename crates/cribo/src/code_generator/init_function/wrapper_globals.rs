@@ -27,7 +27,7 @@ impl WrapperGlobalsPhase {
     /// This is necessary because wrapper module init functions may pass their own namespace
     /// object as an argument (e.g., `foo = init_foo(foo)`), which requires `foo` to be
     /// declared as global to avoid `UnboundLocalError`.
-    pub fn execute(
+    pub(crate) fn execute(
         processed_body: &[Stmt],
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {

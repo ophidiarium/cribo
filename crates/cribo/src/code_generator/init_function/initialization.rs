@@ -27,7 +27,7 @@ impl InitializationPhase {
     /// 2. __initializing__ check - return partial module if circular dependency
     /// 3. Set __initializing__ = True
     /// 4. Apply globals lifting if needed
-    pub fn execute(
+    pub(crate) fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
         ast: &mut ModModule,

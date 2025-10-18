@@ -21,7 +21,7 @@ impl CleanupPhase {
     ///
     /// **NOTE**: Wildcard imports (`imports_from_inlined`) were already handled earlier
     /// by the Wildcard Import Processing phase, so we only handle explicit imports here.
-    pub fn execute(
+    pub(crate) fn execute(
         bundler: &Bundler,
         ctx: &crate::code_generator::context::ModuleTransformContext,
         state: &mut InitFunctionState,

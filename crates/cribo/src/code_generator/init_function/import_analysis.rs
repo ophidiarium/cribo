@@ -29,7 +29,7 @@ impl ImportAnalysisPhase {
     ///
     /// Note: This phase only analyzes imports - it doesn't transform the AST.
     /// The actual AST transformation happens in the Import Transformation phase.
-    pub fn execute(
+    pub(crate) fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
         ast: &ModModule,

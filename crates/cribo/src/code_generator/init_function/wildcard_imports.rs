@@ -24,7 +24,7 @@ impl WildcardImportPhase {
     /// **CRITICAL**: This must happen BEFORE processing the body, as the body may contain
     /// code that accesses these symbols via `vars(__cribo_module)` or `locals()`
     /// (e.g., the setattr pattern used by httpx and similar libraries).
-    pub fn execute(
+    pub(crate) fn execute(
         bundler: &Bundler,
         ctx: &crate::code_generator::context::ModuleTransformContext,
         state: &mut InitFunctionState,
