@@ -200,7 +200,7 @@ impl<'a> Bundler<'a> {
     // (removed) entry_directly_imports_module, build_namespace_all_assignment: dead code
 
     /// Helper: collect entry stdlib alias names from a `from` import
-    fn collect_aliases_from_stdlib_from_import(
+    pub(crate) fn collect_aliases_from_stdlib_from_import(
         &self,
         import_from: &StmtImportFrom,
         python_version: u8,
@@ -230,7 +230,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Helper: does this `Assign` target a locally defined symbol (simple name target)?
-    fn is_import_for_local_symbol(assign: &StmtAssign, locals: &FxIndexSet<String>) -> bool {
+    pub(crate) fn is_import_for_local_symbol(
+        assign: &StmtAssign,
+        locals: &FxIndexSet<String>,
+    ) -> bool {
         if assign.targets.len() != 1 {
             return false;
         }
@@ -241,7 +244,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Helper: check duplicate name assignment exists in final body
-    fn is_duplicate_name_assignment(assign: &StmtAssign, final_body: &[Stmt]) -> bool {
+    pub(crate) fn is_duplicate_name_assignment(assign: &StmtAssign, final_body: &[Stmt]) -> bool {
         let Expr::Name(target) = &assign.targets[0] else {
             return false;
         };
@@ -262,7 +265,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Helper: check duplicate module init attribute assignment exists in final body
-    fn is_duplicate_module_init_attr_assignment(assign: &StmtAssign, final_body: &[Stmt]) -> bool {
+    pub(crate) fn is_duplicate_module_init_attr_assignment(
+        assign: &StmtAssign,
+        final_body: &[Stmt],
+    ) -> bool {
         let Expr::Attribute(target_attr) = &assign.targets[0] else {
             return false;
         };
@@ -521,7 +527,7 @@ impl<'a> Bundler<'a> {
     /// Get the entry package name when entry is a package __init__.py
     /// Returns None if entry is not a package __init__.py
     #[inline]
-    fn entry_package_name(&self) -> Option<&str> {
+    pub(crate) fn entry_package_name(&self) -> Option<&str> {
         if crate::util::is_init_module(&self.entry_module_name) {
             // Strip the .__init__ suffix if present, otherwise return None
             // Note: if entry is bare "__init__", we don't have the package name
@@ -535,7 +541,7 @@ impl<'a> Bundler<'a> {
     /// Infer the root package name for the entry when the entry module name alone is insufficient.
     /// This handles the case where the entry module name is just "__init__" and we need to
     /// discover the package root (e.g., "requests") by scanning known modules.
-    fn infer_entry_root_package(&self) -> Option<String> {
+    pub(crate) fn infer_entry_root_package(&self) -> Option<String> {
         // Prefer explicit strip if available
         if let Some(pkg) = self.entry_package_name() {
             return Some(pkg.to_string());
@@ -891,7 +897,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Process entry module statement
-    fn process_entry_module_statement(
+    pub(crate) fn process_entry_module_statement(
         &mut self,
         stmt: &mut Stmt,
         entry_module_renames: &FxIndexMap<String, String>,
