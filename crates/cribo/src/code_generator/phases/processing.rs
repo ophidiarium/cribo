@@ -166,11 +166,17 @@ impl ProcessingPhase {
     }
 
     /// Analyze wrapper module dependencies
+    ///
+    /// This method performs critical dependency analysis to determine which wrapper
+    /// modules must be initialized before inlinable modules can reference them.
+    /// It computes both direct and transitive dependencies.
     fn analyze_wrapper_dependencies(
         bundler: &mut Bundler<'_>,
         classification: &ClassificationResult,
         _modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
     ) -> DependencyAnalysisResult {
+        use ruff_python_ast::Stmt;
+
         // Track wrapper modules
         for (module_id, _, _, _) in &classification.wrapper_modules {
             bundler.wrapper_modules.insert(*module_id);
@@ -189,11 +195,75 @@ impl ProcessingPhase {
             );
         }
 
-        // For now, return simplified dependency analysis
-        // The full dependency tracking logic can remain in bundle_modules
+        // Track wrapper modules needed directly by inlinable modules
+        let mut wrapper_modules_needed_by_inlined: FxIndexSet<ModuleId> = FxIndexSet::default();
+        for (module_id, ast, module_path, _) in &classification.inlinable_modules {
+            for stmt in &ast.body {
+                let Stmt::ImportFrom(import_from) = stmt else {
+                    continue;
+                };
+                bundler.collect_wrapper_needed_from_importfrom_for_inlinable(
+                    *module_id,
+                    import_from,
+                    module_path,
+                    &classification.wrapper_modules,
+                    &mut wrapper_modules_needed_by_inlined,
+                );
+            }
+        }
+
+        // Collect wrapper-to-wrapper dependencies
+        let mut wrapper_to_wrapper_deps: FxIndexMap<ModuleId, FxIndexSet<ModuleId>> =
+            FxIndexMap::default();
+        for (module_id, ast, module_path, _) in &classification.wrapper_modules {
+            for stmt in &ast.body {
+                let Stmt::ImportFrom(import_from) = stmt else {
+                    continue;
+                };
+                bundler.collect_wrapper_to_wrapper_deps_from_stmt(
+                    *module_id,
+                    import_from,
+                    module_path,
+                    &classification.wrapper_modules,
+                    &mut wrapper_to_wrapper_deps,
+                );
+            }
+        }
+
+        // Compute transitive dependencies
+        let mut all_needed = wrapper_modules_needed_by_inlined.clone();
+        let mut to_process = wrapper_modules_needed_by_inlined.clone();
+
+        while !to_process.is_empty() {
+            let mut next_to_process = FxIndexSet::default();
+            for module in &to_process {
+                if let Some(deps) = wrapper_to_wrapper_deps.get(module) {
+                    for dep in deps {
+                        if !all_needed.contains(dep) {
+                            all_needed.insert(*dep);
+                            next_to_process.insert(*dep);
+                            let module_name = bundler
+                                .resolver
+                                .get_module_name(*module)
+                                .unwrap_or_else(|| format!("module_{}", module.as_u32()));
+                            let dep_name = bundler
+                                .resolver
+                                .get_module_name(*dep)
+                                .unwrap_or_else(|| format!("module_{}", dep.as_u32()));
+                            log::debug!(
+                                "Adding transitive dependency: {dep_name} (needed by \
+                                 {module_name})"
+                            );
+                        }
+                    }
+                }
+            }
+            to_process = next_to_process;
+        }
+
         DependencyAnalysisResult {
-            wrapper_modules_needed_by_inlined: FxIndexSet::default(),
-            all_needed_wrappers: FxIndexSet::default(),
+            wrapper_modules_needed_by_inlined,
+            all_needed_wrappers: all_needed,
             has_circular_wrapped_modules,
         }
     }
@@ -453,7 +523,7 @@ impl ProcessingPhase {
         }
 
         // Create inline context
-        let inline_ctx = InlineContext {
+        let mut inline_ctx = InlineContext {
             module_exports_map,
             global_symbols,
             module_renames: symbol_renames,
@@ -462,6 +532,9 @@ impl ProcessingPhase {
             import_sources: FxIndexMap::default(),
             python_version,
         };
+
+        // Actually inline the module code
+        bundler.inline_module(module_name, ast, path, &mut inline_ctx);
 
         // Populate namespace with symbols
         let current_module_id = bundler

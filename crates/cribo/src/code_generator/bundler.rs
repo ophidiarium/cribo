@@ -333,7 +333,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Helper: collect wrapper-needed-by-inlined from a single `ImportFrom` statement
-    fn collect_wrapper_needed_from_importfrom_for_inlinable(
+    pub(crate) fn collect_wrapper_needed_from_importfrom_for_inlinable(
         &self,
         module_id: ModuleId,
         import_from: &StmtImportFrom,
@@ -404,7 +404,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Helper: collect wrapper->wrapper dependencies from a single `ImportFrom` statement
-    fn collect_wrapper_to_wrapper_deps_from_stmt(
+    pub(crate) fn collect_wrapper_to_wrapper_deps_from_stmt(
         &self,
         module_id: ModuleId,
         import_from: &StmtImportFrom,
