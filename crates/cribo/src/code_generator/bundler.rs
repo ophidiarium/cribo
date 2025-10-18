@@ -16,8 +16,8 @@ use crate::{
         context::{BundleParams, InlineContext, ModuleTransformContext, SemanticContext},
         docstring_extractor, expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+        init_function::InitFunctionBuilder,
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
-        module_transformer,
         namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
@@ -1692,12 +1692,10 @@ impl<'a> Bundler<'a> {
                         is_in_circular_deps: is_in_circular,
                     };
 
-                    let init_function = module_transformer::transform_module_to_init_function(
-                        self,
-                        &transform_ctx,
-                        ast.clone(),
-                        &symbol_renames,
-                    );
+                    let init_function =
+                        InitFunctionBuilder::new(self, &transform_ctx, &symbol_renames)
+                            .build(ast.clone())
+                            .expect("Init function transformation should not fail");
                     let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
                         f.name.as_str().to_string()
                     } else {
@@ -1968,12 +1966,9 @@ impl<'a> Bundler<'a> {
 
                 // Transform the module into an init function
                 // Use the symbol_renames we collected earlier for all modules
-                let init_function = module_transformer::transform_module_to_init_function(
-                    self,
-                    &transform_ctx,
-                    ast.clone(),
-                    &symbol_renames,
-                );
+                let init_function = InitFunctionBuilder::new(self, &transform_ctx, &symbol_renames)
+                    .build(ast.clone())
+                    .expect("Init function transformation should not fail");
                 let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
                     f.name.as_str().to_string()
                 } else {

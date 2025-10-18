@@ -4,582 +4,41 @@
 //! initialization functions that can be called to create module objects.
 
 /// Name of the module object parameter used in generated init functions.
-pub(crate) const SELF_PARAM: &str = "self";
+pub const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprContext, Identifier, ModModule, Stmt, StmtAssign,
-    StmtFunctionDef, StmtGlobal,
+    ExceptHandler, Expr, ExprContext, ModModule, Stmt, StmtAssign, StmtFunctionDef,
 };
-use ruff_text_size::TextRange;
 
 use crate::{
     ast_builder,
     code_generator::{
-        bundler::Bundler,
-        context::ModuleTransformContext,
-        expression_handlers,
-        globals::{
-            GlobalsLifter, transform_globals_in_stmt, transform_globals_in_stmt_wrapper,
-            transform_locals_in_stmt,
-        },
-        import_deduplicator,
-        import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::sanitize_module_name_for_identifier,
+        bundler::Bundler, context::ModuleTransformContext, expression_handlers,
+        import_deduplicator, module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Transforms a module AST into an initialization function
-pub fn transform_module_to_init_function<'a>(
-    bundler: &'a Bundler<'a>,
+/// Process each statement from the transformed module body
+/// and add appropriate module attributes for exported symbols
+///
+/// This function handles the core statement-by-statement processing within an init function,
+/// applying transformations and adding module attributes as needed for different statement types.
+#[allow(clippy::too_many_arguments)] // Necessary for extracting complex logic
+pub(crate) fn process_statements_for_init_function(
+    processed_body: Vec<Stmt>,
+    bundler: &Bundler,
     ctx: &ModuleTransformContext,
-    mut ast: ModModule,
-    symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
-) -> Stmt {
-    let module_id = bundler
-        .get_module_id(ctx.module_name)
-        .expect("Module ID must exist for module being transformed");
-    let init_func_name = bundler
-        .module_init_functions
-        .get(&module_id)
-        .expect("Init function must exist for wrapper module");
-    let mut body = Vec::new();
-
-    // Note: we no longer need a separate module variable name inside init; use `self` directly
-
-    // Check if already fully initialized
-    // if getattr(self, "__initialized__", False):
-    //     return self
-    let check_initialized = ast_builder::statements::if_stmt(
-        ast_builder::expressions::call(
-            ast_builder::expressions::name("getattr", ExprContext::Load),
-            vec![
-                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-                ast_builder::expressions::string_literal("__initialized__"),
-                ast_builder::expressions::bool_literal(false),
-            ],
-            vec![],
-        ),
-        vec![ast_builder::statements::return_stmt(Some(
-            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-        ))],
-        vec![],
-    );
-    body.push(check_initialized);
-
-    // Check if currently initializing (circular dependency)
-    // if getattr(self, "__initializing__", False):
-    //     return self  # Return partial module in partially-initialized state
-    let check_initializing = ast_builder::statements::if_stmt(
-        ast_builder::expressions::call(
-            ast_builder::expressions::name("getattr", ExprContext::Load),
-            vec![
-                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-                ast_builder::expressions::string_literal("__initializing__"),
-                ast_builder::expressions::bool_literal(false),
-            ],
-            vec![],
-        ),
-        vec![ast_builder::statements::return_stmt(Some(
-            ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-        ))],
-        vec![],
-    );
-    body.push(check_initializing);
-
-    // Mark as initializing at the start of init to emulate Python's partial module semantics
-    body.push(ast_builder::statements::assign_attribute(
-        SELF_PARAM,
-        "__initializing__",
-        ast_builder::expressions::bool_literal(true),
-    ));
-
-    // NOTE: We do NOT call parent init from child modules
-    // In Python, the import machinery ensures parent is initialized before child,
-    // but this happens OUTSIDE the child module's code.
-    // Child modules don't explicitly call parent init - that would create
-    // artificial circular dependencies.
-    // The parent will be initialized by whoever imports the child module.
-
-    // Apply globals lifting if needed
-    let lifted_names = if let Some(ref global_info) = ctx.global_info {
-        if global_info.global_declarations.is_empty() {
-            None
-        } else {
-            let globals_lifter = GlobalsLifter::new(global_info);
-            let lifted_names = globals_lifter.get_lifted_names().clone();
-
-            // Transform the AST to use lifted globals
-            transform_ast_with_lifted_globals(
-                bundler,
-                &mut ast,
-                &lifted_names,
-                global_info,
-                Some(ctx.module_name),
-            );
-
-            Some(lifted_names)
-        }
-    } else {
-        None
-    };
-
-    // First, recursively transform all imports in the AST
-    // For wrapper modules, we don't need to defer imports since they run in their own scope
-    let params = RecursiveImportTransformerParams {
-        bundler,
-        module_id,
-        symbol_renames,
-        is_wrapper_init: true,         // This IS a wrapper init function
-        global_deferred_imports: None, // No need for global deferred imports in wrapper modules
-        python_version: ctx.python_version,
-    };
-    let mut transformer = RecursiveImportTransformer::new(&params);
-
-    // Track imports from inlined modules before transformation
-    // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
-    //   Format: (exported_name, value_name, source_module)
-    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if
-    //   present)
-    let mut imports_from_inlined: Vec<(String, String, Option<String>)> = Vec::new();
-    let mut inlined_import_bindings = Vec::new();
-    // Track wrapper module symbols that need placeholders (symbol_name, value_name)
-    let mut wrapper_module_symbols_global_only: Vec<(String, String)> = Vec::new();
-
-    // Track ALL imported symbols to avoid overwriting them with submodule namespaces
-    let mut imported_symbols = FxIndexSet::default();
-
-    // Track stdlib symbols that need to be added to the module namespace
-    // Use a stable set to dedup and preserve insertion order
-    let mut stdlib_reexports: FxIndexSet<(String, String)> = FxIndexSet::default();
-
-    // Do not reorder statements in wrapper modules. Some libraries (e.g., httpx)
-    // define constants used by function default arguments; hoisting functions would
-    // break evaluation order of those defaults.
-
-    for stmt in &ast.body {
-        if let Stmt::ImportFrom(import_from) = stmt {
-            // Collect ALL imported symbols (not just from inlined modules)
-            for alias in &import_from.names {
-                let imported_name = alias.name.as_str();
-                if imported_name != "*" {
-                    // Use the local binding name (asname if present, otherwise the imported name)
-                    let local_name = alias
-                        .asname
-                        .as_ref()
-                        .map_or(imported_name, ruff_python_ast::Identifier::as_str);
-                    imported_symbols.insert(local_name.to_string());
-                    debug!(
-                        "Collected imported symbol '{}' in module '{}'",
-                        local_name, ctx.module_name
-                    );
-                }
-                // Note: Wildcard imports aren't expanded here to avoid false positives.
-                // Resolution is handled elsewhere (module export analysis); we intentionally skip
-                // adding names from '*' here.
-            }
-
-            // Resolve the module to check if it's inlined
-            let resolved_module = if import_from.level > 0 {
-                bundler.resolver.resolve_relative_to_absolute_module_name(
-                    import_from.level,
-                    import_from
-                        .module
-                        .as_ref()
-                        .map(ruff_python_ast::Identifier::as_str),
-                    ctx.module_path,
-                )
-            } else {
-                import_from
-                    .module
-                    .as_ref()
-                    .map(std::string::ToString::to_string)
-            };
-
-            if let Some(ref module) = resolved_module {
-                // Check if this is a stdlib module
-                let root_module = module.split('.').next().unwrap_or(module);
-                let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
-                    ctx.python_version,
-                    root_module,
-                );
-
-                if is_stdlib && import_from.level == 0 {
-                    // Track stdlib imports for re-export
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str();
-                        if imported_name != "*" {
-                            let local_name = alias
-                                .asname
-                                .as_ref()
-                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
-
-                            // Check if this symbol should be re-exported (in __all__ or no __all__)
-                            let should_reexport = if let Some(Some(export_list)) = bundler
-                                .get_module_id(ctx.module_name)
-                                .and_then(|id| bundler.module_exports.get(&id))
-                            {
-                                export_list.contains(&local_name.to_string())
-                            } else {
-                                // No explicit __all__, re-export all public symbols
-                                !local_name.starts_with('_')
-                            };
-
-                            if should_reexport {
-                                let proxy_path = format!(
-                                    "{}.{module}.{imported_name}",
-                                    crate::ast_builder::CRIBO_PREFIX
-                                );
-                                debug!(
-                                    "Tracking stdlib re-export in wrapper module '{}': {} -> {}",
-                                    ctx.module_name, local_name, &proxy_path
-                                );
-                                stdlib_reexports.insert((local_name.to_string(), proxy_path));
-                            }
-                        }
-                    }
-                }
-
-                // Check if the module is inlined (NOT wrapper modules)
-                // Only inlined modules have their symbols in global scope
-                let is_inlined = bundler
-                    .get_module_id(module)
-                    .is_some_and(|id| bundler.inlined_modules.contains(&id));
-
-                debug!("Checking if resolved module '{module}' is inlined: {is_inlined}");
-
-                if is_inlined {
-                    // Track all imported names from this inlined module
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str();
-                        // For wildcard imports, we need to track all symbols that will be imported
-                        if imported_name == "*" {
-                            let wrapper_symbols = process_wildcard_import(
-                                bundler,
-                                module,
-                                symbol_renames,
-                                &mut imports_from_inlined,
-                                ctx.module_name,
-                            );
-
-                            // Collect wrapper module symbols that need special handling
-                            // We need to track them separately to create placeholder assignments
-                            for (symbol_name, value_name) in wrapper_symbols {
-                                debug!(
-                                    "Collecting wrapper module symbol '{symbol_name}' for special \
-                                     handling"
-                                );
-                                wrapper_module_symbols_global_only.push((symbol_name, value_name));
-                            }
-                        } else {
-                            let local_binding_name = alias
-                                .asname
-                                .as_ref()
-                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
-                            debug!(
-                                "Tracking imported name '{imported_name}' as local binding \
-                                 '{local_binding_name}' from inlined module '{module}'"
-                            );
-                            inlined_import_bindings.push(local_binding_name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Also handle plain import statements to avoid name collisions
-        if let Stmt::Import(import_stmt) = stmt {
-            for alias in &import_stmt.names {
-                // Local binding is either `asname` or the top-level package segment (`pkg` in
-                // `pkg.sub`)
-                let local_name = alias
-                    .asname
-                    .as_ref()
-                    .map(Identifier::as_str)
-                    .unwrap_or_else(|| {
-                        let full = alias.name.as_str();
-                        full.split('.').next().unwrap_or(full)
-                    });
-                imported_symbols.insert(local_name.to_string());
-                debug!(
-                    "Collected imported symbol '{}' via 'import' in module '{}'",
-                    local_name, ctx.module_name
-                );
-            }
-        }
-    }
-
-    transformer.transform_module(&mut ast);
-
-    // If namespace objects were created, we need types import
-    // (though wrapper modules already have types import)
-    if transformer.created_namespace_objects() {
-        debug!("Namespace objects were created in wrapper module, types import already present");
-    }
-
-    // Add global declarations for symbols imported from inlined modules
-    // This is necessary because the symbols are defined in the global scope
-    // but we need to access them inside the init function
-    // Also include wrapper module symbols that will be defined later
-    if !imports_from_inlined.is_empty() || !wrapper_module_symbols_global_only.is_empty() {
-        // Deduplicate by value name (what's actually in global scope) and sort for deterministic
-        // output
-        // Only add symbols from NON-inlined modules to globals (they exist as bare symbols)
-        // Symbols from inlined modules will be accessed through their namespace
-        let mut unique_imports: Vec<String> = imports_from_inlined
-            .iter()
-            .filter(|(_, _, source_module)| source_module.is_none())
-            .map(|(_, value_name, _)| value_name.clone())
-            .chain(
-                wrapper_module_symbols_global_only
-                    .iter()
-                    .map(|(_, value_name)| value_name.clone()),
-            )
-            .collect::<FxIndexSet<_>>()
-            .into_iter()
-            .collect();
-        unique_imports.sort();
-
-        // Filter out tree-shaken symbols
-        if let Some(ref tree_shaking_keep) = bundler.tree_shaking_keep_symbols {
-            // Use the pre-computed global set of kept symbols for efficient lookup.
-            if let Some(ref all_kept_symbols) = bundler.kept_symbols_global {
-                unique_imports.retain(|symbol| {
-                    if all_kept_symbols.contains(symbol) {
-                        if log::log_enabled!(log::Level::Debug) {
-                            // This find is only executed when debug logging is enabled.
-                            let module_name = tree_shaking_keep
-                                .iter()
-                                .find(|(_, symbols)| symbols.contains(symbol))
-                                .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
-                                .unwrap_or_else(|| "unknown".to_string());
-                            debug!(
-                                "Symbol '{symbol}' kept by tree-shaking from module \
-                                 '{module_name}'"
-                            );
-                        }
-                        true
-                    } else {
-                        debug!(
-                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global \
-                             declaration"
-                        );
-                        false
-                    }
-                });
-            }
-        }
-
-        if !unique_imports.is_empty() {
-            debug!(
-                "Adding global declaration for imported symbols from inlined modules: \
-                 {unique_imports:?}"
-            );
-            body.push(Stmt::Global(StmtGlobal {
-                node_index: AtomicNodeIndex::NONE,
-                names: unique_imports
-                    .iter()
-                    .map(|name| Identifier::new(name, TextRange::default()))
-                    .collect(),
-                range: TextRange::default(),
-            }));
-        }
-    }
-
-    // Note: deferred imports functionality has been removed
-    // Import alias assignments were previously added here
-
-    // Add placeholder assignments for wrapper module symbols
-    // These symbols will be properly assigned later when wrapper modules are initialized,
-    // but we need them to exist in the local scope (not as module attributes yet)
-    // We use a sentinel object that can have attributes set on it
-    for (symbol_name, _value_name) in &wrapper_module_symbols_global_only {
-        debug!("Adding placeholder assignment for wrapper module symbol '{symbol_name}'");
-        // Create assignment: symbol_name = types.SimpleNamespace()
-        // This creates a placeholder that can have attributes set on it
-        body.push(ast_builder::statements::simple_assign(
-            symbol_name,
-            ast_builder::expressions::call(
-                ast_builder::expressions::simple_namespace_ctor(),
-                vec![],
-                vec![],
-            ),
-        ));
-        // Also add as module attribute so it's visible in vars(__cribo_module)
-        body.push(
-            crate::code_generator::module_registry::create_module_attr_assignment(
-                SELF_PARAM,
-                symbol_name,
-            ),
-        );
-    }
-
-    // CRITICAL: Add wildcard-imported symbols as module attributes NOW
-    // This must happen BEFORE processing the body, as the body may contain code that
-    // accesses these symbols via vars(__cribo_module) or locals()
-    // (e.g., the setattr pattern used by httpx and similar libraries)
-
-    // Dedup and sort wildcard imports for deterministic output
-    let mut wildcard_attrs: Vec<(String, String, Option<String>)> = imports_from_inlined
-        .iter()
-        .cloned()
-        .collect::<FxIndexSet<_>>()
-        .into_iter()
-        .collect();
-    wildcard_attrs.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by exported name
-
-    for (exported_name, value_name, source_module) in wildcard_attrs {
-        if bundler.should_export_symbol(&exported_name, ctx.module_name) {
-            // If the symbol comes from an inlined module, access it through the module's namespace
-            let value_expr = if let Some(ref module) = source_module {
-                // Access through the inlined module's namespace
-                let sanitized =
-                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                        module,
-                    );
-                format!("{sanitized}.{value_name}")
-            } else {
-                value_name.clone()
-            };
-
-            body.push(
-                crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                    SELF_PARAM,
-                    &exported_name,
-                    &value_expr,
-                ),
-            );
-        }
-    }
-
-    // Check if __all__ is referenced in the module body
-    let mut all_is_referenced = false;
-    for stmt in &ast.body {
-        // Skip checking __all__ assignment itself
-        if let Stmt::Assign(assign) = stmt
-            && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
-            && name == "__all__"
-        {
-            continue;
-        } else if let Stmt::AnnAssign(ann_assign) = stmt
-            && let Expr::Name(target) = ann_assign.target.as_ref()
-            && target.id.as_str() == "__all__"
-        {
-            // Skip annotated assignments to __all__ as a "reference"
-            continue;
-        }
-        // Check if __all__ is referenced in this statement
-        if crate::visitors::VariableCollector::statement_references_variable(stmt, "__all__") {
-            all_is_referenced = true;
-            break;
-        }
-    }
-
-    // Collect all variables that are referenced by exported functions
-    let mut vars_used_by_exported_functions: FxIndexSet<String> = FxIndexSet::default();
-    for stmt in &ast.body {
-        if let Stmt::FunctionDef(func_def) = stmt
-            && bundler.should_export_symbol(func_def.name.as_ref(), ctx.module_name)
-        {
-            // This function will be exported, collect variables it references
-            crate::visitors::VariableCollector::collect_referenced_vars(
-                &func_def.body,
-                &mut vars_used_by_exported_functions,
-            );
-        }
-    }
-
-    // Now process the transformed module
-    // We'll do the in-place symbol export as we process each statement
-    let module_scope_symbols = if let Some(semantic_bundler) = ctx.semantic_bundler {
-        debug!(
-            "Looking up module ID for '{}' in semantic bundler",
-            ctx.module_name
-        );
-        // Use the central module registry for fast, reliable lookup
-        let module_id = if let Some(registry) = bundler.module_info_registry {
-            let id = registry.get_id_by_name(ctx.module_name);
-            if id.is_some() {
-                debug!(
-                    "Found module ID for '{}' using module registry",
-                    ctx.module_name
-                );
-            } else {
-                debug!("Module '{}' not found in module registry", ctx.module_name);
-            }
-            id
-        } else {
-            log::warn!("No module registry available for module ID lookup");
-            None
-        };
-
-        if let Some(module_id) = module_id {
-            if let Some(module_info) = semantic_bundler.get_module_info(module_id) {
-                debug!(
-                    "Found module-scope symbols for '{}': {:?}",
-                    ctx.module_name, module_info.module_scope_symbols
-                );
-                Some(&module_info.module_scope_symbols)
-            } else {
-                log::warn!(
-                    "No semantic info found for module '{}' (module_id: {:?})",
-                    ctx.module_name,
-                    module_id
-                );
-                None
-            }
-        } else {
-            log::warn!(
-                "Could not find module ID for '{}' in semantic bundler",
-                ctx.module_name
-            );
-            None
-        }
-    } else {
-        debug!(
-            "No semantic bundler provided for module '{}'",
-            ctx.module_name
-        );
-        None
-    };
-
-    // First, scan the body to find all built-in names that will be assigned as local variables
-    let mut builtin_locals = FxIndexSet::default();
-    for stmt in &ast.body {
-        let target_opt = match stmt {
-            Stmt::Assign(assign) if assign.targets.len() == 1 => {
-                if let Expr::Name(target) = &assign.targets[0] {
-                    Some(target)
-                } else {
-                    None
-                }
-            }
-            Stmt::AnnAssign(ann_assign) if ann_assign.value.is_some() => {
-                if let Expr::Name(target) = ann_assign.target.as_ref() {
-                    Some(target)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        if let Some(target) = target_opt
-            && ruff_python_stdlib::builtins::is_python_builtin(
-                target.id.as_str(),
-                ctx.python_version,
-                false,
-            )
-        {
-            debug!(
-                "Found built-in type '{}' that will be assigned as local variable in init function",
-                target.id
-            );
-            builtin_locals.insert(target.id.to_string());
-        }
-    }
-
+    all_is_referenced: bool,
+    vars_used_by_exported_functions: &FxIndexSet<String>,
+    module_scope_symbols: Option<&FxIndexSet<String>>,
+    builtin_locals: &FxIndexSet<String>,
+    lifted_names: &Option<FxIndexMap<String, String>>,
+    inlined_import_bindings: &[String],
+    body: &mut Vec<Stmt>,
+    initialized_lifted_globals: &mut FxIndexSet<String>,
+) {
     // Helper function to get exported module-level variables
     let get_exported_module_vars =
         |bundler: &Bundler, ctx: &ModuleTransformContext| -> FxIndexSet<String> {
@@ -596,123 +55,6 @@ pub fn transform_module_to_init_function<'a>(
                 FxIndexSet::default()
             }
         };
-
-    // Process the body with a new recursive approach
-    let processed_body_raw =
-        bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
-
-    // Filter out accidental attempts to (re)initialize the entry package (__init__) from
-    // within submodule init functions, which can create circular initialization.
-    let processed_body: Vec<Stmt> = processed_body_raw
-        .into_iter()
-        .filter(|stmt| {
-            if let Stmt::Assign(assign) = stmt
-                && assign.targets.len() == 1
-                && let Expr::Name(target) = &assign.targets[0]
-                && target.id.as_str() == crate::python::constants::INIT_STEM
-                && let Expr::Call(call) = assign.value.as_ref()
-                && let Expr::Name(func_name) = call.func.as_ref()
-                && crate::code_generator::module_registry::is_init_function(func_name.id.as_str())
-            {
-                debug!(
-                    "Skipping entry package __init__ re-initialization inside wrapper init to \
-                     avoid circular init"
-                );
-                return false;
-            }
-            true
-        })
-        .collect();
-
-    debug!(
-        "Processing init function for module '{}', inlined_import_bindings: {:?}",
-        ctx.module_name, inlined_import_bindings
-    );
-    debug!("Processed body has {} statements", processed_body.len());
-
-    // Declare lifted globals FIRST if any - they need to be declared before any usage
-    // But we'll initialize them later after the original variables are defined
-    if let Some(ref lifted_names) = lifted_names
-        && !lifted_names.is_empty()
-    {
-        // Declare all lifted globals once (sorted) for deterministic output
-        let mut lifted: Vec<&str> = lifted_names
-            .values()
-            .map(std::string::String::as_str)
-            .collect();
-        lifted.sort_unstable();
-        body.push(ast_builder::statements::global(lifted));
-    }
-
-    // Track which lifted globals we've already initialized to avoid duplicates
-    let mut initialized_lifted_globals = FxIndexSet::default();
-
-    // First pass: collect all wrapper module namespace variables that need global declarations
-    // Use a visitor to properly traverse the AST
-    let wrapper_globals_needed = {
-        use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, walk_stmt};
-
-        struct WrapperGlobalCollector {
-            globals_needed: FxIndexSet<String>,
-        }
-
-        impl WrapperGlobalCollector {
-            fn new() -> Self {
-                Self {
-                    globals_needed: FxIndexSet::default(),
-                }
-            }
-
-            fn collect(processed_body: &[Stmt]) -> FxIndexSet<String> {
-                let mut collector = Self::new();
-                source_order::walk_body(&mut collector, processed_body);
-                collector.globals_needed
-            }
-        }
-
-        impl<'a> SourceOrderVisitor<'a> for WrapperGlobalCollector {
-            fn visit_stmt(&mut self, stmt: &'a Stmt) {
-                // Check if this assignment needs a global declaration
-                if let Stmt::Assign(assign) = stmt {
-                    // Check if the value is a call to an init function
-                    if let Expr::Call(call) = assign.value.as_ref()
-                        && let Expr::Name(name) = call.func.as_ref()
-                        && crate::code_generator::module_registry::is_init_function(
-                            name.id.as_str(),
-                        )
-                    {
-                        // Check if the assignment target is also used as an argument
-                        if assign.targets.len() == 1
-                            && let Expr::Name(target) = &assign.targets[0]
-                        {
-                            // Check if the target is also passed as an argument
-                            let needs_global = call.arguments.args.iter().any(|arg| {
-                                matches!(arg, Expr::Name(arg_name) if arg_name.id.as_str() == target.id.as_str())
-                            });
-                            if needs_global {
-                                self.globals_needed.insert(target.id.to_string());
-                            }
-                        }
-                    }
-                }
-
-                // Continue traversal to children
-                walk_stmt(self, stmt);
-            }
-        }
-
-        WrapperGlobalCollector::collect(&processed_body)
-    };
-
-    // Add global declarations for wrapper module namespace variables at the beginning
-    if !wrapper_globals_needed.is_empty() {
-        let mut globals: Vec<&str> = wrapper_globals_needed
-            .iter()
-            .map(std::string::String::as_str)
-            .collect();
-        globals.sort_unstable();
-        body.push(ast_builder::statements::global(globals));
-    }
 
     // Process each statement from the transformed module body
     for (idx, stmt) in processed_body.into_iter().enumerate() {
@@ -829,7 +171,7 @@ pub fn transform_module_to_init_function<'a>(
                                 import_from,
                                 base_module,
                                 ctx.module_name,
-                                &mut body,
+                                body,
                                 false, // use emit_module_attr_if_exportable instead
                             );
 
@@ -843,7 +185,7 @@ pub fn transform_module_to_init_function<'a>(
                                         bundler,
                                         local_name,
                                         ctx.module_name,
-                                        &mut body,
+                                        body,
                                         module_scope_symbols,
                                         None, // not a lifted var
                                     );
@@ -885,7 +227,7 @@ pub fn transform_module_to_init_function<'a>(
                     bundler,
                     &symbol_name,
                     ctx.module_name,
-                    &mut body,
+                    body,
                     module_scope_symbols,
                     None, // not a lifted var
                 );
@@ -914,7 +256,7 @@ pub fn transform_module_to_init_function<'a>(
                     bundler,
                     &symbol_name,
                     ctx.module_name,
-                    &mut body,
+                    body,
                     module_scope_symbols,
                     None, // not a lifted var
                 );
@@ -954,7 +296,7 @@ pub fn transform_module_to_init_function<'a>(
                     // Special handling for assignments involving built-in types
                     // We need to transform any reference to a built-in that will be assigned
                     // as a local variable later in this function
-                    transform_expr_for_builtin_shadowing(&mut assign_clone.value, &builtin_locals);
+                    transform_expr_for_builtin_shadowing(&mut assign_clone.value, builtin_locals);
 
                     // Also transform module-level variable references
                     // Inside the init function, use "self" to refer to the module
@@ -971,7 +313,7 @@ pub fn transform_module_to_init_function<'a>(
 
                     // If this variable is being lifted to a global, update the global
                     let mut lifted_var_handled = false;
-                    if let Some(ref lifted_names) = lifted_names
+                    if let Some(lifted_names) = lifted_names
                         && let Some(name) =
                             expression_handlers::extract_simple_assign_target(&assign_clone)
                         && let Some(lifted_name) = lifted_names.get(&name)
@@ -1045,7 +387,7 @@ pub fn transform_module_to_init_function<'a>(
                                 bundler,
                                 assign,
                                 ctx.module_name,
-                                &mut body,
+                                body,
                                 module_scope_symbols,
                             );
                         }
@@ -1055,7 +397,7 @@ pub fn transform_module_to_init_function<'a>(
                             bundler,
                             assign,
                             ctx.module_name,
-                            &mut body,
+                            body,
                             module_scope_symbols,
                         );
                     }
@@ -1080,7 +422,7 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Transform references to built-ins that will be shadowed
                     if let Some(ref mut value) = ann_assign_clone.value {
-                        transform_expr_for_builtin_shadowing(value, &builtin_locals);
+                        transform_expr_for_builtin_shadowing(value, builtin_locals);
 
                         // Also transform module-level variable references
                         // Inside the init function, use "self" to refer to the module
@@ -1096,7 +438,7 @@ pub fn transform_module_to_init_function<'a>(
                     // Transform the annotation expression as well
                     transform_expr_for_builtin_shadowing(
                         &mut ann_assign_clone.annotation,
-                        &builtin_locals,
+                        builtin_locals,
                     );
                     transform_expr_for_module_vars(
                         &mut ann_assign_clone.annotation,
@@ -1108,7 +450,7 @@ pub fn transform_module_to_init_function<'a>(
                     body.push(Stmt::AnnAssign(ann_assign_clone.clone()));
 
                     // If this variable is being lifted to a global, handle it
-                    if let Some(ref lifted_names) = lifted_names
+                    if let Some(lifted_names) = lifted_names
                         && let Expr::Name(target) = ann_assign_clone.target.as_ref()
                         && let Some(lifted_name) = lifted_names.get(target.id.as_str())
                     {
@@ -1149,7 +491,7 @@ pub fn transform_module_to_init_function<'a>(
                             bundler,
                             &target.id,
                             ctx.module_name,
-                            &mut body,
+                            body,
                             module_scope_symbols,
                             lifted_names.as_ref(),
                         );
@@ -1295,257 +637,10 @@ pub fn transform_module_to_init_function<'a>(
             }
         }
     }
-
-    // Set submodules as attributes on this module BEFORE processing deferred imports
-    // This is needed because deferred imports may reference these submodules
-    let current_module_prefix = format!("{}.", ctx.module_name);
-    let mut submodules_to_add = Vec::new();
-
-    // Collect all direct submodules
-    for module_id in &bundler.bundled_modules {
-        let module_name = bundler
-            .resolver
-            .get_module_name(*module_id)
-            .expect("Module name should exist");
-        if module_name.starts_with(&current_module_prefix) {
-            let relative_name = &module_name[current_module_prefix.len()..];
-            // Only handle direct children, not nested submodules
-            if !relative_name.contains('.') {
-                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
-            }
-        }
-    }
-
-    // Also check inlined modules
-    for module_id in &bundler.inlined_modules {
-        let module_name = bundler
-            .resolver
-            .get_module_name(*module_id)
-            .expect("Module name should exist");
-        if module_name.starts_with(&current_module_prefix) {
-            let relative_name = &module_name[current_module_prefix.len()..];
-            // Only handle direct children, not nested submodules
-            if !relative_name.contains('.') {
-                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
-            }
-        }
-    }
-
-    // Deduplicate: a submodule can appear in both bundled_modules and inlined_modules
-    // when (for example) it is first marked for bundling then later inlined during
-    // transformation decisions. This led to duplicate attribute assignments like
-    // `self.console = rich_console` being emitted twice in wrapper init functions.
-    // We keep the first occurrence to preserve original relative ordering.
-    {
-        let mut seen: FxIndexSet<String> = FxIndexSet::default();
-        submodules_to_add.retain(|(full_name, _)| seen.insert(full_name.clone()));
-    }
-
-    // Now add the (deduplicated) submodules as attributes
-    debug!(
-        "Submodules to add for {}: {:?}",
-        ctx.module_name, submodules_to_add
-    );
-    for (full_name, relative_name) in submodules_to_add {
-        // CRITICAL: Check if this wrapper module already imports a symbol with the same name
-        // as the submodule. If it does, skip setting the submodule namespace to avoid overwriting
-        // the imported symbol. For example, if package.__init__ imports `__version__` from
-        // `.__version__`, we should NOT overwrite that with the namespace object for
-        // package.__version__.
-        let symbol_already_imported = imported_symbols.contains(&relative_name);
-
-        if symbol_already_imported {
-            debug!(
-                "Skipping submodule namespace assignment for {full_name} because symbol \
-                 '{relative_name}' is already imported"
-            );
-            continue;
-        }
-
-        debug!(
-            "Setting submodule {} as attribute {} on {}",
-            full_name, relative_name, ctx.module_name
-        );
-
-        if bundler
-            .get_module_id(&full_name)
-            .is_some_and(|id| bundler.inlined_modules.contains(&id))
-        {
-            // Check if we're inside a wrapper function context
-            // If we are, skip creating namespace for inlined submodules because
-            // their symbols are at global scope and can't be referenced from
-            // inside the wrapper function at definition time
-            if ctx.is_wrapper_body {
-                debug!(
-                    "Skipping namespace creation for inlined submodule '{}' inside wrapper module \
-                     '{}'",
-                    full_name, ctx.module_name
-                );
-                // Bind existing global namespace object to module.<relative_name>
-                // Example: module.submodule = pkg_submodule
-                // IMPORTANT: This references a namespace variable (e.g., package___version__) that
-                // MUST already exist at the global scope. These namespace objects
-                // are pre-created earlier in the bundling pipeline via
-                // namespace_manager::generate_submodule_attributes_with_exclusions()
-                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is
-                // not defined", the pre-creation step likely ran too late.
-                let namespace_var = sanitize_module_name_for_identifier(&full_name);
-                body.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                        SELF_PARAM,
-                        &relative_name,
-                        &namespace_var,
-                    ),
-                );
-            } else {
-                // For non-wrapper contexts (like global inlined modules), create the namespace
-                let create_namespace_stmts = create_namespace_for_inlined_submodule(
-                    bundler,
-                    &full_name,
-                    &relative_name,
-                    SELF_PARAM,
-                    symbol_renames,
-                );
-                body.extend(create_namespace_stmts);
-            }
-        } else {
-            // For wrapped submodules, we'll set them up later when they're initialized
-            // For now, just skip - the parent module will get the submodule reference
-            // when the submodule's init function is called
-        }
-    }
-
-    // Note: deferred imports functionality has been removed
-    // Remaining deferred imports were previously added here
-
-    // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
-
-    // Add stdlib re-exports to the module namespace
-    for (local_name, proxy_path) in stdlib_reexports {
-        // Create: _cribo_module.local_name = _cribo.module.symbol
-        // Parse the proxy path to create the attribute access expression
-        let parts: Vec<&str> = proxy_path.split('.').collect();
-        let value_expr = ast_builder::expressions::dotted_name(&parts, ExprContext::Load);
-
-        body.push(ast_builder::statements::assign(
-            vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-                &local_name,
-                ExprContext::Store,
-            )],
-            value_expr,
-        ));
-
-        debug!(
-            "Added stdlib re-export to wrapper module '{}': {} = {}",
-            ctx.module_name, local_name, proxy_path
-        );
-    }
-
-    // For explicit imports from inlined modules that don't create assignments,
-    // we still need to set them as module attributes if they're exported
-    // Note: wildcard imports (imports_from_inlined) were already handled earlier
-    // before processing the body, so we only need to handle explicit imports here
-    for imported_name in inlined_import_bindings {
-        if bundler.should_export_symbol(&imported_name, ctx.module_name) {
-            // Check if we already have a module attribute assignment for this
-            let already_assigned = body.iter().any(|stmt| {
-                if let Stmt::Assign(assign) = stmt
-                    && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                    && let Expr::Name(name) = &*attr.value
-                {
-                    return name.id.as_str() == SELF_PARAM && attr.attr == imported_name;
-                }
-                false
-            });
-
-            if !already_assigned {
-                body.push(
-                    crate::code_generator::module_registry::create_module_attr_assignment(
-                        SELF_PARAM,
-                        &imported_name,
-                    ),
-                );
-            }
-        }
-    }
-
-    // Transform globals() calls to module.__dict__ in the entire body
-    // For wrapper modules with circular dependencies, use the wrapper version that doesn't
-    // recurse into function bodies since those functions will be called later when 'self' is not in
-    // scope For regular wrapper modules (with side effects but no circular deps), use normal
-    // transformation
-    debug!(
-        "Transforming globals/locals for module '{}', is_wrapper_body={}, is_in_circular_deps={}",
-        ctx.module_name, ctx.is_wrapper_body, ctx.is_in_circular_deps
-    );
-    for stmt in &mut body {
-        if ctx.is_in_circular_deps {
-            // Module is in circular dependencies - don't transform globals() inside functions
-            transform_globals_in_stmt_wrapper(stmt, SELF_PARAM);
-        } else {
-            // Regular module or wrapper without circular deps - transform globals() everywhere
-            transform_globals_in_stmt(stmt, SELF_PARAM);
-        }
-        // Transform locals() calls to vars(self) in the entire body
-        transform_locals_in_stmt(stmt, SELF_PARAM);
-    }
-
-    // Mark as fully initialized (module is now fully populated)
-    // self.__initialized__ = True  (set this first!)
-    // self.__initializing__ = False
-    body.push(ast_builder::statements::assign_attribute(
-        SELF_PARAM,
-        "__initialized__",
-        ast_builder::expressions::bool_literal(true),
-    ));
-    body.push(ast_builder::statements::assign_attribute(
-        SELF_PARAM,
-        "__initializing__",
-        ast_builder::expressions::bool_literal(false),
-    ));
-
-    // Return the module object (self)
-    body.push(ast_builder::statements::return_stmt(Some(
-        ast_builder::expressions::name(SELF_PARAM, ExprContext::Load),
-    )));
-
-    // Create the init function parameters with 'self' parameter
-    let self_param = ruff_python_ast::ParameterWithDefault {
-        range: TextRange::default(),
-        parameter: ruff_python_ast::Parameter {
-            range: TextRange::default(),
-            name: Identifier::new(SELF_PARAM, TextRange::default()),
-            annotation: None,
-            node_index: AtomicNodeIndex::NONE,
-        },
-        default: None,
-        node_index: AtomicNodeIndex::NONE,
-    };
-
-    let parameters = ruff_python_ast::Parameters {
-        node_index: AtomicNodeIndex::NONE,
-        posonlyargs: vec![],
-        args: vec![self_param],
-        vararg: None,
-        kwonlyargs: vec![],
-        kwarg: None,
-        range: TextRange::default(),
-    };
-
-    // No decorator - we manage initialization ourselves
-    ast_builder::statements::function_def(
-        init_func_name,
-        parameters,
-        body,
-        vec![], // No decorators
-        None,   // No return type annotation
-        false,  // Not async
-    )
 }
 
 /// Transform an expression to use module attributes for module-level variables
-fn transform_expr_for_module_vars(
+pub(crate) fn transform_expr_for_module_vars(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
     module_var_name: &str,
@@ -2795,7 +1890,10 @@ pub fn transform_ast_with_lifted_globals(
 /// Transform expressions to handle built-in name shadowing in init functions
 /// When a built-in name like 'str' is assigned as a local variable in the function,
 /// any reference to that built-in before the assignment needs to use __builtins__.name
-fn transform_expr_for_builtin_shadowing(expr: &mut Expr, builtin_locals: &FxIndexSet<String>) {
+pub(crate) fn transform_expr_for_builtin_shadowing(
+    expr: &mut Expr,
+    builtin_locals: &FxIndexSet<String>,
+) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
             // If this name refers to a built-in that will be shadowed by a local assignment,
@@ -2966,7 +2064,7 @@ fn transform_expr_for_builtin_shadowing(expr: &mut Expr, builtin_locals: &FxInde
 }
 
 /// Helper function to determine if a symbol should be included in the module namespace
-fn should_include_symbol(
+pub(crate) fn should_include_symbol(
     bundler: &Bundler,
     symbol_name: &str,
     module_name: &str,
@@ -3036,7 +2134,7 @@ fn should_include_symbol(
 }
 
 /// Add module attribute assignment if the symbol should be exported
-fn add_module_attr_if_exported(
+pub(crate) fn add_module_attr_if_exported(
     bundler: &Bundler,
     assign: &StmtAssign,
     module_name: &str,
@@ -3057,7 +2155,7 @@ fn add_module_attr_if_exported(
 
 /// Helper to emit module attribute if a symbol should be exported
 /// This centralizes the logic for both Assign and `AnnAssign` paths
-fn emit_module_attr_if_exportable(
+pub(crate) fn emit_module_attr_if_exportable(
     bundler: &Bundler,
     symbol_name: &str,
     module_name: &str,
@@ -3092,7 +2190,7 @@ fn emit_module_attr_if_exportable(
 }
 
 /// Create namespace for inlined submodule
-fn create_namespace_for_inlined_submodule(
+pub(crate) fn create_namespace_for_inlined_submodule(
     bundler: &Bundler,
     full_module_name: &str,
     attr_name: &str,
@@ -3258,7 +2356,7 @@ fn renamed_symbol_exists(
 
 /// Process wildcard import from an inlined module
 /// Returns a list of symbols from wrapper modules that need deferred assignment
-fn process_wildcard_import(
+pub(crate) fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,

@@ -212,9 +212,8 @@ impl Config {
             "py312" => Ok(12),
             "py313" => Ok(13),
             _ => Err(anyhow!(
-                "Invalid target version '{}'. Supported versions: py38, py39, py310, py311, \
-                 py312, py313",
-                version_str
+                "Invalid target version '{version_str}'. Supported versions: py38, py39, py310, \
+                 py311, py312, py313"
             )),
         }
     }

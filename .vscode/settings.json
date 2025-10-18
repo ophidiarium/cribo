@@ -102,5 +102,6 @@
         "**/.venv",
         "**/npm"
     ],
-    "python.analysis.enablePytestSupport": true
+    "python.analysis.enablePytestSupport": true,
+    "bedrock.promptCaching.enabled": false
 }
