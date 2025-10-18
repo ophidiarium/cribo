@@ -943,6 +943,13 @@ impl BundleOrchestrator {
             .unwrap_or_else(|_| entry_path.to_path_buf());
         for src_dir in &self.config.src {
             log::debug!("Checking if {canonical_entry:?} starts with {src_dir:?}");
+
+            // Handle empty src_dir - skip it as it will match everything and produce absolute paths
+            if src_dir.as_os_str().is_empty() {
+                log::debug!("Skipping empty src_dir to avoid absolute path module names");
+                continue;
+            }
+
             let Ok(relative_path) = canonical_entry.strip_prefix(src_dir) else {
                 continue;
             };
