@@ -277,11 +277,16 @@ and PostProcessingResult.
 and generate_future_import_statements() helper. Added 4 comprehensive unit tests.
 All 152 tests pass.
 
-### Phase 3: Extract Classification Logic (Week 2)
+### Phase 3: Extract Classification Logic ✅ COMPLETED
 
-1. Create `ModuleClassificationEngine`
-2. Move classification and registration logic (lines 1360-1426)
-3. Add comprehensive tests for classification
+1. ✅ Create `ModuleClassificationEngine` (implemented as ClassificationPhase)
+2. ✅ Move classification and registration logic (lines 1301-1346)
+3. ✅ Add comprehensive tests for classification
+
+**Status**: Completed in commit a2c8632. Created ClassificationPhase in
+`crates/cribo/src/code_generator/phases/classification.rs` with execute(),
+track_inlined_modules(), and register_wrapper_modules() methods. Added 4
+comprehensive unit tests. All 156 tests pass.
 
 ### Phase 4: Extract Processing Logic (Week 2-3)
 
