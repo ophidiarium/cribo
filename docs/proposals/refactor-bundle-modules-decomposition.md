@@ -266,11 +266,16 @@ phases including InitializationResult, PreparationResult, SymbolRenameResult,
 GlobalSymbolResult, CircularDependencyResult, ProcessingResult, EntryModuleResult,
 and PostProcessingResult.
 
-### Phase 2: Extract Initialization Logic (Week 1)
+### Phase 2: Extract Initialization Logic ✅ COMPLETED
 
-1. Create `InitializationPhase` struct
-2. Move initialization logic (lines 1263-1323)
-3. Add unit tests for initialization
+1. ✅ Create `InitializationPhase` struct
+2. ✅ Move initialization logic (lines 1263-1296)
+3. ✅ Add unit tests for initialization
+
+**Status**: Completed in commit 52256ff. Created InitializationPhase in
+`crates/cribo/src/code_generator/phases/initialization.rs` with execute() method
+and generate_future_import_statements() helper. Added 4 comprehensive unit tests.
+All 152 tests pass.
 
 ### Phase 3: Extract Classification Logic (Week 2)
 
