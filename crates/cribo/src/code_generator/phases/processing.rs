@@ -60,7 +60,7 @@ impl<'a> ProcessingPhase<'a> {
         params: &BundleParams<'a>,
         classification: &ClassificationResult,
         modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
-        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+        symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         global_symbols: &mut FxIndexSet<String>,
     ) -> (Vec<Stmt>, FxIndexSet<ModuleId>) {
         // Analyze wrapper dependencies
@@ -398,7 +398,7 @@ impl<'a> ProcessingPhase<'a> {
         ast: ruff_python_ast::ModModule,
         path: &Path,
         module_exports_map: &FxIndexMap<ModuleId, Option<Vec<String>>>,
-        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+        symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         python_version: u8,
         global_symbols: &mut FxIndexSet<String>,
         all_inlined_stmts: &mut Vec<Stmt>,
@@ -458,11 +458,10 @@ impl<'a> ProcessingPhase<'a> {
         }
 
         // Create inline context
-        let mut symbol_renames_mut = symbol_renames.clone();
         let mut inline_ctx = InlineContext {
             module_exports_map,
             global_symbols,
-            module_renames: &mut symbol_renames_mut,
+            module_renames: symbol_renames,
             inlined_stmts: all_inlined_stmts,
             import_aliases: FxIndexMap::default(),
             import_sources: FxIndexMap::default(),
