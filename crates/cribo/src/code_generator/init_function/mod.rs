@@ -40,10 +40,6 @@ pub enum TransformError {
     ModuleIdNotFound { module_name: String },
     /// Init function name not found for wrapper module
     InitFunctionNotFound { module_id: String },
-    /// No appropriate statement processor found
-    NoStatementProcessor,
-    /// General transformation error
-    General(String),
 }
 
 impl fmt::Display for TransformError {
@@ -58,10 +54,6 @@ impl fmt::Display for TransformError {
                     "Init function name not found for wrapper module '{module_id}'"
                 )
             }
-            Self::NoStatementProcessor => {
-                write!(f, "No statement processor found for statement type")
-            }
-            Self::General(msg) => write!(f, "Transformation error: {msg}"),
         }
     }
 }
