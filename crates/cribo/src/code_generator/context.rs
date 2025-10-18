@@ -1,9 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
+    resolver::ModuleId,
     semantic_bundler::{SemanticBundler, SymbolRegistry},
     types::{FxIndexMap, FxIndexSet},
 };
@@ -60,4 +61,93 @@ pub struct BundleParams<'a> {
     pub python_version: u8,                                           /* Target Python version
                                                                        * for
                                                                        * builtin checks */
+}
+
+// ==================== Phase Result Types ====================
+// These types represent the outputs of individual bundling phases
+// to support decomposing the monolithic bundle_modules function.
+//
+// Note: These types are currently unused but will be used as the refactoring progresses.
+// They are defined here first to establish the architecture.
+
+/// Result from the initialization phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct InitializationResult {
+    /// Future imports collected from all modules
+    pub future_imports: FxIndexSet<String>,
+    /// Circular modules identified
+    pub circular_modules: FxIndexSet<ModuleId>,
+    /// Modules imported as namespaces (module -> set of imported modules)
+    pub namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
+}
+
+/// Result from the module preparation phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct PreparationResult {
+    /// Prepared modules: `ModuleId` -> (AST, Path, `ContentHash`)
+    pub modules: FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+}
+
+/// Result from the symbol rename collection phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct SymbolRenameResult {
+    /// Symbol renames per module: `ModuleId` -> (`OriginalName` -> `RenamedName`)
+    pub symbol_renames: FxIndexMap<ModuleId, FxIndexMap<String, String>>,
+}
+
+/// Result from the global symbol collection phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct GlobalSymbolResult {
+    /// Global symbols: `ModuleId` -> Set of global symbol names
+    pub global_symbols: FxIndexMap<ModuleId, FxIndexSet<String>>,
+}
+
+/// Result from the circular dependency analysis phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct CircularDependencyResult {
+    /// Cycle groups (SCCs)
+    pub cycle_groups: Vec<Vec<ModuleId>>,
+    /// Mapping from module to its cycle group index
+    pub member_to_group: FxIndexMap<ModuleId, usize>,
+    /// Wrapper modules needed by inlined modules (with transitive deps)
+    pub all_needed_wrappers: FxIndexSet<ModuleId>,
+    /// Whether any wrapper module participates in circular dependencies
+    pub has_circular_wrapped_modules: bool,
+}
+
+/// Result from the main processing phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ProcessingResult {
+    /// All inlined statements from modules (excluding entry module)
+    pub inlined_statements: Vec<Stmt>,
+    /// Modules that were processed
+    pub processed_modules: FxIndexSet<ModuleId>,
+}
+
+/// Result from the entry module processing phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct EntryModuleResult {
+    /// Entry module statements (transformed and deduplicated)
+    pub entry_statements: Vec<Stmt>,
+    /// Locally defined symbols in entry module
+    pub entry_module_symbols: FxIndexSet<String>,
+    /// Entry module renames
+    pub entry_module_renames: FxIndexMap<String, String>,
+}
+
+/// Result from the post-processing phase
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct PostProcessingResult {
+    /// Proxy statements for stdlib access
+    pub proxy_statements: Vec<Stmt>,
+    /// Package child alias statements
+    pub alias_statements: Vec<Stmt>,
 }
