@@ -26,16 +26,15 @@ impl SubmoduleHandlingPhase {
     /// 5. For inlined submodules in non-wrapper context: creates namespace objects
     /// 6. For wrapper submodules: skips (will be set up when initialized)
     ///
-    /// **NOTE**: This must happen BEFORE processing deferred imports, as deferred imports
-    /// may reference these submodules.
+    /// **NOTE**: This phase runs after Statement Processing to ensure submodule
+    /// namespace objects are available for any references in later phases.
     pub fn execute(
         bundler: &Bundler,
         ctx: &ModuleTransformContext,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
-        // Set submodules as attributes on this module BEFORE processing deferred imports
-        // This is needed because deferred imports may reference these submodules
+        // Set submodules as attributes on this module for later reference
         let current_module_prefix = format!("{}.", ctx.module_name);
         let mut submodules_to_add = Vec::new();
 
