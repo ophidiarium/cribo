@@ -9,5 +9,6 @@
 //! - **Composable**: Phases can be combined in different ways
 //! - **Explicit**: Data dependencies between phases are visible through types
 
+pub mod classification;
 pub mod initialization;
 
