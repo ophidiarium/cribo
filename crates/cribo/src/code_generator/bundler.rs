@@ -972,7 +972,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Initialize the bundler with parameters and basic settings
-    fn initialize_bundler(&mut self, params: &BundleParams<'a>) {
+    pub(crate) fn initialize_bundler(&mut self, params: &BundleParams<'a>) {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -2621,7 +2621,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Find modules that are imported as namespaces
-    fn find_namespace_imported_modules(
+    pub(crate) fn find_namespace_imported_modules(
         &mut self,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
     ) {
