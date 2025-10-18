@@ -17,15 +17,13 @@ use crate::{
     types::FxIndexMap,
 };
 
-/// Classification phase handler
-pub struct ClassificationPhase<'a> {
-    bundler: &'a mut Bundler<'a>,
-}
+/// Classification phase handler (stateless)
+pub struct ClassificationPhase;
 
-impl<'a> ClassificationPhase<'a> {
+impl ClassificationPhase {
     /// Create a new classification phase
-    pub fn new(bundler: &'a mut Bundler<'a>) -> Self {
-        Self { bundler }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Execute the classification phase
@@ -40,39 +38,40 @@ impl<'a> ClassificationPhase<'a> {
     /// Returns the `ClassificationResult` containing inlinable modules, wrapper modules,
     /// and module export information.
     pub fn execute(
-        &mut self,
+        &self,
+        bundler: &mut Bundler<'_>,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         python_version: u8,
     ) -> ClassificationResult {
         // Classify modules into inlinable and wrapper modules
         let classifier = ModuleClassifier::new(
-            self.bundler.resolver,
-            self.bundler.entry_is_package_init_or_main,
-            self.bundler.namespace_imported_modules.clone(),
-            self.bundler.circular_modules.clone(),
+            bundler.resolver,
+            bundler.entry_is_package_init_or_main,
+            bundler.namespace_imported_modules.clone(),
+            bundler.circular_modules.clone(),
         );
 
         let classification = classifier.classify_modules(modules, python_version);
 
         // Store modules with explicit __all__ declarations
-        self.bundler.modules_with_explicit_all = classification.modules_with_explicit_all.clone();
+        bundler.modules_with_explicit_all = classification.modules_with_explicit_all.clone();
 
         // Track inlined modules and store their exports
-        self.track_inlined_modules(&classification);
+        Self::track_inlined_modules(bundler, &classification);
 
         // Register wrapper modules with synthetic names
-        self.register_wrapper_modules(&classification);
+        Self::register_wrapper_modules(bundler, &classification);
 
         classification
     }
 
     /// Track inlined modules and store their exports
-    fn track_inlined_modules(&mut self, classification: &ClassificationResult) {
+    fn track_inlined_modules(bundler: &mut Bundler<'_>, classification: &ClassificationResult) {
         for (module_id, _, _, _) in &classification.inlinable_modules {
-            self.bundler.inlined_modules.insert(*module_id);
+            bundler.inlined_modules.insert(*module_id);
 
             // Store module exports for inlined modules
-            self.bundler.module_exports.insert(
+            bundler.module_exports.insert(
                 *module_id,
                 classification
                     .module_exports_map
@@ -82,17 +81,14 @@ impl<'a> ClassificationPhase<'a> {
             );
         }
 
-        log::debug!(
-            "Tracked {} inlined modules",
-            self.bundler.inlined_modules.len()
-        );
+        log::debug!("Tracked {} inlined modules", bundler.inlined_modules.len());
     }
 
     /// Register wrapper modules with synthetic names and init functions
-    fn register_wrapper_modules(&mut self, classification: &ClassificationResult) {
+    fn register_wrapper_modules(bundler: &mut Bundler<'_>, classification: &ClassificationResult) {
         for (module_id, _ast, _module_path, content_hash) in &classification.wrapper_modules {
             // Store module exports
-            self.bundler.module_exports.insert(
+            bundler.module_exports.insert(
                 *module_id,
                 classification
                     .module_exports_map
@@ -102,8 +98,7 @@ impl<'a> ClassificationPhase<'a> {
             );
 
             // Register module with synthetic name and init function
-            let module_name = self
-                .bundler
+            let module_name = bundler
                 .resolver
                 .get_module_name(*module_id)
                 .expect("Module name must exist for ModuleId");
@@ -112,12 +107,12 @@ impl<'a> ClassificationPhase<'a> {
                 *module_id,
                 &module_name,
                 content_hash,
-                &mut self.bundler.module_synthetic_names,
-                &mut self.bundler.module_init_functions,
+                &mut bundler.module_synthetic_names,
+                &mut bundler.module_init_functions,
             );
 
             // Remove from inlined_modules since it's now a wrapper module
-            self.bundler.inlined_modules.shift_remove(module_id);
+            bundler.inlined_modules.shift_remove(module_id);
 
             log::debug!(
                 "Registered wrapper module '{module_name}' with synthetic name and init function"

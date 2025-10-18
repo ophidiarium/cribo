@@ -13,15 +13,13 @@ use crate::code_generator::{
     context::{BundleParams, InitializationResult},
 };
 
-/// Initialization phase handler
-pub struct InitializationPhase<'a> {
-    bundler: &'a mut Bundler<'a>,
-}
+/// Initialization phase handler (stateless)
+pub struct InitializationPhase;
 
-impl<'a> InitializationPhase<'a> {
+impl InitializationPhase {
     /// Create a new initialization phase
-    pub fn new(bundler: &'a mut Bundler<'a>) -> Self {
-        Self { bundler }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Execute the initialization phase
@@ -35,25 +33,26 @@ impl<'a> InitializationPhase<'a> {
     ///
     /// Returns an `InitializationResult` containing the future imports, circular modules,
     /// and namespace import information.
-    pub fn execute(&mut self, params: &BundleParams<'a>) -> InitializationResult {
-        // Store the Python version
-        let _python_version = params.python_version;
-
+    pub fn execute<'a>(
+        &self,
+        bundler: &mut Bundler<'a>,
+        params: &BundleParams<'a>,
+    ) -> InitializationResult {
         // Store the graph reference for use in transformation methods
-        self.bundler.graph = Some(params.graph);
+        bundler.graph = Some(params.graph);
 
         // Store the semantic bundler reference for use in transformations
-        self.bundler.semantic_bundler = Some(params.semantic_bundler);
+        bundler.semantic_bundler = Some(params.semantic_bundler);
 
         // Initialize bundler settings and collect preliminary data
-        self.bundler.initialize_bundler(params);
+        bundler.initialize_bundler(params);
 
         // Collect future imports (already done in initialize_bundler)
-        let future_imports = self.bundler.future_imports.clone();
+        let future_imports = bundler.future_imports.clone();
 
         // Collect circular modules (already identified in prepare_modules, but we'll capture them
         // here)
-        let circular_modules = self.bundler.circular_modules.clone();
+        let circular_modules = bundler.circular_modules.clone();
 
         // Find namespace-imported modules
         // Convert modules to the format expected by find_namespace_imported_modules
@@ -72,8 +71,8 @@ impl<'a> InitializationPhase<'a> {
             modules_map.insert(*module_id, (ast.clone(), path, hash.clone()));
         }
 
-        self.bundler.find_namespace_imported_modules(&modules_map);
-        let namespace_imported_modules = self.bundler.namespace_imported_modules.clone();
+        bundler.find_namespace_imported_modules(&modules_map);
+        let namespace_imported_modules = bundler.namespace_imported_modules.clone();
 
         InitializationResult {
             future_imports,

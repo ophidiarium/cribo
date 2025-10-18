@@ -14,10 +14,8 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Entry module phase handler
-pub struct EntryModulePhase<'a> {
-    bundler: &'a mut Bundler<'a>,
-}
+/// Entry module phase handler (stateless)
+pub struct EntryModulePhase;
 
 /// Result from processing the entry module
 #[derive(Debug, Clone)]
@@ -30,10 +28,10 @@ pub struct EntryModuleProcessingResult {
     pub entry_renames: FxIndexMap<String, String>,
 }
 
-impl<'a> EntryModulePhase<'a> {
+impl EntryModulePhase {
     /// Create a new entry module phase
-    pub fn new(bundler: &'a mut Bundler<'a>) -> Self {
-        Self { bundler }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Execute the entry module processing phase
@@ -48,8 +46,9 @@ impl<'a> EntryModulePhase<'a> {
     ///
     /// Returns processed statements, symbols, and renames for the entry module.
     pub fn execute(
-        &mut self,
-        params: &BundleParams<'a>,
+        &self,
+        bundler: &mut Bundler<'_>,
+        params: &BundleParams<'_>,
         modules: &mut FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         final_body: &[Stmt],
@@ -59,8 +58,7 @@ impl<'a> EntryModulePhase<'a> {
             return None;
         };
 
-        let module_name = self
-            .bundler
+        let module_name = bundler
             .resolver
             .get_module_name(ModuleId::ENTRY)
             .expect("Entry module must have a name");
@@ -69,9 +67,13 @@ impl<'a> EntryModulePhase<'a> {
         log::debug!("Entry module has {} statements", ast.body.len());
 
         // Reorder statements if entry is in circular dependencies
-        if self.bundler.circular_modules.contains(&ModuleId::ENTRY) {
-            ast.body =
-                self.reorder_entry_module_statements(&module_name, ast.body, params.python_version);
+        if bundler.circular_modules.contains(&ModuleId::ENTRY) {
+            ast.body = Self::reorder_entry_module_statements(
+                bundler,
+                &module_name,
+                ast.body,
+                params.python_version,
+            );
         }
 
         // Get entry module renames
@@ -83,15 +85,16 @@ impl<'a> EntryModulePhase<'a> {
         log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
         // Collect locally defined symbols
-        let entry_module_symbols = self.collect_entry_symbols(&ast);
+        let entry_module_symbols = Self::collect_entry_symbols(bundler, &ast);
         log::debug!("Entry module locally defined symbols: {entry_module_symbols:?}");
 
         // Transform imports
-        self.transform_entry_imports(&mut ast, symbol_renames, params.python_version);
+        Self::transform_entry_imports(bundler, &mut ast, symbol_renames, params.python_version);
 
         // Process statements with deduplication
         let mut entry_statements = Vec::new();
-        self.process_entry_statements(
+        Self::process_entry_statements(
+            bundler,
             &ast,
             &entry_module_symbols,
             &entry_module_renames,
@@ -101,7 +104,7 @@ impl<'a> EntryModulePhase<'a> {
         );
 
         // Add child module exposure
-        self.expose_child_modules(&module_name, &mut entry_statements);
+        Self::expose_child_modules(bundler, &module_name, &mut entry_statements);
 
         Some(EntryModuleProcessingResult {
             statements: entry_statements,
@@ -112,16 +115,16 @@ impl<'a> EntryModulePhase<'a> {
 
     /// Reorder entry module statements for circular dependencies
     fn reorder_entry_module_statements(
-        &mut self,
+        bundler: &mut Bundler<'_>,
         module_name: &str,
         body: Vec<Stmt>,
         python_version: u8,
     ) -> Vec<Stmt> {
         let lookup_name = if crate::util::is_init_module(module_name) {
-            self.bundler
+            bundler
                 .circular_modules
                 .iter()
-                .filter_map(|id| self.bundler.resolver.get_module_name(*id))
+                .filter_map(|id| bundler.resolver.get_module_name(*id))
                 .find(|name| !name.contains('.') && !crate::util::is_init_module(name))
                 .unwrap_or_else(|| module_name.to_string())
         } else {
@@ -133,12 +136,11 @@ impl<'a> EntryModulePhase<'a> {
              (lookup: '{lookup_name}')"
         );
 
-        self.bundler
-            .reorder_statements_for_circular_module(&lookup_name, body, python_version)
+        bundler.reorder_statements_for_circular_module(&lookup_name, body, python_version)
     }
 
     /// Collect locally defined symbols in the entry module
-    fn collect_entry_symbols(&self, ast: &ModModule) -> FxIndexSet<String> {
+    fn collect_entry_symbols(_bundler: &Bundler<'_>, ast: &ModModule) -> FxIndexSet<String> {
         let mut locally_defined_symbols = FxIndexSet::default();
         for stmt in &ast.body {
             match stmt {
@@ -156,7 +158,7 @@ impl<'a> EntryModulePhase<'a> {
 
     /// Transform imports in the entry module
     fn transform_entry_imports(
-        &mut self,
+        bundler: &mut Bundler<'_>,
         ast: &mut ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         python_version: u8,
@@ -168,11 +170,11 @@ impl<'a> EntryModulePhase<'a> {
         log::debug!("Transforming imports for entry module");
 
         let params = RecursiveImportTransformerParams {
-            bundler: self.bundler,
+            bundler,
             module_id: ModuleId::ENTRY,
             symbol_renames,
             is_wrapper_init: false,
-            global_deferred_imports: Some(&self.bundler.global_deferred_imports),
+            global_deferred_imports: Some(&bundler.global_deferred_imports),
             python_version,
         };
 
@@ -197,7 +199,7 @@ impl<'a> EntryModulePhase<'a> {
                     }
                 }
                 Stmt::ImportFrom(import_from) => {
-                    self.bundler.collect_aliases_from_stdlib_from_import(
+                    bundler.collect_aliases_from_stdlib_from_import(
                         import_from,
                         python_version,
                         &mut entry_stdlib_aliases,
@@ -221,7 +223,7 @@ impl<'a> EntryModulePhase<'a> {
     /// Process entry module statements with deduplication
     #[allow(clippy::too_many_arguments)]
     fn process_entry_statements(
-        &mut self,
+        bundler: &mut Bundler<'_>,
         ast: &ModModule,
         locally_defined_symbols: &FxIndexSet<String>,
         entry_module_renames: &FxIndexMap<String, String>,
@@ -233,7 +235,7 @@ impl<'a> EntryModulePhase<'a> {
 
         for stmt in &ast.body {
             // Check if this import was hoisted
-            let is_hoisted = import_deduplicator::is_hoisted_import(self.bundler, stmt);
+            let is_hoisted = import_deduplicator::is_hoisted_import(bundler, stmt);
             if is_hoisted {
                 continue;
             }
@@ -241,7 +243,7 @@ impl<'a> EntryModulePhase<'a> {
             match stmt {
                 Stmt::ImportFrom(import_from) => {
                     let duplicate = import_deduplicator::is_duplicate_import_from(
-                        self.bundler,
+                        bundler,
                         import_from,
                         final_body,
                         python_version,
@@ -257,11 +259,8 @@ impl<'a> EntryModulePhase<'a> {
                     }
                 }
                 Stmt::Import(import_stmt) => {
-                    let duplicate = import_deduplicator::is_duplicate_import(
-                        self.bundler,
-                        import_stmt,
-                        final_body,
-                    );
+                    let duplicate =
+                        import_deduplicator::is_duplicate_import(bundler, import_stmt, final_body);
 
                     if !duplicate {
                         entry_statements.push(stmt.clone());
@@ -273,11 +272,12 @@ impl<'a> EntryModulePhase<'a> {
                         continue;
                     }
 
-                    let is_duplicate = self.check_duplicate_assignment(assign, final_body);
+                    let is_duplicate =
+                        Self::check_duplicate_assignment(bundler, assign, final_body);
 
                     if !is_duplicate {
                         let mut stmt_clone = stmt.clone();
-                        self.bundler.process_entry_module_statement(
+                        bundler.process_entry_module_statement(
                             &mut stmt_clone,
                             entry_module_renames,
                             entry_statements,
@@ -286,7 +286,7 @@ impl<'a> EntryModulePhase<'a> {
                 }
                 _ => {
                     let mut stmt_clone = stmt.clone();
-                    self.bundler.process_entry_module_statement(
+                    bundler.process_entry_module_statement(
                         &mut stmt_clone,
                         entry_module_renames,
                         entry_statements,
@@ -298,7 +298,7 @@ impl<'a> EntryModulePhase<'a> {
 
     /// Check if an assignment is a duplicate
     fn check_duplicate_assignment(
-        &self,
+        _bundler: &Bundler<'_>,
         assign: &ruff_python_ast::StmtAssign,
         final_body: &[Stmt],
     ) -> bool {
@@ -323,12 +323,16 @@ impl<'a> EntryModulePhase<'a> {
     }
 
     /// Expose child modules at module level for the entry module
-    fn expose_child_modules(&mut self, module_name: &str, entry_statements: &mut Vec<Stmt>) {
+    fn expose_child_modules(
+        bundler: &mut Bundler<'_>,
+        module_name: &str,
+        entry_statements: &mut Vec<Stmt>,
+    ) {
         use ruff_python_ast::ExprContext;
 
         use crate::ast_builder::{expressions, statements};
 
-        if module_name != self.bundler.entry_module_name {
+        if module_name != bundler.entry_module_name {
             return;
         }
 
@@ -338,7 +342,7 @@ impl<'a> EntryModulePhase<'a> {
             module_name
                 .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
                 .map(std::string::ToString::to_string)
-                .or_else(|| self.bundler.infer_entry_root_package())
+                .or_else(|| bundler.infer_entry_root_package())
                 .unwrap_or_else(|| module_name.to_string())
         } else {
             module_name.to_string()
@@ -346,12 +350,11 @@ impl<'a> EntryModulePhase<'a> {
 
         log::debug!("Package name for exposure: {package_name}");
 
-        let entry_child_modules: Vec<String> = self
-            .bundler
+        let entry_child_modules: Vec<String> = bundler
             .bundled_modules
             .iter()
             .filter_map(|id| {
-                self.bundler.resolver.get_module_name(*id).filter(|name| {
+                bundler.resolver.get_module_name(*id).filter(|name| {
                     name.starts_with(&format!("{package_name}.")) && name.contains('.')
                 })
             })
@@ -391,12 +394,11 @@ impl<'a> EntryModulePhase<'a> {
         }
 
         // Ensure critical 'exceptions' alias exists for packages
-        if let Some(entry_pkg) = self.bundler.entry_package_name() {
+        if let Some(entry_pkg) = bundler.entry_package_name() {
             let exceptions_path = format!("{entry_pkg}.exceptions");
-            let exceptions_exists = self
-                .bundler
+            let exceptions_exists = bundler
                 .get_module_id(&exceptions_path)
-                .is_some_and(|id| self.bundler.bundled_modules.contains(&id));
+                .is_some_and(|id| bundler.bundled_modules.contains(&id));
 
             if exceptions_exists && !existing_variables.contains("exceptions") {
                 log::debug!("Ensuring module-level alias for '{exceptions_path}' as 'exceptions'");

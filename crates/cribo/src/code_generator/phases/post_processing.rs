@@ -12,10 +12,8 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Post-processing phase handler
-pub struct PostProcessingPhase<'a> {
-    bundler: &'a mut Bundler<'a>,
-}
+/// Post-processing phase handler (stateless)
+pub struct PostProcessingPhase;
 
 /// Result from post-processing
 #[derive(Debug, Clone)]
@@ -28,10 +26,10 @@ pub struct PostProcessingOutput {
     pub namespace_attachments: Vec<Stmt>,
 }
 
-impl<'a> PostProcessingPhase<'a> {
+impl PostProcessingPhase {
     /// Create a new post-processing phase
-    pub fn new(bundler: &'a mut Bundler<'a>) -> Self {
-        Self { bundler }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Execute the post-processing phase
@@ -43,20 +41,21 @@ impl<'a> PostProcessingPhase<'a> {
     ///
     /// Returns statements to be inserted at appropriate positions in the final bundle.
     pub fn execute(
-        &mut self,
+        &self,
+        bundler: &mut Bundler<'_>,
         entry_symbols: &FxIndexSet<String>,
         entry_renames: &FxIndexMap<String, String>,
         final_body: &[Stmt],
     ) -> PostProcessingOutput {
         // Generate namespace attachments for entry module exports
         let namespace_attachments =
-            self.generate_namespace_attachments(entry_symbols, entry_renames);
+            Self::generate_namespace_attachments(bundler, entry_symbols, entry_renames);
 
         // Generate proxy statements for stdlib access
-        let proxy_statements = self.generate_proxy_statements();
+        let proxy_statements = Self::generate_proxy_statements();
 
         // Generate package child aliases
-        let alias_statements = self.generate_package_child_aliases(final_body);
+        let alias_statements = Self::generate_package_child_aliases(bundler, final_body);
 
         PostProcessingOutput {
             proxy_statements,
@@ -67,32 +66,31 @@ impl<'a> PostProcessingPhase<'a> {
 
     /// Generate namespace attachment statements for entry module exports
     fn generate_namespace_attachments(
-        &mut self,
+        bundler: &mut Bundler<'_>,
         entry_symbols: &FxIndexSet<String>,
         entry_renames: &FxIndexMap<String, String>,
     ) -> Vec<Stmt> {
         log::debug!(
             "Checking if entry module needs namespace attachment: \
              entry_is_package_init_or_main={}, entry_module_name='{}'",
-            self.bundler.entry_is_package_init_or_main,
-            self.bundler.entry_module_name
+            bundler.entry_is_package_init_or_main,
+            bundler.entry_module_name
         );
 
-        if !self.bundler.entry_is_package_init_or_main {
+        if !bundler.entry_is_package_init_or_main {
             return Vec::new();
         }
 
-        let entry_pkg = self
-            .bundler
+        let entry_pkg = bundler
             .entry_package_name()
             .map(std::string::ToString::to_string)
-            .or_else(|| self.bundler.infer_entry_root_package())
-            .unwrap_or_else(|| self.bundler.entry_module_name.clone());
+            .or_else(|| bundler.infer_entry_root_package())
+            .unwrap_or_else(|| bundler.entry_module_name.clone());
 
         if entry_pkg.is_empty() || entry_pkg == crate::python::constants::MAIN_STEM {
             log::warn!(
                 "Skipping namespace attachment: ambiguous entry package for '{}'",
-                self.bundler.entry_module_name
+                bundler.entry_module_name
             );
             return Vec::new();
         }
@@ -100,7 +98,7 @@ impl<'a> PostProcessingPhase<'a> {
         log::debug!("Using package name '{entry_pkg}' for namespace attachment");
 
         let mut attachments = Vec::new();
-        self.bundler.emit_entry_namespace_attachments(
+        bundler.emit_entry_namespace_attachments(
             &entry_pkg,
             &mut attachments,
             entry_symbols,
@@ -110,13 +108,13 @@ impl<'a> PostProcessingPhase<'a> {
     }
 
     /// Generate proxy statements for stdlib access
-    fn generate_proxy_statements(&self) -> Vec<Stmt> {
+    fn generate_proxy_statements() -> Vec<Stmt> {
         log::debug!("Generating _cribo proxy for stdlib access");
         crate::ast_builder::proxy_generator::generate_cribo_proxy()
     }
 
     /// Generate package child alias statements
-    fn generate_package_child_aliases(&self, final_body: &[Stmt]) -> Vec<Stmt> {
+    fn generate_package_child_aliases(bundler: &Bundler<'_>, final_body: &[Stmt]) -> Vec<Stmt> {
         use ruff_python_ast::ExprContext;
 
         use crate::{
@@ -126,10 +124,9 @@ impl<'a> PostProcessingPhase<'a> {
 
         let mut alias_statements = Vec::new();
 
-        let entry_pkg = self
-            .bundler
+        let entry_pkg = bundler
             .infer_entry_root_package()
-            .unwrap_or_else(|| self.bundler.entry_module_name.clone());
+            .unwrap_or_else(|| bundler.entry_module_name.clone());
 
         if entry_pkg.is_empty() || entry_pkg == INIT_STEM {
             return alias_statements;
@@ -153,11 +150,10 @@ impl<'a> PostProcessingPhase<'a> {
         let mut seen: FxIndexSet<String> = FxIndexSet::default();
         let mut added = 0usize;
 
-        for child in self
-            .bundler
+        for child in bundler
             .bundled_modules
             .iter()
-            .filter_map(|id| self.bundler.resolver.get_module_name(*id))
+            .filter_map(|id| bundler.resolver.get_module_name(*id))
         {
             if let Some(rest) = child.strip_prefix(&format!("{entry_pkg}.")) {
                 let first = rest.split('.').next().unwrap_or("");

@@ -266,9 +266,7 @@ impl ProcessingPhase {
         let mut members: Vec<(ModuleId, String)> = circular_ctx.cycle_groups[group_idx]
             .iter()
             .filter_map(|mid| {
-                bundler
-                    .resolver
-                    .get_module_name(*mid)
+                bundler.resolver.get_module_name(*mid)
                     .map(|name| (*mid, name))
             })
             .collect();
@@ -316,8 +314,6 @@ impl ProcessingPhase {
             // Create namespace
             let sanitized = sanitize_module_name_for_identifier(mname);
             if !bundler.created_namespaces.contains(&sanitized) {
-                let synthetic = bundler
-                    .module_synthetic_names
                     .get(mid)
                     .expect("synthetic name must exist");
                 let mut ns_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
@@ -326,6 +322,7 @@ impl ProcessingPhase {
                 all_inlined_stmts.append(&mut ns_stmts);
                 bundler.created_namespaces.insert(sanitized.clone());
             }
+
 
             processed_modules.insert(*mid);
         }
@@ -347,9 +344,10 @@ impl ProcessingPhase {
                 is_in_circular_deps: is_in_circular,
             };
 
-            let init_function = InitFunctionBuilder::new(bundler, &transform_ctx, symbol_renames)
-                .build(ast.clone())
-                .expect("Init function transformation should not fail");
+            let init_function =
+                InitFunctionBuilder::new(bundler, &transform_ctx, symbol_renames)
+                    .build(ast.clone())
+                    .expect("Init function transformation should not fail");
 
             // Insert lifted globals
             if let Some(ref info) = global_info
@@ -368,8 +366,6 @@ impl ProcessingPhase {
                 let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
                     f.name.as_str().to_string()
                 } else {
-                    bundler
-                        .module_init_functions
                         .get(mid)
                         .expect("init function must exist")
                         .clone()
@@ -442,7 +438,7 @@ impl ProcessingPhase {
                     expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
                 );
                 all_inlined_stmts.push(namespace_stmt);
-                bundler.created_namespaces.insert(namespace_var.clone());
+                    .insert(namespace_var.clone());
 
                 bundler.create_namespace_chain_for_module(
                     module_name,
@@ -453,7 +449,7 @@ impl ProcessingPhase {
         }
 
         // Create inline context
-        let inline_ctx = InlineContext {
+        let mut inline_ctx = InlineContext {
             module_exports_map,
             global_symbols,
             module_renames: symbol_renames,
@@ -463,13 +459,12 @@ impl ProcessingPhase {
             python_version,
         };
 
+
         // Populate namespace with symbols
-        let current_module_id = bundler
-            .get_module_id(module_name)
             .expect("Module should have ID");
 
         if current_module_id != ModuleId::ENTRY
-            && bundler.inlined_modules.contains(&current_module_id)
+                .contains(&current_module_id)
         {
             log::debug!("[processing] Populating namespace for inlined module: {module_name}");
 
@@ -498,8 +493,6 @@ impl ProcessingPhase {
                 );
 
             all_inlined_stmts.extend(population_stmts);
-            bundler
-                .modules_with_populated_symbols
                 .insert(current_module_id);
         }
     }
@@ -527,16 +520,12 @@ impl ProcessingPhase {
 
         log::debug!("Processing wrapper module: {module_name}");
 
-        let wrapper_module_id = bundler
-            .get_module_id(module_name)
             .expect("Wrapper module should be registered");
 
         let content_hash = modules
             .get(&wrapper_module_id)
             .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
 
-        let _synthetic_name = bundler
-            .module_synthetic_names
             .entry(wrapper_module_id)
             .or_insert_with(|| {
                 crate::code_generator::module_registry::get_synthetic_module_name(
@@ -546,8 +535,6 @@ impl ProcessingPhase {
             })
             .clone();
 
-        let init_func_name_from_map = bundler
-            .module_init_functions
             .get(&wrapper_module_id)
             .expect("init function must exist")
             .clone();
@@ -647,7 +634,6 @@ impl ProcessingPhase {
             bundler.created_namespaces.insert(module_var.clone());
         }
 
-        bundler.create_namespace_chain_for_module(module_name, &module_var, all_inlined_stmts);
     }
 }
 
