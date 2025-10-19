@@ -168,13 +168,6 @@ impl ProcessingPhase {
         classification: &ClassificationResult,
         _modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
     ) {
-        use ruff_python_ast::Stmt;
-
-        // Track wrapper modules
-        for (module_id, _, _, _) in &classification.wrapper_modules {
-            bundler.wrapper_modules.insert(*module_id);
-        }
-
         // Check if any wrapper participates in circular dependencies
         let has_circular_wrapped_modules = classification
             .wrapper_modules

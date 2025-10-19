@@ -118,6 +118,9 @@ impl ClassificationPhase {
                 &mut bundler.module_init_functions,
             );
 
+            // Track wrapper membership for downstream resolution logic
+            bundler.wrapper_modules.insert(*module_id);
+
             log::debug!(
                 "Registered wrapper module '{module_name}' with synthetic name and init function"
             );
