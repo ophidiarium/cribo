@@ -17,7 +17,7 @@ use ruff_text_size::TextRange;
 /// // Creates an identifier: `foo`
 /// let id = identifier("foo");
 /// ```
-pub(crate) fn identifier(name: &str) -> Identifier {
+pub fn identifier(name: &str) -> Identifier {
     Identifier::new(name, TextRange::default())
 }
 
@@ -35,7 +35,7 @@ pub(crate) fn identifier(name: &str) -> Identifier {
 /// // Creates: `baz` (no alias)
 /// let alias = alias("baz", None);
 /// ```
-pub(crate) fn alias(name: &str, asname: Option<&str>) -> Alias {
+pub fn alias(name: &str, asname: Option<&str>) -> Alias {
     Alias {
         name: identifier(name),
         asname: asname.map(identifier),

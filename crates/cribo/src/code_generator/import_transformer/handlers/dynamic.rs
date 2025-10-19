@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Handle dynamic import transformations (`importlib.import_module`)
-pub(crate) struct DynamicHandler;
+pub struct DynamicHandler;
 
 impl DynamicHandler {
     /// Check if this is an `importlib.import_module()` call

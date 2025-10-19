@@ -16,14 +16,14 @@ use crate::{
 
 /// Strategy for deduplicating imports within functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ImportDeduplicationStrategy {
+pub enum ImportDeduplicationStrategy {
     /// Place import at the start of the function
     FunctionStart,
 }
 
 /// Information about an import that can be moved
 #[derive(Debug, Clone)]
-pub(crate) struct MovableImport {
+pub struct MovableImport {
     /// The original import statement
     pub import_stmt: ImportStatement,
     /// Functions that use this import
@@ -34,7 +34,7 @@ pub(crate) struct MovableImport {
 
 /// Represents an import statement in a normalized form
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum ImportStatement {
+pub enum ImportStatement {
     /// Regular import: `import module` or `import module as alias`
     Import {
         module: String,
@@ -49,7 +49,7 @@ pub(crate) enum ImportStatement {
 }
 
 /// Import rewriter that transforms module-level imports to function-level
-pub(crate) struct ImportRewriter {
+pub struct ImportRewriter {
     /// Import deduplication strategy
     dedup_strategy: ImportDeduplicationStrategy,
 }

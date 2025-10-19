@@ -6,7 +6,7 @@ use indexmap::{IndexMap, IndexSet};
 use rustc_hash::FxHasher;
 
 /// Type alias for `IndexMap` with `FxHasher` for better performance
-pub(crate) type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+pub type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 
 /// Type alias for `IndexSet` with `FxHasher` for better performance
-pub(crate) type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
+pub type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;

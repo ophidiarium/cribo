@@ -4,7 +4,7 @@
 //! initialization functions that can be called to create module objects.
 
 /// Name of the module object parameter used in generated init functions.
-pub(crate) const SELF_PARAM: &str = "self";
+pub const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{
@@ -26,7 +26,7 @@ use crate::{
 /// This function handles the core statement-by-statement processing within an init function,
 /// applying transformations and adding module attributes as needed for different statement types.
 #[expect(clippy::too_many_arguments)] // Necessary for extracting complex logic
-pub(crate) fn process_statements_for_init_function(
+pub fn process_statements_for_init_function(
     processed_body: Vec<Stmt>,
     bundler: &Bundler<'_>,
     ctx: &ModuleTransformContext<'_>,
@@ -640,7 +640,7 @@ pub(crate) fn process_statements_for_init_function(
 }
 
 /// Transform an expression to use module attributes for module-level variables
-pub(crate) fn transform_expr_for_module_vars(
+pub fn transform_expr_for_module_vars(
     expr: &mut Expr,
     module_level_vars: &FxIndexSet<String>,
     module_var_name: &str,
@@ -1880,7 +1880,7 @@ fn transform_expr_for_module_vars_with_locals(
 
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
-pub(crate) fn transform_ast_with_lifted_globals(
+pub fn transform_ast_with_lifted_globals(
     bundler: &Bundler<'_>,
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,
@@ -1893,10 +1893,7 @@ pub(crate) fn transform_ast_with_lifted_globals(
 /// Transform expressions to handle built-in name shadowing in init functions
 /// When a built-in name like 'str' is assigned as a local variable in the function,
 /// any reference to that built-in before the assignment needs to use __builtins__.name
-pub(crate) fn transform_expr_for_builtin_shadowing(
-    expr: &mut Expr,
-    builtin_locals: &FxIndexSet<String>,
-) {
+pub fn transform_expr_for_builtin_shadowing(expr: &mut Expr, builtin_locals: &FxIndexSet<String>) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
             // If this name refers to a built-in that will be shadowed by a local assignment,
@@ -2067,7 +2064,7 @@ pub(crate) fn transform_expr_for_builtin_shadowing(
 }
 
 /// Helper function to determine if a symbol should be included in the module namespace
-pub(crate) fn should_include_symbol(
+pub fn should_include_symbol(
     bundler: &Bundler<'_>,
     symbol_name: &str,
     module_name: &str,
@@ -2137,7 +2134,7 @@ pub(crate) fn should_include_symbol(
 }
 
 /// Add module attribute assignment if the symbol should be exported
-pub(crate) fn add_module_attr_if_exported(
+pub fn add_module_attr_if_exported(
     bundler: &Bundler<'_>,
     assign: &StmtAssign,
     module_name: &str,
@@ -2158,7 +2155,7 @@ pub(crate) fn add_module_attr_if_exported(
 
 /// Helper to emit module attribute if a symbol should be exported
 /// This centralizes the logic for both Assign and `AnnAssign` paths
-pub(crate) fn emit_module_attr_if_exportable(
+pub fn emit_module_attr_if_exportable(
     bundler: &Bundler<'_>,
     symbol_name: &str,
     module_name: &str,
@@ -2193,7 +2190,7 @@ pub(crate) fn emit_module_attr_if_exportable(
 }
 
 /// Create namespace for inlined submodule
-pub(crate) fn create_namespace_for_inlined_submodule(
+pub fn create_namespace_for_inlined_submodule(
     bundler: &Bundler<'_>,
     full_module_name: &str,
     attr_name: &str,
@@ -2359,7 +2356,7 @@ fn renamed_symbol_exists(
 
 /// Process wildcard import from an inlined module
 /// Returns a list of symbols from wrapper modules that need deferred assignment
-pub(crate) fn process_wildcard_import(
+pub fn process_wildcard_import(
     bundler: &Bundler<'_>,
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,

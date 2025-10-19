@@ -17,7 +17,7 @@ use crate::{
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ExecutionContext {
+pub enum ExecutionContext {
     /// Code at module level - executes when module is imported
     ModuleLevel,
     /// Inside a function body - executes when function is called
@@ -43,7 +43,7 @@ pub(super) struct ImportUsage {
 
 /// Type of import statement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ImportType {
+pub enum ImportType {
     /// import module
     Direct,
     /// from module import ...
@@ -56,7 +56,7 @@ pub(crate) enum ImportType {
 
 /// An import discovered during AST traversal
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DiscoveredImport {
+pub struct DiscoveredImport {
     /// The module being imported
     pub module_name: Option<String>,
     /// Names being imported (for from imports)
@@ -84,7 +84,7 @@ pub(crate) struct DiscoveredImport {
 
 /// Where an import was discovered in the AST
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ImportLocation {
+pub enum ImportLocation {
     /// Import at module level
     Module,
     /// Import inside a function
@@ -100,7 +100,7 @@ pub(crate) enum ImportLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ScopeElement {
+pub enum ScopeElement {
     Function(String),
     Class(String),
     If,
@@ -111,7 +111,7 @@ pub(crate) enum ScopeElement {
 }
 
 /// Visitor that discovers all imports in a Python module and analyzes their usage
-pub(crate) struct ImportDiscoveryVisitor<'a> {
+pub struct ImportDiscoveryVisitor<'a> {
     /// All discovered imports
     imports: Vec<DiscoveredImport>,
     /// Current scope stack

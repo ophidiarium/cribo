@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Result of module classification
-pub(crate) struct ClassificationResult {
+pub struct ClassificationResult {
     pub inlinable_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
     pub wrapper_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
     pub module_exports_map: FxIndexMap<ModuleId, Option<Vec<String>>>,
@@ -19,7 +19,7 @@ pub(crate) struct ClassificationResult {
 }
 
 /// Analyzes and classifies modules for bundling
-pub(crate) struct ModuleClassifier<'a> {
+pub struct ModuleClassifier<'a> {
     resolver: &'a ModuleResolver,
     entry_is_package_init_or_main: bool,
     modules_with_explicit_all: FxIndexSet<ModuleId>,

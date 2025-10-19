@@ -10,7 +10,7 @@ use crate::{
 
 /// Context for transforming a module
 #[derive(Debug)]
-pub(crate) struct ModuleTransformContext<'a> {
+pub struct ModuleTransformContext<'a> {
     pub module_name: &'a str,
     pub module_path: &'a Path,
     pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
@@ -24,7 +24,7 @@ pub(crate) struct ModuleTransformContext<'a> {
 
 /// Context for inlining modules
 #[derive(Debug)]
-pub(crate) struct InlineContext<'a> {
+pub struct InlineContext<'a> {
     pub module_exports_map: &'a FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>,
     pub global_symbols: &'a mut FxIndexSet<String>,
     pub module_renames: &'a mut FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -39,7 +39,7 @@ pub(crate) struct InlineContext<'a> {
 
 /// Context for semantic analysis
 #[derive(Debug)]
-pub(crate) struct SemanticContext<'a> {
+pub struct SemanticContext<'a> {
     pub graph: &'a DependencyGraph,
     pub symbol_registry: &'a SymbolRegistry,
     pub semantic_bundler: &'a SemanticBundler,
@@ -49,7 +49,7 @@ pub(crate) struct SemanticContext<'a> {
 ///
 /// Used by `PhaseOrchestrator::bundle()` to orchestrate all bundling phases.
 #[derive(Debug)]
-pub(crate) struct BundleParams<'a> {
+pub struct BundleParams<'a> {
     pub modules: &'a [(crate::resolver::ModuleId, ModModule, String)], // (id, ast, content_hash)
     pub sorted_module_ids: &'a [crate::resolver::ModuleId],            /* Just IDs in dependency
                                                                         * order */
@@ -70,14 +70,14 @@ pub(crate) struct BundleParams<'a> {
 
 /// Result from the initialization phase
 #[derive(Debug, Clone)]
-pub(crate) struct InitializationResult {
+pub struct InitializationResult {
     /// Future imports collected from all modules
     pub future_imports: FxIndexSet<String>,
 }
 
 /// Result from the post-processing phase
 #[derive(Debug, Clone)]
-pub(crate) struct PostProcessingResult {
+pub struct PostProcessingResult {
     /// Proxy statements for stdlib access
     pub proxy_statements: Vec<Stmt>,
     /// Package child alias statements

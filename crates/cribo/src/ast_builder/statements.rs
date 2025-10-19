@@ -26,7 +26,7 @@ use super::expressions;
 /// let value = expressions::string_literal("42");
 /// let stmt = assign(vec![target], value);
 /// ```
-pub(crate) fn assign(targets: Vec<Expr>, value: Expr) -> Stmt {
+pub fn assign(targets: Vec<Expr>, value: Expr) -> Stmt {
     Stmt::Assign(StmtAssign {
         targets,
         value: Box::new(value),
@@ -49,7 +49,7 @@ pub(crate) fn assign(targets: Vec<Expr>, value: Expr) -> Stmt {
 /// // Creates: `result = None`
 /// let stmt = simple_assign("result", expressions::none_literal());
 /// ```
-pub(crate) fn simple_assign(target: &str, value: Expr) -> Stmt {
+pub fn simple_assign(target: &str, value: Expr) -> Stmt {
     let target_expr = expressions::name(target, ExprContext::Store);
     assign(vec![target_expr], value)
 }
@@ -72,7 +72,7 @@ pub(crate) fn simple_assign(target: &str, value: Expr) -> Stmt {
 ///     expressions::string_literal("mymodule"),
 /// );
 /// ```
-pub(crate) fn assign_attribute(obj_name: &str, attr_name: &str, value: Expr) -> Stmt {
+pub fn assign_attribute(obj_name: &str, attr_name: &str, value: Expr) -> Stmt {
     assign(
         vec![expressions::attribute(
             expressions::name(obj_name, ExprContext::Load),
@@ -87,7 +87,7 @@ pub(crate) fn assign_attribute(obj_name: &str, attr_name: &str, value: Expr) -> 
 ///
 /// Builds a nested attribute target for arbitrary dotted parents, e.g.
 /// `pkg.subpkg.module = value` or `obj.attr = value`.
-pub(crate) fn assign_attribute_path(path: &str, value: Expr) -> Stmt {
+pub fn assign_attribute_path(path: &str, value: Expr) -> Stmt {
     if let Some((parent, child)) = path.rsplit_once('.') {
         let mut parts = parent.split('.');
         let first = parts.next().expect("non-empty parent path");
@@ -113,7 +113,7 @@ pub(crate) fn assign_attribute_path(path: &str, value: Expr) -> Stmt {
 /// let call_expr = expressions::call(expressions::name("func", ExprContext::Load), vec![], vec![]);
 /// let stmt = expr(call_expr);
 /// ```
-pub(crate) fn expr(expr: Expr) -> Stmt {
+pub fn expr(expr: Expr) -> Stmt {
     Stmt::Expr(StmtExpr {
         value: Box::new(expr),
         range: TextRange::default(),
@@ -136,7 +136,7 @@ pub(crate) fn expr(expr: Expr) -> Stmt {
 /// ];
 /// let stmt = import(aliases);
 /// ```
-pub(crate) fn import(names: Vec<Alias>) -> Stmt {
+pub fn import(names: Vec<Alias>) -> Stmt {
     Stmt::Import(StmtImport {
         names,
         range: TextRange::default(),
@@ -158,7 +158,7 @@ pub(crate) fn import(names: Vec<Alias>) -> Stmt {
 /// // Creates: `import sys as _sys`
 /// let stmt = import_aliased("sys", "_sys");
 /// ```
-pub(crate) fn import_aliased(module_name: &str, alias_name: &str) -> Stmt {
+pub fn import_aliased(module_name: &str, alias_name: &str) -> Stmt {
     Stmt::Import(StmtImport {
         node_index: AtomicNodeIndex::NONE,
         names: vec![super::other::alias(module_name, Some(alias_name))],
@@ -185,7 +185,7 @@ pub(crate) fn import_aliased(module_name: &str, alias_name: &str) -> Stmt {
 /// // Creates: `from ..parent import something`
 /// let stmt = import_from(Some("parent"), vec![other::alias("something", None)], 2);
 /// ```
-pub(crate) fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -> Stmt {
+pub fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -> Stmt {
     Stmt::ImportFrom(StmtImportFrom {
         module: module.map(|s| Identifier::new(s, TextRange::default())),
         names,
@@ -202,7 +202,7 @@ pub(crate) fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -
 /// // Creates: `pass`
 /// let stmt = pass();
 /// ```
-pub(crate) fn pass() -> Stmt {
+pub fn pass() -> Stmt {
     Stmt::Pass(StmtPass {
         range: TextRange::default(),
         node_index: AtomicNodeIndex::NONE,
@@ -222,7 +222,7 @@ pub(crate) fn pass() -> Stmt {
 /// // Creates: `return`
 /// let stmt = return_stmt(None);
 /// ```
-pub(crate) fn return_stmt(value: Option<Expr>) -> Stmt {
+pub fn return_stmt(value: Option<Expr>) -> Stmt {
     Stmt::Return(StmtReturn {
         value: value.map(Box::new),
         range: TextRange::default(),
@@ -249,7 +249,7 @@ pub(crate) fn return_stmt(value: Option<Expr>) -> Stmt {
 /// // Creates: `raise`
 /// let stmt = raise(None, None);
 /// ```
-pub(crate) fn raise(exc: Option<Expr>, cause: Option<Expr>) -> Stmt {
+pub fn raise(exc: Option<Expr>, cause: Option<Expr>) -> Stmt {
     Stmt::Raise(StmtRaise {
         exc: exc.map(Box::new),
         cause: cause.map(Box::new),
@@ -268,7 +268,7 @@ pub(crate) fn raise(exc: Option<Expr>, cause: Option<Expr>) -> Stmt {
 /// // Creates: `global x, y, z`
 /// let stmt = global(vec!["x", "y", "z"]);
 /// ```
-pub(crate) fn global(names: Vec<&str>) -> Stmt {
+pub fn global(names: Vec<&str>) -> Stmt {
     Stmt::Global(StmtGlobal {
         names: names
             .into_iter()
@@ -303,7 +303,7 @@ pub(crate) fn global(names: Vec<&str>) -> Stmt {
 /// };
 /// let stmt = function_def("my_func", params, vec![pass()], vec![], None, false);
 /// ```
-pub(crate) fn function_def(
+pub fn function_def(
     name: &str,
     parameters: Parameters,
     body: Vec<Stmt>,
@@ -326,7 +326,7 @@ pub(crate) fn function_def(
 
 /// Creates a statement to assign a string literal to an object's attribute.
 /// e.g., `obj.attr = "value"`
-pub(crate) fn set_string_attribute(obj_name: &str, attr_name: &str, value: &str) -> Stmt {
+pub fn set_string_attribute(obj_name: &str, attr_name: &str, value: &str) -> Stmt {
     assign(
         vec![expressions::attribute(
             expressions::name(obj_name, ExprContext::Load),
@@ -339,7 +339,7 @@ pub(crate) fn set_string_attribute(obj_name: &str, attr_name: &str, value: &str)
 
 /// Creates a statement to assign a list of string literals to an object's attribute.
 /// e.g., `obj.attr = ["item1", "item2", "item3"]`
-pub(crate) fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> Stmt {
+pub fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> Stmt {
     let list_elements: Vec<Expr> = values
         .iter()
         .map(|value| expressions::string_literal(value))
@@ -355,7 +355,7 @@ pub(crate) fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str
 }
 
 /// Create a for loop statement
-pub(crate) fn for_loop(target: &str, iter: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
+pub fn for_loop(target: &str, iter: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
     Stmt::For(ruff_python_ast::StmtFor {
         node_index: AtomicNodeIndex::NONE,
         target: Box::new(expressions::name(target, ExprContext::Store)),
@@ -368,7 +368,7 @@ pub(crate) fn for_loop(target: &str, iter: Expr, body: Vec<Stmt>, orelse: Vec<St
 }
 
 /// Create an if statement
-pub(crate) fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
+pub fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
     Stmt::If(ruff_python_ast::StmtIf {
         node_index: AtomicNodeIndex::NONE,
         test: Box::new(condition),
@@ -388,7 +388,7 @@ pub(crate) fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> St
 }
 
 /// Create a subscript assignment statement: target[key] = value
-pub(crate) fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
+pub fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
     Stmt::Assign(StmtAssign {
         node_index: AtomicNodeIndex::NONE,
         targets: vec![expressions::subscript(target, key, ExprContext::Store)],
@@ -412,7 +412,7 @@ pub(crate) fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
 /// let except_handler = ExceptHandler::ExceptHandler(...);
 /// let stmt = try_stmt(try_body, vec![except_handler], vec![], vec![]);
 /// ```
-pub(crate) fn try_stmt(
+pub fn try_stmt(
     body: Vec<Stmt>,
     handlers: Vec<ExceptHandler>,
     orelse: Vec<Stmt>,

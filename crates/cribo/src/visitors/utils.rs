@@ -4,7 +4,7 @@ use ruff_python_ast::{Expr, ExprList, ExprName, ExprStringLiteral, ExprTuple};
 
 /// Result of extracting exports from an expression
 #[derive(Debug)]
-pub(crate) struct ExtractedExports {
+pub struct ExtractedExports {
     /// The list of exported names if successfully extracted
     pub names: Option<Vec<String>>,
     /// Whether the expression contains dynamic elements
@@ -17,7 +17,7 @@ pub(crate) struct ExtractedExports {
 /// Returns:
 /// - `ExtractedExports` with names if all elements are string literals
 /// - `ExtractedExports` with `is_dynamic=true` if any element is not a string literal
-pub(crate) fn extract_string_list_from_expr(expr: &Expr) -> ExtractedExports {
+pub fn extract_string_list_from_expr(expr: &Expr) -> ExtractedExports {
     match expr {
         Expr::List(ExprList { elts, .. }) | Expr::Tuple(ExprTuple { elts, .. }) => {
             extract_strings_from_elements(elts)
@@ -66,7 +66,7 @@ fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
 ///
 /// Returns a vector of unique variable names found in the target.
 /// The names are sorted and deduplicated.
-pub(crate) fn collect_names_from_assignment_target(expr: &Expr) -> Vec<&str> {
+pub fn collect_names_from_assignment_target(expr: &Expr) -> Vec<&str> {
     let mut names = Vec::new();
     collect_names_recursive(expr, &mut names);
     names.sort_unstable();

@@ -97,7 +97,7 @@ fn make_params(names: &[&str]) -> Parameters {
 /// - _`CriboModule` class definition
 /// - _Cribo class definition
 /// - _cribo instance creation
-pub(crate) fn generate_cribo_proxy() -> Vec<Stmt> {
+pub fn generate_cribo_proxy() -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
     // import sys as _sys

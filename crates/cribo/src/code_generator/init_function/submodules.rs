@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// Phase responsible for setting up submodules as module attributes
-pub(crate) struct SubmoduleHandlingPhase;
+pub struct SubmoduleHandlingPhase;
 
 impl SubmoduleHandlingPhase {
     /// Set up submodules as attributes on this module

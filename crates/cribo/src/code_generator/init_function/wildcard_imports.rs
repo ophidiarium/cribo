@@ -10,7 +10,7 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{code_generator::bundler::Bundler, types::FxIndexSet};
 
 /// Phase responsible for processing wildcard imports
-pub(crate) struct WildcardImportPhase;
+pub struct WildcardImportPhase;
 
 impl WildcardImportPhase {
     /// Process wildcard imports and add module attributes

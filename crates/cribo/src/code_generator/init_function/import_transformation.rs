@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Phase responsible for transforming imports in the module AST
-pub(crate) struct ImportTransformationPhase;
+pub struct ImportTransformationPhase;
 
 impl ImportTransformationPhase {
     /// Transform imports using `RecursiveImportTransformer` and add global declarations

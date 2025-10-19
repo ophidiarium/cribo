@@ -26,7 +26,7 @@ use crate::{
 
 /// Unique identifier for an item within a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ItemId(u32);
+pub struct ItemId(u32);
 
 impl ItemId {
     pub(crate) const fn new(id: u32) -> Self {
@@ -36,7 +36,7 @@ impl ItemId {
 
 /// Type of Python item (statement/definition)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ItemType {
+pub enum ItemType {
     /// Function definition
     FunctionDef { name: String },
     /// Class definition
@@ -77,7 +77,7 @@ impl ItemType {
 
 /// Variable state tracking
 #[derive(Debug, Clone)]
-pub(crate) struct VarState {
+pub struct VarState {
     /// Items that write to this variable
     pub writers: Vec<ItemId>,
     /// Items that read this variable
@@ -86,7 +86,7 @@ pub(crate) struct VarState {
 
 /// Data about a Python item (statement/definition)
 #[derive(Debug, Clone)]
-pub(crate) struct ItemData {
+pub struct ItemData {
     /// Type of this item
     pub item_type: ItemType,
     /// Variables declared by this item
@@ -118,7 +118,7 @@ pub(crate) struct ItemData {
 
 /// Fine-grained dependency graph for a single module
 #[derive(Debug)]
-pub(crate) struct ModuleDepGraph {
+pub struct ModuleDepGraph {
     /// Module identifier
     pub module_id: ModuleId,
     /// Module name (e.g., "utils.helpers")
@@ -270,7 +270,7 @@ impl ModuleDepGraph {
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
 #[derive(Debug)]
-pub(crate) struct CriboGraph {
+pub struct CriboGraph {
     /// All modules in the graph
     pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping

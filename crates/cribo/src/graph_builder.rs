@@ -18,7 +18,7 @@ struct ForStmtContext<'a, 'b> {
 }
 
 /// Builds a `ModuleDepGraph` from a Python AST
-pub(crate) struct GraphBuilder<'a> {
+pub struct GraphBuilder<'a> {
     graph: &'a mut ModuleDepGraph,
     current_scope: ScopeType,
     /// Track import aliases for importlib detection

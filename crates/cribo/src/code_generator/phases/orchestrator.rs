@@ -28,7 +28,7 @@ use crate::{
 ///
 /// With the stateless phase design, the orchestrator can now sequentially
 /// execute each phase without violating Rust's borrow checker rules.
-pub(crate) struct PhaseOrchestrator;
+pub struct PhaseOrchestrator;
 
 impl PhaseOrchestrator {
     /// Execute the complete bundling process using the phase-based architecture

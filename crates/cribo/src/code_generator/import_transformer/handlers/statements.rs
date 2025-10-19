@@ -5,7 +5,7 @@ use ruff_python_ast::{
 
 use crate::code_generator::import_transformer::RecursiveImportTransformer;
 
-pub(crate) struct StatementsHandler;
+pub struct StatementsHandler;
 
 impl StatementsHandler {
     pub(in crate::code_generator::import_transformer) fn handle_ann_assign(

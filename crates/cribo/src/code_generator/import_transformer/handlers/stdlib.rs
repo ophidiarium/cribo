@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Handle stdlib import transformations
-pub(crate) struct StdlibHandler;
+pub struct StdlibHandler;
 
 impl StdlibHandler {
     /// Check if this is a stdlib import that should be normalized

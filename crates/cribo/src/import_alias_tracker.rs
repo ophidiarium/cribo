@@ -8,7 +8,7 @@ use crate::{resolver::ModuleId, types::FxIndexMap};
 
 /// Enhanced information about a from-import that tracks both the original name and alias
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct EnhancedFromImport {
+pub struct EnhancedFromImport {
     /// The module being imported from (e.g., "requests.compat" in `from requests.compat import
     /// ...`)
     pub module: String,
@@ -21,7 +21,7 @@ pub(crate) struct EnhancedFromImport {
 
 /// Tracks import alias information across modules
 #[derive(Debug, Default)]
-pub(crate) struct ImportAliasTracker {
+pub struct ImportAliasTracker {
     /// Maps (`module_id`, `local_name`) to the enhanced import information
     imports: FxIndexMap<(ModuleId, String), EnhancedFromImport>,
 }

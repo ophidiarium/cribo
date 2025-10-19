@@ -5,13 +5,13 @@ use cow_utils::CowUtils;
 use crate::python::module_path;
 
 /// Convert a relative path to a Python module name, handling .py extension and __init__.py
-pub(crate) fn module_name_from_relative(relative_path: &Path) -> Option<String> {
+pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
     module_path::module_name_from_relative(relative_path)
 }
 
 /// Normalize line endings to LF (\n) for cross-platform consistency
 /// This ensures reproducible builds regardless of the platform where bundling occurs
-pub(crate) fn normalize_line_endings(content: &str) -> String {
+pub fn normalize_line_endings(content: &str) -> String {
     // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
     content
         .cow_replace("\r\n", "\n")
@@ -21,7 +21,7 @@ pub(crate) fn normalize_line_endings(content: &str) -> String {
 
 /// Check if a module name represents an __init__ module
 /// Returns true for both bare "__init__" and dotted forms like "pkg.__init__"
-pub(crate) fn is_init_module(module_name: &str) -> bool {
+pub fn is_init_module(module_name: &str) -> bool {
     module_path::is_init_module_name(module_name)
 }
 

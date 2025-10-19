@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Phase responsible for adding initialization guards and globals lifting
-pub(crate) struct InitializationPhase;
+pub struct InitializationPhase;
 
 impl InitializationPhase {
     /// Execute the initialization phase

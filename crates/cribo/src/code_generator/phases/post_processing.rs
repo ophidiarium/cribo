@@ -14,7 +14,7 @@ use crate::{
 
 /// Post-processing phase handler (stateless)
 #[derive(Default)]
-pub(crate) struct PostProcessingPhase;
+pub struct PostProcessingPhase;
 
 impl PostProcessingPhase {
     /// Create a new post-processing phase

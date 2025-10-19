@@ -25,7 +25,7 @@ struct CycleAnalysisResult {
 }
 
 /// Dependency analyzer for module and symbol dependencies
-pub(crate) struct DependencyAnalyzer;
+pub struct DependencyAnalyzer;
 
 impl DependencyAnalyzer {
     /// Analyze circular dependencies and classify them

@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Phase responsible for analyzing imports in the module
-pub(crate) struct ImportAnalysisPhase;
+pub struct ImportAnalysisPhase;
 
 impl ImportAnalysisPhase {
     /// Analyze all imports in the module and populate tracking state

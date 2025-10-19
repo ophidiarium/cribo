@@ -10,7 +10,7 @@ use crate::{
 
 /// Tree shaker that removes unused symbols from modules
 #[derive(Debug)]
-pub(crate) struct TreeShaker<'a> {
+pub struct TreeShaker<'a> {
     /// Centralized module resolver for import resolution
     resolver: &'a ModuleResolver,
     /// Module items from semantic analysis (reused from `CriboGraph`)

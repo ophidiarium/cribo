@@ -22,7 +22,7 @@ use crate::{
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
 #[derive(Debug)]
-pub(crate) struct SemanticBundler {
+pub struct SemanticBundler {
     /// Module-specific semantic models
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
     /// Global symbol registry with full semantic information
@@ -336,7 +336,7 @@ impl<'a> SemanticModelBuilder<'a> {
 /// Module semantic analyzer that provides static methods for symbol extraction
 /// Semantic information for a single module
 #[derive(Debug)]
-pub(crate) struct ModuleSemanticInfo {
+pub struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
     /// Symbol conflicts detected in this module
@@ -348,7 +348,7 @@ pub(crate) struct ModuleSemanticInfo {
 
 /// Global symbol registry across all modules with semantic information
 #[derive(Debug)]
-pub(crate) struct SymbolRegistry {
+pub struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
     /// Renames: (`ModuleId`, `OriginalName`) -> `NewName`
@@ -413,14 +413,14 @@ impl SymbolRegistry {
 }
 
 /// Represents a symbol conflict across modules
-pub(crate) struct SymbolConflict {
+pub struct SymbolConflict {
     pub symbol: String,
     pub modules: Vec<ModuleId>,
 }
 
 /// Information about module-level global usage
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ModuleGlobalInfo {
+pub struct ModuleGlobalInfo {
     /// Variables that exist at module level
     pub module_level_vars: FxIndexSet<String>,
 

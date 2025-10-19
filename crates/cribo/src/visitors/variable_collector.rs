@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Variable collection visitor
-pub(crate) struct VariableCollector {
+pub struct VariableCollector {
     /// Collected data
     collected: CollectedVariables,
     /// Current scope stack

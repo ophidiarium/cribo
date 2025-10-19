@@ -8,11 +8,11 @@ use ruff_text_size::TextRange;
 use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Represents a scope path in the AST (e.g., module.function.class)
-pub(crate) type ScopePath = Vec<String>;
+pub type ScopePath = Vec<String>;
 
 /// Information about a defined symbol in the code
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SymbolInfo {
+pub struct SymbolInfo {
     /// The name of the symbol
     pub name: String,
     /// The type of symbol (function, class, variable, etc.)
@@ -29,7 +29,7 @@ pub(crate) struct SymbolInfo {
 
 /// Different kinds of symbols that can be defined
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SymbolKind {
+pub enum SymbolKind {
     /// A function definition
     Function {
         /// Decorator names applied to the function
@@ -54,7 +54,7 @@ pub(crate) enum SymbolKind {
 
 /// Collection of symbols found in a module
 #[derive(Debug, Default)]
-pub(crate) struct CollectedSymbols {
+pub struct CollectedSymbols {
     /// Global symbols mapped by name
     pub global_symbols: FxIndexMap<String, SymbolInfo>,
     /// Symbols organized by their scope
@@ -65,7 +65,7 @@ pub(crate) struct CollectedSymbols {
 
 /// Information about variable usage in the code
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct VariableUsage {
+pub struct VariableUsage {
     /// The name of the variable
     pub name: String,
     /// How the variable is being used
@@ -78,7 +78,7 @@ pub(crate) struct VariableUsage {
 
 /// Different ways a variable can be used
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UsageType {
+pub enum UsageType {
     /// Reading the value of a variable
     Read,
     /// Assigning a new value to a variable
@@ -93,7 +93,7 @@ pub(crate) enum UsageType {
 
 /// Collection of variable usage information
 #[derive(Debug, Default)]
-pub(crate) struct CollectedVariables {
+pub struct CollectedVariables {
     /// All variable usages in the module
     pub usages: Vec<VariableUsage>,
     /// Functions and their global variable declarations
@@ -104,7 +104,7 @@ pub(crate) struct CollectedVariables {
 
 /// Information about module exports
 #[derive(Debug, Clone)]
-pub(crate) struct ExportInfo {
+pub struct ExportInfo {
     /// Explicitly exported names via __all__ (None means export all public symbols)
     pub exported_names: Option<Vec<String>>,
     /// Whether __all__ is modified dynamically
@@ -113,7 +113,7 @@ pub(crate) struct ExportInfo {
 
 /// Information about an unused import
 #[derive(Debug, Clone)]
-pub(crate) struct UnusedImportInfo {
+pub struct UnusedImportInfo {
     /// The imported name that is unused
     pub name: String,
     /// The module it was imported from
@@ -122,7 +122,7 @@ pub(crate) struct UnusedImportInfo {
 
 /// Type of circular dependency
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum CircularDependencyType {
+pub enum CircularDependencyType {
     /// Can be resolved by moving imports inside functions
     FunctionLevel,
     /// May be resolvable depending on usage patterns
@@ -135,7 +135,7 @@ pub(crate) enum CircularDependencyType {
 
 /// Resolution strategy for circular dependencies
 #[derive(Debug, Clone)]
-pub(crate) enum ResolutionStrategy {
+pub enum ResolutionStrategy {
     LazyImport,
     FunctionScopedImport,
     ModuleSplit,
@@ -144,7 +144,7 @@ pub(crate) enum ResolutionStrategy {
 
 /// A group of modules forming a circular dependency
 #[derive(Debug, Clone)]
-pub(crate) struct CircularDependencyGroup {
+pub struct CircularDependencyGroup {
     pub modules: Vec<crate::resolver::ModuleId>,
     pub cycle_type: CircularDependencyType,
     pub suggested_resolution: ResolutionStrategy,
@@ -152,7 +152,7 @@ pub(crate) struct CircularDependencyGroup {
 
 /// Comprehensive analysis of circular dependencies
 #[derive(Debug, Clone)]
-pub(crate) struct CircularDependencyAnalysis {
+pub struct CircularDependencyAnalysis {
     /// Circular dependencies that can be resolved through code transformations
     pub resolvable_cycles: Vec<CircularDependencyGroup>,
     /// Circular dependencies that cannot be resolved

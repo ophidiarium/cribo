@@ -9,7 +9,7 @@ use ruff_python_ast::AtomicNodeIndex;
 
 /// Context for tracking transformations during bundling
 #[derive(Debug)]
-pub(crate) struct TransformationContext {
+pub struct TransformationContext {
     /// Counter for assigning new node indices
     next_index: AtomicU32,
     /// Track which transformations were applied
@@ -18,14 +18,14 @@ pub(crate) struct TransformationContext {
 
 /// Record of a transformation applied to a node
 #[derive(Debug, Clone)]
-pub(crate) struct TransformationRecord {
+pub struct TransformationRecord {
     /// Type of transformation applied
     pub transformation_type: TransformationType,
 }
 
 /// Types of transformations that can be applied to nodes
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TransformationType {
+pub enum TransformationType {
     /// New node created during transformation
     NewNode { reason: String },
 }
@@ -85,7 +85,7 @@ impl Default for TransformationContext {
 
 /// Statistics about transformations applied
 #[derive(Debug, Default)]
-pub(crate) struct TransformationStats {
+pub struct TransformationStats {
     pub total_transformations: usize,
     pub new_nodes: usize,
 }

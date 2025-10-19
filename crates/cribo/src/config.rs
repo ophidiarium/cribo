@@ -85,7 +85,7 @@ impl Combine for Config {
 
 /// Configuration values from environment variables with CRIBO_ prefix
 #[derive(Debug, Clone, Default)]
-pub(crate) struct EnvConfig {
+pub struct EnvConfig {
     pub src: Option<Vec<PathBuf>>,
     pub known_first_party: Option<IndexSet<String>>,
     pub known_third_party: Option<IndexSet<String>>,

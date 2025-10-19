@@ -20,11 +20,11 @@ use ruff_python_ast::{
 };
 
 /// Number of indices reserved per module (1 million)
-pub(crate) const MODULE_INDEX_RANGE: u32 = 1_000_000;
+pub const MODULE_INDEX_RANGE: u32 = 1_000_000;
 
 /// Result of indexing an AST module
 #[derive(Debug)]
-pub(crate) struct IndexedAst {
+pub struct IndexedAst {
     /// The total number of nodes indexed
     pub node_count: u32,
 }
@@ -236,7 +236,7 @@ impl Transformer for IndexingVisitor {
 }
 
 /// Index all nodes in a module AST with a specific module ID
-pub(crate) fn index_module_with_id(module: &mut ModModule, module_id: u32) -> IndexedAst {
+pub fn index_module_with_id(module: &mut ModModule, module_id: u32) -> IndexedAst {
     let base_index = module_id * MODULE_INDEX_RANGE;
     let visitor = IndexingVisitor::new(base_index);
 

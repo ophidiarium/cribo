@@ -43,7 +43,7 @@ pub(super) struct BundledImportContext<'a> {
 }
 
 /// Bundler orchestrates the code generation phase of bundling
-pub(crate) struct Bundler<'a> {
+pub struct Bundler<'a> {
     /// Map from module ID to synthetic name for wrapper modules
     pub(crate) module_synthetic_names: FxIndexMap<ModuleId, String>,
     /// Map from module ID to init function name (for wrapper modules)

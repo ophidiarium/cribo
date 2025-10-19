@@ -3,7 +3,7 @@ use ruff_python_ast::{ExprContext, Stmt, StmtImportFrom};
 use crate::ast_builder::{expressions, statements};
 
 /// Handle submodule import transformations
-pub(crate) struct SubmoduleHandler;
+pub struct SubmoduleHandler;
 
 impl SubmoduleHandler {
     /// Handle from-import submodules

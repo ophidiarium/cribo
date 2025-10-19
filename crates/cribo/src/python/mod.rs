@@ -4,5 +4,5 @@
 //! discovery and classification. Other parts of the codebase should prefer
 //! using these helpers instead of ad-hoc string checks.
 
-pub(crate) mod constants;
-pub(crate) mod module_path;
+pub mod constants;
+pub mod module_path;

@@ -12,7 +12,7 @@ use super::utils::extract_string_list_from_expr;
 use crate::analyzers::types::ExportInfo;
 
 /// Visitor that collects export information from a module
-pub(crate) struct ExportCollector {
+pub struct ExportCollector {
     /// Collected export information
     export_info: ExportInfo,
     /// Track if we've seen dynamic __all__ modifications

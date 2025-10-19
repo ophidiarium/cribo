@@ -9,7 +9,7 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Symbol analyzer for processing collected symbol data
-pub(crate) struct SymbolAnalyzer;
+pub struct SymbolAnalyzer;
 
 impl SymbolAnalyzer {
     /// Collect global symbols from modules (matching bundler's `collect_global_symbols`)

@@ -31,7 +31,7 @@ fn sanitize_var_name(name: &str) -> String {
 }
 
 /// Transformer that lifts module-level globals to true global scope
-pub(crate) struct GlobalsLifter {
+pub struct GlobalsLifter {
     /// Map from original name to lifted name
     pub lifted_names: FxIndexMap<String, String>,
 }
@@ -897,7 +897,7 @@ fn transform_introspection_in_stmt(
 }
 
 /// Transform `globals()` calls in a statement
-pub(crate) fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
+pub fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion enabled (globals recurses into all scopes)
     transform_introspection_in_stmt(stmt, Introspection::Globals, true, module_var_name);
 }
@@ -906,7 +906,7 @@ pub(crate) fn transform_globals_in_stmt(stmt: &mut Stmt, module_var_name: &str) 
 /// This version does NOT transform `globals()` inside function bodies, since those functions
 /// will be called later when `self` is not in scope. However, it DOES transform
 /// `globals()` in module-level code (outside functions).
-pub(crate) fn transform_globals_in_stmt_wrapper(stmt: &mut Stmt, module_var_name: &str) {
+pub fn transform_globals_in_stmt_wrapper(stmt: &mut Stmt, module_var_name: &str) {
     match stmt {
         Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
             // For functions and classes, we only want to transform the "header"
@@ -965,7 +965,7 @@ impl GlobalsLifter {
 }
 
 /// Transform `locals()` calls to `vars(module_var)` in a statement
-pub(crate) fn transform_locals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
+pub fn transform_locals_in_stmt(stmt: &mut Stmt, module_var_name: &str) {
     // Use unified function with recursion disabled (locals stops at function/class boundaries)
     transform_introspection_in_stmt(stmt, Introspection::Locals, false, module_var_name);
 }

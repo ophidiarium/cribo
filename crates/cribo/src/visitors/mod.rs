@@ -7,16 +7,16 @@ mod export_collector;
 mod import_discovery;
 mod local_var_collector;
 mod side_effect_detector;
-pub(crate) mod symbol_collector;
+pub mod symbol_collector;
 mod symbol_usage_visitor;
-pub(crate) mod utils;
+pub mod utils;
 mod variable_collector;
 
-pub(crate) use export_collector::ExportCollector;
-pub(crate) use import_discovery::{
+pub use export_collector::ExportCollector;
+pub use import_discovery::{
     DiscoveredImport, ImportDiscoveryVisitor, ImportLocation, ImportType, ScopeElement,
 };
-pub(crate) use local_var_collector::LocalVarCollector;
-pub(crate) use side_effect_detector::{ExpressionSideEffectDetector, SideEffectDetector};
-pub(crate) use symbol_usage_visitor::SymbolUsageVisitor;
-pub(crate) use variable_collector::VariableCollector;
+pub use local_var_collector::LocalVarCollector;
+pub use side_effect_detector::{ExpressionSideEffectDetector, SideEffectDetector};
+pub use symbol_usage_visitor::SymbolUsageVisitor;
+pub use variable_collector::VariableCollector;
