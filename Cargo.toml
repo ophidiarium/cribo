@@ -153,7 +153,9 @@ needless_for_each               = "warn"
 negative_feature_names          = "warn"
 path_buf_push_overwrite         = "warn"
 ptr_as_ptr                      = "warn"
-redundant_pub_crate             = "warn"
+# redundant_pub_crate disabled due to conflict with unreachable-pub lint
+# When a module is pub but items inside are pub(crate), both lints fire incorrectly
+# redundant_pub_crate             = "warn"
 ref_binding_to_reference        = "warn"
 ref_option_ref                  = "warn"
 semicolon_if_nothing_returned   = "warn"
