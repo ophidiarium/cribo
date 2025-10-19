@@ -1900,10 +1900,8 @@ impl BundleOrchestrator {
                 ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
             // Prepare module ASTs for semantic analysis
-            let module_ast_map: FxIndexMap<ModuleId, &ModModule> = module_asts
-                .iter()
-                .map(|(id, ast, _)| (*id, ast as &ModModule))
-                .collect();
+            let module_ast_map: FxIndexMap<ModuleId, &ModModule> =
+                module_asts.iter().map(|(id, ast, _)| (*id, ast)).collect();
 
             // Analyze movable imports using semantic analysis
             let movable_imports = import_rewriter.analyze_movable_imports_semantic(

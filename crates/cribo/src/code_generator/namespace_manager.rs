@@ -219,7 +219,7 @@ pub(super) fn transform_namespace_package_imports(
 /// This function generates AST statements to populate a namespace object with symbols
 /// from a module, handling tree-shaking, re-exports, and symbol renaming.
 pub(crate) fn populate_namespace_with_module_symbols(
-    ctx: &mut NamespacePopulationContext,
+    ctx: &mut NamespacePopulationContext<'_>,
     target_name: &str,
     module_id: ModuleId,
     symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -820,7 +820,7 @@ pub(crate) fn populate_namespace_with_module_symbols(
 /// by extracting the logic for checking if a symbol is already handled via module
 /// attribute assignments.
 fn is_symbol_from_inlined_submodule(
-    ctx: &NamespacePopulationContext,
+    ctx: &NamespacePopulationContext<'_>,
     module_name: &str,
     symbol_name: &str,
 ) -> bool {
@@ -884,7 +884,7 @@ fn is_symbol_from_inlined_submodule(
 /// and returns the source module name and original symbol name if it's a wrapper module.
 /// This handles import aliases correctly (e.g., `from .base import YAMLObject as YO`).
 fn find_symbol_source_module(
-    ctx: &NamespacePopulationContext,
+    ctx: &NamespacePopulationContext<'_>,
     module_name: &str,
     symbol_name: &str,
 ) -> Option<(String, String)> {
