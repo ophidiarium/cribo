@@ -49,8 +49,8 @@ etcetera  = "0.10"
 regex     = "1.11.1"
 
 # Python bindings (optional)
-pyo3              = "0.26"
-pyo3-build-config = "0.26"
+pyo3              = "0.27"
+pyo3-build-config = "0.27"
 
 # Testing
 cargo-nextest     = "0.9.104"
