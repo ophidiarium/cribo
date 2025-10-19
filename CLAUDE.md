@@ -38,30 +38,20 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 
 **THE REAL CRITICAL PATH: How Modules Get Bundled**
 
-1. **Orchestration Layer** → `crates/cribo/src/orchestrator.rs`
-   - `bundle_to_string()` or `bundle()` → Entry points
-   - `bundle_core()` → Module discovery and loading
-   - `emit_static_bundle()` → **Calls the REAL orchestrator**
+1. **Application Orchestration** → `crates/cribo/src/orchestrator.rs::BundleOrchestrator`
+   - `bundle()` / `bundle_to_string()` → Entry points
+   - `bundle_core()` → Module discovery, parsing, dependency resolution
+   - `emit_static_bundle()` → Delegates to PhaseOrchestrator
 
-2. **🔥 THE ACTUAL BUNDLER** → `crates/cribo/src/code_generator/bundler.rs::bundle_modules()`
-   This is THE function that orchestrates everything:
-
-   ```rust
-   pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
-       // 1. Initialize bundler settings
-       self.initialize_bundler(params);
-
-       // 2. Prepare modules (trim imports, index ASTs)
-       let modules = self.prepare_modules(params);
-
-       // 3. Classify modules (THE critical decision)
-       let classifier = ModuleClassifier::new(...);
-       let classification = classifier.classify_modules(&modules);
-
-       // 4. Process modules in dependency order
-       // This is where inlining vs wrapping happens!
-   }
-   ```
+2. **🔥 Phase-Based Bundling** → `crates/cribo/src/code_generator/phases/orchestrator.rs::PhaseOrchestrator`
+   Coordinates 9 bundling phases:
+   - `PhaseOrchestrator::bundle(&mut bundler, &params)` → Main entry
+   - `InitializationPhase` → Setup, future imports
+   - `PreparationPhase` → Trim imports, index ASTs
+   - `ClassificationPhase` → Inlinable vs wrapper decision
+   - `ProcessingPhase` → Module emission in dependency order
+   - `EntryModulePhase` → Special entry module handling
+   - `PostProcessingPhase` → Namespace attachments, proxies
 
 3. **Module Classification** → `crates/cribo/src/analyzers/module_classifier.rs::classify_modules()`
 
@@ -74,16 +64,13 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    ```
 
 4. **Side Effect Detection** → `crates/cribo/src/visitors/side_effect_detector.rs`
-   Key triggers that force wrapping:
-   - `visit_expr()` → `Expr::Call(_)` = SIDE EFFECT
-   - `visit_stmt()` → `Stmt::ClassDef` with `metaclass` = SIDE EFFECT
-   - `visit_expr()` → `Expr::Lambda(_)` = SIDE EFFECT
-   - `visit_stmt()` → `Stmt::Expr` (non-literals) = SIDE EFFECT
+   - `visit_expr()` → `Expr::Call(_)`, `Expr::Lambda(_)` = SIDE EFFECT
+   - `visit_stmt()` → `Stmt::ClassDef` with `metaclass`, `Stmt::Expr` (non-literals) = SIDE EFFECT
 
-5. **Module Processing Loop** (inside `bundle_modules()`)
-   - Processes modules in topological order from dependency graph
-   - For circular dependencies: Two-phase emission (declarations then init)
-   - For each module: Either inline content OR create wrapper function
+5. **Module Processing** → `crates/cribo/src/code_generator/phases/processing.rs::ProcessingPhase`
+   - Processes modules in topological order
+   - Two-phase emission for circular dependencies
+   - Routes to inlinable or wrapper handlers
 
 #### 💀 The ACTUAL Code Generation Functions
 
@@ -174,6 +161,15 @@ CriboGraph {
 }
 ```
 
+**Phase Modules** (`crates/cribo/src/code_generator/phases/`)
+
+- `orchestrator.rs` → PhaseOrchestrator coordinates all phases
+- `initialization.rs` → InitializationPhase: setup, future imports
+- `classification.rs` → ClassificationPhase: inlinable vs wrapper
+- `processing.rs` → ProcessingPhase: main module emission loop
+- `entry_module.rs` → EntryModulePhase: special entry handling
+- `post_processing.rs` → PostProcessingPhase: namespaces, proxies
+
 #### 🐛 Common Issues & Where to Debug
 
 **"Module unexpectedly wrapped"**
@@ -182,7 +178,7 @@ CriboGraph {
 → Look for "has side effects - using wrapper" in debug logs
 
 **"Circular import error"**
-→ `crates/cribo/src/code_generator/bundler.rs::bundle_modules()` - check the cycle group processing
+→ `crates/cribo/src/code_generator/phases/processing.rs::process_circular_group()`
 → `crates/cribo/src/analyzers/dependency_analyzer.rs::analyze_circular_dependencies()`
 → Look for `CircularDependencyType::ModuleConstants` (unresolvable)
 
@@ -192,19 +188,19 @@ CriboGraph {
 → Trace which handler was selected in `import_transformer/handlers/`
 
 **"Symbol undefined after bundling"**
-→ Check if module was processed: `crates/cribo/src/code_generator/bundler.rs::bundle_modules()` processing loop
-→ For tree-shaking: `crates/cribo/src/tree_shaking.rs::mark_used_symbols()`
-→ Verify module wasn't skipped in topological order
+→ `crates/cribo/src/code_generator/phases/processing.rs::execute()` - check module processing
+→ `crates/cribo/src/tree_shaking.rs::mark_used_symbols()` - tree-shaking analysis
+→ Verify topological sort order
 
 **"Global variable not working in wrapper"**
-→ `crates/cribo/src/code_generator/bundler.rs::process_wrapper_module()` - check global lifting
-→ `crates/cribo/src/analyzers/global_analyzer.rs::analyze()` - was global detected?
-→ `crates/cribo/src/code_generator/module_transformer.rs::transform_module_with_globals()` - was it lifted?
+→ `crates/cribo/src/code_generator/bundler.rs::process_wrapper_module()`
+→ `crates/cribo/src/analyzers/global_analyzer.rs::analyze()`
+→ `crates/cribo/src/code_generator/module_transformer.rs::transform_module_with_globals()`
 
 **"Module not bundled at all"**
-→ `crates/cribo/src/orchestrator.rs::bundle_core()` - was module discovered?
-→ `crates/cribo/src/code_generator/bundler.rs::bundle_modules()` - check `processed_modules` set
-→ Check topological sort excluded it
+→ `crates/cribo/src/orchestrator.rs::bundle_core()` - module discovery
+→ `crates/cribo/src/code_generator/phases/orchestrator.rs::PhaseOrchestrator::bundle()` - orchestration
+→ Check topological sort
 
 #### 🔧 Debugging Commands
 

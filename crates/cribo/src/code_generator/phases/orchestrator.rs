@@ -1,7 +1,7 @@
-//! Bundle Orchestrator
+//! Phase Orchestrator
 //!
-//! This module provides the high-level orchestration of all bundling phases.
-//! The `BundleOrchestrator` coordinates the execution of individual phases
+//! This module provides the orchestration of code generation phases.
+//! The `PhaseOrchestrator` coordinates the execution of individual bundling phases
 //! and manages data flow between them.
 
 use ruff_python_ast::{ModModule, Stmt};
@@ -24,13 +24,13 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// High-level orchestrator for the bundling process
+/// Phase orchestrator for the code generation process
 ///
 /// With the stateless phase design, the orchestrator can now sequentially
 /// execute each phase without violating Rust's borrow checker rules.
-pub struct BundleOrchestrator;
+pub struct PhaseOrchestrator;
 
-impl BundleOrchestrator {
+impl PhaseOrchestrator {
     /// Execute the complete bundling process using the phase-based architecture
     ///
     /// This method orchestrates all phases of bundling:

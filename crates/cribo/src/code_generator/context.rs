@@ -45,7 +45,9 @@ pub struct SemanticContext<'a> {
     pub semantic_bundler: &'a SemanticBundler,
 }
 
-/// Parameters for `bundle_modules` function
+/// Parameters for the bundling process
+///
+/// Used by `PhaseOrchestrator::bundle()` to orchestrate all bundling phases.
 #[derive(Debug)]
 pub struct BundleParams<'a> {
     pub modules: &'a [(crate::resolver::ModuleId, ModModule, String)], // (id, ast, content_hash)
@@ -63,8 +65,8 @@ pub struct BundleParams<'a> {
 }
 
 // ==================== Phase Result Types ====================
-// These types represent the outputs of individual bundling phases
-// to support decomposing the monolithic bundle_modules function.
+// These types represent the outputs of individual bundling phases.
+// They define the data contracts between phases in the PhaseOrchestrator.
 
 /// Result from the initialization phase
 #[derive(Debug, Clone)]

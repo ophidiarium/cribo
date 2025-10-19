@@ -115,7 +115,7 @@ pub struct Bundler<'a> {
     /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
     pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
     /// Reference to the semantic bundler for semantic analysis
-    /// This is set during `bundle_modules` and used by import transformers
+    /// This is set during bundling and used by import transformers
     pub(crate) semantic_bundler: Option<&'a crate::semantic_bundler::SemanticBundler>,
     /// Track which wrapper modules have had their init function emitted (definition + assignment)
     pub(crate) emitted_wrapper_inits: FxIndexSet<ModuleId>,
@@ -1260,24 +1260,6 @@ impl<'a> Bundler<'a> {
         }
 
         modules
-    }
-
-    /// Bundle multiple modules using the hybrid approach
-    ///
-    /// This method now delegates to the `BundleOrchestrator` which coordinates
-    /// all bundling phases. The monolithic implementation has been successfully
-    /// decomposed into 6 testable phases:
-    /// - `InitializationPhase`
-    /// - `ClassificationPhase`
-    /// - `ProcessingPhase`
-    /// - `EntryModulePhase`
-    /// - `PostProcessingPhase`
-    /// - `BundleOrchestrator` (coordination)
-    pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
-        use crate::code_generator::phases::orchestrator::BundleOrchestrator;
-
-        log::info!("Bundling modules using phase-based architecture");
-        BundleOrchestrator::bundle(self, params)
     }
 
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
