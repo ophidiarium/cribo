@@ -7,13 +7,10 @@
 
 use ruff_python_ast::Stmt;
 
-use crate::{
-    code_generator::{
+use crate::code_generator::{
         bundler::Bundler,
         context::{BundleParams, InitializationResult},
-    },
-    types::FxIndexMap,
-};
+    };
 
 /// Initialization phase handler (stateless)
 #[derive(Default)]
@@ -54,26 +51,8 @@ impl InitializationPhase {
         let future_imports = bundler.future_imports.clone();
 
         // Circular modules are already identified in prepare_modules and stored in bundler
-
-        // Find namespace-imported modules
-        // Convert modules to the format expected by find_namespace_imported_modules
-        let mut modules_map = FxIndexMap::default();
-        for (module_id, ast, hash) in params.modules {
-            let path = params
-                .resolver
-                .get_module_path(*module_id)
-                .unwrap_or_else(|| {
-                    let name = params
-                        .resolver
-                        .get_module_name(*module_id)
-                        .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
-                    std::path::PathBuf::from(&name)
-                });
-            modules_map.insert(*module_id, (ast.clone(), path, hash.clone()));
-        }
-
-        bundler.find_namespace_imported_modules(&modules_map);
-        // Namespace imported modules are stored in bundler
+        // Namespace-imported modules are discovered during prepare_modules(); no need to precompute
+        // here.
 
         InitializationResult { future_imports }
     }
