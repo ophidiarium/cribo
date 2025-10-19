@@ -130,7 +130,7 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
     };
 
     let path = Path::new("<bundled>.py");
-    let source_kind = SourceKind::Python(bundled_code.to_string());
+    let source_kind = SourceKind::Python(bundled_code.to_owned());
 
     let result = lint_only(
         path,
@@ -271,8 +271,7 @@ fn test_bundling_fixtures() {
         // Store original execution results for comparison
         let original_stdout = String::from_utf8_lossy(&original_output.stdout)
             .trim()
-            .replace("\r\n", "\n")
-            .clone();
+            .replace("\r\n", "\n");
         let original_exit_code = original_output.status.code().unwrap_or(-1);
 
         // Create temporary directory for output
@@ -327,7 +326,7 @@ fn test_bundling_fixtures() {
             let packages: Vec<String> = content
                 .lines()
                 .filter(|line| !line.trim().is_empty())
-                .map(|line| line.trim().to_string())
+                .map(|line| line.trim().to_owned())
                 .collect();
             let count = packages.len();
             RequirementsData { packages, count }
@@ -352,7 +351,7 @@ fn test_bundling_fixtures() {
             }
             if let Ok(output) = child.wait_with_output()
                 && !output.status.success()
-                && std::env::var("RUST_TEST_VERBOSE").is_ok()
+                && env::var("RUST_TEST_VERBOSE").is_ok()
             {
                 eprintln!("Warning: Bundled code has syntax errors for fixture {fixture_name}");
                 eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
@@ -415,8 +414,7 @@ fn test_bundling_fixtures() {
         // Compare bundled execution to original execution
         let bundled_stdout = String::from_utf8_lossy(&python_output.stdout)
             .trim()
-            .replace("\r\n", "\n")
-            .clone();
+            .replace("\r\n", "\n");
         let python_exit_code = python_output.status.code().unwrap_or(-1);
 
         // For normal tests (not pyfail_ or xfail_), stdout should match exactly
@@ -505,8 +503,7 @@ fn test_bundling_fixtures() {
             status: execution_status,
             stdout: String::from_utf8_lossy(&python_output.stdout)
                 .trim()
-                .replace("\r\n", "\n")
-                .clone(),
+                .replace("\r\n", "\n"),
             stderr: {
                 let full_stderr = String::from_utf8_lossy(&python_output.stderr)
                     .trim()
@@ -550,7 +547,7 @@ fn test_bundling_fixtures() {
     // Fail the test if no fixtures were executed
     let count = FIXTURE_COUNT.load(Ordering::Relaxed);
     // Report applied glob filter and instruct on running a specific fixture
-    let filter = std::env::var("INSTA_GLOB_FILTER").unwrap_or_else(|_| "<none>".to_string());
+    let filter = env::var("INSTA_GLOB_FILTER").unwrap_or_else(|_| "<none>".to_owned());
     assert!(
         count > 0,
         "\x1b[1;31m 🛑 No fixtures tested from `fixtures/` directory.\x1b[0m\n 🧩 Applied glob \
@@ -597,7 +594,7 @@ fn check_for_duplicate_lines_with_result(
 
         // Track line numbers where this line appears
         line_counts
-            .entry(trimmed_line.to_string())
+            .entry(trimmed_line.to_owned())
             .or_default()
             .push(line_num + 1); // Use 1-based line numbers
     }
@@ -637,7 +634,7 @@ fn check_for_duplicate_lines_with_result(
                 occurrences.len(),
                 occurrences
                     .iter()
-                    .map(std::string::ToString::to_string)
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             );

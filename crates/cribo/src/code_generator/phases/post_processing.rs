@@ -18,7 +18,7 @@ pub struct PostProcessingPhase;
 
 impl PostProcessingPhase {
     /// Create a new post-processing phase
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 
@@ -73,7 +73,7 @@ impl PostProcessingPhase {
 
         let entry_pkg = bundler
             .entry_package_name()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .or_else(|| bundler.infer_entry_root_package())
             .unwrap_or_else(|| bundler.entry_module_name.clone());
 
@@ -138,7 +138,7 @@ impl PostProcessingPhase {
 
         // Add aliases for all direct child modules
         let mut seen: FxIndexSet<String> = FxIndexSet::default();
-        let mut added = 0usize;
+        let mut added = 0_usize;
 
         for child in bundler
             .bundled_modules
@@ -150,7 +150,7 @@ impl PostProcessingPhase {
                 if first.is_empty() || first.starts_with('_') {
                     continue;
                 }
-                if !seen.insert(first.to_string()) {
+                if !seen.insert(first.to_owned()) {
                     continue;
                 }
                 if existing_variables.contains(first) {

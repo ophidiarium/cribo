@@ -87,7 +87,7 @@ impl<'a> TransformerState<'a> {
     }
 
     /// Check if this is the entry module
-    pub(super) fn is_entry_module(&self) -> bool {
+    pub(super) const fn is_entry_module(&self) -> bool {
         self.module_id.is_entry()
     }
 }

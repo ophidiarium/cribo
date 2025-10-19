@@ -50,7 +50,7 @@ impl Bundler<'_> {
             let base_name = self.get_unique_name_with_module_suffix(original_name, module_name);
             generate_unique_name(&base_name, ctx.global_symbols)
         } else {
-            original_name.to_string()
+            original_name.to_owned()
         }
     }
 
@@ -106,8 +106,8 @@ impl Bundler<'_> {
         );
         for (idx, stmt) in statements.iter().enumerate() {
             let stmt_desc = match stmt {
-                Stmt::Import(_) => "Import".to_string(),
-                Stmt::ImportFrom(_) => "ImportFrom".to_string(),
+                Stmt::Import(_) => "Import".to_owned(),
+                Stmt::ImportFrom(_) => "ImportFrom".to_owned(),
                 Stmt::Assign(a) if a.targets.len() == 1 => match &a.targets[0] {
                     Expr::Name(n) => format!("Assign(Name({}))", n.id.as_str()),
                     Expr::Attribute(attr) => {
@@ -118,14 +118,14 @@ impl Bundler<'_> {
                                 attr.attr.as_str()
                             )
                         } else {
-                            "Assign(Attribute(complex))".to_string()
+                            "Assign(Attribute(complex))".to_owned()
                         }
                     }
-                    _ => "Assign(Other)".to_string(),
+                    _ => "Assign(Other)".to_owned(),
                 },
                 Stmt::FunctionDef(f) => format!("FunctionDef({})", f.name.as_str()),
                 Stmt::ClassDef(c) => format!("ClassDef({})", c.name.as_str()),
-                _ => "Other".to_string(),
+                _ => "Other".to_owned(),
             };
             log::debug!("Processing statement {idx} in '{module_name}': {stmt_desc}");
             match &stmt {
@@ -141,7 +141,7 @@ impl Bundler<'_> {
                                 .iter()
                                 .map(|a| (
                                     a.name.as_str(),
-                                    a.asname.as_ref().map(ruff_python_ast::Identifier::as_str)
+                                    a.asname.as_ref().map(Identifier::as_str)
                                 ))
                                 .collect::<Vec<_>>()
                         );
@@ -630,7 +630,7 @@ impl Bundler<'_> {
             if !module_renames.contains_key(&name) {
                 // Only create a rename if we haven't seen this symbol yet
                 let renamed_name = self.resolve_renamed_name(&name, module_name, ctx);
-                module_renames.insert(name.clone(), renamed_name.clone());
+                module_renames.insert(name, renamed_name.clone());
                 ctx.global_symbols.insert(renamed_name);
             }
             return;
@@ -653,7 +653,7 @@ impl Bundler<'_> {
 
         // Apply the rename to the LHS
         if let Expr::Name(name_expr) = &mut assign_clone.targets[0] {
-            name_expr.id = renamed_name.clone().into();
+            name_expr.id = renamed_name.into();
         }
 
         // Check if this assignment references a module that will be created as a namespace

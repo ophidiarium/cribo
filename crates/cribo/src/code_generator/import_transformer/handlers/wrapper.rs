@@ -16,7 +16,7 @@ use crate::{
 /// Simplified wrapper context to reduce parameter count
 pub struct WrapperContext<'a> {
     pub bundler: &'a Bundler<'a>,
-    pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+    pub symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     pub is_wrapper_init: bool,
     pub at_module_level: bool,
     pub current_module_name: String,
@@ -144,7 +144,7 @@ impl WrapperHandler {
         import_from: &StmtImportFrom,
         module_name: &str,
         context: &crate::code_generator::bundler::BundledImportContext<'_>,
-        symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
+        symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {
         // Build context for the new handler method
@@ -153,7 +153,7 @@ impl WrapperHandler {
             symbol_renames,
             is_wrapper_init: context.inside_wrapper_init,
             at_module_level: context.at_module_level,
-            current_module_name: context.current_module.unwrap_or("").to_string(),
+            current_module_name: context.current_module.unwrap_or("").to_owned(),
             function_body,
             current_function_used_symbols: context.current_function_used_symbols,
         };
@@ -230,10 +230,7 @@ impl WrapperHandler {
                         expressions::name(attr_var, ExprContext::Load),
                         expressions::call(
                             expressions::name("getattr", ExprContext::Load),
-                            vec![
-                                module_expr.clone(),
-                                expressions::name(attr_var, ExprContext::Load),
-                            ],
+                            vec![module_expr, expressions::name(attr_var, ExprContext::Load)],
                             vec![],
                         ),
                     )],
@@ -271,10 +268,7 @@ impl WrapperHandler {
             // symbol propagation. The module_transformer's add_module_attr_if_exported handles
             // regular cases, but wrapper wildcard imports need explicit handling.
             if inside_wrapper_init && let Some(current_mod) = current_module {
-                let module_var =
-                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                        current_mod,
-                    );
+                let module_var = sanitize_module_name_for_identifier(current_mod);
                 assignments.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
                         &module_var,
@@ -339,10 +333,10 @@ impl WrapperHandler {
 
             // Store mapping: local_name -> (wrapper_module, imported_name)
             wrapper_module_imports.insert(
-                local_name.to_string(),
+                local_name.to_owned(),
                 (
-                    module_name_for_tracking.to_string(),
-                    imported_name.to_string(),
+                    module_name_for_tracking.to_owned(),
+                    imported_name.to_owned(),
                 ),
             );
 
@@ -544,15 +538,11 @@ impl WrapperHandler {
                                 key.clone(),
                                 ExprContext::Store,
                             );
-                            let rhs_self = expressions::subscript(
-                                g_call.clone(),
-                                key.clone(),
-                                ExprContext::Load,
-                            );
+                            let rhs_self = expressions::subscript(g_call, key, ExprContext::Load);
                             let rhs_call = expressions::call(
                                 expressions::attribute(
                                     rhs_self.clone(),
-                                    crate::ast_builder::module_wrapper::MODULE_INIT_ATTR,
+                                    module_wrapper::MODULE_INIT_ATTR,
                                     ExprContext::Load,
                                 ),
                                 vec![rhs_self],
@@ -602,9 +592,9 @@ impl WrapperHandler {
                         .bundler
                         .resolver
                         .get_module_name(module_id)
-                        .unwrap_or_else(|| resolved.to_string())
+                        .unwrap_or_else(|| resolved.to_owned())
                 } else {
-                    resolved.to_string()
+                    resolved.to_owned()
                 };
 
                 Self::track_wrapper_imports(
@@ -619,9 +609,7 @@ impl WrapperHandler {
                     let module_var = if let Some(module_id) = wrapper_module_id {
                         get_module_var_identifier(module_id, transformer.state.bundler.resolver)
                     } else {
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            resolved,
-                        )
+                        sanitize_module_name_for_identifier(resolved)
                     };
 
                     if transformer.state.local_variables.contains(&module_var) {
@@ -768,7 +756,7 @@ impl WrapperHandler {
                     .and_then(|id| bundler.module_exports.get(&id))
                 {
                     // If __all__ is defined and doesn't include this name, it's the submodule
-                    !export_list.contains(&imported_name.to_string())
+                    !export_list.contains(&imported_name.to_owned())
                 } else {
                     // No __all__ defined - check if the submodule actually exists
                     // If it does, we're importing the submodule not an attribute
@@ -1152,7 +1140,7 @@ impl WrapperHandler {
                         if inside_wrapper_init
                             && let Some(curr_id) = bundler.get_module_id(current_module)
                             && let Some(Some(exports)) = bundler.module_exports.get(&curr_id)
-                            && exports.contains(&target_name.as_str().to_string())
+                            && exports.contains(&target_name.as_str().to_owned())
                         {
                             assignments.push(statements::assign_attribute(
                                 SELF_PARAM,
@@ -1169,7 +1157,7 @@ impl WrapperHandler {
                 let canonical_module_name = bundler
                     .get_module_id(module_name)
                     .and_then(|id| bundler.resolver.get_module_name(id))
-                    .unwrap_or_else(|| module_name.to_string());
+                    .unwrap_or_else(|| module_name.to_owned());
 
                 // Prefer submodule variable when importing from a child module inside a wrapper
                 // init
@@ -1255,7 +1243,7 @@ impl WrapperHandler {
                             format!("<expr>.{}", a.attr)
                         }
                     }
-                    _ => "<other>".to_string(),
+                    _ => "<other>".to_owned(),
                 };
 
                 log::debug!(
@@ -1275,7 +1263,7 @@ impl WrapperHandler {
                 if inside_wrapper_init
                     && let Some(curr_id) = bundler.get_module_id(current_module)
                     && let Some(Some(exports)) = bundler.module_exports.get(&curr_id)
-                    && exports.contains(&target_name.as_str().to_string())
+                    && exports.contains(&target_name.as_str().to_owned())
                 {
                     assignments.push(statements::assign_attribute(
                         SELF_PARAM,

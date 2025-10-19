@@ -43,9 +43,9 @@ impl BodyPreparationPhase {
     /// 7. Declares lifted globals
     ///
     /// Returns a context with computed analysis results and the processed body.
-    pub fn execute<'a>(
+    pub(crate) fn execute<'a>(
         bundler: &'a Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
+        ctx: &ModuleTransformContext<'a>,
         ast: &ModModule,
         state: &mut InitFunctionState,
         lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
@@ -149,7 +149,7 @@ impl BodyPreparationPhase {
     /// Get module scope symbols from semantic bundler
     fn get_module_scope_symbols<'a>(
         bundler: &'a Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
+        ctx: &ModuleTransformContext<'a>,
     ) -> Option<&'a FxIndexSet<String>> {
         let semantic_bundler = ctx.semantic_bundler?;
 
@@ -276,10 +276,7 @@ impl BodyPreparationPhase {
             && !lifted_names.is_empty()
         {
             // Declare all lifted globals once (sorted) for deterministic output
-            let mut lifted: Vec<&str> = lifted_names
-                .values()
-                .map(std::string::String::as_str)
-                .collect();
+            let mut lifted: Vec<&str> = lifted_names.values().map(String::as_str).collect();
             lifted.sort_unstable();
 
             debug!(

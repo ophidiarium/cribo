@@ -340,7 +340,7 @@ pub fn set_string_attribute(obj_name: &str, attr_name: &str, value: &str) -> Stm
 /// Creates a statement to assign a list of string literals to an object's attribute.
 /// e.g., `obj.attr = ["item1", "item2", "item3"]`
 pub fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> Stmt {
-    let list_elements: Vec<ruff_python_ast::Expr> = values
+    let list_elements: Vec<Expr> = values
         .iter()
         .map(|value| expressions::string_literal(value))
         .collect();
@@ -350,7 +350,7 @@ pub fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> S
             attr_name,
             ExprContext::Store,
         )],
-        expressions::list(list_elements, ruff_python_ast::ExprContext::Load),
+        expressions::list(list_elements, ExprContext::Load),
     )
 }
 
@@ -389,7 +389,7 @@ pub fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
 
 /// Create a subscript assignment statement: target[key] = value
 pub fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
-    Stmt::Assign(ruff_python_ast::StmtAssign {
+    Stmt::Assign(StmtAssign {
         node_index: AtomicNodeIndex::NONE,
         targets: vec![expressions::subscript(target, key, ExprContext::Store)],
         value: Box::new(value),

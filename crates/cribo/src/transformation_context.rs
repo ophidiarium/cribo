@@ -24,7 +24,7 @@ pub struct TransformationRecord {
 }
 
 /// Types of transformations that can be applied to nodes
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransformationType {
     /// New node created during transformation
     NewNode { reason: String },
@@ -32,7 +32,7 @@ pub enum TransformationType {
 
 impl TransformationContext {
     /// Create a new transformation context
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             next_index: AtomicU32::new(0),
             transformations: Vec::new(),

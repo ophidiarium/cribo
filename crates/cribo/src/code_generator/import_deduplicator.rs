@@ -457,7 +457,7 @@ pub(super) fn trim_unused_imports_from_modules(
                                      surviving code after tree-shaking (item_id: {item_id:?})"
                                 );
                                 unused_imports.push(crate::analyzers::types::UnusedImportInfo {
-                                    name: import_name.to_string(),
+                                    name: import_name.to_owned(),
                                     module: module.clone(),
                                 });
                             }
@@ -564,7 +564,7 @@ fn is_import_used_by_all_exports(
     let mut all_exports = Vec::new();
     for item_data in module_dep_graph.items.values() {
         if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
-            && targets.contains(&"__all__".to_string())
+            && targets.contains(&"__all__".to_owned())
         {
             // The eventual_read_vars contains the names in __all__
             all_exports.extend(item_data.eventual_read_vars.iter().cloned());

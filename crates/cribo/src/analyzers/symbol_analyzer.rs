@@ -143,7 +143,7 @@ VERSION = "1.0.0"
         // Create a ModuleId for the test
         let module_id = crate::resolver::ModuleId::new(0);
         let path = std::path::PathBuf::new();
-        let hash = "hash".to_string();
+        let hash = "hash".to_owned();
         let modules = vec![(module_id, &module, path.as_path(), hash.as_str())];
 
         let symbols = SymbolAnalyzer::collect_global_symbols(&modules);

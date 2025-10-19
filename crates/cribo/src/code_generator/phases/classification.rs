@@ -23,7 +23,7 @@ pub struct ClassificationPhase;
 
 impl ClassificationPhase {
     /// Create a new classification phase
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 
@@ -160,7 +160,7 @@ mod tests {
         use ruff_text_size::TextRange;
 
         let mut module_exports_map = FxIndexMap::default();
-        module_exports_map.insert(ModuleId::ENTRY, Some(vec!["foo".to_string()]));
+        module_exports_map.insert(ModuleId::ENTRY, Some(vec!["foo".to_owned()]));
 
         // Create an empty ModModule
         let empty_module = ModModule {
@@ -174,7 +174,7 @@ mod tests {
                 ModuleId::ENTRY,
                 empty_module,
                 PathBuf::new(),
-                "hash".to_string(),
+                "hash".to_owned(),
             )],
             wrapper_modules: vec![],
             module_exports_map: module_exports_map.clone(),
@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(result.module_exports_map.len(), 1);
         assert_eq!(
             result.module_exports_map.get(&ModuleId::ENTRY),
-            Some(&Some(vec!["foo".to_string()]))
+            Some(&Some(vec!["foo".to_owned()]))
         );
     }
 
@@ -230,13 +230,13 @@ mod tests {
                 ModuleId::ENTRY,
                 empty_module1,
                 PathBuf::new(),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             )],
             wrapper_modules: vec![(
                 ModuleId::new(1),
                 empty_module2,
                 PathBuf::new(),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             )],
             module_exports_map: FxIndexMap::default(),
             modules_with_explicit_all: FxIndexSet::default(),

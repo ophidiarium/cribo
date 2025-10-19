@@ -56,7 +56,7 @@ mod tests {
         // Test regular module
         assert_eq!(
             module_name_from_relative(&PathBuf::from("pkg/module.py")),
-            Some("pkg.module".to_string())
+            Some("pkg.module".to_owned())
         );
 
         // Test __init__.py files - should return package name
@@ -65,7 +65,7 @@ mod tests {
                 "pkg/{}",
                 crate::python::constants::INIT_FILE
             ))),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
 
         // Test __main__.py files - should return package name
@@ -74,7 +74,7 @@ mod tests {
                 "pkg/{}",
                 crate::python::constants::MAIN_FILE
             ))),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
 
         // Test nested packages
@@ -83,7 +83,7 @@ mod tests {
                 "pkg/subpkg/{}",
                 crate::python::constants::INIT_FILE
             ))),
-            Some("pkg.subpkg".to_string())
+            Some("pkg.subpkg".to_owned())
         );
 
         // Test bare __init__.py at root

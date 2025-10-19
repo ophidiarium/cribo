@@ -240,10 +240,7 @@ impl ExpressionRewriter {
                                 // Create dotted name expression like _cribo.json.dumps
                                 let full_path = format!("{stdlib_path}.{attr_name}");
                                 let parts: Vec<&str> = full_path.split('.').collect();
-                                let mut new_expr = crate::ast_builder::expressions::dotted_name(
-                                    &parts,
-                                    attr_expr.ctx,
-                                );
+                                let mut new_expr = expressions::dotted_name(&parts, attr_expr.ctx);
                                 // Preserve the original range
                                 if let Expr::Attribute(attr) = &mut new_expr {
                                     attr.range = attr_expr.range;
@@ -264,10 +261,7 @@ impl ExpressionRewriter {
                                 );
 
                                 let parts: Vec<&str> = full_path.split('.').collect();
-                                let mut new_expr = crate::ast_builder::expressions::dotted_name(
-                                    &parts,
-                                    attr_expr.ctx,
-                                );
+                                let mut new_expr = expressions::dotted_name(&parts, attr_expr.ctx);
                                 // Preserve the original range
                                 if let Expr::Attribute(attr) = &mut new_expr {
                                     attr.range = attr_expr.range;
@@ -485,8 +479,7 @@ impl ExpressionRewriter {
                 // Transform expressions within the f-string
                 let fstring_range = fstring_expr.range;
                 // Preserve the original flags from the f-string
-                let original_flags =
-                    crate::ast_builder::expressions::get_fstring_flags(&fstring_expr.value);
+                let original_flags = expressions::get_fstring_flags(&fstring_expr.value);
                 let mut transformed_elements = Vec::new();
                 let mut any_transformed = false;
 
@@ -613,12 +606,12 @@ impl ExpressionRewriter {
         loop {
             match current {
                 Expr::Attribute(attr) => {
-                    attrs.push(attr.attr.as_str().to_string());
+                    attrs.push(attr.attr.as_str().to_owned());
                     current = &attr.value;
                 }
                 Expr::Name(name) => {
                     attrs.reverse();
-                    return (Some(name.id.as_str().to_string()), attrs);
+                    return (Some(name.id.as_str().to_owned()), attrs);
                 }
                 _ => {
                     attrs.reverse();
@@ -656,7 +649,7 @@ impl ExpressionRewriter {
                 .get_module_id(alias)
                 .is_some_and(|id| state.bundler.inlined_modules.contains(&id))
         {
-            Some(alias.to_string())
+            Some(alias.to_owned())
         } else {
             None
         }

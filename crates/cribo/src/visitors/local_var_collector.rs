@@ -24,7 +24,7 @@ pub struct LocalVarCollector<'a> {
 
 impl<'a> LocalVarCollector<'a> {
     /// Create a new local variable collector
-    pub fn new(
+    pub const fn new(
         local_vars: &'a mut FxIndexSet<String>,
         global_vars: &'a FxIndexSet<String>,
     ) -> Self {
@@ -42,7 +42,7 @@ impl<'a> LocalVarCollector<'a> {
     /// Helper to check and insert a name if it's not global
     fn insert_if_not_global(&mut self, var_name: &str) {
         if !self.global_vars.contains(var_name) {
-            self.local_vars.insert(var_name.to_string());
+            self.local_vars.insert(var_name.to_owned());
         }
     }
 
@@ -129,11 +129,7 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
                     } else {
                         // For dotted imports like 'import a.b.c', bind only 'a'
                         let full_name = alias.name.to_string();
-                        full_name
-                            .split('.')
-                            .next()
-                            .unwrap_or(&full_name)
-                            .to_string()
+                        full_name.split('.').next().unwrap_or(&full_name).to_owned()
                     };
                     self.insert_if_not_global(&name);
                 }
@@ -213,7 +209,7 @@ y = 2
         let module = parse_test_module(source);
         let mut local_vars = FxIndexSet::default();
         let mut global_vars = FxIndexSet::default();
-        global_vars.insert("x".to_string());
+        global_vars.insert("x".to_owned());
 
         let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
         collector.collect_from_stmts(&module.body);
@@ -339,7 +335,7 @@ y = 2
         let module = parse_test_module(source);
         let mut local_vars = FxIndexSet::default();
         let mut global_vars = FxIndexSet::default();
-        global_vars.insert("x".to_string());
+        global_vars.insert("x".to_owned());
 
         let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
         collector.collect_from_stmts(&module.body);
@@ -428,8 +424,8 @@ global sin
         let module = parse_test_module(source);
         let mut local_vars = FxIndexSet::default();
         let mut global_vars = FxIndexSet::default();
-        global_vars.insert("os".to_string());
-        global_vars.insert("sin".to_string());
+        global_vars.insert("os".to_owned());
+        global_vars.insert("sin".to_owned());
 
         let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
         collector.collect_from_stmts(&module.body);
@@ -472,7 +468,7 @@ y += 2
         let module = parse_test_module(source);
         let mut local_vars = FxIndexSet::default();
         let mut global_vars = FxIndexSet::default();
-        global_vars.insert("x".to_string());
+        global_vars.insert("x".to_owned());
 
         let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
         collector.collect_from_stmts(&module.body);
@@ -518,7 +514,7 @@ except ValueError as v:
         let module = parse_test_module(source);
         let mut local_vars = FxIndexSet::default();
         let mut global_vars = FxIndexSet::default();
-        global_vars.insert("e".to_string());
+        global_vars.insert("e".to_owned());
 
         let mut collector = LocalVarCollector::new(&mut local_vars, &global_vars);
         collector.collect_from_stmts(&module.body);

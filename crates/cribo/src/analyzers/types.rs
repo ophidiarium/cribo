@@ -121,7 +121,7 @@ pub struct UnusedImportInfo {
 }
 
 /// Type of circular dependency
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircularDependencyType {
     /// Can be resolved by moving imports inside functions
     FunctionLevel,

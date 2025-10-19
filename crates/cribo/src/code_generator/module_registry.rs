@@ -98,7 +98,7 @@ pub fn sanitize_module_name_for_identifier(name: &str) -> String {
 /// Generate a unique symbol name to avoid conflicts
 pub fn generate_unique_name(base_name: &str, existing_symbols: &FxIndexSet<String>) -> String {
     if !existing_symbols.contains(base_name) {
-        return base_name.to_string();
+        return base_name.to_owned();
     }
 
     // Try adding numeric suffixes
@@ -187,7 +187,7 @@ pub fn initialize_submodule_if_needed(
 
     let module_path = resolver
         .get_module_name(module_id)
-        .unwrap_or_else(|| "<unknown>".to_string());
+        .unwrap_or_else(|| "<unknown>".to_owned());
 
     // Check if we already have this module initialization in assignments
     let already_initialized = assignments.iter().any(|stmt| {
@@ -314,7 +314,7 @@ pub fn create_assignments_for_inlined_imports(
                 {
                     module_renames
                         .get(imported_name)
-                        .map_or(imported_name, std::string::String::as_str)
+                        .map_or(imported_name, String::as_str)
                 } else {
                     imported_name
                 };
@@ -332,7 +332,7 @@ pub fn create_assignments_for_inlined_imports(
                     );
                     format!("{ns}.{actual_name}")
                 } else {
-                    actual_name.to_string()
+                    actual_name.to_owned()
                 };
 
                 // Only create assignment if the names are different or we need qualification
@@ -384,7 +384,7 @@ pub fn create_assignments_for_inlined_imports(
             {
                 module_renames
                     .get(imported_name)
-                    .map_or(imported_name, std::string::String::as_str)
+                    .map_or(imported_name, String::as_str)
             } else {
                 imported_name
             };
@@ -401,7 +401,7 @@ pub fn create_assignments_for_inlined_imports(
                 );
                 format!("{ns}.{actual_name}")
             } else {
-                actual_name.to_string()
+                actual_name.to_owned()
             };
 
             // Only create assignment if the names are different or we need qualification

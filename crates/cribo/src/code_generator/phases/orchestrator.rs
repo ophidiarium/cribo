@@ -195,7 +195,7 @@ impl PhaseOrchestrator {
         }
 
         let result = ModModule {
-            node_index: bundler.create_transformed_node("Bundled module root".to_string()),
+            node_index: bundler.create_transformed_node("Bundled module root".to_owned()),
             range: TextRange::default(),
             body: final_body,
         };

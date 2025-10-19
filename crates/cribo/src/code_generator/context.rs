@@ -79,9 +79,9 @@ pub struct InitializationResult {
 #[derive(Debug, Clone)]
 pub struct PostProcessingResult {
     /// Proxy statements for stdlib access
-    pub proxy_statements: Vec<ruff_python_ast::Stmt>,
+    pub proxy_statements: Vec<Stmt>,
     /// Package child alias statements
-    pub alias_statements: Vec<ruff_python_ast::Stmt>,
+    pub alias_statements: Vec<Stmt>,
     /// Namespace attachment statements for entry module
-    pub namespace_attachments: Vec<ruff_python_ast::Stmt>,
+    pub namespace_attachments: Vec<Stmt>,
 }

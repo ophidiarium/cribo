@@ -93,7 +93,7 @@ impl SubmoduleHandlingPhase {
             if let Some(relative_name) = module_name.strip_prefix(current_module_prefix) {
                 // Only handle direct children, not nested submodules
                 if !relative_name.contains('.') {
-                    submodules_to_add.push((module_name.clone(), relative_name.to_string()));
+                    submodules_to_add.push((module_name.clone(), relative_name.to_owned()));
                 }
             }
         }

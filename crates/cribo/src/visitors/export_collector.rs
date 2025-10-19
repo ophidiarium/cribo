@@ -29,7 +29,7 @@ impl Default for ExportCollector {
 
 impl ExportCollector {
     /// Create a new export collector
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             export_info: ExportInfo {
                 exported_names: None,
@@ -122,11 +122,7 @@ def _private():
         assert!(!export_info.is_dynamic);
         assert_eq!(
             export_info.exported_names,
-            Some(vec![
-                "foo".to_string(),
-                "bar".to_string(),
-                "baz".to_string()
-            ])
+            Some(vec!["foo".to_owned(), "bar".to_owned(), "baz".to_owned()])
         );
     }
 
@@ -156,7 +152,7 @@ __all__ = ("foo", "bar")
         assert!(!export_info.is_dynamic);
         assert_eq!(
             export_info.exported_names,
-            Some(vec!["foo".to_string(), "bar".to_string()])
+            Some(vec!["foo".to_owned(), "bar".to_owned()])
         );
     }
 }

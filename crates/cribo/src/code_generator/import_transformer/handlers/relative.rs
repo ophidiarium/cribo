@@ -88,7 +88,7 @@ pub fn transform_relative_import_aliases(
         // Try to resolve the import to an actual file path
         // First, construct the expected module name for resolution
         let full_module_name = if parent_package.is_empty() {
-            imported_name.to_string()
+            imported_name.to_owned()
         } else {
             format!("{parent_package}.{imported_name}")
         };

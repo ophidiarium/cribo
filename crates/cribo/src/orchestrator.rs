@@ -122,7 +122,7 @@ type ModuleQueue = Vec<(ModuleId, PathBuf)>;
 type ProcessedModules = IndexSet<ModuleId>;
 /// Type alias for parsed module data with AST and source
 /// (`module_id`, imports, ast, source)
-type ParsedModuleData = (crate::resolver::ModuleId, Vec<String>, ModModule, String);
+type ParsedModuleData = (ModuleId, Vec<String>, ModModule, String);
 /// Type alias for import extraction result
 type ImportExtractionResult = Vec<(
     String,
@@ -141,7 +141,7 @@ struct DiscoveryParams<'a> {
 
 /// Parameters for static bundle emission
 struct StaticBundleParams<'a> {
-    sorted_module_ids: &'a [crate::resolver::ModuleId],
+    sorted_module_ids: &'a [ModuleId],
     parsed_modules: Option<&'a [ParsedModuleData]>, // Optional pre-parsed modules
     resolver: &'a ModuleResolver,
     graph: &'a CriboGraph,
@@ -153,7 +153,7 @@ struct StaticBundleParams<'a> {
 struct DependencyContext<'a> {
     resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
-    current_module_id: crate::resolver::ModuleId,
+    current_module_id: ModuleId,
 }
 
 /// Parameters for graph building operations
@@ -170,7 +170,7 @@ struct ProcessedModule {
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
     /// Module ID if already added to dependency graph
-    module_id: Option<crate::resolver::ModuleId>,
+    module_id: Option<ModuleId>,
 }
 
 pub struct BundleOrchestrator {
@@ -231,9 +231,9 @@ impl BundleOrchestrator {
                 if cached.module_id.is_none() {
                     // Get or register module ID with resolver (required when graph is Some)
                     let resolver = resolver.expect("Resolver must be provided when graph is Some");
-                    let module_id = resolver.register_module(module_name.to_string(), module_path);
+                    let module_id = resolver.register_module(module_name.to_owned(), module_path);
 
-                    graph.add_module(module_id, module_name.to_string(), module_path);
+                    graph.add_module(module_id, module_name.to_owned(), module_path);
 
                     // Perform semantic analysis
                     self.semantic_bundler
@@ -242,8 +242,8 @@ impl BundleOrchestrator {
                     // Add to module registry
                     let module_info = ModuleInfo {
                         id: module_id,
-                        canonical_name: module_name.to_string(),
-                        resolved_path: canonical_path.clone(),
+                        canonical_name: module_name.to_owned(),
+                        resolved_path: canonical_path,
                     };
                     self.module_registry.add_module(module_info);
 
@@ -280,9 +280,9 @@ impl BundleOrchestrator {
         let module_id = if let Some(graph) = graph {
             // Get or register module ID with resolver (required when graph is Some)
             let resolver = resolver.expect("Resolver must be provided when graph is Some");
-            let module_id = resolver.register_module(module_name.to_string(), module_path);
+            let module_id = resolver.register_module(module_name.to_owned(), module_path);
 
-            graph.add_module(module_id, module_name.to_string(), module_path);
+            graph.add_module(module_id, module_name.to_owned(), module_path);
 
             // Semantic analysis on raw AST
             self.semantic_bundler
@@ -291,7 +291,7 @@ impl BundleOrchestrator {
             // Add to module registry
             let module_info = ModuleInfo {
                 id: module_id,
-                canonical_name: module_name.to_string(),
+                canonical_name: module_name.to_owned(),
                 resolved_path: canonical_path.clone(),
             };
             self.module_registry.add_module(module_info);
@@ -313,7 +313,7 @@ impl BundleOrchestrator {
                 .module_cache
                 .lock()
                 .expect("Failed to acquire module cache lock");
-            cache.insert(canonical_path, processed.clone());
+            cache.insert(canonical_path, processed);
         }
 
         Ok(ProcessedModule {
@@ -473,7 +473,7 @@ impl BundleOrchestrator {
         let entry_id = resolver.register_module(entry_module_name.clone(), entry_path);
         assert_eq!(
             entry_id,
-            crate::resolver::ModuleId::ENTRY,
+            ModuleId::ENTRY,
             "Entry module must be ID 0 - bundling starts here"
         );
 
@@ -569,7 +569,7 @@ impl BundleOrchestrator {
         &self,
         graph: &CriboGraph,
         circular_dep_analysis: Option<&CircularDependencyAnalysis>,
-    ) -> Result<Vec<crate::resolver::ModuleId>> {
+    ) -> Result<Vec<ModuleId>> {
         debug!(
             "get_sorted_modules_from_graph called with circular_dep_analysis: {}",
             circular_dep_analysis.is_some()
@@ -657,13 +657,13 @@ impl BundleOrchestrator {
         // Optional: run tree-shaking after resolver is available
         let tree_shaker = if self.config.tree_shake {
             info!("Running tree-shaking analysis...");
-            let mut shaker = crate::tree_shaking::TreeShaker::from_graph(&graph, &resolver);
+            let mut shaker = TreeShaker::from_graph(&graph, &resolver);
 
             // Analyze from entry module (resolver guarantees ENTRY name is registered)
             // We use resolver to fetch it for logging and correctness where needed
             let entry_name = resolver
-                .get_module_name(crate::resolver::ModuleId::ENTRY)
-                .unwrap_or_else(|| "__main__".to_string());
+                .get_module_name(ModuleId::ENTRY)
+                .unwrap_or_else(|| "__main__".to_owned());
             shaker.analyze(&entry_name);
 
             Some(shaker)
@@ -717,11 +717,11 @@ impl BundleOrchestrator {
         // Optional: run tree-shaking after resolver is available
         let tree_shaker = if self.config.tree_shake {
             info!("Running tree-shaking analysis...");
-            let mut shaker = crate::tree_shaking::TreeShaker::from_graph(&graph, &resolver);
+            let mut shaker = TreeShaker::from_graph(&graph, &resolver);
 
             let entry_name = resolver
-                .get_module_name(crate::resolver::ModuleId::ENTRY)
-                .unwrap_or_else(|| "__main__".to_string());
+                .get_module_name(ModuleId::ENTRY)
+                .unwrap_or_else(|| "__main__".to_owned());
             shaker.analyze(&entry_name);
 
             Some(shaker)
@@ -761,8 +761,8 @@ impl BundleOrchestrator {
     fn get_modules_with_cycle_resolution(
         &self,
         graph: &CriboGraph,
-        _analysis: &crate::analyzers::types::CircularDependencyAnalysis,
-    ) -> Vec<crate::resolver::ModuleId> {
+        _analysis: &CircularDependencyAnalysis,
+    ) -> Vec<ModuleId> {
         debug!("get_modules_with_cycle_resolution: computing SCC condensation over full graph");
 
         use petgraph::{
@@ -774,9 +774,8 @@ impl BundleOrchestrator {
         // Build subgraph over ALL modules to maintain deps-before-dependents globally
         let all_module_ids: Vec<_> = graph.modules.keys().copied().collect();
 
-        let mut subgraph: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
-        let mut node_map: FxIndexMap<crate::resolver::ModuleId, petgraph::graph::NodeIndex> =
-            FxIndexMap::default();
+        let mut subgraph: DiGraph<ModuleId, ()> = DiGraph::new();
+        let mut node_map: FxIndexMap<ModuleId, petgraph::graph::NodeIndex> = FxIndexMap::default();
         for &id in &all_module_ids {
             node_map.insert(id, subgraph.add_node(id));
         }
@@ -802,7 +801,7 @@ impl BundleOrchestrator {
         }
 
         // Deterministic rank using discovery order from all_module_ids
-        let mut rank: FxIndexMap<crate::resolver::ModuleId, usize> = FxIndexMap::default();
+        let mut rank: FxIndexMap<ModuleId, usize> = FxIndexMap::default();
         for (i, &mid) in all_module_ids.iter().enumerate() {
             rank.insert(mid, i);
         }
@@ -863,7 +862,7 @@ impl BundleOrchestrator {
             }
 
             // Build a mini-subgraph containing only nodes in this component
-            let mut mini: DiGraph<crate::resolver::ModuleId, ()> = DiGraph::new();
+            let mut mini: DiGraph<ModuleId, ()> = DiGraph::new();
             let mut mini_map: FxIndexMap<petgraph::graph::NodeIndex, petgraph::graph::NodeIndex> =
                 FxIndexMap::default();
 
@@ -919,7 +918,7 @@ impl BundleOrchestrator {
     /// Extract imports from module items
     fn extract_imports_from_module_items(
         &self,
-        items: &crate::types::FxIndexMap<crate::cribo_graph::ItemId, crate::cribo_graph::ItemData>,
+        items: &FxIndexMap<crate::cribo_graph::ItemId, crate::cribo_graph::ItemData>,
     ) -> Vec<String> {
         let mut imports = Vec::new();
         for item_data in items.values() {
@@ -994,7 +993,7 @@ impl BundleOrchestrator {
                 crate::python::constants::INIT_FILE,
                 crate::python::constants::INIT_STEM
             );
-            return Ok(crate::python::constants::INIT_STEM.to_string());
+            return Ok(crate::python::constants::INIT_STEM.to_owned());
         }
 
         // Special case: If the entry is __main__.py in a package, use the package name
@@ -1510,7 +1509,7 @@ impl BundleOrchestrator {
                 import,
                 import_path.display()
             );
-            import.to_string()
+            import.to_owned()
         } else if import.starts_with('.') {
             // This is a relative import that has already been resolved to an absolute path
             // We should NOT see relative imports here, but if we do, try to derive the name
@@ -1528,7 +1527,7 @@ impl BundleOrchestrator {
                     import_path.display(),
                     import
                 );
-                import.to_string()
+                import.to_owned()
             }
         } else {
             // For absolute imports, check if we need to derive the full module name
@@ -1557,7 +1556,7 @@ impl BundleOrchestrator {
                         import_path.display(),
                         derived_name
                     );
-                    import.to_string()
+                    import.to_owned()
                 }
             } else {
                 log::debug!(
@@ -1565,7 +1564,7 @@ impl BundleOrchestrator {
                     import_path.display(),
                     import
                 );
-                import.to_string()
+                import.to_owned()
             }
         };
 
@@ -1641,7 +1640,7 @@ impl BundleOrchestrator {
         params: &mut DiscoveryParams,
     ) -> Result<()> {
         // Special handling for ImportlibStatic imports that might have invalid Python identifiers
-        if let Some(crate::visitors::ImportType::ImportlibStatic) = import_type {
+        if import_type == Some(crate::visitors::ImportType::ImportlibStatic) {
             debug!("Processing ImportlibStatic import: {import}");
 
             // Try to resolve ImportlibStatic with package context
@@ -1796,7 +1795,7 @@ impl BundleOrchestrator {
     /// Write requirements.txt file for stdout mode (current directory)
     fn write_requirements_file_for_stdout(
         &self,
-        sorted_module_ids: &[crate::resolver::ModuleId],
+        sorted_module_ids: &[ModuleId],
         resolver: &ModuleResolver,
         graph: &CriboGraph,
     ) -> Result<()> {
@@ -1821,7 +1820,7 @@ impl BundleOrchestrator {
     /// Write requirements.txt file if there are dependencies
     fn write_requirements_file(
         &self,
-        sorted_module_ids: &[crate::resolver::ModuleId],
+        sorted_module_ids: &[ModuleId],
         resolver: &ModuleResolver,
         graph: &CriboGraph,
         output_path: &Path,
@@ -1901,11 +1900,10 @@ impl BundleOrchestrator {
                 ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
             // Prepare module ASTs for semantic analysis
-            let module_ast_map: crate::types::FxIndexMap<crate::resolver::ModuleId, &ModModule> =
-                module_asts
-                    .iter()
-                    .map(|(id, ast, _)| (*id, ast as &ModModule))
-                    .collect();
+            let module_ast_map: FxIndexMap<ModuleId, &ModModule> = module_asts
+                .iter()
+                .map(|(id, ast, _)| (*id, ast as &ModModule))
+                .collect();
 
             // Analyze movable imports using semantic analysis
             let movable_imports = import_rewriter.analyze_movable_imports_semantic(
@@ -1969,9 +1967,9 @@ impl BundleOrchestrator {
 
         // Add shebang and header
         let mut final_output = vec![
-            "#!/usr/bin/env python3".to_string(),
-            "# Generated by Cribo - Python Source Bundler".to_string(),
-            "# https://github.com/ophidiarium/cribo".to_string(),
+            "#!/usr/bin/env python3".to_owned(),
+            "# Generated by Cribo - Python Source Bundler".to_owned(),
+            "# https://github.com/ophidiarium/cribo".to_owned(),
             String::new(), // Empty line
         ];
         final_output.extend(code_parts);
@@ -1982,7 +1980,7 @@ impl BundleOrchestrator {
     /// Generate requirements.txt content from third-party imports
     fn generate_requirements(
         &self,
-        module_ids: &[crate::resolver::ModuleId],
+        module_ids: &[ModuleId],
         resolver: &ModuleResolver,
         graph: &CriboGraph,
     ) -> String {
@@ -1998,7 +1996,7 @@ impl BundleOrchestrator {
                 let imports = self.extract_imports_from_module_items(&module.items);
                 for import in &imports {
                     debug!("Checking import '{import}' for requirements");
-                    if let ImportType::ThirdParty = resolver.classify_import(import) {
+                    if resolver.classify_import(import) == ImportType::ThirdParty {
                         // Map the import name to the actual package name
                         // This handles cases like "markdown_it" -> "markdown-it-py"
                         let package_name = resolver.map_import_to_package_name(import);

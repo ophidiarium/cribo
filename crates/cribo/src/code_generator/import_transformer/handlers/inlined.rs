@@ -300,13 +300,13 @@ impl InlinedHandler {
                         "Using original name '{imported_name}' for symbol imported from package \
                          '{module_name}' (no rename found)"
                     );
-                    imported_name.to_string()
+                    imported_name.to_owned()
                 } else {
                     symbol_renames
                         .get(&source_module_id)
                         .and_then(|renames| renames.get(imported_name))
                         .cloned()
-                        .unwrap_or_else(|| imported_name.to_string())
+                        .unwrap_or_else(|| imported_name.to_owned())
                 }
             };
 

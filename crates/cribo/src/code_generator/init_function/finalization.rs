@@ -103,7 +103,7 @@ impl FinalizationPhase {
         // Get the init function name from the bundler
         let module_id = bundler.get_module_id(ctx.module_name).ok_or_else(|| {
             TransformError::ModuleIdNotFound {
-                module_name: ctx.module_name.to_string(),
+                module_name: ctx.module_name.to_owned(),
             }
         })?;
         let init_func_name = bundler

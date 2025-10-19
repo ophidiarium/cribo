@@ -2458,7 +2458,7 @@ pub(crate) fn process_wildcard_import(
                     imports_from_inlined.push((
                         symbol.clone(),
                         value_name,
-                        Some(module.to_string()),
+                        Some(module.to_owned()),
                     ));
                 } else {
                     debug!(
@@ -2503,7 +2503,7 @@ pub(crate) fn process_wildcard_import(
                         imports_from_inlined.push((
                             original_name.clone(),
                             renamed_name.clone(),
-                            Some(module.to_string()),
+                            Some(module.to_owned()),
                         ));
                     } else {
                         debug!(
@@ -2545,7 +2545,7 @@ pub(crate) fn process_wildcard_import(
                         imports_from_inlined.push((
                             symbol.clone(),
                             symbol.clone(),
-                            Some(module.to_string()),
+                            Some(module.to_owned()),
                         ));
                     } else {
                         debug!(
@@ -2601,10 +2601,7 @@ fn symbol_comes_from_wrapper_module(
                                 module_path,
                             )
                         } else {
-                            import_from
-                                .module
-                                .as_ref()
-                                .map(std::string::ToString::to_string)
+                            import_from.module.as_ref().map(ToString::to_string)
                         };
 
                         let Some(ref source_module) = resolved_module else {

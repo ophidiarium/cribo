@@ -81,7 +81,7 @@ impl GlobalAnalyzer {
 
     /// Check if we're at module level (depth == 0)
     #[inline]
-    fn is_module_level(&self) -> bool {
+    const fn is_module_level(&self) -> bool {
         self.depth == 0
     }
 
@@ -190,7 +190,7 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
                         asname.to_string()
                     } else {
                         let full = alias.name.to_string();
-                        full.split('.').next().unwrap_or(&full).to_string()
+                        full.split('.').next().unwrap_or(&full).to_owned()
                     };
                     // Imports are liftable for globals handling but shouldn't affect
                     // module-level var rewriting behavior

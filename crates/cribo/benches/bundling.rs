@@ -140,17 +140,17 @@ fn benchmark_dependency_graph(c: &mut Criterion) {
             // Add modules
             let main_id = graph.add_module(
                 ModuleId::new(0),
-                "main".to_string(),
+                "main".to_owned(),
                 &PathBuf::from("main.py"),
             );
             let utils_id = graph.add_module(
                 ModuleId::new(1),
-                "utils.helpers".to_string(),
+                "utils.helpers".to_owned(),
                 &PathBuf::from("utils/helpers.py"),
             );
             let models_id = graph.add_module(
                 ModuleId::new(2),
-                "models.user".to_string(),
+                "models.user".to_owned(),
                 &PathBuf::from("models/user.py"),
             );
 

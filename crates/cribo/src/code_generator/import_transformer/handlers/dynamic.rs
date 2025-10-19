@@ -23,7 +23,7 @@ impl DynamicHandler {
                         let name_str = name.id.as_str();
                         // Check if it's 'importlib' directly or an alias that maps to 'importlib'
                         name_str == "importlib"
-                            || import_aliases.get(name_str) == Some(&"importlib".to_string())
+                            || import_aliases.get(name_str) == Some(&"importlib".to_owned())
                     }
                     _ => false,
                 }
@@ -68,7 +68,7 @@ impl DynamicHandler {
                                 },
                                 &package_path,
                             )
-                            .unwrap_or_else(|| module_name.to_string())
+                            .unwrap_or_else(|| module_name.to_owned())
                     } else {
                         // Use resolver's method for package name resolution when path not found
                         let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
@@ -85,10 +85,10 @@ impl DynamicHandler {
                         )
                     }
                 } else {
-                    module_name.to_string()
+                    module_name.to_owned()
                 }
             } else {
-                module_name.to_string()
+                module_name.to_owned()
             };
 
             Some(resolved_name)

@@ -88,7 +88,7 @@ impl StatementsHandler {
                 t.transform_expr(exc_type);
             }
             if let Some(name) = &eh.name {
-                t.state.local_variables.insert(name.as_str().to_string());
+                t.state.local_variables.insert(name.as_str().to_owned());
                 log::debug!("Tracking except alias as local: {}", name.as_str());
             }
             t.transform_statements(&mut eh.body);
@@ -279,7 +279,7 @@ impl StatementsHandler {
         for param in &s.parameters.posonlyargs {
             t.state
                 .local_variables
-                .insert(param.parameter.name.as_str().to_string());
+                .insert(param.parameter.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (posonly): {}",
                 param.parameter.name.as_str()
@@ -290,7 +290,7 @@ impl StatementsHandler {
         for param in &s.parameters.args {
             t.state
                 .local_variables
-                .insert(param.parameter.name.as_str().to_string());
+                .insert(param.parameter.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local: {}",
                 param.parameter.name.as_str()
@@ -301,7 +301,7 @@ impl StatementsHandler {
         if let Some(vararg) = &s.parameters.vararg {
             t.state
                 .local_variables
-                .insert(vararg.name.as_str().to_string());
+                .insert(vararg.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (vararg): {}",
                 vararg.name.as_str()
@@ -312,7 +312,7 @@ impl StatementsHandler {
         for param in &s.parameters.kwonlyargs {
             t.state
                 .local_variables
-                .insert(param.parameter.name.as_str().to_string());
+                .insert(param.parameter.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (kwonly): {}",
                 param.parameter.name.as_str()
@@ -323,7 +323,7 @@ impl StatementsHandler {
         if let Some(kwarg) = &s.parameters.kwarg {
             t.state
                 .local_variables
-                .insert(kwarg.name.as_str().to_string());
+                .insert(kwarg.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (kwarg): {}",
                 kwarg.name.as_str()

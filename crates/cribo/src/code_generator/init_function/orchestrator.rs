@@ -43,7 +43,7 @@ pub struct InitFunctionBuilder<'a> {
 
 impl<'a> InitFunctionBuilder<'a> {
     /// Create a new builder with the required context
-    pub fn new(
+    pub const fn new(
         bundler: &'a Bundler<'a>,
         ctx: &'a ModuleTransformContext<'a>,
         symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,

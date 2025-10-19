@@ -111,7 +111,7 @@ pub fn resolve_import_module(
             module_path,
         )
     } else {
-        import_from.module.as_ref().map(|m| m.as_str().to_string())
+        import_from.module.as_ref().map(|m| m.as_str().to_owned())
     }
 }
 

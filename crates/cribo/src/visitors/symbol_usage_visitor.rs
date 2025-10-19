@@ -67,7 +67,7 @@ impl SymbolUsageVisitor {
 
     /// Track a name usage
     fn track_name(&mut self, name: &str) {
-        self.used_names.insert(name.to_string());
+        self.used_names.insert(name.to_owned());
     }
 }
 

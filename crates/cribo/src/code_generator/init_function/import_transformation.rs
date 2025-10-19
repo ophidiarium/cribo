@@ -43,7 +43,7 @@ impl ImportTransformationPhase {
     ) -> Result<(), TransformError> {
         let module_id = bundler.get_module_id(ctx.module_name).ok_or_else(|| {
             TransformError::ModuleIdNotFound {
-                module_name: ctx.module_name.to_string(),
+                module_name: ctx.module_name.to_owned(),
             }
         })?;
 
@@ -119,7 +119,7 @@ impl ImportTransformationPhase {
                                 .iter()
                                 .find(|(_, symbols)| symbols.contains(symbol))
                                 .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
-                                .unwrap_or_else(|| "unknown".to_string());
+                                .unwrap_or_else(|| "unknown".to_owned());
                             debug!(
                                 "Symbol '{symbol}' kept by tree-shaking from module \
                                  '{module_name}'"

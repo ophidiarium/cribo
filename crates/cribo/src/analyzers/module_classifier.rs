@@ -54,7 +54,7 @@ impl<'a> ModuleClassifier<'a> {
             .or_else(|| {
                 entry_module_name.strip_suffix(&format!(".{}", crate::python::constants::MAIN_STEM))
             })
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
     }
 
     /// Classify modules into inlinable and wrapper modules
@@ -71,7 +71,7 @@ impl<'a> ModuleClassifier<'a> {
         let entry_module_name = self
             .resolver
             .get_module_name(ModuleId::ENTRY)
-            .unwrap_or_else(|| "entry".to_string());
+            .unwrap_or_else(|| "entry".to_owned());
 
         for (module_id, (ast, module_path, content_hash)) in modules {
             let module_name = self

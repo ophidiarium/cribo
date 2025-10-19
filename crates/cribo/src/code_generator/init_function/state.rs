@@ -48,7 +48,7 @@ pub struct InitFunctionState {
 
 impl InitFunctionState {
     /// Create a new empty state container
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             body: Vec::new(),
             imports_from_inlined: Vec::new(),

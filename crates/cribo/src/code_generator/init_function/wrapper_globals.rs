@@ -36,10 +36,8 @@ impl WrapperGlobalsPhase {
 
         // Add global declarations for wrapper module namespace variables at the beginning
         if !wrapper_globals_needed.is_empty() {
-            let mut globals: Vec<&str> = wrapper_globals_needed
-                .iter()
-                .map(std::string::String::as_str)
-                .collect();
+            let mut globals: Vec<&str> =
+                wrapper_globals_needed.iter().map(String::as_str).collect();
             globals.sort_unstable();
 
             debug!(

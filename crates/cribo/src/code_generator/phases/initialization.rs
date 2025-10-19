@@ -18,7 +18,7 @@ pub struct InitializationPhase;
 
 impl InitializationPhase {
     /// Create a new initialization phase
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 
@@ -103,8 +103,8 @@ mod tests {
     #[test]
     fn test_generate_future_import_statements_with_imports() {
         let mut future_imports = FxIndexSet::default();
-        future_imports.insert("annotations".to_string());
-        future_imports.insert("division".to_string());
+        future_imports.insert("annotations".to_owned());
+        future_imports.insert("division".to_owned());
 
         let result = InitializationResult { future_imports };
 
@@ -119,9 +119,9 @@ mod tests {
     fn test_future_imports_deterministic_ordering() {
         let mut future_imports = FxIndexSet::default();
         // Insert in non-alphabetical order
-        future_imports.insert("with_statement".to_string());
-        future_imports.insert("annotations".to_string());
-        future_imports.insert("division".to_string());
+        future_imports.insert("with_statement".to_owned());
+        future_imports.insert("annotations".to_owned());
+        future_imports.insert("division".to_owned());
 
         let result = InitializationResult { future_imports };
 
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_initialization_result_construction() {
         let mut future_imports = FxIndexSet::default();
-        future_imports.insert("annotations".to_string());
+        future_imports.insert("annotations".to_owned());
 
         let result = InitializationResult {
             future_imports: future_imports.clone(),

@@ -24,7 +24,7 @@ pub struct ModuleId(pub u32);
 impl ModuleId {
     /// The entry point - always ID 0
     /// This is where bundling starts, the origin of our module universe
-    pub const ENTRY: ModuleId = ModuleId(0);
+    pub const ENTRY: Self = Self(0);
 
     #[inline]
     pub const fn new(id: u32) -> Self {
@@ -66,12 +66,12 @@ impl fmt::Display for ModuleId {
 
 impl From<u32> for ModuleId {
     fn from(value: u32) -> Self {
-        ModuleId(value)
+        Self(value)
     }
 }
 
 impl From<ModuleId> for u32 {
-    fn from(value: ModuleId) -> u32 {
+    fn from(value: ModuleId) -> Self {
         value.0
     }
 }
@@ -279,7 +279,7 @@ pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportType {
     FirstParty,
     ThirdParty,
@@ -367,8 +367,8 @@ impl ModuleResolver {
             virtualenv_packages_cache: RefCell::new(None),
             entry_dir: None,
             python_version: 38, // Default to Python 3.8
-            pythonpath_override: pythonpath_override.map(std::string::ToString::to_string),
-            virtualenv_override: virtualenv_override.map(std::string::ToString::to_string),
+            pythonpath_override: pythonpath_override.map(ToString::to_string),
+            virtualenv_override: virtualenv_override.map(ToString::to_string),
         }
     }
 
@@ -505,7 +505,7 @@ impl ModuleResolver {
 
         // 2. Add PYTHONPATH directories
         let pythonpath = pythonpath_override
-            .map(std::borrow::ToOwned::to_owned)
+            .map(ToOwned::to_owned)
             .or_else(|| std::env::var("PYTHONPATH").ok());
 
         if let Some(pythonpath) = pythonpath {
@@ -594,7 +594,7 @@ impl ModuleResolver {
             if let Some(resolved_path) = self.resolve_in_directory(search_dir, &descriptor) {
                 self.module_cache
                     .borrow_mut()
-                    .insert(module_name.to_string(), Some(resolved_path.clone()));
+                    .insert(module_name.to_owned(), Some(resolved_path.clone()));
                 return Ok(Some(resolved_path));
             }
         }
@@ -602,7 +602,7 @@ impl ModuleResolver {
         // Not found - cache the negative result
         self.module_cache
             .borrow_mut()
-            .insert(module_name.to_string(), None);
+            .insert(module_name.to_owned(), None);
         Ok(None)
     }
 
@@ -676,10 +676,10 @@ impl ModuleResolver {
                 )
             } else {
                 // Absolute import, use as-is
-                module_name.to_string()
+                module_name.to_owned()
             }
         } else {
-            module_name.to_string()
+            module_name.to_owned()
         };
 
         debug!(
@@ -818,7 +818,7 @@ impl ModuleResolver {
             let import_type = ImportType::FirstParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -827,14 +827,14 @@ impl ModuleResolver {
             let import_type = ImportType::FirstParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
         if self.config.known_third_party.contains(module_name) {
             let import_type = ImportType::ThirdParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -843,7 +843,7 @@ impl ModuleResolver {
             let import_type = ImportType::StandardLibrary;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -856,7 +856,7 @@ impl ModuleResolver {
                 let import_type = ImportType::FirstParty;
                 self.classification_cache
                     .borrow_mut()
-                    .insert(module_name.to_string(), import_type.clone());
+                    .insert(module_name.to_owned(), import_type.clone());
                 return import_type;
             }
         }
@@ -888,7 +888,7 @@ impl ModuleResolver {
                         let import_type = ImportType::FirstParty;
                         self.classification_cache
                             .borrow_mut()
-                            .insert(module_name.to_string(), import_type.clone());
+                            .insert(module_name.to_owned(), import_type.clone());
                         return import_type;
                     } else {
                         // Check if the parent module is a package
@@ -927,7 +927,7 @@ impl ModuleResolver {
                             let import_type = ImportType::FirstParty;
                             self.classification_cache
                                 .borrow_mut()
-                                .insert(module_name.to_string(), import_type.clone());
+                                .insert(module_name.to_owned(), import_type.clone());
                             return import_type;
                         }
 
@@ -940,7 +940,7 @@ impl ModuleResolver {
                         let import_type = ImportType::ThirdParty;
                         self.classification_cache
                             .borrow_mut()
-                            .insert(module_name.to_string(), import_type.clone());
+                            .insert(module_name.to_owned(), import_type.clone());
                         return import_type;
                     }
                 }
@@ -952,7 +952,7 @@ impl ModuleResolver {
             let import_type = ImportType::ThirdParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -960,7 +960,7 @@ impl ModuleResolver {
         let import_type = ImportType::ThirdParty;
         self.classification_cache
             .borrow_mut()
-            .insert(module_name.to_string(), import_type.clone());
+            .insert(module_name.to_owned(), import_type.clone());
         import_type
     }
 
@@ -986,7 +986,7 @@ impl ModuleResolver {
 
         // Try to get explicit VIRTUAL_ENV
         let explicit_virtualenv = virtualenv_override
-            .map(std::borrow::ToOwned::to_owned)
+            .map(ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
         let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
@@ -1130,7 +1130,7 @@ impl ModuleResolver {
         let explicit_virtualenv = self
             .virtualenv_override
             .as_deref()
-            .map(std::borrow::ToOwned::to_owned)
+            .map(ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
         let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
@@ -1156,13 +1156,13 @@ impl ModuleResolver {
 
         // If no mapping found, return the import name as-is
         debug!("No package mapping found for '{root_import}', using import name as-is");
-        root_import.to_string()
+        root_import.to_owned()
     }
 
     /// Normalize a package name according to PEP 503 using `pep508_rs`
     fn normalize_package_name(name: &str) -> String {
         // Use pep508_rs::PackageName for proper PEP 503 normalization
-        if let Ok(package_name) = PackageName::new(name.to_string()) {
+        if let Ok(package_name) = PackageName::new(name.to_owned()) {
             package_name.to_string()
         } else {
             // If normalization fails (shouldn't happen for valid package names),
@@ -1313,7 +1313,7 @@ impl ModuleResolver {
             let cleaned = raw_name.trim_start_matches('.');
             if !cleaned.is_empty() {
                 let name_parts: Vec<&str> = cleaned.split('.').filter(|s| !s.is_empty()).collect();
-                current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
+                current_parts.extend(name_parts.into_iter().map(ToString::to_string));
             }
         }
 
@@ -1518,7 +1518,7 @@ mod tests {
         create_test_file(&other_src.join("helper.py"), "# Other helper")?;
 
         let config = Config {
-            src: vec![other_src.clone()],
+            src: vec![other_src],
             ..Default::default()
         };
         let mut resolver = ModuleResolver::new(config);
@@ -1612,8 +1612,8 @@ mod tests {
 
         let config = Config {
             src: vec![root.to_path_buf()],
-            known_first_party: IndexSet::from(["known_first".to_string()]),
-            known_third_party: IndexSet::from(["requests".to_string()]),
+            known_first_party: IndexSet::from(["known_first".to_owned()]),
+            known_third_party: IndexSet::from(["requests".to_owned()]),
             ..Default::default()
         };
         let resolver = ModuleResolver::new(config);
@@ -1834,7 +1834,7 @@ mod tests {
 
         // Set up config with src directory
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 
@@ -1904,7 +1904,7 @@ mod tests {
 
         // Set up config
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 
@@ -1951,7 +1951,7 @@ mod tests {
 
         // Set up config
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 
@@ -2003,7 +2003,7 @@ mod tests {
         fs::write(&test_module, "# Test module")?;
 
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 

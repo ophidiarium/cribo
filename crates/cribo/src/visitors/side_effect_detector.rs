@@ -85,11 +85,11 @@ impl SideEffectDetector {
 
             // For imports like "import xml.etree.ElementTree",
             // we need to track both the full path and the root binding
-            self.imported_names.insert(local_name.to_string());
+            self.imported_names.insert(local_name.to_owned());
 
             // Also track the root module name (e.g., "xml" from "xml.etree.ElementTree")
             if let Some(root) = local_name.split('.').next() {
-                self.imported_names.insert(root.to_string());
+                self.imported_names.insert(root.to_owned());
             }
         }
     }
@@ -105,14 +105,14 @@ impl SideEffectDetector {
             let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
             // Track the imported name
-            self.imported_names.insert(name.to_string());
+            self.imported_names.insert(name.to_owned());
 
             // For "from x import y", the binding is just "y", but
             // if it's a dotted name, also track the root
             if name.contains('.')
                 && let Some(root) = name.split('.').next()
             {
-                self.imported_names.insert(root.to_string());
+                self.imported_names.insert(root.to_owned());
             }
         }
     }
@@ -420,7 +420,7 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
 impl ExpressionSideEffectDetector {
     /// Create a new expression side effect detector
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             has_side_effects: false,
         }

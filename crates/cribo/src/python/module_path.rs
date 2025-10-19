@@ -101,7 +101,7 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
         && let Some(stem) = Path::new(last_part).file_stem().and_then(|s| s.to_str())
     {
         // Replace with stem to avoid any off-by-one issues
-        *last_part = stem.to_string();
+        *last_part = stem.to_owned();
     }
 
     // Handle __init__.py and __main__.py files
@@ -159,19 +159,19 @@ mod tests {
     fn test_module_name_from_relative() {
         assert_eq!(
             module_name_from_relative(Path::new("pkg/module.py")),
-            Some("pkg.module".to_string())
+            Some("pkg.module".to_owned())
         );
         assert_eq!(
             module_name_from_relative(Path::new("pkg/__init__.py")),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
         assert_eq!(
             module_name_from_relative(Path::new("pkg/__main__.py")),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
         assert_eq!(
             module_name_from_relative(Path::new("pkg/subpkg/__init__.py")),
-            Some("pkg.subpkg".to_string())
+            Some("pkg.subpkg".to_owned())
         );
         assert_eq!(module_name_from_relative(Path::new("__init__.py")), None);
     }

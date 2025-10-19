@@ -56,7 +56,7 @@ pub struct ImportRewriter {
 
 impl ImportRewriter {
     /// Create a new import rewriter
-    pub fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
+    pub const fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
         Self { dedup_strategy }
     }
 
@@ -199,7 +199,7 @@ impl ImportRewriter {
                             "Import {imported_module} in {module_name} is at module level, moving \
                              to all functions"
                         );
-                        vec!["*".to_string()]
+                        vec!["*".to_owned()]
                     }
                     _ => {
                         // Other locations (Class, Conditional, Nested) are not handled yet
@@ -313,7 +313,7 @@ impl ImportRewriter {
                     let all_aliases_movable = import_stmt.names.iter().all(|alias| {
                         let import = ImportStatement::Import {
                             module: alias.name.to_string(),
-                            alias: alias.asname.as_ref().map(std::string::ToString::to_string),
+                            alias: alias.asname.as_ref().map(ToString::to_string),
                         };
                         movable_imports.iter().any(|mi| mi.import_stmt == import)
                     });
@@ -339,10 +339,7 @@ impl ImportRewriter {
         import_from: &StmtImportFrom,
         movable_imports: &[&MovableImport],
     ) -> bool {
-        let stmt_module = import_from
-            .module
-            .as_ref()
-            .map(std::string::ToString::to_string);
+        let stmt_module = import_from.module.as_ref().map(ToString::to_string);
         let stmt_level = import_from.level;
 
         movable_imports.iter().any(|mi| {
@@ -476,7 +473,7 @@ impl ImportRewriter {
                     for alias in &import_stmt.names {
                         existing_imports.insert(ImportStatement::Import {
                             module: alias.name.to_string(),
-                            alias: alias.asname.as_ref().map(std::string::ToString::to_string),
+                            alias: alias.asname.as_ref().map(ToString::to_string),
                         });
                     }
                 }
@@ -487,15 +484,12 @@ impl ImportRewriter {
                         .map(|alias| {
                             (
                                 alias.name.to_string(),
-                                alias.asname.as_ref().map(std::string::ToString::to_string),
+                                alias.asname.as_ref().map(ToString::to_string),
                             )
                         })
                         .collect();
                     existing_imports.insert(ImportStatement::FromImport {
-                        module: from_stmt
-                            .module
-                            .as_ref()
-                            .map(std::string::ToString::to_string),
+                        module: from_stmt.module.as_ref().map(ToString::to_string),
                         names,
                         level: from_stmt.level,
                     });

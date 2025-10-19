@@ -474,8 +474,7 @@ fn transform_introspection_in_expr(
 
             // If any expressions were transformed, rebuild the f-string
             if any_transformed {
-                let original_flags =
-                    crate::ast_builder::expressions::get_fstring_flags(&fstring_expr.value);
+                let original_flags = expressions::get_fstring_flags(&fstring_expr.value);
 
                 let new_fstring = FString {
                     node_index: AtomicNodeIndex::NONE,
@@ -960,7 +959,7 @@ impl GlobalsLifter {
     }
 
     /// Get the lifted names mapping
-    pub fn get_lifted_names(&self) -> &FxIndexMap<String, String> {
+    pub const fn get_lifted_names(&self) -> &FxIndexMap<String, String> {
         &self.lifted_names
     }
 }

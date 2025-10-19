@@ -445,7 +445,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
 
                         // Create a new interpolation element with the rewritten expression
                         let new_element = ruff_python_ast::InterpolatedElement {
-                            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                            node_index: AtomicNodeIndex::NONE,
                             expression: Box::new(new_expr),
                             debug_text: expr_elem.debug_text.clone(),
                             conversion: expr_elem.conversion,
@@ -473,7 +473,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
                     ruff_python_ast::FStringFlags::empty()
                 };
                 let new_fstring = ruff_python_ast::FString {
-                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    node_index: AtomicNodeIndex::NONE,
                     elements: ruff_python_ast::InterpolatedStringElements::from(new_elements),
                     range: fstring.range,
                     flags: original_flags, // Preserve the original flags including quote style
@@ -482,7 +482,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
                 let new_value = ruff_python_ast::FStringValue::single(new_fstring);
 
                 *expr = Expr::FString(ruff_python_ast::ExprFString {
-                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    node_index: AtomicNodeIndex::NONE,
                     value: new_value,
                     range: fstring.range,
                 });
@@ -706,10 +706,10 @@ pub(super) fn transform_fstring_for_lifted_globals(
         // If any expressions were transformed, we need to rebuild the f-string
         if any_transformed {
             // Preserve the original flags from the f-string
-            let original_flags = crate::ast_builder::expressions::get_fstring_flags(&fstring.value);
+            let original_flags = expressions::get_fstring_flags(&fstring.value);
             // Create a new FString with our transformed elements
             let new_fstring = ruff_python_ast::FString {
-                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                node_index: AtomicNodeIndex::NONE,
                 elements: ruff_python_ast::InterpolatedStringElements::from(transformed_elements),
                 range: fstring_range,
                 flags: original_flags, // Preserve the original flags including quote style
@@ -720,7 +720,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
 
             // Replace the entire expression with the new f-string
             *expr = Expr::FString(ruff_python_ast::ExprFString {
-                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                node_index: AtomicNodeIndex::NONE,
                 value: new_value,
                 range: fstring_range,
             });
@@ -755,7 +755,7 @@ pub(super) fn transform_fstring_expression(
 
     // Create a new expression element with the transformed expression
     let new_element = ruff_python_ast::InterpolatedElement {
-        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+        node_index: AtomicNodeIndex::NONE,
         expression: Box::new(new_expr),
         debug_text: expr_elem.debug_text.clone(),
         conversion: expr_elem.conversion,
@@ -1067,7 +1067,7 @@ fn hoist_and_dedup_global_statements(func_def: &mut StmtFunctionDef) {
         if let Stmt::Global(g) = stmt {
             has_global = true;
             for ident in &g.names {
-                names.insert(ident.as_str().to_string());
+                names.insert(ident.as_str().to_owned());
             }
         }
     }

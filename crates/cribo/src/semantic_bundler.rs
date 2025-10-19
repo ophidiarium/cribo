@@ -164,10 +164,7 @@ impl<'a> SemanticModelBuilder<'a> {
             }
             Stmt::ImportFrom(import_from) => {
                 // Get the module name
-                let module_name = import_from
-                    .module
-                    .as_ref()
-                    .map(std::string::ToString::to_string);
+                let module_name = import_from.module.as_ref().map(ToString::to_string);
 
                 for alias in &import_from.names {
                     let original_name = alias.name.as_str();
@@ -182,9 +179,9 @@ impl<'a> SemanticModelBuilder<'a> {
                             let has_alias = alias.asname.is_some();
                             self.from_imports.push(EnhancedFromImport {
                                 module: module.clone(),
-                                original_name: original_name.to_string(),
+                                original_name: original_name.to_owned(),
                                 local_alias: if has_alias {
-                                    Some(local_name.to_string())
+                                    Some(local_name.to_owned())
                                 } else {
                                     None
                                 },
@@ -258,20 +255,20 @@ impl<'a> SemanticModelBuilder<'a> {
                 BindingKind::ClassDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
                         log::trace!("Adding class symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 BindingKind::FunctionDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
                         log::trace!("Adding function symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 BindingKind::Assignment => {
                     // Include module-level assignments (variables)
                     if !name.starts_with('_') {
                         log::trace!("Adding assignment symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 BindingKind::FromImport(_) => {
@@ -279,7 +276,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     // This is important for __init__.py files that re-export symbols
                     if !name.starts_with('_') || name.starts_with("__") {
                         log::trace!("Adding from-import symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 // Skip regular imports and builtins
@@ -318,7 +315,7 @@ impl<'a> SemanticModelBuilder<'a> {
             let binding = &semantic.bindings[binding_id];
 
             // Include ALL symbols except builtins
-            if let BindingKind::Builtin = &binding.kind {
+            if matches!(&binding.kind, BindingKind::Builtin) {
                 log::trace!("Skipping builtin binding: {name}");
             } else {
                 // Include all non-builtin symbols: classes, functions, assignments, imports
@@ -327,7 +324,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     name,
                     binding.kind
                 );
-                symbols.insert(name.to_string());
+                symbols.insert(name.to_owned());
             }
         }
 
@@ -403,15 +400,15 @@ impl SymbolRegistry {
     ) -> String {
         let new_name = format!("{original}_{suffix}");
         self.renames
-            .insert((module_id, original.to_string()), new_name.clone());
+            .insert((module_id, original.to_owned()), new_name.clone());
         new_name
     }
 
     /// Get rename for a symbol if it exists
     pub fn get_rename(&self, module_id: ModuleId, original: &str) -> Option<&str> {
         self.renames
-            .get(&(module_id, original.to_string()))
-            .map(std::string::String::as_str)
+            .get(&(module_id, original.to_owned()))
+            .map(String::as_str)
     }
 }
 
@@ -582,7 +579,7 @@ impl SemanticBundler {
     }
 
     /// Get symbol registry
-    pub fn symbol_registry(&self) -> &SymbolRegistry {
+    pub const fn symbol_registry(&self) -> &SymbolRegistry {
         &self.global_symbols
     }
 }

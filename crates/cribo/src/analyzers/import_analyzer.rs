@@ -117,7 +117,7 @@ impl ImportAnalyzer {
                     None
                 }
             })
-            .unwrap_or_else(|| full_module_path.to_string())
+            .unwrap_or_else(|| full_module_path.to_owned())
     }
 
     /// Find unused imports in a specific module
@@ -248,7 +248,7 @@ impl ImportAnalyzer {
         // Look for __all__ assignment
         for item_data in module.items.values() {
             if let crate::cribo_graph::ItemType::Assignment { targets } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
+                && targets.contains(&"__all__".to_owned())
             {
                 // Check if the name is in the reexported_names set
                 // which contains the parsed __all__ list values from ExportCollector
@@ -459,7 +459,7 @@ impl ImportAnalyzer {
                             namespace_imported_modules
                                 .entry(actual_module_name)
                                 .or_default()
-                                .insert(importing_module.to_string());
+                                .insert(importing_module.to_owned());
                         }
                     }
                 }
@@ -792,7 +792,7 @@ impl ImportAnalyzer {
                             let name = alias.name.as_str();
                             // Ignore wildcard imports (invalid for __future__)
                             if name != "*" {
-                                future_imports.insert(name.to_string());
+                                future_imports.insert(name.to_owned());
                             }
                         }
                     }
@@ -821,7 +821,7 @@ struct SymbolImportVisitor<'a> {
 }
 
 impl<'a> SymbolImportVisitor<'a> {
-    fn new(
+    const fn new(
         importing_module: &'a str,
         target_module: &'a str,
         symbol_name: &'a str,
@@ -926,28 +926,28 @@ def other_func():
 
         let modules = vec![
             (
-                "test_module".to_string(),
+                "test_module".to_owned(),
                 ast1,
                 PathBuf::from("test.py"),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             ),
             (
-                "module_a".to_string(),
+                "module_a".to_owned(),
                 ast2.clone(),
                 PathBuf::from("module_a.py"),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             ),
             (
-                "module_b".to_string(),
+                "module_b".to_owned(),
                 ast2.clone(),
                 PathBuf::from("module_b.py"),
-                "hash3".to_string(),
+                "hash3".to_owned(),
             ),
             (
-                "module_c".to_string(),
+                "module_c".to_owned(),
                 ast2,
                 PathBuf::from("module_c.py"),
-                "hash4".to_string(),
+                "hash4".to_owned(),
             ),
         ];
 
@@ -995,58 +995,58 @@ match x:
 
         let modules = vec![
             (
-                "test_module".to_string(),
+                "test_module".to_owned(),
                 ast,
                 PathBuf::from("test.py"),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             ),
             (
-                "module_in_try".to_string(),
+                "module_in_try".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_try.py"),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             ),
             (
-                "module_in_except".to_string(),
+                "module_in_except".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_except.py"),
-                "hash3".to_string(),
+                "hash3".to_owned(),
             ),
             (
-                "module_in_else".to_string(),
+                "module_in_else".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_else.py"),
-                "hash4".to_string(),
+                "hash4".to_owned(),
             ),
             (
-                "module_in_finally".to_string(),
+                "module_in_finally".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_finally.py"),
-                "hash5".to_string(),
+                "hash5".to_owned(),
             ),
             (
-                "module_in_for".to_string(),
+                "module_in_for".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_for.py"),
-                "hash6".to_string(),
+                "hash6".to_owned(),
             ),
             (
-                "module_in_while".to_string(),
+                "module_in_while".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_while.py"),
-                "hash7".to_string(),
+                "hash7".to_owned(),
             ),
             (
-                "module_in_with".to_string(),
+                "module_in_with".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_with.py"),
-                "hash8".to_string(),
+                "hash8".to_owned(),
             ),
             (
-                "module_in_match".to_string(),
+                "module_in_match".to_owned(),
                 dummy_ast,
                 PathBuf::from("module_in_match.py"),
-                "hash9".to_string(),
+                "hash9".to_owned(),
             ),
         ];
 
@@ -1080,22 +1080,22 @@ from pkg.sub import module_b
 
         let modules = vec![
             (
-                "test_module".to_string(),
+                "test_module".to_owned(),
                 ast1,
                 PathBuf::from("test.py"),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             ),
             (
-                "pkg.module_a".to_string(),
+                "pkg.module_a".to_owned(),
                 ast2.clone(),
                 PathBuf::from("pkg/module_a.py"),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             ),
             (
-                "pkg.sub.module_b".to_string(),
+                "pkg.sub.module_b".to_owned(),
                 ast2,
                 PathBuf::from("pkg/sub/module_b.py"),
-                "hash3".to_string(),
+                "hash3".to_owned(),
             ),
         ];
 

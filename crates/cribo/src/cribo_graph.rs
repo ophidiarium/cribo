@@ -29,7 +29,7 @@ use crate::{
 pub struct ItemId(u32);
 
 impl ItemId {
-    pub fn new(id: u32) -> Self {
+    pub const fn new(id: u32) -> Self {
         Self(id)
     }
 }
@@ -69,7 +69,7 @@ impl ItemType {
     /// Get the name of this item if it has one
     pub fn name(&self) -> Option<&str> {
         match self {
-            ItemType::FunctionDef { name } | ItemType::ClassDef { name } => Some(name),
+            Self::FunctionDef { name } | Self::ClassDef { name } => Some(name),
             _ => None,
         }
     }
@@ -213,7 +213,7 @@ impl ModuleDepGraph {
         // Look for __all__ assignments
         for item_data in self.items.values() {
             if let ItemType::Assignment { targets, .. } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
+                && targets.contains(&"__all__".to_owned())
             {
                 // Check if the name is in the eventual_read_vars (where __all__ names are
                 // stored)
@@ -325,7 +325,7 @@ impl CriboGraph {
                 if existing_canonical == &canonical_path {
                     // Same import name, same file - track and reuse
                     self.file_to_import_names
-                        .entry(canonical_path.clone())
+                        .entry(canonical_path)
                         .or_default()
                         .insert(name.clone());
                     return existing_id;
@@ -412,7 +412,7 @@ impl CriboGraph {
     }
 
     /// Get modules that access __all__ attribute
-    pub fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
+    pub const fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
         &self.modules_accessing_all
     }
 
@@ -510,12 +510,12 @@ mod tests {
 
         let utils_id = graph.add_module(
             ModuleId::new(0),
-            "utils".to_string(),
+            "utils".to_owned(),
             &PathBuf::from("utils.py"),
         );
         let main_id = graph.add_module(
             ModuleId::new(1),
-            "main".to_string(),
+            "main".to_owned(),
             &PathBuf::from("main.py"),
         );
 
@@ -535,17 +535,17 @@ mod tests {
         // Create a three-module circular dependency: A -> B -> C -> A
         let module_a = graph.add_module(
             ModuleId::new(0),
-            "module_a".to_string(),
+            "module_a".to_owned(),
             &PathBuf::from("module_a.py"),
         );
         let module_b = graph.add_module(
             ModuleId::new(1),
-            "module_b".to_string(),
+            "module_b".to_owned(),
             &PathBuf::from("module_b.py"),
         );
         let module_c = graph.add_module(
             ModuleId::new(2),
-            "module_c".to_string(),
+            "module_c".to_owned(),
             &PathBuf::from("module_c.py"),
         );
 
@@ -573,12 +573,12 @@ mod tests {
         // Create a circular dependency with "constants" in the name
         let constants_a = graph.add_module(
             ModuleId::new(0),
-            "constants_a".to_string(),
+            "constants_a".to_owned(),
             &PathBuf::from("constants_a.py"),
         );
         let constants_b = graph.add_module(
             ModuleId::new(1),
-            "constants_b".to_string(),
+            "constants_b".to_owned(),
             &PathBuf::from("constants_b.py"),
         );
 
@@ -586,7 +586,7 @@ mod tests {
         if let Some(module_a) = graph.modules.get_mut(&constants_a) {
             module_a.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["CONFIG".to_string()],
+                    targets: vec!["CONFIG".to_owned()],
                 },
                 var_decls: ["CONFIG".into()].into_iter().collect(),
                 read_vars: FxIndexSet::default(),
@@ -606,7 +606,7 @@ mod tests {
         if let Some(module_b) = graph.modules.get_mut(&constants_b) {
             module_b.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["SETTINGS".to_string()],
+                    targets: vec!["SETTINGS".to_owned()],
                 },
                 var_decls: ["SETTINGS".into()].into_iter().collect(),
                 read_vars: FxIndexSet::default(),
@@ -651,7 +651,7 @@ mod tests {
 
         // Add a module with a canonical path
         let path = PathBuf::from("src/utils.py");
-        let utils_id = graph.add_module(ModuleId::new(0), "utils".to_string(), &path);
+        let utils_id = graph.add_module(ModuleId::new(0), "utils".to_owned(), &path);
 
         // Add some items to the utils module
         let utils_module = graph
@@ -678,7 +678,7 @@ mod tests {
 
         // Add the same file with a different import name
         // This should return the SAME ModuleId due to file-based deduplication
-        let alt_utils_id = graph.add_module(ModuleId::new(1), "src.utils".to_string(), &path);
+        let alt_utils_id = graph.add_module(ModuleId::new(1), "src.utils".to_owned(), &path);
 
         // Verify that both names map to the same ModuleId (file-based deduplication)
         assert_eq!(utils_id, alt_utils_id, "Same file should get same ModuleId");

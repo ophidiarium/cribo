@@ -31,7 +31,7 @@ struct CircularGroupContext {
 
 impl ProcessingPhase {
     /// Create a new processing phase
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 
@@ -416,7 +416,7 @@ impl ProcessingPhase {
 
             if bundler.emitted_wrapper_inits.insert(*mid) {
                 let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
-                    f.name.as_str().to_string()
+                    f.name.as_str().to_owned()
                 } else {
                     bundler
                         .module_init_functions
@@ -569,7 +569,7 @@ impl ProcessingPhase {
 
         let content_hash = modules
             .get(&module_id)
-            .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
+            .map_or_else(|| "000000".to_owned(), |(_, _, hash)| hash.clone());
 
         let _synthetic_name = bundler
             .module_synthetic_names
@@ -602,11 +602,11 @@ impl ProcessingPhase {
         };
 
         let init_function = InitFunctionBuilder::new(bundler, &transform_ctx, symbol_renames)
-            .build(ast.clone())
+            .build(ast)
             .expect("Init function transformation should not fail");
 
         let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
-            f.name.as_str().to_string()
+            f.name.as_str().to_owned()
         } else {
             init_func_name_from_map
         };
@@ -706,7 +706,7 @@ mod tests {
         }
 
         let ctx = CircularGroupContext {
-            cycle_groups: cycle_groups.clone(),
+            cycle_groups,
             member_to_group: member_to_group.clone(),
         };
 

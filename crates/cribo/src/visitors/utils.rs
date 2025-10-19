@@ -35,7 +35,7 @@ fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
         .iter()
         .map(|elt| {
             if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = elt {
-                Some(value.to_str().to_string())
+                Some(value.to_str().to_owned())
             } else {
                 None
             }
@@ -118,11 +118,7 @@ mod tests {
             assert!(!result.is_dynamic);
             assert_eq!(
                 result.names,
-                Some(vec![
-                    "foo".to_string(),
-                    "bar".to_string(),
-                    "baz".to_string()
-                ])
+                Some(vec!["foo".to_owned(), "bar".to_owned(), "baz".to_owned()])
             );
         }
     }

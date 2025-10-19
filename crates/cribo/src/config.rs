@@ -59,7 +59,7 @@ impl Combine for Config {
         Self {
             // For collections, higher precedence (self) completely replaces lower precedence
             // (other) if self has non-default values, otherwise use other
-            src: if self.src == Config::default().src {
+            src: if self.src == Self::default().src {
                 other.src
             } else {
                 self.src
@@ -119,7 +119,7 @@ impl EnvConfig {
                 .split(',')
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(std::borrow::ToOwned::to_owned)
+                .map(ToOwned::to_owned)
                 .collect();
             if !modules.is_empty() {
                 config.known_first_party = Some(modules);
@@ -132,7 +132,7 @@ impl EnvConfig {
                 .split(',')
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(std::borrow::ToOwned::to_owned)
+                .map(ToOwned::to_owned)
                 .collect();
             if !modules.is_empty() {
                 config.known_third_party = Some(modules);
@@ -232,12 +232,12 @@ impl Config {
     }
 
     /// Load a single config file from a path
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Config> {
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-        let config: Config = toml::from_str(&content)
+        let config: Self = toml::from_str(&content)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
 
         // Validate the target version
@@ -252,7 +252,7 @@ impl Config {
     }
 
     fn try_load_and_combine<P: AsRef<Path>>(
-        config: &mut Config,
+        config: &mut Self,
         path: P,
         context: &str,
     ) -> Result<()> {
@@ -278,7 +278,7 @@ impl Config {
     /// 5. System config (/etc/cribo/cribo.toml or equivalent)
     /// 6. Default values (lowest precedence)
     pub fn load(cli_config_path: Option<&Path>) -> Result<Self> {
-        let mut config = Config::default();
+        let mut config = Self::default();
 
         // 1. Load system config (lowest precedence)
         if let Some(system_config_path) = system_config_file() {
@@ -339,7 +339,7 @@ mod tests {
         // Test setting target version programmatically
         let mut config = Config::default();
         config
-            .set_target_version("py311".to_string())
+            .set_target_version("py311".to_owned())
             .expect("py311 should be a valid target version");
         assert_eq!(config.target_version, "py311");
         assert_eq!(

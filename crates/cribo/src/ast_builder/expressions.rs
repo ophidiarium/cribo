@@ -26,7 +26,7 @@ use ruff_text_size::TextRange;
 /// ```
 pub fn name(name: &str, ctx: ExprContext) -> Expr {
     Expr::Name(ExprName {
-        id: name.to_string().into(),
+        id: name.to_owned().into(),
         ctx,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::NONE,

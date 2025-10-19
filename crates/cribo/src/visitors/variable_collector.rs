@@ -41,7 +41,7 @@ impl VariableCollector {
     pub fn new() -> Self {
         Self {
             collected: CollectedVariables::default(),
-            scope_stack: vec!["<module>".to_string()],
+            scope_stack: vec!["<module>".to_owned()],
             in_deletion: false,
             in_assignment_target: false,
             current_function: None,
@@ -64,7 +64,7 @@ impl VariableCollector {
     /// Record a variable usage
     fn record_usage(&mut self, name: &str, usage_type: UsageType, location: TextRange) {
         self.collected.usages.push(VariableUsage {
-            name: name.to_string(),
+            name: name.to_owned(),
             usage_type,
             location,
             scope: self.current_scope_path(),
@@ -72,7 +72,7 @@ impl VariableCollector {
 
         // Track referenced vars for quick lookup
         if matches!(usage_type, UsageType::Read | UsageType::Write) {
-            self.collected.referenced_vars.insert(name.to_string());
+            self.collected.referenced_vars.insert(name.to_owned());
         }
     }
 

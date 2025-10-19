@@ -35,7 +35,7 @@ impl_combine_or!(PathBuf);
 impl<T> Combine for Option<Vec<T>> {
     /// Combine two vectors by extending the higher precedence vector (`self`) with the lower
     /// precedence vector (`other`), placing higher precedence items first.
-    fn combine(self, other: Option<Vec<T>>) -> Option<Vec<T>> {
+    fn combine(self, other: Self) -> Self {
         match (self, other) {
             (Some(mut a), Some(b)) => {
                 a.extend(b);
@@ -52,7 +52,7 @@ where
 {
     /// Combine two `IndexSets` by extending the set in `self` with the set in `other`, if they're
     /// both `Some`.
-    fn combine(self, other: Option<IndexSet<T>>) -> Option<IndexSet<T>> {
+    fn combine(self, other: Self) -> Self {
         match (self, other) {
             (Some(mut a), Some(b)) => {
                 a.extend(b);

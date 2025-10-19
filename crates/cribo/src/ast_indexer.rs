@@ -38,7 +38,7 @@ struct IndexingVisitor {
 }
 
 impl IndexingVisitor {
-    fn new(base_index: u32) -> Self {
+    const fn new(base_index: u32) -> Self {
         Self {
             current_index: RefCell::new(base_index),
             base_index,
@@ -60,7 +60,7 @@ impl IndexingVisitor {
             MODULE_INDEX_RANGE
         );
 
-        let index = ruff_python_ast::NodeIndex::from(*current);
+        let index = NodeIndex::from(*current);
         node_index.set(index);
         *current += 1;
         index
