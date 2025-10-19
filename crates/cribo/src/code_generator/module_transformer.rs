@@ -25,7 +25,7 @@ use crate::{
 ///
 /// This function handles the core statement-by-statement processing within an init function,
 /// applying transformations and adding module attributes as needed for different statement types.
-#[allow(clippy::too_many_arguments)] // Necessary for extracting complex logic
+#[expect(clippy::too_many_arguments)] // Necessary for extracting complex logic
 pub(crate) fn process_statements_for_init_function(
     processed_body: Vec<Stmt>,
     bundler: &Bundler,

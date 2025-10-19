@@ -45,7 +45,7 @@ impl ProcessingPhase {
     /// 5. Processes inlinable and wrapper modules
     ///
     /// Returns the generated statements and set of processed modules.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn execute(
         &self,
         bundler: &mut Bundler<'_>,
@@ -295,7 +295,7 @@ impl ProcessingPhase {
     }
 
     /// Process a circular dependency group with two-phase emission
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn process_circular_group(
         bundler: &mut Bundler<'_>,
         group_idx: usize,
@@ -447,7 +447,7 @@ impl ProcessingPhase {
     }
 
     /// Process an inlinable module
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn process_inlinable_module(
         bundler: &mut Bundler<'_>,
         module_id: ModuleId,
@@ -555,7 +555,7 @@ impl ProcessingPhase {
     }
 
     /// Process a wrapper module
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn process_wrapper_module(
         bundler: &mut Bundler<'_>,
         module_id: ModuleId,

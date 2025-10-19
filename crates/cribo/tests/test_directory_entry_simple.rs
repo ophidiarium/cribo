@@ -1,4 +1,4 @@
-#![allow(clippy::disallowed_methods)] // tempfile uses unwrap internally
+#![expect(clippy::disallowed_methods)] // tempfile uses unwrap internally
 
 use std::{env, fs, process::Command};
 

@@ -1,4 +1,4 @@
-#![allow(clippy::disallowed_methods)] // insta macros use unwrap internally
+#![expect(clippy::disallowed_methods)] // insta macros use unwrap internally
 
 mod common;
 

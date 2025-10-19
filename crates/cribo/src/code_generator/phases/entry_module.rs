@@ -224,7 +224,7 @@ impl EntryModulePhase {
     }
 
     /// Process entry module statements with deduplication
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn process_entry_statements(
         bundler: &mut Bundler<'_>,
         ast: &ModModule,
