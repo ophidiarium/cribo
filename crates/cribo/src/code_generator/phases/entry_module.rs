@@ -54,9 +54,7 @@ impl EntryModulePhase {
         final_body: &[Stmt],
     ) -> Option<EntryModuleProcessingResult> {
         // Extract entry module
-        let Some((mut ast, _module_path, _)) = modules.shift_remove(&ModuleId::ENTRY) else {
-            return None;
-        };
+        let (mut ast, _module_path, _) = modules.shift_remove(&ModuleId::ENTRY)?;
 
         let module_name = bundler
             .resolver

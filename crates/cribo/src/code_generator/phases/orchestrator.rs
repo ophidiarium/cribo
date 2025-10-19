@@ -217,23 +217,3 @@ impl BundleOrchestrator {
         result
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_orchestrator_can_be_constructed() {
-        // The orchestrator is a unit struct - construction is trivial
-        let _orchestrator = BundleOrchestrator;
-        assert!(true);
-    }
-
-    #[test]
-    fn test_orchestrator_architecture() {
-        // This test documents the complete phase architecture:
-        // All phases are now stateless and can be executed sequentially
-        // without borrow checker issues
-        assert!(true);
-    }
-}

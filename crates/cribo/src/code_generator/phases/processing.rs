@@ -21,14 +21,6 @@ use crate::{
 /// Processing phase handler (stateless)
 pub struct ProcessingPhase;
 
-/// Context for dependency analysis
-#[derive(Debug)]
-struct DependencyAnalysisResult {
-    wrapper_modules_needed_by_inlined: FxIndexSet<ModuleId>,
-    all_needed_wrappers: FxIndexSet<ModuleId>,
-    has_circular_wrapped_modules: bool,
-}
-
 /// Context for SCC group processing
 #[derive(Debug)]
 struct CircularGroupContext {
@@ -63,7 +55,7 @@ impl ProcessingPhase {
         global_symbols: &mut FxIndexSet<String>,
     ) -> (Vec<Stmt>, FxIndexSet<ModuleId>) {
         // Analyze wrapper dependencies
-        let _dep_analysis = Self::analyze_wrapper_dependencies(bundler, classification, modules);
+        Self::analyze_wrapper_dependencies(bundler, classification, modules);
 
         // Build SCC groups for circular dependency handling
         let circular_ctx = Self::build_circular_groups(params);
@@ -174,7 +166,7 @@ impl ProcessingPhase {
         bundler: &mut Bundler<'_>,
         classification: &ClassificationResult,
         _modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
-    ) -> DependencyAnalysisResult {
+    ) {
         use ruff_python_ast::Stmt;
 
         // Track wrapper modules
@@ -259,12 +251,6 @@ impl ProcessingPhase {
                 }
             }
             to_process = next_to_process;
-        }
-
-        DependencyAnalysisResult {
-            wrapper_modules_needed_by_inlined,
-            all_needed_wrappers: all_needed,
-            has_circular_wrapped_modules,
         }
     }
 
@@ -730,7 +716,6 @@ impl ProcessingPhase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::FxIndexSet;
 
     #[test]
     fn test_circular_group_context_construction() {
@@ -758,21 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dependency_analysis_result_construction() {
-        let mut wrapper_modules_needed = FxIndexSet::default();
-        wrapper_modules_needed.insert(ModuleId::new(1));
-
-        let result = DependencyAnalysisResult {
-            wrapper_modules_needed_by_inlined: wrapper_modules_needed.clone(),
-            all_needed_wrappers: wrapper_modules_needed,
-            has_circular_wrapped_modules: true,
-        };
-
-        assert_eq!(result.wrapper_modules_needed_by_inlined.len(), 1);
-        assert!(result.has_circular_wrapped_modules);
-    }
-
-    #[test]
     fn test_empty_circular_group_context() {
         let ctx = CircularGroupContext {
             cycle_groups: vec![],
@@ -781,17 +751,5 @@ mod tests {
 
         assert!(ctx.cycle_groups.is_empty());
         assert!(ctx.member_to_group.is_empty());
-    }
-
-    #[test]
-    fn test_dependency_analysis_no_circular() {
-        let result = DependencyAnalysisResult {
-            wrapper_modules_needed_by_inlined: FxIndexSet::default(),
-            all_needed_wrappers: FxIndexSet::default(),
-            has_circular_wrapped_modules: false,
-        };
-
-        assert!(!result.has_circular_wrapped_modules);
-        assert!(result.wrapper_modules_needed_by_inlined.is_empty());
     }
 }
