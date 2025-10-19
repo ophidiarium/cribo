@@ -157,30 +157,22 @@ impl PhaseOrchestrator {
                     .shift_remove(&ModuleId::ENTRY)
                     .unwrap_or_default();
 
+                let mut try_rename = |name: &str, kind: &str| {
+                    if name == entry_var {
+                        let renamed = bundler
+                            .get_unique_name_with_module_suffix(entry_var.as_str(), entry_mod_name);
+                        log::debug!(
+                            "Registering entry-module {kind} rename to avoid namespace collision: \
+                             '{entry_var}' -> '{renamed}'"
+                        );
+                        entry_map.insert(entry_var.clone(), renamed);
+                    }
+                };
+
                 for stmt in &entry_ast.body {
                     match stmt {
-                        Stmt::FunctionDef(func) if func.name.as_str() == entry_var => {
-                            let renamed = bundler.get_unique_name_with_module_suffix(
-                                entry_var.as_str(),
-                                entry_mod_name,
-                            );
-                            log::debug!(
-                                "Registering entry-module rename to avoid namespace collision: \
-                                 '{entry_var}' -> '{renamed}'"
-                            );
-                            entry_map.insert(entry_var.clone(), renamed);
-                        }
-                        Stmt::ClassDef(class_def) if class_def.name.as_str() == entry_var => {
-                            let renamed = bundler.get_unique_name_with_module_suffix(
-                                entry_var.as_str(),
-                                entry_mod_name,
-                            );
-                            log::debug!(
-                                "Registering entry-module class rename to avoid namespace \
-                                 collision: '{entry_var}' -> '{renamed}'"
-                            );
-                            entry_map.insert(entry_var.clone(), renamed);
-                        }
+                        Stmt::FunctionDef(func) => try_rename(func.name.as_str(), "function"),
+                        Stmt::ClassDef(class_def) => try_rename(class_def.name.as_str(), "class"),
                         _ => {}
                     }
                 }
