@@ -366,12 +366,9 @@ impl ProcessingPhase {
             // Create namespace
             let sanitized = sanitize_module_name_for_identifier(mname);
             if !bundler.created_namespaces.contains(&sanitized) {
-                let synthetic = bundler
-                    .module_synthetic_names
-                    .get(mid)
-                    .expect("synthetic name must exist");
                 let mut ns_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
-                    mname, synthetic, None, is_package,
+                    mname, "", // No init function, so no init_func_name needed
+                    None, is_package,
                 );
                 all_inlined_stmts.append(&mut ns_stmts);
                 bundler.created_namespaces.insert(sanitized.clone());
