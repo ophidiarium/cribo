@@ -26,8 +26,8 @@ impl StatementProcessingPhase {
     /// applying transformations and adding module attributes for exported symbols.
     pub(crate) fn execute(
         prep_context: BodyPreparationContext,
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
         // Call the extracted function from module_transformer

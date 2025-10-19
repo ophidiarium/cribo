@@ -89,7 +89,7 @@ impl BodyPreparationPhase {
     }
 
     /// Check if `__all__` is referenced in the module body
-    fn check_all_referenced(ast: &ModModule, ctx: &ModuleTransformContext) -> bool {
+    fn check_all_referenced(ast: &ModModule, ctx: &ModuleTransformContext<'_>) -> bool {
         let mut all_is_referenced = false;
         for stmt in &ast.body {
             // Skip checking __all__ assignment itself
@@ -121,8 +121,8 @@ impl BodyPreparationPhase {
 
     /// Collect all variables that are referenced by exported functions
     fn collect_vars_used_by_exported_functions(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &ModModule,
     ) -> FxIndexSet<String> {
         let mut vars = FxIndexSet::default();
@@ -199,7 +199,10 @@ impl BodyPreparationPhase {
     }
 
     /// Scan the body to find all built-in names that will be assigned as local variables
-    fn scan_builtin_locals(ast: &ModModule, ctx: &ModuleTransformContext) -> FxIndexSet<String> {
+    fn scan_builtin_locals(
+        ast: &ModModule,
+        ctx: &ModuleTransformContext<'_>,
+    ) -> FxIndexSet<String> {
         let mut builtin_locals = FxIndexSet::default();
         for stmt in &ast.body {
             let target_opt = match stmt {

@@ -28,8 +28,8 @@ impl InitializationPhase {
     /// 3. Set __initializing__ = True
     /// 4. Apply globals lifting if needed
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &mut ModModule,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {

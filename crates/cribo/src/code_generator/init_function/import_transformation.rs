@@ -35,8 +35,8 @@ impl ImportTransformationPhase {
     /// Note: This phase mutates the AST, unlike the Import Analysis phase which only
     /// analyzes it.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &mut ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
@@ -84,7 +84,7 @@ impl ImportTransformationPhase {
 
     /// Add global declarations for symbols imported from inlined modules
     fn add_global_declarations(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
         // Deduplicate by value name (what's actually in global scope) and sort for deterministic
