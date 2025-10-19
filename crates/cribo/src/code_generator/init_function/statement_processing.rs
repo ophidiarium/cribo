@@ -25,7 +25,7 @@ impl StatementProcessingPhase {
     /// Takes the preparation context from `BodyPreparationPhase` and processes each statement,
     /// applying transformations and adding module attributes for exported symbols.
     pub(crate) fn execute(
-        prep_context: BodyPreparationContext,
+        prep_context: BodyPreparationContext<'_>,
         bundler: &Bundler<'_>,
         ctx: &ModuleTransformContext<'_>,
         state: &mut InitFunctionState,

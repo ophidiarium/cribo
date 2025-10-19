@@ -236,7 +236,7 @@ pub(crate) struct InlinedImportParams<'a> {
 pub(crate) fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
-    params: InlinedImportParams,
+    params: InlinedImportParams<'_>,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();

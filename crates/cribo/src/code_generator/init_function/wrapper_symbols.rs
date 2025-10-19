@@ -22,7 +22,7 @@ impl WrapperSymbolSetupPhase {
     /// but we need them to exist in the local scope (not as module attributes yet).
     /// We use a sentinel object that can have attributes set on it.
     pub(crate) fn execute(
-        _bundler: &Bundler,
+        _bundler: &Bundler<'_>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
         // Note: deferred imports functionality has been removed

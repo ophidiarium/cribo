@@ -85,7 +85,7 @@ fn expr_matches_qualified_name(expr: &Expr, qname: &str) -> bool {
 /// namespace variables when they exist. For example, if assigning `services.auth`,
 /// it will use the `services_auth` namespace variable if it exists.
 pub(crate) fn create_attribute_assignment(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     parent: &str,
     attr: &str,
     module_name: &str,
@@ -121,7 +121,7 @@ pub(crate) fn create_attribute_assignment(
 /// This function handles the transformation of imports from namespace packages,
 /// creating appropriate assignments and namespace objects as needed.
 pub(super) fn transform_namespace_package_imports(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: StmtImportFrom,
     module_name: &str,
     _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,

@@ -29,8 +29,8 @@ impl SubmoduleHandlingPhase {
     /// **NOTE**: This phase runs after Statement Processing to ensure submodule
     /// namespace objects are available for any references in later phases.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
@@ -79,7 +79,7 @@ impl SubmoduleHandlingPhase {
 
     /// Collect direct submodules from a given module set
     fn collect_submodules_from_set(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         module_set: &FxIndexSet<ModuleId>,
         current_module_prefix: &str,
         submodules_to_add: &mut Vec<(String, String)>,
@@ -111,8 +111,8 @@ impl SubmoduleHandlingPhase {
 
     /// Add a submodule as an attribute on the parent module
     fn add_submodule_attribute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         full_name: &str,
         relative_name: &str,
@@ -160,8 +160,8 @@ impl SubmoduleHandlingPhase {
 
     /// Handle an inlined submodule
     fn handle_inlined_submodule(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         full_name: &str,
         relative_name: &str,
@@ -216,7 +216,7 @@ impl SubmoduleHandlingPhase {
 
     /// Create namespace for inlined submodule
     fn create_inlined_namespace(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         full_name: &str,
         relative_name: &str,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,

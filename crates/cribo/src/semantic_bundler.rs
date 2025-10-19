@@ -233,7 +233,7 @@ impl<'a> SemanticModelBuilder<'a> {
     }
 
     /// Extract symbols from a populated semantic model
-    fn extract_symbols_from_semantic_model(semantic: &SemanticModel) -> FxIndexSet<String> {
+    fn extract_symbols_from_semantic_model(semantic: &SemanticModel<'_>) -> FxIndexSet<String> {
         let mut symbols = FxIndexSet::default();
 
         // Get the global scope (module scope)
@@ -299,7 +299,7 @@ impl<'a> SemanticModelBuilder<'a> {
 
     /// Extract ALL module-scope symbols that need to be exposed in the module namespace
     /// This includes symbols defined in conditional blocks (if/else, try/except) and imports
-    fn extract_all_module_scope_symbols(semantic: &SemanticModel) -> FxIndexSet<String> {
+    fn extract_all_module_scope_symbols(semantic: &SemanticModel<'_>) -> FxIndexSet<String> {
         let mut symbols = FxIndexSet::default();
 
         // Get the global scope (module scope)

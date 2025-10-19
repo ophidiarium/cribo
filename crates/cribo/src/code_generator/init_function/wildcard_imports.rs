@@ -25,8 +25,8 @@ impl WildcardImportPhase {
     /// code that accesses these symbols via `vars(__cribo_module)` or `locals()`
     /// (e.g., the setattr pattern used by httpx and similar libraries).
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
         // Dedup and sort wildcard imports for deterministic output

@@ -1477,7 +1477,7 @@ impl BundleOrchestrator {
         &self,
         import: &str,
         import_path: PathBuf,
-        discovery_params: &mut DiscoveryParams,
+        discovery_params: &mut DiscoveryParams<'_>,
     ) {
         // For first-party modules, derive the actual module name from the path
         // This is critical for relative imports where the import string might be incomplete
@@ -1600,7 +1600,7 @@ impl BundleOrchestrator {
 
     /// Add parent packages to discovery queue to ensure __init__.py files are included
     /// For example, if importing "greetings.irrelevant", also add "greetings"
-    fn add_parent_packages_to_discovery(&self, import: &str, params: &mut DiscoveryParams) {
+    fn add_parent_packages_to_discovery(&self, import: &str, params: &mut DiscoveryParams<'_>) {
         let parts: Vec<&str> = import.split('.').collect();
 
         // For each parent package level, try to add it to discovery
@@ -1615,7 +1615,7 @@ impl BundleOrchestrator {
         &self,
         parent_module: &str,
         import: &str,
-        params: &mut DiscoveryParams,
+        params: &mut DiscoveryParams<'_>,
     ) {
         if params.resolver.classify_import(parent_module) == ImportType::FirstParty {
             if let Ok(Some(parent_path)) = params.resolver.resolve_module_path(parent_module) {
@@ -1637,7 +1637,7 @@ impl BundleOrchestrator {
         is_in_error_handler: bool,
         import_type: Option<crate::visitors::ImportType>,
         package_context: &Option<String>,
-        params: &mut DiscoveryParams,
+        params: &mut DiscoveryParams<'_>,
     ) -> Result<()> {
         // Special handling for ImportlibStatic imports that might have invalid Python identifiers
         if import_type == Some(crate::visitors::ImportType::ImportlibStatic) {
