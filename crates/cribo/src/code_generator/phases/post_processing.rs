@@ -13,6 +13,7 @@ use crate::{
 };
 
 /// Post-processing phase handler (stateless)
+#[derive(Default)]
 pub struct PostProcessingPhase;
 
 /// Result from post-processing

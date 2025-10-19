@@ -15,6 +15,7 @@ use crate::{
 };
 
 /// Entry module phase handler (stateless)
+#[derive(Default)]
 pub struct EntryModulePhase;
 
 /// Result from processing the entry module

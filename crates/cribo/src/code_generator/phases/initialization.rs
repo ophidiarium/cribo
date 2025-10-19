@@ -14,6 +14,7 @@ use crate::code_generator::{
 };
 
 /// Initialization phase handler (stateless)
+#[derive(Default)]
 pub struct InitializationPhase;
 
 impl InitializationPhase {
