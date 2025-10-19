@@ -5,12 +5,14 @@
 //! - Identifying circular dependencies
 //! - Storing bundler configuration and references
 
-use indexmap::IndexMap as FxIndexMap;
 use ruff_python_ast::Stmt;
 
-use crate::code_generator::{
-    bundler::Bundler,
-    context::{BundleParams, InitializationResult},
+use crate::{
+    code_generator::{
+        bundler::Bundler,
+        context::{BundleParams, InitializationResult},
+    },
+    types::FxIndexMap,
 };
 
 /// Initialization phase handler (stateless)
