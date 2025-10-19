@@ -397,6 +397,9 @@ impl ProcessingPhase {
                 bundler.created_namespaces.insert(sanitized.clone());
             }
 
+            // Ensure parent-child attribute attachment exists
+            bundler.create_namespace_chain_for_module(mname, &sanitized, all_inlined_stmts);
+
             processed_modules.insert(*mid);
         }
 

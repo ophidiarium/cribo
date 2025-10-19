@@ -5297,6 +5297,10 @@ impl Bundler<'_> {
         module_var: &str,
         stmts: &mut Vec<Stmt>,
     ) {
+        log::debug!(
+            "[NAMESPACE_CHAIN] Called for module_name='{module_name}', module_var='{module_var}'"
+        );
+
         // Split the module name into parts
         let parts: Vec<&str> = module_name.split('.').collect();
 
