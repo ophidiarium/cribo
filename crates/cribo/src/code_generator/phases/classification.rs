@@ -112,9 +112,6 @@ impl ClassificationPhase {
                 &mut bundler.module_init_functions,
             );
 
-            // Remove from inlined_modules since it's now a wrapper module
-            bundler.inlined_modules.shift_remove(module_id);
-
             log::debug!(
                 "Registered wrapper module '{module_name}' with synthetic name and init function"
             );
