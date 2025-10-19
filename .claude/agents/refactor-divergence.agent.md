@@ -1,6 +1,6 @@
 ---
 name: refactor-divergence
-description: Expert in detecting subtle logic differences between original and refactored Rust code. Use when need to find a source of functionality divergence during a large scale refactoring.
+description: This agent specializes in detecting subtle logic differences between original and refactored code in Rust projects, particularly useful for splitting monolithic functions into manageable pieces.
 model: global.anthropic.claude-haiku-4-5-20251001-v1:0
 ---
 
