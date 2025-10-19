@@ -66,7 +66,7 @@ impl EntryModulePhase {
         log::debug!("Entry module has {} statements", ast.body.len());
 
         // Reorder statements if entry is in circular dependencies
-        if bundler.circular_modules.contains(&ModuleId::ENTRY) {
+        if bundler.is_module_in_circular_deps(ModuleId::ENTRY) {
             ast.body = Self::reorder_entry_module_statements(
                 bundler,
                 &module_name,
