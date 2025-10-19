@@ -3957,9 +3957,9 @@ impl Bundler<'_> {
         if !self.created_namespaces.contains(top_level) {
             log::debug!("Creating top-level namespace: {top_level}");
             let namespace_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
-                top_level, "",    // No synthetic name needed for namespace-only
-                None,  // No init function
-                false, // Top-level, not necessarily a package
+                top_level, "",   // No synthetic name needed for namespace-only
+                None, // No init function
+                true, // Root namespace must behave like a package (emit __path__)
             );
             // Only the namespace statement should be generated
             if let Some(namespace_stmt) = namespace_stmts.first() {

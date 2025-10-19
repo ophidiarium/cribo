@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='Helper utilities for the core package.')
-core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
+core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False, __path__=[])
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
 core_utils.helpers = core_utils_helpers
@@ -114,7 +114,7 @@ def _cribo_init___cribo_f00e4b_core(self):
     return self
 core.__init__ = _cribo_init___cribo_f00e4b_core
 models_base = _cribo.types.SimpleNamespace(__name__='models.base', __doc__='Base model module.')
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
 models.base = models_base
 """Base model module."""
 class BaseModel:

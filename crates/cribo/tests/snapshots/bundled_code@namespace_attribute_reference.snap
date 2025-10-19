@@ -1,6 +1,5 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 538
 input_file: crates/cribo/tests/fixtures/namespace_attribute_reference/main.py
 ---
 #!/usr/bin/env python3
@@ -57,7 +56,7 @@ def _cribo_init___cribo_19d82f_mypkg_compat(self):
     self.__initializing__ = False
     return self
 mypkg_compat.__init__ = _cribo_init___cribo_19d82f_mypkg_compat
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False, __path__=[])
 mypkg.compat = mypkg_compat
 mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions', __initializing__=False, __initialized__=False)
 mypkg.exceptions = mypkg_exceptions

@@ -62,7 +62,7 @@ def _cribo_init___cribo_41d36f_mypackage_core(self):
     self.__initializing__ = False
     return self
 mypackage_core.__init__ = _cribo_init___cribo_41d36f_mypackage_core
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.core = mypackage_core
 """Package initialization with future import."""
 mypackage_submodule_utils = _cribo.types.SimpleNamespace(__name__='mypackage.submodule.utils', __initializing__=False, __initialized__=False)

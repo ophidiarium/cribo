@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 app_utils = _cribo.types.SimpleNamespace(__name__='app.utils')
-app = _cribo.types.SimpleNamespace(__name__='app', __initializing__=False, __initialized__=False)
+app = _cribo.types.SimpleNamespace(__name__='app', __initializing__=False, __initialized__=False, __path__=[])
 app.utils = app_utils
 def get_name():
     return "app.utils"

@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 wildcard_pkg_meta = _cribo.types.SimpleNamespace(__name__='wildcard_pkg.meta')
-wildcard_pkg = _cribo.types.SimpleNamespace(__name__='wildcard_pkg', __initializing__=False, __initialized__=False)
+wildcard_pkg = _cribo.types.SimpleNamespace(__name__='wildcard_pkg', __initializing__=False, __initialized__=False, __path__=[])
 wildcard_pkg.meta = wildcard_pkg_meta
 class WildcardMetaclass(type):
     """Metaclass that adds yaml_tag"""

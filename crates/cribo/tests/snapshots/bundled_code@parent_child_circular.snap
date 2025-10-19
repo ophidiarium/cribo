@@ -54,7 +54,7 @@ def _cribo_init___cribo_83878b_foo_zoo(self):
     self.__initializing__ = False
     return self
 foo_zoo.__init__ = _cribo_init___cribo_83878b_foo_zoo
-foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False)
+foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False, __path__=[])
 foo.zoo = foo_zoo
 foo_boo = _cribo.types.SimpleNamespace(__name__='foo.boo', __initializing__=False, __initialized__=False)
 foo.boo = foo_boo

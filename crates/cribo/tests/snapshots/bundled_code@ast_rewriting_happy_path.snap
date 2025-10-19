@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers', __doc__="\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n")
-utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False, __path__=[])
 utils.helpers = utils_helpers
 """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
 def format_message(greeting: str, name: str) -> str:
@@ -41,7 +41,7 @@ def calculate_total(values: _cribo.typing.List[int]) -> int:
 utils_helpers.calculate_total = calculate_total
 utils_helpers.format_message = format_message
 models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='\nUser model with role enumeration.\nNo naming conflicts with other modules.\n')
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
 models.user = models_user
 """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 class UserRole(_cribo.enum.Enum):
@@ -76,7 +76,7 @@ User.__module__ = 'models.user'
 models_user.User = User
 models_user.UserRole = UserRole
 services_database = _cribo.types.SimpleNamespace(__name__='services.database', __doc__='\nDatabase service module.\nContains database-related functionality with unique names.\n')
-services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False, __path__=[])
 services.database = services_database
 """\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 class DatabaseConnection:

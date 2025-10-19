@@ -48,7 +48,7 @@ def _cribo_init___cribo_dca395_pkg_submodule(self):
     self.__initializing__ = False
     return self
 pkg_submodule.__init__ = _cribo_init___cribo_dca395_pkg_submodule
-pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False, __path__=[])
 pkg.submodule = pkg_submodule
 """Package __init__ that gets inlined (not wrapped)."""
 base_value = "base"

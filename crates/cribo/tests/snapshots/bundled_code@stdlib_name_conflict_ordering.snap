@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 complex_pkg_abc = _cribo.types.SimpleNamespace(__name__='complex_pkg.abc')
-complex_pkg = _cribo.types.SimpleNamespace(__name__='complex_pkg', __initializing__=False, __initialized__=False)
+complex_pkg = _cribo.types.SimpleNamespace(__name__='complex_pkg', __initializing__=False, __initialized__=False, __path__=[])
 complex_pkg.abc = complex_pkg_abc
 class Base(_cribo.abc.ABC):
     """Base class like rich.abc.RichRenderable"""

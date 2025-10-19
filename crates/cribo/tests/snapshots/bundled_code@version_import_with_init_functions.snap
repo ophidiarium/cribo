@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypackage___version__ = _cribo.types.SimpleNamespace(__name__='mypackage.__version__', __doc__='Version information for the package.')
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.__version__ = mypackage___version__
 """Version information for the package."""
 __version__ = "3.0.0"

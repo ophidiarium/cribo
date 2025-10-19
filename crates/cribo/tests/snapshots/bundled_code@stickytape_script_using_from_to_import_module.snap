@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 greetings_config = _cribo.types.SimpleNamespace(__name__='greetings.config')
-greetings = _cribo.types.SimpleNamespace(__name__='greetings', __initializing__=False, __initialized__=False)
+greetings = _cribo.types.SimpleNamespace(__name__='greetings', __initializing__=False, __initialized__=False, __path__=[])
 greetings.config = greetings_config
 DEFAULT_NAME = "User"
 greetings_config.DEFAULT_NAME = DEFAULT_NAME

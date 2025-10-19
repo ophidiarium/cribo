@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypackage_abc = _cribo.types.SimpleNamespace(__name__='mypackage.abc', __doc__="Local module named 'abc' - should not be confused with stdlib abc.")
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.abc = mypackage_abc
 """Local module named 'abc' - should not be confused with stdlib abc."""
 class MyClass:

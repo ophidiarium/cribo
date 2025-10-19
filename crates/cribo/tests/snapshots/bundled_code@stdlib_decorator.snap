@@ -64,7 +64,7 @@ def _cribo_init___cribo_7c69fc_mypackage_utils(self):
     self.__initializing__ = False
     return self
 mypackage_utils.__init__ = _cribo_init___cribo_7c69fc_mypackage_utils
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.utils = mypackage_utils
 def _cribo_init___cribo_41b947_mypackage(self):
     if getattr(self, '__initialized__', False):

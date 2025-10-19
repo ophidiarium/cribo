@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 pkg_certs = _cribo.types.SimpleNamespace(__name__='pkg.certs', __doc__='Certs module.')
-pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False, __path__=[])
 pkg.certs = pkg_certs
 """Certs module."""
 pkg___version__ = _cribo.types.SimpleNamespace(__name__='pkg.__version__', __doc__='Version info.')

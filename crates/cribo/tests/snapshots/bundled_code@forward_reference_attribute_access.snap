@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mymodule_compat = _cribo.types.SimpleNamespace(__name__='mymodule.compat')
-mymodule = _cribo.types.SimpleNamespace(__name__='mymodule', __initializing__=False, __initialized__=False)
+mymodule = _cribo.types.SimpleNamespace(__name__='mymodule', __initializing__=False, __initialized__=False, __path__=[])
 mymodule.compat = mymodule_compat
 JSONDecodeError = _cribo.json.JSONDecodeError
 mymodule_compat.JSONDecodeError = JSONDecodeError

@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='Core utility helpers module - NO external dependencies to avoid circular imports')
-core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
+core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False, __path__=[])
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
 core_utils.helpers = core_utils_helpers
@@ -291,7 +291,7 @@ def _cribo_init___cribo_0a162a_models_base(self):
     self.__initializing__ = False
     return self
 models_base.__init__ = _cribo_init___cribo_0a162a_models_base
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
 models.base = models_base
 models_user = _cribo.types.SimpleNamespace(__name__='models.user', __initializing__=False, __initialized__=False)
 models.user = models_user
@@ -502,7 +502,7 @@ def _cribo_init___cribo_0ecebd_services_auth_manager(self):
     self.__initializing__ = False
     return self
 services_auth_manager.__init__ = _cribo_init___cribo_0ecebd_services_auth_manager
-services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False, __path__=[])
 services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False, __path__=[])
 services.auth = services_auth
 services_auth.manager = services_auth_manager

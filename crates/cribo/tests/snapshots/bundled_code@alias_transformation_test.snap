@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils_data_processor = _cribo.types.SimpleNamespace(__name__='utils.data_processor', __doc__='\nData processing utilities module.\nUsed to test from-import alias transformations.\n')
-utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False, __path__=[])
 utils.data_processor = utils_data_processor
 """\nData processing utilities module.\nUsed to test from-import alias transformations.\n"""
 def process_data(data_list):

@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 pkg_submodule = _cribo.types.SimpleNamespace(__name__='pkg.submodule')
-pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False, __path__=[])
 pkg.submodule = pkg_submodule
 def create_object():
     """Factory function that imports from parent."""

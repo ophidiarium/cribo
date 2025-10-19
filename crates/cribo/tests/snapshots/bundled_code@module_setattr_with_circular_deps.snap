@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types', __doc__='Types module with stream classes.')
-pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False)
+pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False, __path__=[])
 pkg._types = pkg__types
 """Types module with stream classes."""
 class AsyncStream:

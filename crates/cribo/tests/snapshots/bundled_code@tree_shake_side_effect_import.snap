@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypackage_exceptions = _cribo.types.SimpleNamespace(__name__='mypackage.exceptions')
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.exceptions = mypackage_exceptions
 class CustomError(Exception):
     """Custom exception that is used by utils module."""

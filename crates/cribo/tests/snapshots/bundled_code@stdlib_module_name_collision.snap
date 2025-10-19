@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypkg_abc = _cribo.types.SimpleNamespace(__name__='mypkg.abc', __doc__="Local 'abc' module that imports from stdlib 'abc'.")
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False, __path__=[])
 mypkg.abc = mypkg_abc
 """Local 'abc' module that imports from stdlib 'abc'."""
 class MyBaseClass(_cribo.abc.ABC):
