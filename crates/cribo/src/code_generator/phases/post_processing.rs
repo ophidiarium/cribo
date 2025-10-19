@@ -181,9 +181,17 @@ impl PostProcessingPhase {
     pub fn insert_proxy_statements(proxy_statements: Vec<Stmt>, final_body: &mut Vec<Stmt>) {
         log::debug!("Inserting _cribo proxy after __future__ imports");
 
-        // Find position after __future__ imports
+        // Find position after optional module docstring and __future__ imports
         let mut insert_position = 0;
-        for (i, stmt) in final_body.iter().enumerate() {
+
+        // Skip leading module docstring
+        if let Some(Stmt::Expr(expr)) = final_body.first()
+            && matches!(expr.value.as_ref(), ruff_python_ast::Expr::StringLiteral(_)) {
+                insert_position = 1;
+            }
+
+        // Skip contiguous __future__ imports after docstring
+        for (i, stmt) in final_body.iter().enumerate().skip(insert_position) {
             if let Stmt::ImportFrom(import_from) = stmt
                 && let Some(module) = &import_from.module
                 && module.as_str() == "__future__"
