@@ -3737,7 +3737,7 @@ impl Bundler<'_> {
                     self.namespace_registry.contains_key(&sanitized);
 
                 // Check if we haven't already created this namespace globally or locally
-                let already_created = self.created_namespaces.contains(&parent_path)
+                let already_created = self.created_namespaces.contains(&sanitized)
                     || self.is_namespace_already_created(&parent_path, result_stmts)
                     || registered_in_namespace_system;
 
@@ -3762,7 +3762,7 @@ impl Bundler<'_> {
                         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
                     ));
                 } else if registered_in_namespace_system
-                    && !self.created_namespaces.contains(&parent_path)
+                    && !self.created_namespaces.contains(&sanitized)
                 {
                     // The namespace is registered but hasn't been created yet
                     // This shouldn't happen if generate_required_namespaces() was called before
@@ -3797,6 +3797,7 @@ impl Bundler<'_> {
         // For "import a.b.c", we need to create namespace objects for "a", "a.b", and "a.b.c"
         for i in 1..=parts.len() {
             let partial_module = parts[..i].join(".");
+            let sanitized_partial = sanitize_module_name_for_identifier(&partial_module);
 
             // Skip if this module is already a wrapper module
             if self.has_synthetic_name(&partial_module) {
@@ -3804,7 +3805,7 @@ impl Bundler<'_> {
             }
 
             // Skip if this namespace was already created globally
-            if self.created_namespaces.contains(&partial_module) {
+            if self.created_namespaces.contains(&sanitized_partial) {
                 log::debug!(
                     "Skipping namespace creation for '{partial_module}' - already created globally"
                 );
@@ -3812,7 +3813,6 @@ impl Bundler<'_> {
             }
 
             // Check if we should use a flattened namespace instead of creating an empty one
-            let flattened_name = sanitize_module_name_for_identifier(&partial_module);
             let should_use_flattened = self
                 .get_module_id(&partial_module)
                 .is_some_and(|id| self.inlined_modules.contains(&id));
@@ -3821,14 +3821,14 @@ impl Bundler<'_> {
             // during module inlining, including any parent.child assignments
             if should_use_flattened {
                 log::debug!(
-                    "Module '{partial_module}' should use flattened namespace '{flattened_name}'. \
-                     Already created: {}",
-                    self.created_namespaces.contains(&flattened_name)
+                    "Module '{partial_module}' should use flattened namespace \
+                     '{sanitized_partial}'. Already created: {}",
+                    self.created_namespaces.contains(&sanitized_partial)
                 );
-                if self.created_namespaces.contains(&flattened_name) {
+                if self.created_namespaces.contains(&sanitized_partial) {
                     log::debug!(
                         "Skipping assignment for '{partial_module}' - already exists as flattened \
-                         namespace '{flattened_name}'"
+                         namespace '{sanitized_partial}'"
                     );
                     continue;
                 }
@@ -3836,7 +3836,7 @@ impl Bundler<'_> {
 
             let namespace_expr = if should_use_flattened {
                 // Use the flattened namespace variable
-                expressions::name(&flattened_name, ExprContext::Load)
+                expressions::name(&sanitized_partial, ExprContext::Load)
             } else {
                 // Create empty namespace object
                 expressions::call(expressions::simple_namespace_ctor(), vec![], vec![])
@@ -3950,7 +3950,8 @@ impl Bundler<'_> {
         // First, ensure ALL parent namespaces exist, including the top-level one
         // We need to create the top-level namespace first if it doesn't exist
         let top_level = parts[0];
-        if !self.created_namespaces.contains(top_level) {
+        let top_level_var = sanitize_module_name_for_identifier(top_level);
+        if !self.created_namespaces.contains(&top_level_var) {
             log::debug!("Creating top-level namespace: {top_level}");
             let namespace_stmts = crate::ast_builder::module_wrapper::create_wrapper_module(
                 top_level, "",   // No synthetic name needed for namespace-only
@@ -3961,7 +3962,7 @@ impl Bundler<'_> {
             if let Some(namespace_stmt) = namespace_stmts.first() {
                 stmts.push(namespace_stmt.clone());
             }
-            self.created_namespaces.insert(top_level.to_string());
+            self.created_namespaces.insert(top_level_var.clone());
         }
 
         // Now create intermediate namespaces
