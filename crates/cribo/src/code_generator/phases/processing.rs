@@ -562,7 +562,7 @@ impl ProcessingPhase {
     #[allow(clippy::too_many_arguments)]
     fn process_wrapper_module(
         bundler: &mut Bundler<'_>,
-        _module_id: ModuleId,
+        module_id: ModuleId,
         module_name: &str,
         ast: ruff_python_ast::ModModule,
         path: &Path,
@@ -581,17 +581,13 @@ impl ProcessingPhase {
 
         log::debug!("Processing wrapper module: {module_name}");
 
-        let wrapper_module_id = bundler
-            .get_module_id(module_name)
-            .expect("Wrapper module should be registered");
-
         let content_hash = modules
-            .get(&wrapper_module_id)
+            .get(&module_id)
             .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
 
         let _synthetic_name = bundler
             .module_synthetic_names
-            .entry(wrapper_module_id)
+            .entry(module_id)
             .or_insert_with(|| {
                 crate::code_generator::module_registry::get_synthetic_module_name(
                     module_name,
@@ -602,12 +598,12 @@ impl ProcessingPhase {
 
         let init_func_name_from_map = bundler
             .module_init_functions
-            .get(&wrapper_module_id)
+            .get(&module_id)
             .expect("init function must exist")
             .clone();
 
         let global_info = crate::analyzers::GlobalAnalyzer::analyze(module_name, &ast);
-        let is_in_circular = bundler.is_module_in_circular_deps(wrapper_module_id);
+        let is_in_circular = bundler.is_module_in_circular_deps(module_id);
 
         let transform_ctx = ModuleTransformContext {
             module_name,
@@ -638,7 +634,7 @@ impl ProcessingPhase {
         let namespace_already_exists = bundler.created_namespaces.contains(&module_var);
 
         let mut wrapper_stmts = if namespace_already_exists {
-            if bundler.emitted_wrapper_inits.insert(wrapper_module_id) {
+            if bundler.emitted_wrapper_inits.insert(module_id) {
                 crate::ast_builder::module_wrapper::create_init_function_statements(
                     module_name,
                     &init_func_name,
@@ -647,7 +643,7 @@ impl ProcessingPhase {
             } else {
                 Vec::new()
             }
-        } else if bundler.emitted_wrapper_inits.insert(wrapper_module_id) {
+        } else if bundler.emitted_wrapper_inits.insert(module_id) {
             crate::ast_builder::module_wrapper::create_wrapper_module(
                 module_name,
                 &init_func_name,
