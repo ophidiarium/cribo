@@ -84,7 +84,7 @@ impl EntryModulePhase {
         log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
         // Collect locally defined symbols
-        let entry_module_symbols = Self::collect_entry_symbols(bundler, &ast);
+        let entry_module_symbols = Self::collect_entry_symbols(&ast);
         log::debug!("Entry module locally defined symbols: {entry_module_symbols:?}");
 
         // Transform imports
@@ -139,7 +139,7 @@ impl EntryModulePhase {
     }
 
     /// Collect locally defined symbols in the entry module
-    fn collect_entry_symbols(_bundler: &Bundler<'_>, ast: &ModModule) -> FxIndexSet<String> {
+    fn collect_entry_symbols(ast: &ModModule) -> FxIndexSet<String> {
         let mut locally_defined_symbols = FxIndexSet::default();
         for stmt in &ast.body {
             match stmt {
