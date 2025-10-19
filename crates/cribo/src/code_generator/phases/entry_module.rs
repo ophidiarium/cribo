@@ -16,11 +16,11 @@ use crate::{
 
 /// Entry module phase handler (stateless)
 #[derive(Default)]
-pub struct EntryModulePhase;
+pub(crate) struct EntryModulePhase;
 
 /// Result from processing the entry module
 #[derive(Debug, Clone)]
-pub struct EntryModuleProcessingResult {
+pub(crate) struct EntryModuleProcessingResult {
     /// Transformed and processed entry module statements
     pub statements: Vec<Stmt>,
     /// Locally defined symbols in the entry module
@@ -31,7 +31,7 @@ pub struct EntryModuleProcessingResult {
 
 impl EntryModulePhase {
     /// Create a new entry module phase
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -46,7 +46,7 @@ impl EntryModulePhase {
     /// 6. Exposes child modules at module level
     ///
     /// Returns processed statements, symbols, and renames for the entry module.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         params: &BundleParams<'_>,

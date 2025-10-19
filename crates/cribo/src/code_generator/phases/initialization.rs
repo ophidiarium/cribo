@@ -14,11 +14,11 @@ use crate::code_generator::{
 
 /// Initialization phase handler (stateless)
 #[derive(Default)]
-pub struct InitializationPhase;
+pub(crate) struct InitializationPhase;
 
 impl InitializationPhase {
     /// Create a new initialization phase
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -32,7 +32,7 @@ impl InitializationPhase {
     /// Returns an `InitializationResult` containing the collected future imports.
     /// Note: Circular dependencies and namespace imports are discovered later in
     /// `prepare_modules` phase.
-    pub fn execute<'a>(
+    pub(crate) fn execute<'a>(
         &self,
         bundler: &mut Bundler<'a>,
         params: &BundleParams<'a>,
@@ -61,7 +61,7 @@ impl InitializationPhase {
 ///
 /// This converts the collected future imports into AST statements
 /// that should be placed at the beginning of the bundle.
-pub fn generate_future_import_statements(result: &InitializationResult) -> Vec<Stmt> {
+pub(crate) fn generate_future_import_statements(result: &InitializationResult) -> Vec<Stmt> {
     if result.future_imports.is_empty() {
         return Vec::new();
     }

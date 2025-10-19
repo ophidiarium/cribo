@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Visitor that collects symbol definitions and their metadata
-pub struct SymbolCollector {
+pub(crate) struct SymbolCollector {
     /// Current scope stack
     scope_stack: ScopePath,
     /// Collected symbol information
@@ -41,7 +41,7 @@ impl Default for SymbolCollector {
 
 impl SymbolCollector {
     /// Create a new symbol collector
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             scope_stack: Vec::new(),
             collected_symbols: CollectedSymbols::default(),
@@ -52,7 +52,7 @@ impl SymbolCollector {
     }
 
     /// Run the collector on a module and return collected symbols
-    pub fn analyze(module: &ModModule) -> CollectedSymbols {
+    pub(crate) fn analyze(module: &ModModule) -> CollectedSymbols {
         let mut collector = Self::new();
         collector.visit_body(&module.body);
         collector.collected_symbols

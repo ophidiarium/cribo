@@ -12,7 +12,7 @@ use super::utils::extract_string_list_from_expr;
 use crate::analyzers::types::ExportInfo;
 
 /// Visitor that collects export information from a module
-pub struct ExportCollector {
+pub(crate) struct ExportCollector {
     /// Collected export information
     export_info: ExportInfo,
     /// Track if we've seen dynamic __all__ modifications
@@ -29,7 +29,7 @@ impl Default for ExportCollector {
 
 impl ExportCollector {
     /// Create a new export collector
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             export_info: ExportInfo {
                 exported_names: None,
@@ -41,7 +41,7 @@ impl ExportCollector {
     }
 
     /// Analyze a module and return export information
-    pub fn analyze(module: &ModModule) -> ExportInfo {
+    pub(crate) fn analyze(module: &ModModule) -> ExportInfo {
         let mut collector = Self::new();
         collector.visit_body(&module.body);
 

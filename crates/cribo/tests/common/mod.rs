@@ -14,7 +14,7 @@ use std::{
 /// 3. System Python (python3 or python)
 ///
 /// This ensures tests use the correct Python with all required dependencies.
-pub fn get_python_executable() -> PathBuf {
+pub(crate) fn get_python_executable() -> PathBuf {
     // Prefer a project-local virtual environment (repo root .venv) if present.
     // We walk up from the crate's manifest directory to find the first '.venv'.
     // This allows tests to consistently use the pinned dependencies

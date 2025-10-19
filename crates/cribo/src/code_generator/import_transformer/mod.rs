@@ -17,7 +17,7 @@ use crate::{
 };
 
 mod expr_rewriter;
-pub mod handlers;
+pub(crate) mod handlers;
 mod state;
 mod statement;
 
@@ -27,11 +27,11 @@ use handlers::{
     submodule::SubmoduleHandler, wrapper::WrapperHandler,
 };
 // Re-export the params struct for external use
-pub use state::RecursiveImportTransformerParams;
+pub(crate) use state::RecursiveImportTransformerParams;
 use state::TransformerState;
 
 /// Transformer that recursively handles import statements and module references
-pub struct RecursiveImportTransformer<'a> {
+pub(crate) struct RecursiveImportTransformer<'a> {
     state: TransformerState<'a>,
 }
 
@@ -463,24 +463,24 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Create a new transformer from parameters
-    pub fn new(params: &RecursiveImportTransformerParams<'a>) -> Self {
+    pub(crate) fn new(params: &RecursiveImportTransformerParams<'a>) -> Self {
         Self {
             state: TransformerState::new(params),
         }
     }
 
     /// Get whether any types.SimpleNamespace objects were created
-    pub const fn created_namespace_objects(&self) -> bool {
+    pub(crate) const fn created_namespace_objects(&self) -> bool {
         self.state.created_namespace_objects
     }
 
     /// Get the import aliases map
-    pub const fn import_aliases(&self) -> &FxIndexMap<String, String> {
+    pub(crate) const fn import_aliases(&self) -> &FxIndexMap<String, String> {
         &self.state.import_aliases
     }
 
     /// Get mutable access to the import aliases map
-    pub const fn import_aliases_mut(&mut self) -> &mut FxIndexMap<String, String> {
+    pub(crate) const fn import_aliases_mut(&mut self) -> &mut FxIndexMap<String, String> {
         &mut self.state.import_aliases
     }
 
@@ -1093,7 +1093,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Create module access expression
-    pub fn create_module_access_expr(&self, module_name: &str) -> Expr {
+    pub(crate) fn create_module_access_expr(&self, module_name: &str) -> Expr {
         // Check if this is a wrapper module
         if let Some(synthetic_name) = self
             .state

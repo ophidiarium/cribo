@@ -25,7 +25,7 @@ pub(crate) use finalization::FinalizationPhase;
 pub(crate) use import_analysis::ImportAnalysisPhase;
 pub(crate) use import_transformation::ImportTransformationPhase;
 pub(crate) use initialization::InitializationPhase;
-pub use orchestrator::InitFunctionBuilder;
+pub(crate) use orchestrator::InitFunctionBuilder;
 pub(crate) use state::InitFunctionState;
 pub(crate) use statement_processing::StatementProcessingPhase;
 pub(crate) use submodules::SubmoduleHandlingPhase;
@@ -35,7 +35,7 @@ pub(crate) use wrapper_symbols::WrapperSymbolSetupPhase;
 
 /// Errors that can occur during init function transformation
 #[derive(Debug)]
-pub enum TransformError {
+pub(crate) enum TransformError {
     /// Module ID not found
     ModuleIdNotFound { module_name: String },
     /// Init function name not found for wrapper module

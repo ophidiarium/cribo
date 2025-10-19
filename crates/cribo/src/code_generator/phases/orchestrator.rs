@@ -28,7 +28,7 @@ use crate::{
 ///
 /// With the stateless phase design, the orchestrator can now sequentially
 /// execute each phase without violating Rust's borrow checker rules.
-pub struct PhaseOrchestrator;
+pub(crate) struct PhaseOrchestrator;
 
 impl PhaseOrchestrator {
     /// Execute the complete bundling process using the phase-based architecture
@@ -45,7 +45,7 @@ impl PhaseOrchestrator {
     /// 9. Finalization: Assemble final module and log statistics
     ///
     /// Returns the final bundled `ModModule`.
-    pub fn bundle<'a>(bundler: &mut Bundler<'a>, params: &BundleParams<'a>) -> ModModule {
+    pub(crate) fn bundle<'a>(bundler: &mut Bundler<'a>, params: &BundleParams<'a>) -> ModModule {
         let mut final_body = Vec::new();
 
         // Phase 1: Initialization

@@ -31,7 +31,7 @@ static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = On
 
 /// Immutable module information stored in the registry
 #[derive(Debug, Clone)]
-pub struct ModuleInfo {
+pub(crate) struct ModuleInfo {
     /// The unique module ID assigned by the dependency graph
     pub id: ModuleId,
     /// The canonical module name (e.g., "requests.compat")
@@ -42,7 +42,7 @@ pub struct ModuleInfo {
 
 /// Central registry for module information
 /// This is the single source of truth for module identity throughout the bundling process
-pub struct ModuleRegistry {
+pub(crate) struct ModuleRegistry {
     /// Map from `ModuleId` to complete module information
     modules: FxIndexMap<ModuleId, ModuleInfo>,
     /// Map from canonical name to `ModuleId` for fast lookups
@@ -59,7 +59,7 @@ impl Default for ModuleRegistry {
 
 impl ModuleRegistry {
     /// Create a new empty module registry
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             modules: FxIndexMap::default(),
             name_to_id: FxIndexMap::default(),
@@ -68,7 +68,7 @@ impl ModuleRegistry {
     }
 
     /// Add a module to the registry
-    pub fn add_module(&mut self, info: ModuleInfo) {
+    pub(crate) fn add_module(&mut self, info: ModuleInfo) {
         let id = info.id;
         let name = info.canonical_name.clone();
         let path = info.resolved_path.clone();
@@ -100,12 +100,12 @@ impl ModuleRegistry {
     }
 
     /// Get module ID by canonical name
-    pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
+    pub(crate) fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
         self.name_to_id.get(name).copied()
     }
 
     /// Check if a module exists by `ModuleId`
-    pub fn contains_module(&self, id: &ModuleId) -> bool {
+    pub(crate) fn contains_module(&self, id: &ModuleId) -> bool {
         self.modules.contains_key(id)
     }
 }
@@ -173,7 +173,7 @@ struct ProcessedModule {
     module_id: Option<ModuleId>,
 }
 
-pub struct BundleOrchestrator {
+pub(crate) struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,
     /// Central registry for module information
@@ -183,7 +183,7 @@ pub struct BundleOrchestrator {
 }
 
 impl BundleOrchestrator {
-    pub fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         Self {
             config,
             semantic_bundler: SemanticBundler::new(),
@@ -633,7 +633,7 @@ impl BundleOrchestrator {
     }
 
     /// Bundle to string for stdout output
-    pub fn bundle_to_string(
+    pub(crate) fn bundle_to_string(
         &mut self,
         entry_path: &Path,
         emit_requirements: bool,
@@ -691,7 +691,7 @@ impl BundleOrchestrator {
     }
 
     /// Main bundling function
-    pub fn bundle(
+    pub(crate) fn bundle(
         &mut self,
         entry_path: &Path,
         output_path: &Path,

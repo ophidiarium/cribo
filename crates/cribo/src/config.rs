@@ -85,7 +85,7 @@ impl Combine for Config {
 
 /// Configuration values from environment variables with CRIBO_ prefix
 #[derive(Debug, Clone, Default)]
-pub struct EnvConfig {
+pub(crate) struct EnvConfig {
     pub src: Option<Vec<PathBuf>>,
     pub known_first_party: Option<IndexSet<String>>,
     pub known_third_party: Option<IndexSet<String>>,
@@ -97,7 +97,7 @@ pub struct EnvConfig {
 
 impl EnvConfig {
     /// Load configuration from environment variables with CRIBO_ prefix
-    pub fn from_env() -> Self {
+    pub(crate) fn from_env() -> Self {
         let mut config = Self::default();
 
         // CRIBO_SRC - comma-separated list of source directories
@@ -163,7 +163,7 @@ impl EnvConfig {
     }
 
     /// Apply environment config to base config
-    pub fn apply_to(self, mut config: Config) -> Config {
+    pub(crate) fn apply_to(self, mut config: Config) -> Config {
         if let Some(src) = self.src {
             config.src = src;
         }

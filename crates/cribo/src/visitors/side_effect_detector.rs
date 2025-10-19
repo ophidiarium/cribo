@@ -10,7 +10,7 @@ use ruff_python_ast::{
 use rustc_hash::FxHashSet;
 
 /// Visitor for detecting side effects in Python code
-pub struct SideEffectDetector {
+pub(crate) struct SideEffectDetector {
     /// Names that were imported and may have side effects when used
     imported_names: FxHashSet<String>,
     /// Flag indicating if side effects were found
@@ -24,13 +24,13 @@ pub struct SideEffectDetector {
 }
 
 /// Simple expression visitor for checking side effects in a single expression
-pub struct ExpressionSideEffectDetector {
+pub(crate) struct ExpressionSideEffectDetector {
     has_side_effects: bool,
 }
 
 impl SideEffectDetector {
     /// Create a new side effect detector
-    pub fn new(python_version: u8) -> Self {
+    pub(crate) fn new(python_version: u8) -> Self {
         Self {
             imported_names: FxHashSet::default(),
             has_side_effects: false,
@@ -41,7 +41,7 @@ impl SideEffectDetector {
     }
 
     /// Check if a module has side effects (static method to avoid allocation in caller)
-    pub fn check_module(module: &ModModule, python_version: u8) -> bool {
+    pub(crate) fn check_module(module: &ModModule, python_version: u8) -> bool {
         let mut detector = Self::new(python_version);
         detector.module_has_side_effects(module)
     }
@@ -420,14 +420,14 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
 impl ExpressionSideEffectDetector {
     /// Create a new expression side effect detector
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             has_side_effects: false,
         }
     }
 
     /// Check if an expression has side effects (static method to avoid allocation in caller)
-    pub fn check(expr: &Expr) -> bool {
+    pub(crate) fn check(expr: &Expr) -> bool {
         let mut detector = Self::new();
         detector.expression_has_side_effects(expr)
     }

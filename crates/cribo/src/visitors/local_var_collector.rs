@@ -15,7 +15,7 @@ use crate::types::FxIndexSet;
 
 /// Visitor that collects local variable names at module level,
 /// excluding names declared as `global`, and treating `nonlocal` names as locals
-pub struct LocalVarCollector<'a> {
+pub(crate) struct LocalVarCollector<'a> {
     /// Set to collect local variable names
     local_vars: &'a mut FxIndexSet<String>,
     /// Set of global names to exclude from collection
@@ -24,7 +24,7 @@ pub struct LocalVarCollector<'a> {
 
 impl<'a> LocalVarCollector<'a> {
     /// Create a new local variable collector
-    pub const fn new(
+    pub(crate) const fn new(
         local_vars: &'a mut FxIndexSet<String>,
         global_vars: &'a FxIndexSet<String>,
     ) -> Self {
@@ -35,7 +35,7 @@ impl<'a> LocalVarCollector<'a> {
     }
 
     /// Collect local variable names from a list of statements
-    pub fn collect_from_stmts(&mut self, stmts: &'a [Stmt]) {
+    pub(crate) fn collect_from_stmts(&mut self, stmts: &'a [Stmt]) {
         source_order::walk_body(self, stmts);
     }
 

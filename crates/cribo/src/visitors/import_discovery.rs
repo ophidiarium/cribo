@@ -17,7 +17,7 @@ use crate::{
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ExecutionContext {
+pub(crate) enum ExecutionContext {
     /// Code at module level - executes when module is imported
     ModuleLevel,
     /// Inside a function body - executes when function is called
@@ -43,7 +43,7 @@ pub(super) struct ImportUsage {
 
 /// Type of import statement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ImportType {
+pub(crate) enum ImportType {
     /// import module
     Direct,
     /// from module import ...
@@ -56,7 +56,7 @@ pub enum ImportType {
 
 /// An import discovered during AST traversal
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoveredImport {
+pub(crate) struct DiscoveredImport {
     /// The module being imported
     pub module_name: Option<String>,
     /// Names being imported (for from imports)
@@ -84,7 +84,7 @@ pub struct DiscoveredImport {
 
 /// Where an import was discovered in the AST
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImportLocation {
+pub(crate) enum ImportLocation {
     /// Import at module level
     Module,
     /// Import inside a function
@@ -100,7 +100,7 @@ pub enum ImportLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ScopeElement {
+pub(crate) enum ScopeElement {
     Function(String),
     Class(String),
     If,
@@ -111,7 +111,7 @@ pub enum ScopeElement {
 }
 
 /// Visitor that discovers all imports in a Python module and analyzes their usage
-pub struct ImportDiscoveryVisitor<'a> {
+pub(crate) struct ImportDiscoveryVisitor<'a> {
     /// All discovered imports
     imports: Vec<DiscoveredImport>,
     /// Current scope stack
@@ -140,7 +140,7 @@ impl Default for ImportDiscoveryVisitor<'_> {
 
 impl<'a> ImportDiscoveryVisitor<'a> {
     /// Create a new import discovery visitor
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         log::debug!("Creating new ImportDiscoveryVisitor");
         Self {
             imports: Vec::new(),
@@ -156,7 +156,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
     }
 
     /// Create a new visitor with semantic bundler for enhanced analysis
-    pub fn with_semantic_bundler(
+    pub(crate) fn with_semantic_bundler(
         semantic_bundler: &'a SemanticBundler,
         module_id: ModuleId,
     ) -> Self {
@@ -191,7 +191,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
     }
 
     /// Get all discovered imports
-    pub fn into_imports(mut self) -> Vec<DiscoveredImport> {
+    pub(crate) fn into_imports(mut self) -> Vec<DiscoveredImport> {
         // Post-process imports to determine movability based on usage
         for i in 0..self.imports.len() {
             let import = &self.imports[i];

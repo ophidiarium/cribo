@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Import analyzer for processing import patterns and relationships
-pub struct ImportAnalyzer;
+pub(crate) struct ImportAnalyzer;
 
 /// Context for checking if an import is unused
 struct ImportUsageContext<'a> {
@@ -28,7 +28,7 @@ struct ImportUsageContext<'a> {
 
 impl ImportAnalyzer {
     /// Find modules that are imported directly (e.g., `import module`)
-    pub fn find_directly_imported_modules(
+    pub(crate) fn find_directly_imported_modules(
         modules: &[(String, ModModule, PathBuf, String)],
         _entry_module_name: &str,
     ) -> FxIndexSet<String> {
@@ -62,7 +62,7 @@ impl ImportAnalyzer {
     }
 
     /// Find modules that are imported as namespaces (e.g., `from pkg import module`)
-    pub fn find_namespace_imported_modules(
+    pub(crate) fn find_namespace_imported_modules(
         modules: &[(String, ModModule, PathBuf, String)],
     ) -> FxIndexMap<String, FxIndexSet<String>> {
         let mut namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>> =
@@ -103,7 +103,7 @@ impl ImportAnalyzer {
     }
 
     /// Find matching module name for namespace imports
-    pub fn find_matching_module_name_namespace(
+    pub(crate) fn find_matching_module_name_namespace(
         modules: &[(String, ModModule, PathBuf, String)],
         full_module_path: &str,
     ) -> String {
@@ -121,7 +121,7 @@ impl ImportAnalyzer {
     }
 
     /// Find unused imports in a specific module
-    pub fn find_unused_imports_in_module(
+    pub(crate) fn find_unused_imports_in_module(
         module: &crate::cribo_graph::ModuleDepGraph,
         is_init_py: bool,
     ) -> Vec<UnusedImportInfo> {
@@ -631,7 +631,7 @@ impl ImportAnalyzer {
     ///
     /// This function is used to determine if private symbols (e.g., starting with underscore)
     /// should still be exported because they're imported by other modules.
-    pub fn is_symbol_imported_by_other_modules(
+    pub(crate) fn is_symbol_imported_by_other_modules(
         module_asts: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
         module_id: crate::resolver::ModuleId,
         symbol_name: &str,
@@ -762,7 +762,7 @@ impl ImportAnalyzer {
     /// Performance optimization: Returns early when encountering non-import/non-docstring
     /// statements, as `__future__` imports must appear at the top of the file per Python's
     /// specification (after module docstring but before any other code).
-    pub fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
+    pub(crate) fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
         let mut future_imports = FxIndexSet::default();
         let mut seen_docstring = false;
 

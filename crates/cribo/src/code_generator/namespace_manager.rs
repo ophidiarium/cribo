@@ -37,13 +37,13 @@ fn should_include_import(
 
 /// Information about a registered namespace
 #[derive(Debug, Clone)]
-pub struct NamespaceInfo {}
+pub(crate) struct NamespaceInfo {}
 
 /// Context for populating namespace with module symbols.
 ///
 /// This struct encapsulates the state required by the namespace population function,
 /// which was previously accessed directly from the `Bundler` struct.
-pub struct NamespacePopulationContext<'a> {
+pub(crate) struct NamespacePopulationContext<'a> {
     pub inlined_modules: &'a FxIndexSet<ModuleId>,
     pub module_exports: &'a FxIndexMap<ModuleId, Option<Vec<String>>>,
     pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<ModuleId, FxIndexSet<String>>>,
@@ -84,7 +84,7 @@ fn expr_matches_qualified_name(expr: &Expr, qname: &str) -> bool {
 /// This function creates `parent.attr = value` statements, but intelligently uses
 /// namespace variables when they exist. For example, if assigning `services.auth`,
 /// it will use the `services_auth` namespace variable if it exists.
-pub fn create_attribute_assignment(
+pub(crate) fn create_attribute_assignment(
     bundler: &Bundler,
     parent: &str,
     attr: &str,
@@ -218,7 +218,7 @@ pub(super) fn transform_namespace_package_imports(
 ///
 /// This function generates AST statements to populate a namespace object with symbols
 /// from a module, handling tree-shaking, re-exports, and symbol renaming.
-pub fn populate_namespace_with_module_symbols(
+pub(crate) fn populate_namespace_with_module_symbols(
     ctx: &mut NamespacePopulationContext,
     target_name: &str,
     module_id: ModuleId,

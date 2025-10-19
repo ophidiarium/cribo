@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use indexmap::IndexSet;
 
-pub trait Combine {
+pub(crate) trait Combine {
     /// Combine two values, preferring the values in `self`.
     ///
     /// The logic follows that of Cargo's `config.toml`:

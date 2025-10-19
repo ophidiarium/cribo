@@ -25,11 +25,13 @@ struct CycleAnalysisResult {
 }
 
 /// Dependency analyzer for module and symbol dependencies
-pub struct DependencyAnalyzer;
+pub(crate) struct DependencyAnalyzer;
 
 impl DependencyAnalyzer {
     /// Analyze circular dependencies and classify them
-    pub fn analyze_circular_dependencies(graph: &DependencyGraph) -> CircularDependencyAnalysis {
+    pub(crate) fn analyze_circular_dependencies(
+        graph: &DependencyGraph,
+    ) -> CircularDependencyAnalysis {
         let sccs = graph.find_strongly_connected_components();
 
         let mut resolvable_cycles = Vec::new();

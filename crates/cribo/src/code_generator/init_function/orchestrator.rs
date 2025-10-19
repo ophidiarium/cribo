@@ -35,7 +35,7 @@ use crate::{
 
 /// Builder for coordinating the multi-phase transformation of a module AST
 /// into an initialization function
-pub struct InitFunctionBuilder<'a> {
+pub(crate) struct InitFunctionBuilder<'a> {
     bundler: &'a Bundler<'a>,
     ctx: &'a ModuleTransformContext<'a>,
     symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -43,7 +43,7 @@ pub struct InitFunctionBuilder<'a> {
 
 impl<'a> InitFunctionBuilder<'a> {
     /// Create a new builder with the required context
-    pub const fn new(
+    pub(crate) const fn new(
         bundler: &'a Bundler<'a>,
         ctx: &'a ModuleTransformContext<'a>,
         symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -69,7 +69,7 @@ impl<'a> InitFunctionBuilder<'a> {
     /// 9. Submodule Handling - Set up submodule attributes
     /// 10. Final Cleanup - Add re-exports and explicit imports
     /// 11. Finalization - Create the function statement
-    pub fn build(self, mut ast: ModModule) -> Result<Stmt, TransformError> {
+    pub(crate) fn build(self, mut ast: ModModule) -> Result<Stmt, TransformError> {
         let mut state = InitFunctionState::new();
 
         // Phase 1: Initialization

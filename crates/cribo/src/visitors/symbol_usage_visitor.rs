@@ -47,19 +47,19 @@ const TYPE_HINT_IDENTIFIERS: &[&str] = &[
 
 /// Visitor that collects symbols that are actually used in a function body
 #[derive(Default)]
-pub struct SymbolUsageVisitor {
+pub(crate) struct SymbolUsageVisitor {
     /// Set of symbol names that are used in the body
     used_names: FxIndexSet<String>,
 }
 
 impl SymbolUsageVisitor {
     /// Create a new symbol usage visitor
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Collect all symbols used in a function body
-    pub fn collect_used_symbols(body: &[Stmt]) -> FxIndexSet<String> {
+    pub(crate) fn collect_used_symbols(body: &[Stmt]) -> FxIndexSet<String> {
         let mut visitor = Self::new();
         visitor.visit_body(body);
         visitor.used_names

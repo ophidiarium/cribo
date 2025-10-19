@@ -9,11 +9,11 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Symbol analyzer for processing collected symbol data
-pub struct SymbolAnalyzer;
+pub(crate) struct SymbolAnalyzer;
 
 impl SymbolAnalyzer {
     /// Collect global symbols from modules (matching bundler's `collect_global_symbols`)
-    pub fn collect_global_symbols(
+    pub(crate) fn collect_global_symbols(
         modules: &[(
             crate::resolver::ModuleId,
             &ModModule,
@@ -64,7 +64,7 @@ impl SymbolAnalyzer {
     ///
     /// # Returns
     /// A vector of references to the export symbols that should be kept
-    pub fn filter_exports_by_tree_shaking<'a>(
+    pub(crate) fn filter_exports_by_tree_shaking<'a>(
         exports: &'a [String],
         module_id: &crate::resolver::ModuleId,
         kept_symbols: Option<&FxIndexMap<crate::resolver::ModuleId, FxIndexSet<String>>>,

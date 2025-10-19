@@ -22,7 +22,7 @@ use crate::{
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
 #[derive(Debug)]
-pub struct SemanticBundler {
+pub(crate) struct SemanticBundler {
     /// Module-specific semantic models
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
     /// Global symbol registry with full semantic information
@@ -336,7 +336,7 @@ impl<'a> SemanticModelBuilder<'a> {
 /// Module semantic analyzer that provides static methods for symbol extraction
 /// Semantic information for a single module
 #[derive(Debug)]
-pub struct ModuleSemanticInfo {
+pub(crate) struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
     /// Symbol conflicts detected in this module
@@ -348,7 +348,7 @@ pub struct ModuleSemanticInfo {
 
 /// Global symbol registry across all modules with semantic information
 #[derive(Debug)]
-pub struct SymbolRegistry {
+pub(crate) struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
     /// Renames: (`ModuleId`, `OriginalName`) -> `NewName`
@@ -363,7 +363,7 @@ impl Default for SymbolRegistry {
 
 impl SymbolRegistry {
     /// Create a new symbol registry
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             symbols: FxIndexMap::default(),
             renames: FxIndexMap::default(),
@@ -371,12 +371,12 @@ impl SymbolRegistry {
     }
 
     /// Register a symbol from a module (legacy interface)
-    pub fn register_symbol(&mut self, symbol: String, module_id: ModuleId) {
+    pub(crate) fn register_symbol(&mut self, symbol: String, module_id: ModuleId) {
         self.symbols.entry(symbol).or_default().push(module_id);
     }
 
     /// Detect conflicts across all modules
-    pub fn detect_conflicts(&self) -> Vec<SymbolConflict> {
+    pub(crate) fn detect_conflicts(&self) -> Vec<SymbolConflict> {
         let mut conflicts = Vec::new();
 
         for (symbol, modules) in &self.symbols {
@@ -392,7 +392,7 @@ impl SymbolRegistry {
     }
 
     /// Generate rename for conflicting symbol
-    pub fn generate_rename(
+    pub(crate) fn generate_rename(
         &mut self,
         module_id: ModuleId,
         original: &str,
@@ -405,7 +405,7 @@ impl SymbolRegistry {
     }
 
     /// Get rename for a symbol if it exists
-    pub fn get_rename(&self, module_id: ModuleId, original: &str) -> Option<&str> {
+    pub(crate) fn get_rename(&self, module_id: ModuleId, original: &str) -> Option<&str> {
         self.renames
             .get(&(module_id, original.to_owned()))
             .map(String::as_str)
@@ -413,14 +413,14 @@ impl SymbolRegistry {
 }
 
 /// Represents a symbol conflict across modules
-pub struct SymbolConflict {
+pub(crate) struct SymbolConflict {
     pub symbol: String,
     pub modules: Vec<ModuleId>,
 }
 
 /// Information about module-level global usage
 #[derive(Debug, Clone, Default)]
-pub struct ModuleGlobalInfo {
+pub(crate) struct ModuleGlobalInfo {
     /// Variables that exist at module level
     pub module_level_vars: FxIndexSet<String>,
 
@@ -447,7 +447,7 @@ impl Default for SemanticBundler {
 
 impl SemanticBundler {
     /// Create a new semantic bundler
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             module_semantics: FxIndexMap::default(),
             global_symbols: SymbolRegistry::new(),
@@ -457,7 +457,7 @@ impl SemanticBundler {
     }
 
     /// Analyze a module using full semantic model approach
-    pub fn analyze_module(
+    pub(crate) fn analyze_module(
         &mut self,
         module_id: ModuleId,
         ast: &ModModule,
@@ -549,7 +549,7 @@ impl SemanticBundler {
     }
 
     /// Detect and resolve symbol conflicts across all modules
-    pub fn detect_and_resolve_conflicts(&mut self) -> Vec<SymbolConflict> {
+    pub(crate) fn detect_and_resolve_conflicts(&mut self) -> Vec<SymbolConflict> {
         let conflicts = self.global_symbols.detect_conflicts();
 
         // Generate renames for conflicting symbols
@@ -574,12 +574,12 @@ impl SemanticBundler {
     }
 
     /// Get module semantic info
-    pub fn get_module_info(&self, module_id: ModuleId) -> Option<&ModuleSemanticInfo> {
+    pub(crate) fn get_module_info(&self, module_id: ModuleId) -> Option<&ModuleSemanticInfo> {
         self.module_semantics.get(&module_id)
     }
 
     /// Get symbol registry
-    pub const fn symbol_registry(&self) -> &SymbolRegistry {
+    pub(crate) const fn symbol_registry(&self) -> &SymbolRegistry {
         &self.global_symbols
     }
 }

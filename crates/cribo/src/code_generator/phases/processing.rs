@@ -20,7 +20,7 @@ use crate::{
 
 /// Processing phase handler (stateless)
 #[derive(Default)]
-pub struct ProcessingPhase;
+pub(crate) struct ProcessingPhase;
 
 /// Context for SCC group processing
 #[derive(Debug)]
@@ -31,7 +31,7 @@ struct CircularGroupContext {
 
 impl ProcessingPhase {
     /// Create a new processing phase
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -46,7 +46,7 @@ impl ProcessingPhase {
     ///
     /// Returns the generated statements and set of processed modules.
     #[expect(clippy::too_many_arguments)]
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         params: &BundleParams<'_>,

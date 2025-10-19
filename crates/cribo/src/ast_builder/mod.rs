@@ -50,14 +50,14 @@
 //! let alias = other::alias("foo", Some("bar"));
 //! ```
 
-pub mod expressions;
-pub mod module_attr_merge;
-pub mod module_wrapper;
-pub mod other;
-pub mod proxy_generator;
-pub mod statements;
+pub(crate) mod expressions;
+pub(crate) mod module_attr_merge;
+pub(crate) mod module_wrapper;
+pub(crate) mod other;
+pub(crate) mod proxy_generator;
+pub(crate) mod statements;
 
 /// Internal namespace prefix used for hoisted stdlib access.
-pub const CRIBO_PREFIX: &str = "_cribo";
+pub(crate) const CRIBO_PREFIX: &str = "_cribo";
 
 // Re-export commonly used functions for convenience

@@ -4,7 +4,7 @@
 //! initialization functions that can be called to create module objects.
 
 /// Name of the module object parameter used in generated init functions.
-pub const SELF_PARAM: &str = "self";
+pub(crate) const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{
@@ -1877,7 +1877,7 @@ fn transform_expr_for_module_vars_with_locals(
 
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
-pub fn transform_ast_with_lifted_globals(
+pub(crate) fn transform_ast_with_lifted_globals(
     bundler: &Bundler,
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,

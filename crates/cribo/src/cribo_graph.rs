@@ -26,17 +26,17 @@ use crate::{
 
 /// Unique identifier for an item within a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ItemId(u32);
+pub(crate) struct ItemId(u32);
 
 impl ItemId {
-    pub const fn new(id: u32) -> Self {
+    pub(crate) const fn new(id: u32) -> Self {
         Self(id)
     }
 }
 
 /// Type of Python item (statement/definition)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ItemType {
+pub(crate) enum ItemType {
     /// Function definition
     FunctionDef { name: String },
     /// Class definition
@@ -67,7 +67,7 @@ pub enum ItemType {
 
 impl ItemType {
     /// Get the name of this item if it has one
-    pub fn name(&self) -> Option<&str> {
+    pub(crate) fn name(&self) -> Option<&str> {
         match self {
             Self::FunctionDef { name } | Self::ClassDef { name } => Some(name),
             _ => None,
@@ -77,7 +77,7 @@ impl ItemType {
 
 /// Variable state tracking
 #[derive(Debug, Clone)]
-pub struct VarState {
+pub(crate) struct VarState {
     /// Items that write to this variable
     pub writers: Vec<ItemId>,
     /// Items that read this variable
@@ -86,7 +86,7 @@ pub struct VarState {
 
 /// Data about a Python item (statement/definition)
 #[derive(Debug, Clone)]
-pub struct ItemData {
+pub(crate) struct ItemData {
     /// Type of this item
     pub item_type: ItemType,
     /// Variables declared by this item
@@ -118,7 +118,7 @@ pub struct ItemData {
 
 /// Fine-grained dependency graph for a single module
 #[derive(Debug)]
-pub struct ModuleDepGraph {
+pub(crate) struct ModuleDepGraph {
     /// Module identifier
     pub module_id: ModuleId,
     /// Module name (e.g., "utils.helpers")
@@ -135,7 +135,7 @@ pub struct ModuleDepGraph {
 
 impl ModuleDepGraph {
     /// Create a new module dependency graph
-    pub fn new(module_id: ModuleId, module_name: String) -> Self {
+    pub(crate) fn new(module_id: ModuleId, module_name: String) -> Self {
         Self {
             module_id,
             module_name,
@@ -147,7 +147,7 @@ impl ModuleDepGraph {
     }
 
     /// Add a new item to the graph
-    pub fn add_item(&mut self, data: ItemData) -> ItemId {
+    pub(crate) fn add_item(&mut self, data: ItemData) -> ItemId {
         let id = ItemId::new(self.next_item_id);
         self.next_item_id += 1;
 
@@ -195,7 +195,7 @@ impl ModuleDepGraph {
     }
 
     /// Get all import items in the module with their IDs
-    pub fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
+    pub(crate) fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
         self.items
             .iter()
             .filter(|(_, data)| {
@@ -209,7 +209,7 @@ impl ModuleDepGraph {
     }
 
     /// Check if a name is in __all__ export
-    pub fn is_in_all_export(&self, name: &str) -> bool {
+    pub(crate) fn is_in_all_export(&self, name: &str) -> bool {
         // Look for __all__ assignments
         for item_data in self.items.values() {
             if let ItemType::Assignment { targets, .. } = &item_data.item_type
@@ -226,7 +226,7 @@ impl ModuleDepGraph {
     }
 
     /// Check if a symbol uses a specific import
-    pub fn does_symbol_use_import(&self, symbol: &str, import_name: &str) -> bool {
+    pub(crate) fn does_symbol_use_import(&self, symbol: &str, import_name: &str) -> bool {
         // Find the item that defines the symbol
         for item in self.items.values() {
             if item.defined_symbols.contains(symbol) {
@@ -270,7 +270,7 @@ impl ModuleDepGraph {
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
 #[derive(Debug)]
-pub struct CriboGraph {
+pub(crate) struct CriboGraph {
     /// All modules in the graph
     pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping
@@ -299,7 +299,7 @@ pub struct CriboGraph {
 
 impl CriboGraph {
     /// Create a new cribo dependency graph
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             modules: FxIndexMap::default(),
             module_names: FxIndexMap::default(),
@@ -314,7 +314,7 @@ impl CriboGraph {
     }
 
     /// Add a module to the graph with a pre-assigned `ModuleId` from the resolver
-    pub fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
+    pub(crate) fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
 
@@ -391,19 +391,19 @@ impl CriboGraph {
     }
 
     /// Get a module by ID
-    pub fn get_module(&self, id: ModuleId) -> Option<&ModuleDepGraph> {
+    pub(crate) fn get_module(&self, id: ModuleId) -> Option<&ModuleDepGraph> {
         self.modules.get(&id)
     }
 
     /// Get a module by name (for compatibility during migration)
-    pub fn get_module_by_name(&self, name: &str) -> Option<&ModuleDepGraph> {
+    pub(crate) fn get_module_by_name(&self, name: &str) -> Option<&ModuleDepGraph> {
         self.module_names
             .get(name)
             .and_then(|&id| self.modules.get(&id))
     }
 
     /// Get a mutable module by name (for compatibility during migration)
-    pub fn get_module_by_name_mut(&mut self, name: &str) -> Option<&mut ModuleDepGraph> {
+    pub(crate) fn get_module_by_name_mut(&mut self, name: &str) -> Option<&mut ModuleDepGraph> {
         if let Some(&id) = self.module_names.get(name) {
             self.modules.get_mut(&id)
         } else {
@@ -412,12 +412,12 @@ impl CriboGraph {
     }
 
     /// Get modules that access __all__ attribute
-    pub const fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
+    pub(crate) const fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
         &self.modules_accessing_all
     }
 
     /// Add a module that accesses __all__ of another module
-    pub fn add_module_accessing_all(
+    pub(crate) fn add_module_accessing_all(
         &mut self,
         accessing_module_id: ModuleId,
         accessed_module_id: ModuleId,
@@ -427,12 +427,17 @@ impl CriboGraph {
     }
 
     /// Add a dependency between modules (from depends on to)
-    pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
+    pub(crate) fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
         self.add_module_dependency_with_info(from, to, ());
     }
 
     /// Add a dependency between modules with additional information
-    pub fn add_module_dependency_with_info(&mut self, from: ModuleId, to: ModuleId, info: ()) {
+    pub(crate) fn add_module_dependency_with_info(
+        &mut self,
+        from: ModuleId,
+        to: ModuleId,
+        info: (),
+    ) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
@@ -448,19 +453,19 @@ impl CriboGraph {
     }
 
     /// Get topologically sorted modules (uses petgraph)
-    pub fn topological_sort(&self) -> Result<Vec<ModuleId>> {
+    pub(crate) fn topological_sort(&self) -> Result<Vec<ModuleId>> {
         toposort(&self.graph, None)
             .map(|nodes| nodes.into_iter().map(|n| self.graph[n]).collect())
             .map_err(|_| anyhow!("Circular dependency detected"))
     }
 
     /// Check if the graph has cycles
-    pub fn has_cycles(&self) -> bool {
+    pub(crate) fn has_cycles(&self) -> bool {
         is_cyclic_directed(&self.graph)
     }
 
     /// Get all modules that a given module depends on
-    pub fn get_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
+    pub(crate) fn get_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
         if let Some(&node_idx) = self.node_indices.get(&module_id) {
             // Since edges go from dependency to dependent, incoming edges are dependencies
             self.graph
@@ -475,7 +480,7 @@ impl CriboGraph {
     /// Find all strongly connected components (circular dependencies) using Tarjan's algorithm
     /// This is more efficient than Kosaraju for our use case and provides components in
     /// reverse topological order
-    pub fn find_strongly_connected_components(&self) -> Vec<Vec<ModuleId>> {
+    pub(crate) fn find_strongly_connected_components(&self) -> Vec<Vec<ModuleId>> {
         // Use petgraph's implementation for correctness and maintainability
         let components = tarjan_scc(&self.graph);
 

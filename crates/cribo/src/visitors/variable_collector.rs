@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Variable collection visitor
-pub struct VariableCollector {
+pub(crate) struct VariableCollector {
     /// Collected data
     collected: CollectedVariables,
     /// Current scope stack
@@ -38,7 +38,7 @@ impl Default for VariableCollector {
 
 impl VariableCollector {
     /// Create a new variable collector
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             collected: CollectedVariables::default(),
             scope_stack: vec!["<module>".to_owned()],
@@ -120,7 +120,7 @@ impl VariableCollector {
     }
 
     /// Collect global declarations from a function body (static helper)
-    pub fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
+    pub(crate) fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
         let mut function_globals = FxIndexSet::default();
         for stmt in body {
             if let Stmt::Global(global_stmt) = stmt {
@@ -133,7 +133,7 @@ impl VariableCollector {
     }
 
     /// Check if a statement references a specific variable
-    pub fn statement_references_variable(stmt: &Stmt, var_name: &str) -> bool {
+    pub(crate) fn statement_references_variable(stmt: &Stmt, var_name: &str) -> bool {
         struct VarChecker<'a> {
             var_name: &'a str,
             found: bool,
@@ -160,7 +160,7 @@ impl VariableCollector {
     }
 
     /// Collect variables referenced in statements (static helper for compatibility)
-    pub fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
+    pub(crate) fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
         struct SimpleStmtCollector<'a> {
             vars: &'a mut FxIndexSet<String>,
         }

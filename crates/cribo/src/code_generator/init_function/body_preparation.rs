@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Context data computed during body preparation
-pub struct BodyPreparationContext<'a> {
+pub(crate) struct BodyPreparationContext<'a> {
     /// Whether `__all__` is referenced in the module body
     pub all_is_referenced: bool,
     /// Variables referenced by exported functions

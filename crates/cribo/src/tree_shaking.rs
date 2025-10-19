@@ -10,7 +10,7 @@ use crate::{
 
 /// Tree shaker that removes unused symbols from modules
 #[derive(Debug)]
-pub struct TreeShaker<'a> {
+pub(crate) struct TreeShaker<'a> {
     /// Centralized module resolver for import resolution
     resolver: &'a ModuleResolver,
     /// Module items from semantic analysis (reused from `CriboGraph`)
@@ -53,7 +53,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Create a tree shaker from an existing `CriboGraph`
-    pub fn from_graph(graph: &CriboGraph, resolver: &'a ModuleResolver) -> Self {
+    pub(crate) fn from_graph(graph: &CriboGraph, resolver: &'a ModuleResolver) -> Self {
         let mut module_items = FxIndexMap::default();
         let mut module_names = FxIndexMap::default();
 
@@ -90,7 +90,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Analyze which symbols should be kept based on entry point
-    pub fn analyze(&mut self, entry_module: &str) {
+    pub(crate) fn analyze(&mut self, entry_module: &str) {
         info!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // Verify that the entry module is registered with the expected ID
@@ -335,7 +335,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Mark all symbols transitively used from entry module
-    pub fn mark_used_symbols(&mut self, entry_id: ModuleId) {
+    pub(crate) fn mark_used_symbols(&mut self, entry_id: ModuleId) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
 
         // First pass: find all direct module imports across all modules
@@ -928,7 +928,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Get symbols that survive tree-shaking for a module
-    pub fn get_used_symbols_for_module(&self, module_name: &str) -> FxIndexSet<String> {
+    pub(crate) fn get_used_symbols_for_module(&self, module_name: &str) -> FxIndexSet<String> {
         // Get the ModuleId for this module name
         if let Some(&module_id) = self.module_name_to_id.get(module_name) {
             self.used_symbols
@@ -942,7 +942,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Check if a symbol is used after tree-shaking
-    pub fn is_symbol_used(&self, module_name: &str, symbol_name: &str) -> bool {
+    pub(crate) fn is_symbol_used(&self, module_name: &str, symbol_name: &str) -> bool {
         // Get the ModuleId for this module name
         if let Some(&module_id) = self.module_name_to_id.get(module_name) {
             self.used_symbols
@@ -955,7 +955,7 @@ impl<'a> TreeShaker<'a> {
     // Removed get_unused_symbols_for_module: dead code
 
     /// Check if a module has side effects that prevent tree-shaking
-    pub fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
+    pub(crate) fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
         if let Some(items) = self.module_items.get(&module_id) {
             // Check if any top-level item has side effects
             items.iter().any(|item| {

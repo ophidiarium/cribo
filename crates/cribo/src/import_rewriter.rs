@@ -16,14 +16,14 @@ use crate::{
 
 /// Strategy for deduplicating imports within functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImportDeduplicationStrategy {
+pub(crate) enum ImportDeduplicationStrategy {
     /// Place import at the start of the function
     FunctionStart,
 }
 
 /// Information about an import that can be moved
 #[derive(Debug, Clone)]
-pub struct MovableImport {
+pub(crate) struct MovableImport {
     /// The original import statement
     pub import_stmt: ImportStatement,
     /// Functions that use this import
@@ -34,7 +34,7 @@ pub struct MovableImport {
 
 /// Represents an import statement in a normalized form
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ImportStatement {
+pub(crate) enum ImportStatement {
     /// Regular import: `import module` or `import module as alias`
     Import {
         module: String,
@@ -49,19 +49,19 @@ pub enum ImportStatement {
 }
 
 /// Import rewriter that transforms module-level imports to function-level
-pub struct ImportRewriter {
+pub(crate) struct ImportRewriter {
     /// Import deduplication strategy
     dedup_strategy: ImportDeduplicationStrategy,
 }
 
 impl ImportRewriter {
     /// Create a new import rewriter
-    pub const fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
+    pub(crate) const fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
         Self { dedup_strategy }
     }
 
     /// Analyze movable imports using semantic analysis for accurate context detection
-    pub fn analyze_movable_imports_semantic(
+    pub(crate) fn analyze_movable_imports_semantic(
         &mut self,
         graph: &CriboGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
@@ -268,7 +268,7 @@ impl ImportRewriter {
     }
 
     /// Rewrite a module's AST to move imports into function scope
-    pub fn rewrite_module(
+    pub(crate) fn rewrite_module(
         &mut self,
         module_ast: &mut ModModule,
         movable_imports: &[MovableImport],

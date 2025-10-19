@@ -14,11 +14,11 @@ use crate::{
 
 /// Post-processing phase handler (stateless)
 #[derive(Default)]
-pub struct PostProcessingPhase;
+pub(crate) struct PostProcessingPhase;
 
 impl PostProcessingPhase {
     /// Create a new post-processing phase
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -30,7 +30,7 @@ impl PostProcessingPhase {
     /// 3. Generates package child alias statements
     ///
     /// Returns statements to be inserted at appropriate positions in the final bundle.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         entry_symbols: &FxIndexSet<String>,
@@ -178,7 +178,7 @@ impl PostProcessingPhase {
     }
 
     /// Insert proxy statements after __future__ imports
-    pub fn insert_proxy_statements(proxy_statements: Vec<Stmt>, final_body: &mut Vec<Stmt>) {
+    pub(crate) fn insert_proxy_statements(proxy_statements: Vec<Stmt>, final_body: &mut Vec<Stmt>) {
         log::debug!("Inserting _cribo proxy after __future__ imports");
 
         // Find position after optional module docstring and __future__ imports

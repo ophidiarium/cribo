@@ -221,7 +221,10 @@ pub(super) fn resolve_import_aliases_in_expr(
 }
 
 /// Rewrite aliases in expression using the bundler's alias mappings
-pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
+pub(crate) fn rewrite_aliases_in_expr(
+    expr: &mut Expr,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
     match expr {
         Expr::Name(name_expr) => {
             // Check if this is an aliased import that should be rewritten
@@ -767,7 +770,10 @@ pub(super) fn transform_fstring_expression(
 }
 
 /// Recursively rewrite aliases in statements
-pub fn rewrite_aliases_in_stmt(stmt: &mut Stmt, alias_to_canonical: &FxIndexMap<String, String>) {
+pub(crate) fn rewrite_aliases_in_stmt(
+    stmt: &mut Stmt,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
     match stmt {
         Stmt::Expr(expr_stmt) => {
             rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
@@ -1129,7 +1135,7 @@ fn rewrite_aliases_in_class(
 }
 
 /// Extract target name from a simple assignment
-pub fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
+pub(crate) fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
     if assign.targets.len() == 1
         && let Expr::Name(name) = &assign.targets[0]
     {
@@ -1139,7 +1145,7 @@ pub fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
 }
 
 /// Check if an assignment is self-referential (e.g., x = x)
-pub fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -> bool {
+pub(crate) fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -> bool {
     // Check if this is a simple assignment with a single target and value
     if assign.targets.len() == 1
         && let (Expr::Name(target), Expr::Name(value)) = (&assign.targets[0], assign.value.as_ref())
@@ -1172,7 +1178,7 @@ pub fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -
 
 /// Check if two expressions are structurally equal (for simple cases)
 /// This is a basic implementation that handles common cases for namespace attachments
-pub fn expressions_are_equal(expr1: &Expr, expr2: &Expr) -> bool {
+pub(crate) fn expressions_are_equal(expr1: &Expr, expr2: &Expr) -> bool {
     match (expr1, expr2) {
         // Name expressions - compare identifiers
         (Expr::Name(name1), Expr::Name(name2)) => name1.id == name2.id,

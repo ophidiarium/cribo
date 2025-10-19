@@ -69,7 +69,7 @@ pub(in crate::code_generator::import_transformer) fn handle_unbundled_relative_i
 /// * `current_module` - Current module being processed
 /// * `result` - Vector to append generated statements to
 /// * `add_module_attr` - Whether to add module attributes for non-private symbols
-pub fn transform_relative_import_aliases(
+pub(crate) fn transform_relative_import_aliases(
     bundler: &Bundler,
     import_from: &StmtImportFrom,
     parent_package: &str,

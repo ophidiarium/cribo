@@ -43,7 +43,7 @@ pub(super) struct BundledImportContext<'a> {
 }
 
 /// Bundler orchestrates the code generation phase of bundling
-pub struct Bundler<'a> {
+pub(crate) struct Bundler<'a> {
     /// Map from module ID to synthetic name for wrapper modules
     pub(crate) module_synthetic_names: FxIndexMap<ModuleId, String>,
     /// Map from module ID to init function name (for wrapper modules)
@@ -584,7 +584,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Create a new bundler instance
-    pub fn new(
+    pub(crate) fn new(
         module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
         resolver: &'a ModuleResolver,
     ) -> Self {
@@ -1250,7 +1250,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
-    pub fn get_rewritten_stdlib_path(module_name: &str) -> String {
+    pub(crate) fn get_rewritten_stdlib_path(module_name: &str) -> String {
         format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX)
     }
 
@@ -1316,7 +1316,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if a symbol should be exported from a module
-    pub fn should_export_symbol(&self, symbol_name: &str, module_name: &str) -> bool {
+    pub(crate) fn should_export_symbol(&self, symbol_name: &str, module_name: &str) -> bool {
         // Don't export __all__ itself as a module attribute
         if symbol_name == "__all__" {
             return false;
@@ -1707,7 +1707,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Process module body recursively to handle conditional imports
-    pub fn process_body_recursive(
+    pub(crate) fn process_body_recursive(
         &self,
         body: Vec<Stmt>,
         module_name: &str,
@@ -2027,7 +2027,7 @@ impl<'a> Bundler<'a> {
 
     /// Transform nested functions to use module attributes for module-level variables,
     /// including lifted variables (they access through module attrs unless they declare global)
-    pub fn transform_nested_function_for_module_vars_with_global_info(
+    pub(crate) fn transform_nested_function_for_module_vars_with_global_info(
         &self,
         func_def: &mut StmtFunctionDef,
         module_level_vars: &FxIndexSet<String>,
@@ -2093,7 +2093,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Transform nested functions to use module attributes for module-level variables
-    pub fn transform_nested_function_for_module_vars(
+    pub(crate) fn transform_nested_function_for_module_vars(
         &self,
         func_def: &mut StmtFunctionDef,
         module_level_vars: &FxIndexSet<String>,
@@ -2451,7 +2451,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Transform AST to use lifted globals
-    pub fn transform_ast_with_lifted_globals(
+    pub(crate) fn transform_ast_with_lifted_globals(
         &self,
         ast: &mut ModModule,
         lifted_names: &FxIndexMap<String, String>,
@@ -2720,7 +2720,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if a symbol should be inlined based on export rules
-    pub fn should_inline_symbol(
+    pub(crate) fn should_inline_symbol(
         &self,
         symbol_name: &str,
         module_id: ModuleId,

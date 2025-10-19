@@ -7,7 +7,7 @@ use crate::{
 
 /// Parameters for creating a `RecursiveImportTransformer`
 #[derive(Debug)]
-pub struct RecursiveImportTransformerParams<'a> {
+pub(crate) struct RecursiveImportTransformerParams<'a> {
     pub bundler: &'a Bundler<'a>,
     pub module_id: crate::resolver::ModuleId,
     pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,

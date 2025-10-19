@@ -19,11 +19,11 @@ use crate::{
 
 /// Classification phase handler (stateless)
 #[derive(Default)]
-pub struct ClassificationPhase;
+pub(crate) struct ClassificationPhase;
 
 impl ClassificationPhase {
     /// Create a new classification phase
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -38,7 +38,7 @@ impl ClassificationPhase {
     ///
     /// Returns the `ClassificationResult` containing inlinable modules, wrapper modules,
     /// and module export information.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
