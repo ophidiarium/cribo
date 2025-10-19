@@ -8,9 +8,9 @@
 use ruff_python_ast::Stmt;
 
 use crate::code_generator::{
-        bundler::Bundler,
-        context::{BundleParams, InitializationResult},
-    };
+    bundler::Bundler,
+    context::{BundleParams, InitializationResult},
+};
 
 /// Initialization phase handler (stateless)
 #[derive(Default)]
@@ -67,11 +67,11 @@ pub fn generate_future_import_statements(result: &InitializationResult) -> Vec<S
         return Vec::new();
     }
 
-    let mut future_import_names: Vec<String> = result.future_imports.iter().cloned().collect();
+    let mut names: Vec<&str> = result.future_imports.iter().map(String::as_str).collect();
     // Sort for deterministic output
-    future_import_names.sort();
+    names.sort_unstable();
 
-    let aliases = future_import_names
+    let aliases = names
         .iter()
         .map(|name| crate::ast_builder::other::alias(name, None))
         .collect();
@@ -79,7 +79,7 @@ pub fn generate_future_import_statements(result: &InitializationResult) -> Vec<S
     let future_import_stmt =
         crate::ast_builder::statements::import_from(Some("__future__"), aliases, 0);
 
-    log::debug!("Added future imports to bundle: {future_import_names:?}");
+    log::debug!("Added future imports to bundle: {names:?}");
 
     vec![future_import_stmt]
 }
