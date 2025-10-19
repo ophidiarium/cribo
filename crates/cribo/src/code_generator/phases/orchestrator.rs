@@ -148,7 +148,7 @@ impl PhaseOrchestrator {
                 || bundler.circular_modules.contains(&ModuleId::ENTRY);
 
             if entry_is_wrapper {
-                let entry_mod_name = &bundler.entry_module_name.clone();
+                let entry_mod_name = &bundler.entry_module_name;
                 let entry_var =
                     crate::code_generator::module_registry::sanitize_module_name_for_identifier(
                         entry_mod_name,
