@@ -7,11 +7,11 @@ use crate::{
 };
 
 /// The __init__ attribute name for module initialization
-pub const MODULE_INIT_ATTR: &str = INIT_STEM;
+pub(crate) const MODULE_INIT_ATTR: &str = INIT_STEM;
 
 /// Creates just the init function and __init__ assignment statements for a module
 /// Returns a vector containing the init function definition and the __init__ assignment
-pub fn create_init_function_statements(
+pub(crate) fn create_init_function_statements(
     module_name: &str,
     init_func_name: &str,
     init_function_body: Stmt,
@@ -39,7 +39,7 @@ pub fn create_init_function_statements(
 /// Creates a complete wrapper module with namespace, init function, and __init__ assignment
 /// Returns a vector of statements that should be added to the bundle in order
 /// If `init_function_body` is None, only creates the namespace without init function
-pub fn create_wrapper_module(
+pub(crate) fn create_wrapper_module(
     module_name: &str,
     init_func_name: &str,
     init_function_body: Option<Stmt>,
@@ -94,7 +94,7 @@ pub fn create_wrapper_module(
 /// // Creates: `compat = compat.__init__(compat)`
 /// let stmt = create_wrapper_module_init_call("compat");
 /// ```
-pub fn create_wrapper_module_init_call(module_name: &str) -> Stmt {
+pub(crate) fn create_wrapper_module_init_call(module_name: &str) -> Stmt {
     statements::assign(
         vec![expressions::name(module_name, ExprContext::Store)],
         expressions::call(

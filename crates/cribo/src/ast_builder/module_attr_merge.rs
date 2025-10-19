@@ -12,7 +12,10 @@ use crate::ast_builder::{expressions, statements};
 ///         setattr(namespace, attr, `getattr(source_module`, attr))
 ///
 /// Returns the `for` statement node.
-pub fn generate_merge_module_attributes(namespace_name: &str, source_module_name: &str) -> Stmt {
+pub(crate) fn generate_merge_module_attributes(
+    namespace_name: &str,
+    source_module_name: &str,
+) -> Stmt {
     let attr_var = "attr";
 
     // Iterator of the for loop: `dir(source_module)`

@@ -9,7 +9,7 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for setting up placeholder assignments for wrapper module symbols
-pub struct WrapperSymbolSetupPhase;
+pub(crate) struct WrapperSymbolSetupPhase;
 
 impl WrapperSymbolSetupPhase {
     /// Create placeholder assignments for wrapper module symbols

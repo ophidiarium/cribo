@@ -23,7 +23,7 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 /// ```
 ///
 /// Both examples above would extract the docstring successfully.
-pub fn extract_module_docstring(module: &ModModule) -> Option<String> {
+pub(crate) fn extract_module_docstring(module: &ModModule) -> Option<String> {
     // Module docstring can appear after `__future__` imports.
     // We need to skip them to find the first "real" statement.
     for stmt in &module.body {

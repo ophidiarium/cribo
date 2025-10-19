@@ -13,7 +13,7 @@ use super::{TransformError, state::InitFunctionState};
 use crate::{ast_builder, types::FxIndexSet};
 
 /// Phase responsible for collecting and declaring wrapper module globals
-pub struct WrapperGlobalsPhase;
+pub(crate) struct WrapperGlobalsPhase;
 
 impl WrapperGlobalsPhase {
     /// Collect and declare wrapper module namespace variables

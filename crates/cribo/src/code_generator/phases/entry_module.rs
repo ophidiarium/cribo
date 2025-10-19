@@ -16,11 +16,11 @@ use crate::{
 
 /// Entry module phase handler (stateless)
 #[derive(Default)]
-pub struct EntryModulePhase;
+pub(crate) struct EntryModulePhase;
 
 /// Result from processing the entry module
 #[derive(Debug, Clone)]
-pub struct EntryModuleProcessingResult {
+pub(crate) struct EntryModuleProcessingResult {
     /// Transformed and processed entry module statements
     pub statements: Vec<Stmt>,
     /// Locally defined symbols in the entry module

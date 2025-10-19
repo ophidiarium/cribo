@@ -17,7 +17,7 @@ use super::{InitFunctionState, TransformError, body_preparation::BodyPreparation
 use crate::code_generator::{bundler::Bundler, context::ModuleTransformContext};
 
 /// Statement Processing phase - processes transformed statements
-pub struct StatementProcessingPhase;
+pub(crate) struct StatementProcessingPhase;
 
 impl StatementProcessingPhase {
     /// Execute the statement processing phase

@@ -15,7 +15,7 @@ use crate::types::FxIndexSet;
 
 /// Visitor that collects local variable names at module level,
 /// excluding names declared as `global`, and treating `nonlocal` names as locals
-pub struct LocalVarCollector<'a> {
+pub(crate) struct LocalVarCollector<'a> {
     /// Set to collect local variable names
     local_vars: &'a mut FxIndexSet<String>,
     /// Set of global names to exclude from collection

@@ -13,7 +13,7 @@ use crate::types::{FxIndexMap, FxIndexSet};
 /// monolithic function into a single, explicit state container. This makes data
 /// flow between phases clear and enables easier testing and debugging.
 #[derive(Debug)]
-pub struct InitFunctionState {
+pub(crate) struct InitFunctionState {
     /// Accumulated init function body statements
     pub body: Vec<Stmt>,
 

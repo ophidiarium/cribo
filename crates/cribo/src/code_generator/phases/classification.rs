@@ -19,7 +19,7 @@ use crate::{
 
 /// Classification phase handler (stateless)
 #[derive(Default)]
-pub struct ClassificationPhase;
+pub(crate) struct ClassificationPhase;
 
 impl ClassificationPhase {
     /// Create a new classification phase

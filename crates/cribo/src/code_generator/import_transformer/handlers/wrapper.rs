@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Simplified wrapper context to reduce parameter count
-pub struct WrapperContext<'a> {
+pub(crate) struct WrapperContext<'a> {
     pub bundler: &'a Bundler<'a>,
     pub symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     pub is_wrapper_init: bool,
@@ -31,7 +31,7 @@ pub struct WrapperContext<'a> {
 // No local ImportResolveParams needed; heavy lifting stays in Bundler for now
 
 /// Handle wrapper module import transformations
-pub struct WrapperHandler;
+pub(crate) struct WrapperHandler;
 
 impl WrapperHandler {
     /// Handle wrapper from-import in absolute context (rel→abs conversion + handler dispatch)

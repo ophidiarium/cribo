@@ -14,7 +14,7 @@ use crate::code_generator::{
 
 /// Initialization phase handler (stateless)
 #[derive(Default)]
-pub struct InitializationPhase;
+pub(crate) struct InitializationPhase;
 
 impl InitializationPhase {
     /// Create a new initialization phase
@@ -61,7 +61,7 @@ impl InitializationPhase {
 ///
 /// This converts the collected future imports into AST statements
 /// that should be placed at the beginning of the bundle.
-pub fn generate_future_import_statements(result: &InitializationResult) -> Vec<Stmt> {
+pub(crate) fn generate_future_import_statements(result: &InitializationResult) -> Vec<Stmt> {
     if result.future_imports.is_empty() {
         return Vec::new();
     }

@@ -35,7 +35,7 @@ use crate::{
 
 /// Builder for coordinating the multi-phase transformation of a module AST
 /// into an initialization function
-pub struct InitFunctionBuilder<'a> {
+pub(crate) struct InitFunctionBuilder<'a> {
     bundler: &'a Bundler<'a>,
     ctx: &'a ModuleTransformContext<'a>,
     symbol_renames: &'a FxIndexMap<ModuleId, FxIndexMap<String, String>>,

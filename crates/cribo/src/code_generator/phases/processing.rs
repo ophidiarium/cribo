@@ -20,7 +20,7 @@ use crate::{
 
 /// Processing phase handler (stateless)
 #[derive(Default)]
-pub struct ProcessingPhase;
+pub(crate) struct ProcessingPhase;
 
 /// Context for SCC group processing
 #[derive(Debug)]

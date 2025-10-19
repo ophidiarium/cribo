@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Import analyzer for processing import patterns and relationships
-pub struct ImportAnalyzer;
+pub(crate) struct ImportAnalyzer;
 
 /// Context for checking if an import is unused
 struct ImportUsageContext<'a> {

@@ -6,22 +6,22 @@
 //! - Uses `__initializing__` and `__initialized__` flags to prevent circular import loops
 //! - Preserves Python semantics while avoiding forward reference issues
 
-pub mod bundler;
-pub mod circular_deps;
-pub mod context;
-pub mod docstring_extractor;
-pub mod expression_handlers;
-pub mod globals;
-pub mod import_deduplicator;
-pub mod import_transformer;
-pub mod init_function;
-pub mod inliner;
-pub mod module_registry;
-pub mod module_transformer;
-pub mod namespace_manager;
-pub mod phases;
-pub mod symbol_source;
+pub(crate) mod bundler;
+pub(crate) mod circular_deps;
+pub(crate) mod context;
+pub(crate) mod docstring_extractor;
+pub(crate) mod expression_handlers;
+pub(crate) mod globals;
+pub(crate) mod import_deduplicator;
+pub(crate) mod import_transformer;
+pub(crate) mod init_function;
+pub(crate) mod inliner;
+pub(crate) mod module_registry;
+pub(crate) mod module_transformer;
+pub(crate) mod namespace_manager;
+pub(crate) mod phases;
+pub(crate) mod symbol_source;
 
 // Re-export the main bundler and key types
-pub use bundler::Bundler;
-pub use context::BundleParams;
+pub(crate) use bundler::Bundler;
+pub(crate) use context::BundleParams;

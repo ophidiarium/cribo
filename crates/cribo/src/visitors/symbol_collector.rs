@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Visitor that collects symbol definitions and their metadata
-pub struct SymbolCollector {
+pub(crate) struct SymbolCollector {
     /// Current scope stack
     scope_stack: ScopePath,
     /// Collected symbol information

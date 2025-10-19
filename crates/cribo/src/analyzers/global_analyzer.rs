@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Visitor that analyzes a module for global variable usage patterns
-pub struct GlobalAnalyzer {
+pub(crate) struct GlobalAnalyzer {
     /// Module-level variables collected during first pass
     module_level_vars: FxIndexSet<String>,
 

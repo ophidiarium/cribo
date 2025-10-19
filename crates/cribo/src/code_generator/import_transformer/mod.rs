@@ -17,7 +17,7 @@ use crate::{
 };
 
 mod expr_rewriter;
-pub mod handlers;
+pub(crate) mod handlers;
 mod state;
 mod statement;
 
@@ -27,16 +27,16 @@ use handlers::{
     submodule::SubmoduleHandler, wrapper::WrapperHandler,
 };
 // Re-export the params struct for external use
-pub use state::RecursiveImportTransformerParams;
+pub(crate) use state::RecursiveImportTransformerParams;
 use state::TransformerState;
 
 /// Transformer that recursively handles import statements and module references
-pub struct RecursiveImportTransformer<'a> {
+pub(crate) struct RecursiveImportTransformer<'a> {
     state: TransformerState<'a>,
 }
 
 /// Public bridge for Bundler to delegate wrapper wildcard from-import handling
-pub fn transform_wrapper_wildcard_import(
+pub(crate) fn transform_wrapper_wildcard_import(
     bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     module_name: &str,

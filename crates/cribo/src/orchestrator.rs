@@ -31,7 +31,7 @@ static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = On
 
 /// Immutable module information stored in the registry
 #[derive(Debug, Clone)]
-pub struct ModuleInfo {
+pub(crate) struct ModuleInfo {
     /// The unique module ID assigned by the dependency graph
     pub id: ModuleId,
     /// The canonical module name (e.g., "requests.compat")
@@ -42,7 +42,7 @@ pub struct ModuleInfo {
 
 /// Central registry for module information
 /// This is the single source of truth for module identity throughout the bundling process
-pub struct ModuleRegistry {
+pub(crate) struct ModuleRegistry {
     /// Map from `ModuleId` to complete module information
     modules: FxIndexMap<ModuleId, ModuleInfo>,
     /// Map from canonical name to `ModuleId` for fast lookups
@@ -173,7 +173,7 @@ struct ProcessedModule {
     module_id: Option<ModuleId>,
 }
 
-pub struct BundleOrchestrator {
+pub(crate) struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,
     /// Central registry for module information

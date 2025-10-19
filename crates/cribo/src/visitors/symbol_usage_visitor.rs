@@ -47,7 +47,7 @@ const TYPE_HINT_IDENTIFIERS: &[&str] = &[
 
 /// Visitor that collects symbols that are actually used in a function body
 #[derive(Default)]
-pub struct SymbolUsageVisitor {
+pub(crate) struct SymbolUsageVisitor {
     /// Set of symbol names that are used in the body
     used_names: FxIndexSet<String>,
 }

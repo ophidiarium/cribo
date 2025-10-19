@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Phase responsible for finalizing and building the init function statement
-pub struct FinalizationPhase;
+pub(crate) struct FinalizationPhase;
 
 impl FinalizationPhase {
     /// Build the final function statement from accumulated state

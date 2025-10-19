@@ -226,7 +226,7 @@ impl ModuleRegistry {
 ///
 /// # Returns
 /// The resolved absolute module name
-pub fn resolve_relative_import_from_name(
+pub(crate) fn resolve_relative_import_from_name(
     level: u32,
     name: Option<&str>,
     current_module_name: &str,
@@ -265,7 +265,7 @@ pub fn resolve_relative_import_from_name(
 }
 
 /// Check if a module is part of the Python standard library using `ruff_python_stdlib`
-pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
+pub(crate) fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     // Check direct match using ruff_python_stdlib
     if sys::is_known_standard_library(python_version, module_name) {
         return true;

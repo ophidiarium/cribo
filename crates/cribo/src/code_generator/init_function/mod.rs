@@ -19,23 +19,23 @@ mod wrapper_symbols;
 
 use std::fmt;
 
-pub use body_preparation::BodyPreparationPhase;
-pub use cleanup::CleanupPhase;
-pub use finalization::FinalizationPhase;
-pub use import_analysis::ImportAnalysisPhase;
-pub use import_transformation::ImportTransformationPhase;
-pub use initialization::InitializationPhase;
-pub use orchestrator::InitFunctionBuilder;
-pub use state::InitFunctionState;
-pub use statement_processing::StatementProcessingPhase;
-pub use submodules::SubmoduleHandlingPhase;
-pub use wildcard_imports::WildcardImportPhase;
-pub use wrapper_globals::WrapperGlobalsPhase;
-pub use wrapper_symbols::WrapperSymbolSetupPhase;
+pub(crate) use body_preparation::BodyPreparationPhase;
+pub(crate) use cleanup::CleanupPhase;
+pub(crate) use finalization::FinalizationPhase;
+pub(crate) use import_analysis::ImportAnalysisPhase;
+pub(crate) use import_transformation::ImportTransformationPhase;
+pub(crate) use initialization::InitializationPhase;
+pub(crate) use orchestrator::InitFunctionBuilder;
+pub(crate) use state::InitFunctionState;
+pub(crate) use statement_processing::StatementProcessingPhase;
+pub(crate) use submodules::SubmoduleHandlingPhase;
+pub(crate) use wildcard_imports::WildcardImportPhase;
+pub(crate) use wrapper_globals::WrapperGlobalsPhase;
+pub(crate) use wrapper_symbols::WrapperSymbolSetupPhase;
 
 /// Errors that can occur during init function transformation
 #[derive(Debug)]
-pub enum TransformError {
+pub(crate) enum TransformError {
     /// Module ID not found
     ModuleIdNotFound { module_name: String },
     /// Init function name not found for wrapper module

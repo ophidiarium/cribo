@@ -25,7 +25,7 @@ use crate::{
 /// * `Some((source_module, original_name))` if the symbol is imported from a wrapper module
 /// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper
 ///   module
-pub fn find_symbol_source_from_wrapper_module(
+pub(crate) fn find_symbol_source_from_wrapper_module(
     module_asts: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
     resolver: &ModuleResolver,
     wrapper_modules: &FxIndexSet<ModuleId>,
@@ -96,7 +96,7 @@ pub fn find_symbol_source_from_wrapper_module(
 /// Resolves an import statement to an absolute module name.
 ///
 /// Handles both relative and absolute imports.
-pub fn resolve_import_module(
+pub(crate) fn resolve_import_module(
     resolver: &ModuleResolver,
     import_from: &StmtImportFrom,
     module_path: &Path,

@@ -2,7 +2,7 @@ use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Handles symbol-level circular dependency analysis and resolution
 #[derive(Debug, Default, Clone)]
-pub struct SymbolDependencyGraph {
+pub(crate) struct SymbolDependencyGraph {
     /// Track which symbols are defined in which modules
     pub symbol_definitions: FxIndexSet<(String, String)>,
     /// Module-level dependencies (used at definition time, not inside function bodies)

@@ -10,7 +10,7 @@ use ruff_python_ast::{
 use rustc_hash::FxHashSet;
 
 /// Visitor for detecting side effects in Python code
-pub struct SideEffectDetector {
+pub(crate) struct SideEffectDetector {
     /// Names that were imported and may have side effects when used
     imported_names: FxHashSet<String>,
     /// Flag indicating if side effects were found
@@ -24,7 +24,7 @@ pub struct SideEffectDetector {
 }
 
 /// Simple expression visitor for checking side effects in a single expression
-pub struct ExpressionSideEffectDetector {
+pub(crate) struct ExpressionSideEffectDetector {
     has_side_effects: bool,
 }
 

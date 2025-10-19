@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Handle inlined module import transformations
-pub struct InlinedHandler;
+pub(crate) struct InlinedHandler;
 
 impl InlinedHandler {
     /// Check if importing from an inlined module
