@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 mypackage_constants = _cribo.types.SimpleNamespace(__name__='mypackage.constants')
-mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False)
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage', __initializing__=False, __initialized__=False, __path__=[])
 mypackage.constants = mypackage_constants
 VERSION = "1.0.0"
 mypackage_constants.VERSION = VERSION

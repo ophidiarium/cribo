@@ -75,7 +75,7 @@ def _cribo_init___cribo_5ad29b_myrequests_compat(self):
     self.__initializing__ = False
     return self
 myrequests_compat.__init__ = _cribo_init___cribo_5ad29b_myrequests_compat
-myrequests = _cribo.types.SimpleNamespace(__name__='myrequests', __initializing__=False, __initialized__=False)
+myrequests = _cribo.types.SimpleNamespace(__name__='myrequests', __initializing__=False, __initialized__=False, __path__=[])
 myrequests.compat = myrequests_compat
 myrequests_cookies = _cribo.types.SimpleNamespace(__name__='myrequests.cookies', __initializing__=False, __initialized__=False)
 myrequests.cookies = myrequests_cookies

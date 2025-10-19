@@ -47,7 +47,7 @@ def _cribo_init___cribo_4089db_mypkg_compat(self):
     self.__initializing__ = False
     return self
 mypkg_compat.__init__ = _cribo_init___cribo_4089db_mypkg_compat
-mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False)
+mypkg = _cribo.types.SimpleNamespace(__name__='mypkg', __initializing__=False, __initialized__=False, __path__=[])
 mypkg.compat = mypkg_compat
 mypkg_exceptions = _cribo.types.SimpleNamespace(__name__='mypkg.exceptions', __initializing__=False, __initialized__=False)
 mypkg.exceptions = mypkg_exceptions

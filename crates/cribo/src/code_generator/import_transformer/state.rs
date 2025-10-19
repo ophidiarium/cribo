@@ -12,8 +12,6 @@ pub struct RecursiveImportTransformerParams<'a> {
     pub module_id: crate::resolver::ModuleId,
     pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     pub is_wrapper_init: bool,
-    pub global_deferred_imports:
-        Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
     pub python_version: u8,
 }
 
@@ -28,9 +26,6 @@ pub(super) struct TransformerState<'a> {
     pub(super) import_aliases: FxIndexMap<String, String>,
     /// Flag indicating if we're inside a wrapper module's init function
     pub(super) is_wrapper_init: bool,
-    /// Reference to global deferred imports registry
-    pub(super) global_deferred_imports:
-        Option<&'a FxIndexMap<(crate::resolver::ModuleId, String), crate::resolver::ModuleId>>,
     /// Track local variable assignments to avoid treating them as module aliases
     pub(super) local_variables: FxIndexSet<String>,
     /// Track variables that were assigned from `importlib.import_module()` of inlined modules
@@ -69,7 +64,6 @@ impl<'a> TransformerState<'a> {
             symbol_renames: params.symbol_renames,
             import_aliases: FxIndexMap::default(),
             is_wrapper_init: params.is_wrapper_init,
-            global_deferred_imports: params.global_deferred_imports,
             local_variables: FxIndexSet::default(),
             importlib_inlined_modules: FxIndexMap::default(),
             created_namespace_objects: false,

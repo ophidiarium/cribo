@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 core_utils_helpers = _cribo.types.SimpleNamespace(__name__='core.utils.helpers', __doc__='\nUtility helpers module with extensive naming conflicts\n')
-core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False)
+core = _cribo.types.SimpleNamespace(__name__='core', __initializing__=False, __initialized__=False, __path__=[])
 core_utils = _cribo.types.SimpleNamespace(__name__='core.utils', __initializing__=False, __initialized__=False, __path__=[])
 core.utils = core_utils
 core_utils.helpers = core_utils_helpers
@@ -149,7 +149,7 @@ def _cribo_init___cribo_c57a32_core_utils(self):
     return self
 core_utils.__init__ = _cribo_init___cribo_c57a32_core_utils
 models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='\nUser model with extensive naming conflicts across the project\n')
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
 models.user = models_user
 """\nUser model with extensive naming conflicts across the project\n"""
 util_process = core_utils_helpers.process
@@ -656,7 +656,7 @@ def _cribo_init___cribo_ee1d45_services_auth_manager(self):
     self.__initializing__ = False
     return self
 services_auth_manager.__init__ = _cribo_init___cribo_ee1d45_services_auth_manager
-services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False)
+services = _cribo.types.SimpleNamespace(__name__='services', __initializing__=False, __initialized__=False, __path__=[])
 services_auth = _cribo.types.SimpleNamespace(__name__='services.auth', __initializing__=False, __initialized__=False, __path__=[])
 services.auth = services_auth
 services_auth.manager = services_auth_manager

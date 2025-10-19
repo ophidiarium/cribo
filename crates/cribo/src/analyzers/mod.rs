@@ -13,5 +13,4 @@ pub mod types;
 
 pub use global_analyzer::GlobalAnalyzer;
 pub use import_analyzer::ImportAnalyzer;
-pub use module_classifier::ModuleClassifier;
 pub use symbol_analyzer::SymbolAnalyzer;

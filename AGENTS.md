@@ -94,33 +94,22 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 
 1. **CLI Entry Point** → `main.rs`
    - [`main()` in `main.rs`](crates/cribo/src/main.rs#L85) is the entry point.
-   - It creates a [`BundleOrchestrator`](crates/cribo/src/orchestrator.rs#L176) and calls `bundle()` or `bundle_to_string()`.
+   - Creates [`BundleOrchestrator`](crates/cribo/src/orchestrator.rs#L176) and calls `bundle()` or `bundle_to_string()`.
 
-2. **Orchestration Layer** → `orchestrator.rs`
-   - [`bundle_to_string()` or `bundle()`](crates/cribo/src/orchestrator.rs#L636) → Entry points for bundling.
-   - [`bundle_core()`](crates/cribo/src/orchestrator.rs#L356) → Module discovery and dependency graph building.
-   - [`emit_static_bundle()`](crates/cribo/src/orchestrator.rs#L1850) → **Calls the REAL orchestrator**.
+2. **Application Orchestration** → `orchestrator.rs::BundleOrchestrator`
+   - [`bundle()` / `bundle_to_string()`](crates/cribo/src/orchestrator.rs#L636) → Entry points
+   - [`bundle_core()`](crates/cribo/src/orchestrator.rs#L356) → Module discovery, parsing, dependency resolution
+   - [`emit_static_bundle()`](crates/cribo/src/orchestrator.rs#L1850) → Delegates to PhaseOrchestrator
 
-3. **🔥 THE ACTUAL BUNDLER** → `code_generator/bundler.rs`
-   This is THE struct that orchestrates everything:
-   - [`bundle_modules()` in `bundler.rs`](crates/cribo/src/code_generator/bundler.rs#L1263) is the main function that orchestrates the bundling of modules.
-
-   ```rust
-   pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
-       // 1. Initialize bundler settings
-       self.initialize_bundler(params);
-
-       // 2. Prepare modules (trim imports, index ASTs)
-       let modules = self.prepare_modules(params);
-
-       // 3. Classify modules (THE critical decision)
-       let classifier = ModuleClassifier::new(...);
-       let classification = classifier.classify_modules(&modules);
-
-       // 4. Process modules in dependency order
-       // This is where inlining vs wrapping happens!
-   }
-   ```
+3. **🔥 Phase-Based Bundling** → [`code_generator/phases/orchestrator.rs::PhaseOrchestrator`](crates/cribo/src/code_generator/phases/orchestrator.rs#L31)
+   Coordinates 9 bundling phases:
+   - [`PhaseOrchestrator::bundle()`](crates/cribo/src/code_generator/phases/orchestrator.rs#L47) → Main entry
+   - `InitializationPhase` → Setup, future imports
+   - `PreparationPhase` → Trim imports, index ASTs
+   - `ClassificationPhase` → Inlinable vs wrapper decision
+   - `ProcessingPhase` → Module emission in dependency order
+   - `EntryModulePhase` → Special entry module handling
+   - `PostProcessingPhase` → Namespace attachments, proxies
 
 4. **Module Classification** → `analyzers/module_classifier.rs`
    - [`classify_modules()` in `module_classifier.rs`](crates/cribo/src/analyzers/module_classifier.rs#L126) is where the decision to inline or wrap a module is made.
@@ -134,12 +123,12 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    ```
 
 5. **Side Effect Detection** → `visitors/side_effect_detector.rs`
-   - Key triggers that force wrapping are detected by visiting the AST. For example, a function call `Expr::Call(_)` is considered a side effect.
+   - Detects side effects that force wrapping: `Expr::Call(_)`, `Expr::Lambda(_)`, class metaclasses, non-literal expressions.
 
-6. **Module Processing Loop** (inside `bundle_modules()`)
-   - Processes modules in topological order from the dependency graph.
-   - For circular dependencies: Two-phase emission (declarations then init).
-   - For each module: Either inline content OR create a wrapper function.
+6. **Module Processing** → `code_generator/phases/processing.rs::ProcessingPhase`
+   - Processes modules in topological order
+   - Two-phase emission for circular dependencies
+   - Routes to inlinable or wrapper handlers
 
 #### 💀 The ACTUAL Code Generation Functions
 

@@ -37,7 +37,7 @@ simple_module.__all__ = ['public_func', 'CONSTANT']
 simple_module.public_func = public_func
 simple_module.CONSTANT = CONSTANT
 nested_package_utils = _cribo.types.SimpleNamespace(__name__='nested_package.utils')
-nested_package = _cribo.types.SimpleNamespace(__name__='nested_package', __initializing__=False, __initialized__=False)
+nested_package = _cribo.types.SimpleNamespace(__name__='nested_package', __initializing__=False, __initialized__=False, __path__=[])
 nested_package.utils = nested_package_utils
 def helper_func():
     """Helper function used by other modules"""

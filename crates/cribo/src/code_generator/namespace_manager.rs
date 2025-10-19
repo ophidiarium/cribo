@@ -52,7 +52,6 @@ pub struct NamespacePopulationContext<'a> {
     pub wrapper_modules: &'a FxIndexSet<ModuleId>,
     pub modules_with_explicit_all: &'a FxIndexSet<ModuleId>,
     pub module_asts: &'a Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
-    pub global_deferred_imports: &'a FxIndexMap<(ModuleId, String), ModuleId>,
     pub module_init_functions: &'a FxIndexMap<ModuleId, String>,
     pub resolver: &'a crate::resolver::ModuleResolver,
 }
@@ -556,25 +555,6 @@ pub fn populate_namespace_with_module_symbols(
                      '{module_name}'"
                 );
                 continue;
-            }
-
-            // Also check if this assignment was already made by deferred imports
-            // This handles the case where imports create namespace assignments that
-            // would be duplicated by __all__ processing
-            if !ctx.global_deferred_imports.is_empty() {
-                // Check if this symbol was deferred by the same module (intra-module imports)
-                let module_id = ctx
-                    .resolver
-                    .get_module_id_by_name(module_name)
-                    .expect("Module ID must exist for module");
-                let key = (module_id, symbol_name.to_string());
-                if ctx.global_deferred_imports.contains_key(&key) {
-                    debug!(
-                        "Skipping namespace assignment for '{symbol_name}' - already created by \
-                         deferred import from module '{module_name}'"
-                    );
-                    continue;
-                }
             }
 
             // For wrapper modules, check if the symbol is imported from an inlined submodule

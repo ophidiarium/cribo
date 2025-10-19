@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 parent_base = _cribo.types.SimpleNamespace(__name__='parent.base', __doc__='Base module defining base classes.')
-parent = _cribo.types.SimpleNamespace(__name__='parent', __initializing__=False, __initialized__=False)
+parent = _cribo.types.SimpleNamespace(__name__='parent', __initializing__=False, __initialized__=False, __path__=[])
 parent.base = parent_base
 """Base module defining base classes."""
 class BaseClass:

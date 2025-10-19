@@ -40,7 +40,7 @@ def process_a(data):
     return transform(data)
 package_a_processor.process_a = process_a
 package_b_processor = _cribo.types.SimpleNamespace(__name__='package_b.processor', __doc__='Package B processor that imports utils expecting package_b.utils')
-package_b = _cribo.types.SimpleNamespace(__name__='package_b', __initializing__=False, __initialized__=False)
+package_b = _cribo.types.SimpleNamespace(__name__='package_b', __initializing__=False, __initialized__=False, __path__=[])
 package_b.processor = package_b_processor
 """Package B processor that imports utils expecting package_b.utils"""
 def process_b(data):

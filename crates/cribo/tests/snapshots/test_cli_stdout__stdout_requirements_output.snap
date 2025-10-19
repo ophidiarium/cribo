@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers', __doc__='Utility functions for the test project.')
-utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False)
+utils = _cribo.types.SimpleNamespace(__name__='utils', __initializing__=False, __initialized__=False, __path__=[])
 utils.helpers = utils_helpers
 """Utility functions for the test project."""
 def greet(name: str) -> str:
@@ -45,7 +45,7 @@ utils_helpers.calculate = calculate
 utils_helpers.greet = greet
 """Utils package initialization."""
 models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='User model for the test project.')
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
 models.user = models_user
 """User model for the test project."""
 @_cribo.dataclasses.dataclass

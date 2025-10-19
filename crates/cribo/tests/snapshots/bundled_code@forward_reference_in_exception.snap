@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 myrequests_compat = _cribo.types.SimpleNamespace(__name__='myrequests.compat', __doc__='Compatibility module similar to requests.compat')
-myrequests = _cribo.types.SimpleNamespace(__name__='myrequests', __initializing__=False, __initialized__=False)
+myrequests = _cribo.types.SimpleNamespace(__name__='myrequests', __initializing__=False, __initialized__=False, __path__=[])
 myrequests.compat = myrequests_compat
 """Compatibility module similar to requests.compat"""
 MutableMapping_2 = _cribo.collections.abc.MutableMapping

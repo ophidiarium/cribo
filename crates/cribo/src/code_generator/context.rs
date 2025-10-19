@@ -45,7 +45,9 @@ pub struct SemanticContext<'a> {
     pub semantic_bundler: &'a SemanticBundler,
 }
 
-/// Parameters for `bundle_modules` function
+/// Parameters for the bundling process
+///
+/// Used by `PhaseOrchestrator::bundle()` to orchestrate all bundling phases.
 #[derive(Debug)]
 pub struct BundleParams<'a> {
     pub modules: &'a [(crate::resolver::ModuleId, ModModule, String)], // (id, ast, content_hash)
@@ -60,4 +62,26 @@ pub struct BundleParams<'a> {
     pub python_version: u8,                                           /* Target Python version
                                                                        * for
                                                                        * builtin checks */
+}
+
+// ==================== Phase Result Types ====================
+// These types represent the outputs of individual bundling phases.
+// They define the data contracts between phases in the PhaseOrchestrator.
+
+/// Result from the initialization phase
+#[derive(Debug, Clone)]
+pub struct InitializationResult {
+    /// Future imports collected from all modules
+    pub future_imports: FxIndexSet<String>,
+}
+
+/// Result from the post-processing phase
+#[derive(Debug, Clone)]
+pub struct PostProcessingResult {
+    /// Proxy statements for stdlib access
+    pub proxy_statements: Vec<ruff_python_ast::Stmt>,
+    /// Package child alias statements
+    pub alias_statements: Vec<ruff_python_ast::Stmt>,
+    /// Namespace attachment statements for entry module
+    pub namespace_attachments: Vec<ruff_python_ast::Stmt>,
 }

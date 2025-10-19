@@ -115,7 +115,7 @@ services = _cribo.types.SimpleNamespace(__name__='services')
 services_auth = _cribo.types.SimpleNamespace(__name__='services.auth')
 services.auth = services_auth
 models_user = _cribo.types.SimpleNamespace(__name__='models.user', __doc__='\nUser model with extensive naming conflicts across the project\n')
-models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False)
+models = _cribo.types.SimpleNamespace(__name__='models', __initializing__=False, __initialized__=False, __path__=[])
 models.user = models_user
 """\nUser model with extensive naming conflicts across the project\n"""
 util_process = core_utils_helpers.process

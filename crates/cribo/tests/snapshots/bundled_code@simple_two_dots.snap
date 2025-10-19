@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 foo_zoo = _cribo.types.SimpleNamespace(__name__='foo.zoo')
-foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False)
+foo = _cribo.types.SimpleNamespace(__name__='foo', __initializing__=False, __initialized__=False, __path__=[])
 foo.zoo = foo_zoo
 ANIMAL = "cat"
 foo_zoo.ANIMAL = ANIMAL

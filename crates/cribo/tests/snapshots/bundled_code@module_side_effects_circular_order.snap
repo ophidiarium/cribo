@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 my_package_mod_l = _cribo.types.SimpleNamespace(__name__='my_package.mod_l')
-my_package = _cribo.types.SimpleNamespace(__name__='my_package', __initializing__=False, __initialized__=False)
+my_package = _cribo.types.SimpleNamespace(__name__='my_package', __initializing__=False, __initialized__=False, __path__=[])
 my_package.mod_l = my_package_mod_l
 LEAF_VALUE = "leaf"
 my_package_mod_l.LEAF_VALUE = LEAF_VALUE

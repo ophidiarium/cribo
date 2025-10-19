@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 submodule_helpers = _cribo.types.SimpleNamespace(__name__='submodule.helpers', __doc__='Helper functions module.')
-submodule = _cribo.types.SimpleNamespace(__name__='submodule', __initializing__=False, __initialized__=False)
+submodule = _cribo.types.SimpleNamespace(__name__='submodule', __initializing__=False, __initialized__=False, __path__=[])
 submodule.helpers = submodule_helpers
 """Helper functions module."""
 def format_string(s: str) -> str:

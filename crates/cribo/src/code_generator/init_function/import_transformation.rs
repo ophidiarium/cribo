@@ -53,8 +53,7 @@ impl ImportTransformationPhase {
             bundler,
             module_id,
             symbol_renames,
-            is_wrapper_init: true,         // This IS a wrapper init function
-            global_deferred_imports: None, // No need for global deferred imports in wrapper modules
+            is_wrapper_init: true, // This IS a wrapper init function
             python_version: ctx.python_version,
         };
         let mut transformer = RecursiveImportTransformer::new(&params);

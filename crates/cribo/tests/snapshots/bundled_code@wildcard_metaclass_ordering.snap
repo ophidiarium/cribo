@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 yaml_module_loader = _cribo.types.SimpleNamespace(__name__='yaml_module.loader')
-yaml_module = _cribo.types.SimpleNamespace(__name__='yaml_module', __initializing__=False, __initialized__=False)
+yaml_module = _cribo.types.SimpleNamespace(__name__='yaml_module', __initializing__=False, __initialized__=False, __path__=[])
 yaml_module.loader = yaml_module_loader
 class BaseLoader:
     """Base loader class"""

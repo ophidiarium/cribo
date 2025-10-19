@@ -29,7 +29,7 @@ class _Cribo():
         return _CriboModule(m, n)
 _cribo = _Cribo()
 package__subpackage_module_a = _cribo.types.SimpleNamespace(__name__='package._subpackage.module_a', __doc__='Module A with MyClass.')
-package = _cribo.types.SimpleNamespace(__name__='package', __initializing__=False, __initialized__=False)
+package = _cribo.types.SimpleNamespace(__name__='package', __initializing__=False, __initialized__=False, __path__=[])
 package__subpackage = _cribo.types.SimpleNamespace(__name__='package._subpackage', __initializing__=False, __initialized__=False, __path__=[])
 package._subpackage = package__subpackage
 package__subpackage.module_a = package__subpackage_module_a

@@ -14,7 +14,7 @@ use crate::{
         CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
         ResolutionStrategy,
     },
-    code_generator::Bundler,
+    code_generator::{Bundler, phases::orchestrator::PhaseOrchestrator},
     config::Config,
     cribo_graph::CriboGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
@@ -943,6 +943,13 @@ impl BundleOrchestrator {
             .unwrap_or_else(|_| entry_path.to_path_buf());
         for src_dir in &self.config.src {
             log::debug!("Checking if {canonical_entry:?} starts with {src_dir:?}");
+
+            // Handle empty src_dir - skip it as it will match everything and produce absolute paths
+            if src_dir.as_os_str().is_empty() {
+                log::debug!("Skipping empty src_dir to avoid absolute path module names");
+                continue;
+            }
+
             let Ok(relative_path) = canonical_entry.strip_prefix(src_dir) else {
                 continue;
             };
@@ -1919,17 +1926,20 @@ impl BundleOrchestrator {
             }
         }
 
-        // Bundle all modules using static bundler
-        let bundled_ast = static_bundler.bundle_modules(&crate::code_generator::BundleParams {
-            modules: &module_asts,
-            sorted_module_ids: params.sorted_module_ids,
-            resolver: params.resolver,
-            graph: params.graph,
-            semantic_bundler: &self.semantic_bundler,
-            circular_dep_analysis: params.circular_dep_analysis,
-            tree_shaker: params.tree_shaker,
-            python_version: self.config.python_version().unwrap_or(10),
-        });
+        // Bundle all modules using the phase-based orchestrator
+        let bundled_ast = PhaseOrchestrator::bundle(
+            &mut static_bundler,
+            &crate::code_generator::BundleParams {
+                modules: &module_asts,
+                sorted_module_ids: params.sorted_module_ids,
+                resolver: params.resolver,
+                graph: params.graph,
+                semantic_bundler: &self.semantic_bundler,
+                circular_dep_analysis: params.circular_dep_analysis,
+                tree_shaker: params.tree_shaker,
+                python_version: self.config.python_version().unwrap_or(10),
+            },
+        );
 
         // Generate Python code from AST
         let empty_parsed = get_empty_parsed_module();
