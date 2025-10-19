@@ -74,7 +74,6 @@ impl Bundler<'_> {
             module_id,
             symbol_renames: ctx.module_renames,
             is_wrapper_init: false, // Not a wrapper init
-            global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
             python_version: ctx.python_version,
         };
         let mut transformer = RecursiveImportTransformer::new(&params);

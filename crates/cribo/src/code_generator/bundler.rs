@@ -83,9 +83,6 @@ pub struct Bundler<'a> {
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
     pub(crate) module_asts: Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
-    /// Global registry of deferred imports to prevent duplication
-    /// Maps (`module_id`, `symbol_name`) to the source module ID that deferred it
-    pub(crate) global_deferred_imports: FxIndexMap<(ModuleId, String), ModuleId>,
     /// Track all namespaces that need to be created before module initialization
     /// Central registry of all namespaces that need to be created
     /// Maps sanitized name to `NamespaceInfo`
@@ -610,7 +607,6 @@ impl<'a> Bundler<'a> {
             all_circular_modules: FxIndexSet::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
-            global_deferred_imports: FxIndexMap::default(),
             namespace_registry: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
             parent_child_assignments_made: FxIndexSet::default(),

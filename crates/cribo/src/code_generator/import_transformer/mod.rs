@@ -1053,13 +1053,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                 .unwrap_or_else(|| format!("module#{}", self.state.module_id))
         );
 
-        // Check if entry module wrapper imports should be skipped due to deduplication
-        if let Some(ref resolved) = resolved_module
-            && WrapperHandler::maybe_skip_entry_wrapper_if_all_deferred(self, import_from, resolved)
-        {
-            return vec![];
-        }
-
         // Check if this should be handled by the submodule handler
         if let Some(ref resolved_base) = resolved_module
             && let Some(stmts) =
@@ -1530,7 +1523,6 @@ fn create_namespace_population_context<'a>(
         wrapper_modules: &bundler.wrapper_modules,
         modules_with_explicit_all: &bundler.modules_with_explicit_all,
         module_asts: &bundler.module_asts,
-        global_deferred_imports: &bundler.global_deferred_imports,
         module_init_functions: &bundler.module_init_functions,
         resolver: bundler.resolver,
     }

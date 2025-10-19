@@ -547,7 +547,6 @@ impl ProcessingPhase {
                     wrapper_modules: &bundler.wrapper_modules,
                     module_asts: &bundler.module_asts,
                     modules_with_explicit_all: &bundler.modules_with_explicit_all,
-                    global_deferred_imports: &FxIndexMap::default(),
                     module_init_functions: &bundler.module_init_functions,
                     resolver: bundler.resolver,
                 };

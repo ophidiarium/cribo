@@ -178,7 +178,6 @@ impl EntryModulePhase {
             module_id: ModuleId::ENTRY,
             symbol_renames,
             is_wrapper_init: false,
-            global_deferred_imports: Some(&bundler.global_deferred_imports),
             python_version,
         };
 
