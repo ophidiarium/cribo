@@ -3993,13 +3993,7 @@ impl Bundler<'_> {
         // Now create parent.child assignments for the entire chain
         for i in 1..parts.len() {
             let parent_path = parts[0..i].join(".");
-            let parent_var = if i == 1 {
-                // First level parent - must sanitize to handle absolute paths with /
-                sanitize_module_name_for_identifier(parts[0])
-            } else {
-                // Multi-level parent uses sanitized name
-                sanitize_module_name_for_identifier(&parent_path)
-            };
+            let parent_var = sanitize_module_name_for_identifier(&parent_path);
             let child_name = parts[i];
 
             // Check if this parent.child assignment has already been made
