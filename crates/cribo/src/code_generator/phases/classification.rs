@@ -83,6 +83,12 @@ impl ClassificationPhase {
         }
 
         log::debug!("Tracked {} inlined modules", bundler.inlined_modules.len());
+        debug_assert!(
+            bundler
+                .inlined_modules
+                .is_disjoint(&bundler.wrapper_modules),
+            "inlined_modules and wrapper_modules must be disjoint"
+        );
     }
 
     /// Register wrapper modules with synthetic names and init functions
