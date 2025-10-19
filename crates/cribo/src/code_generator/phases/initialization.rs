@@ -50,9 +50,7 @@ impl InitializationPhase {
         // Collect future imports (already done in initialize_bundler)
         let future_imports = bundler.future_imports.clone();
 
-        // Collect circular modules (already identified in prepare_modules, but we'll capture them
-        // here)
-        let circular_modules = bundler.circular_modules.clone();
+        // Circular modules are already identified in prepare_modules and stored in bundler
 
         // Find namespace-imported modules
         // Convert modules to the format expected by find_namespace_imported_modules
@@ -72,13 +70,9 @@ impl InitializationPhase {
         }
 
         bundler.find_namespace_imported_modules(&modules_map);
-        let namespace_imported_modules = bundler.namespace_imported_modules.clone();
+        // Namespace imported modules are stored in bundler
 
-        InitializationResult {
-            future_imports,
-            circular_modules,
-            namespace_imported_modules,
-        }
+        InitializationResult { future_imports }
     }
 }
 
@@ -118,8 +112,6 @@ mod tests {
     fn test_generate_future_import_statements_empty() {
         let result = InitializationResult {
             future_imports: FxIndexSet::default(),
-            circular_modules: FxIndexSet::default(),
-            namespace_imported_modules: FxIndexMap::default(),
         };
 
         let stmts = generate_future_import_statements(&result);
@@ -133,11 +125,7 @@ mod tests {
         future_imports.insert("annotations".to_string());
         future_imports.insert("division".to_string());
 
-        let result = InitializationResult {
-            future_imports,
-            circular_modules: FxIndexSet::default(),
-            namespace_imported_modules: FxIndexMap::default(),
-        };
+        let result = InitializationResult { future_imports };
 
         let stmts = generate_future_import_statements(&result);
 
@@ -154,11 +142,7 @@ mod tests {
         future_imports.insert("annotations".to_string());
         future_imports.insert("division".to_string());
 
-        let result = InitializationResult {
-            future_imports,
-            circular_modules: FxIndexSet::default(),
-            namespace_imported_modules: FxIndexMap::default(),
-        };
+        let result = InitializationResult { future_imports };
 
         let stmts1 = generate_future_import_statements(&result);
         let stmts2 = generate_future_import_statements(&result);
@@ -174,13 +158,9 @@ mod tests {
 
         let result = InitializationResult {
             future_imports: future_imports.clone(),
-            circular_modules: FxIndexSet::default(),
-            namespace_imported_modules: FxIndexMap::default(),
         };
 
         assert_eq!(result.future_imports.len(), 1);
         assert!(result.future_imports.contains("annotations"));
-        assert!(result.circular_modules.is_empty());
-        assert!(result.namespace_imported_modules.is_empty());
     }
 }
