@@ -1,6 +1,7 @@
 ---
 name: refactor-divergence
 description: This agent specializes in detecting subtle logic differences between original and refactored code in Rust projects, particularly useful for splitting monolithic functions into manageable pieces.
+tools: Read, Glob, Grep, Bash, mcp__filesystem__*, mcp__lsmcp__*
 model: global.anthropic.claude-haiku-4-5-20251001-v1:0
 ---
 
