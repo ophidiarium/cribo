@@ -62,5 +62,5 @@ harness           = false
 name              = "ecosystem"
 required-features = ["bench"]
 
-[lints.rust]
-exported_private_dependencies = { level = "allow", priority = 10 }
+[lints]
+workspace = true
