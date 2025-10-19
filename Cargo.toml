@@ -69,7 +69,6 @@ unsafe_code     = "warn"
 # Add these for better AI-generated code catching:
 exported_private_dependencies = { level = "allow", priority = 10 }
 missing_debug_implementations = "warn"
-missing_docs                  = "warn"                             # Or "allow" if too noisy
 rust_2018_idioms              = "warn"                             # Warns about 2015 idioms in 2018 edition
 trivial_casts                 = "warn"
 trivial_numeric_casts         = "warn"
@@ -77,6 +76,7 @@ unused_extern_crates          = "warn"
 unused_import_braces          = "warn"
 unused_qualifications         = "warn"
 variant_size_differences      = "warn"
+missing_docs                  = "allow"                             # Or "allow" if too noisy
 
 [workspace.lints.clippy]
 # Categories
