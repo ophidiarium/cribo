@@ -283,14 +283,14 @@ impl ProcessingPhase {
 
     /// Log the processing order for debugging
     fn log_processing_order(params: &BundleParams<'_>) {
-        log::info!("Module processing order from dependency graph:");
+        log::debug!("Module processing order from dependency graph:");
         for (i, module_id) in params.sorted_module_ids.iter().enumerate() {
             let module_name = params
                 .resolver
                 .get_module_name(*module_id)
                 .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
             let module_path = params.resolver.get_module_path(*module_id);
-            log::info!("  {}. {} (path: {:?})", i + 1, module_name, module_path);
+            log::debug!("  {}. {} (path: {:?})", i + 1, module_name, module_path);
         }
     }
 
