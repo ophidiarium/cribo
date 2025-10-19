@@ -30,8 +30,8 @@ impl ImportAnalysisPhase {
     /// Note: This phase only analyzes imports - it doesn't transform the AST.
     /// The actual AST transformation happens in the Import Transformation phase.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
@@ -177,8 +177,8 @@ impl ImportAnalysisPhase {
 
     /// Process stdlib import for re-exports
     fn process_stdlib_import_reexports(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         import_from: &ruff_python_ast::StmtImportFrom,
         module: &str,
         state: &mut InitFunctionState,
@@ -236,7 +236,7 @@ impl ImportAnalysisPhase {
     /// Process wildcard import from an inlined module
     /// Returns a list of symbols from wrapper modules that need deferred assignment
     fn process_wildcard_import(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         module: &str,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         imports_from_inlined: &mut Vec<(String, String, Option<String>)>,

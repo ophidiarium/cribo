@@ -19,7 +19,10 @@ pub(super) struct ExpressionRewriter;
 
 impl ExpressionRewriter {
     /// Recursively transform expressions within the import transformer context
-    pub(super) fn transform_expr(transformer: &mut RecursiveImportTransformer, expr: &mut Expr) {
+    pub(super) fn transform_expr(
+        transformer: &mut RecursiveImportTransformer<'_>,
+        expr: &mut Expr,
+    ) {
         // First check if this is an attribute expression and collect the path
         let attribute_info = if matches!(expr, Expr::Attribute(_)) {
             let info = Self::collect_attribute_path(expr);
@@ -622,7 +625,7 @@ impl ExpressionRewriter {
     }
 
     /// Find the actual module name for a given alias
-    fn find_module_for_alias(alias: &str, state: &TransformerState) -> Option<String> {
+    fn find_module_for_alias(alias: &str, state: &TransformerState<'_>) -> Option<String> {
         log::debug!(
             "find_module_for_alias: alias={}, is_entry_module={}, local_vars={:?}",
             alias,

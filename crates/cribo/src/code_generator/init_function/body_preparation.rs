@@ -44,7 +44,7 @@ impl BodyPreparationPhase {
     ///
     /// Returns a context with computed analysis results and the processed body.
     pub(crate) fn execute<'a>(
-        bundler: &'a Bundler,
+        bundler: &'a Bundler<'_>,
         ctx: &ModuleTransformContext<'a>,
         ast: &ModModule,
         state: &mut InitFunctionState,
@@ -148,7 +148,7 @@ impl BodyPreparationPhase {
 
     /// Get module scope symbols from semantic bundler
     fn get_module_scope_symbols<'a>(
-        bundler: &'a Bundler,
+        bundler: &'a Bundler<'_>,
         ctx: &ModuleTransformContext<'a>,
     ) -> Option<&'a FxIndexSet<String>> {
         let semantic_bundler = ctx.semantic_bundler?;

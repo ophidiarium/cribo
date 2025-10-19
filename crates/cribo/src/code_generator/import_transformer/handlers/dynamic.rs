@@ -40,7 +40,7 @@ impl DynamicHandler {
     }
 
     /// Resolve `importlib.import_module()` target module name, handling relative imports
-    fn resolve_importlib_target(call: &ExprCall, bundler: &Bundler) -> Option<String> {
+    fn resolve_importlib_target(call: &ExprCall, bundler: &Bundler<'_>) -> Option<String> {
         if let Some(arg) = call.arguments.args.first()
             && let Expr::StringLiteral(lit) = arg
         {
@@ -100,7 +100,7 @@ impl DynamicHandler {
     /// Transform importlib.import_module("module-name") to direct module reference
     pub(in crate::code_generator::import_transformer) fn transform_importlib_import_module(
         call: &ExprCall,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         created_namespace_objects: &mut bool,
         create_module_access_expr: impl Fn(&str) -> Expr,
     ) -> Option<Expr> {
@@ -134,7 +134,7 @@ impl DynamicHandler {
         attr_expr: &ExprAttribute,
         base: &str,
         module_name: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) -> Expr {
         // Only rewrite attribute reads; preserve writes to module attributes.
@@ -175,7 +175,7 @@ impl DynamicHandler {
     pub(in crate::code_generator::import_transformer) fn handle_importlib_assignment(
         assigned_names: &FxIndexSet<String>,
         call: &ExprCall,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         importlib_inlined_modules: &mut FxIndexMap<String, String>,
     ) {
         // Get the module name and resolve relative imports

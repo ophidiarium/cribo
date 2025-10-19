@@ -8,7 +8,7 @@ pub(crate) struct SubmoduleHandler;
 impl SubmoduleHandler {
     /// Handle from-import submodules
     pub(in crate::code_generator::import_transformer) fn handle_from_import_submodules(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
         import_from: &StmtImportFrom,
         resolved_base: &str,
     ) -> Option<Vec<Stmt>> {

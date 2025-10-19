@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub(in crate::code_generator::import_transformer) fn handle_unbundled_relative_import(
-    _bundler: &Bundler,
+    _bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     module_name: &str,
     current_module: &str,
@@ -70,7 +70,7 @@ pub(in crate::code_generator::import_transformer) fn handle_unbundled_relative_i
 /// * `result` - Vector to append generated statements to
 /// * `add_module_attr` - Whether to add module attributes for non-private symbols
 pub(crate) fn transform_relative_import_aliases(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     parent_package: &str,
     current_module: &str,

@@ -28,8 +28,8 @@ use crate::{
 #[expect(clippy::too_many_arguments)] // Necessary for extracting complex logic
 pub(crate) fn process_statements_for_init_function(
     processed_body: Vec<Stmt>,
-    bundler: &Bundler,
-    ctx: &ModuleTransformContext,
+    bundler: &Bundler<'_>,
+    ctx: &ModuleTransformContext<'_>,
     all_is_referenced: bool,
     vars_used_by_exported_functions: &FxIndexSet<String>,
     module_scope_symbols: Option<&FxIndexSet<String>>,
@@ -41,7 +41,7 @@ pub(crate) fn process_statements_for_init_function(
 ) {
     // Helper function to get exported module-level variables
     let get_exported_module_vars =
-        |bundler: &Bundler, ctx: &ModuleTransformContext| -> FxIndexSet<String> {
+        |bundler: &Bundler<'_>, ctx: &ModuleTransformContext<'_>| -> FxIndexSet<String> {
             if let Some(ref global_info) = ctx.global_info {
                 let all_vars = &global_info.module_level_vars;
                 let mut exported_vars = FxIndexSet::default();
@@ -1420,7 +1420,10 @@ struct ModuleVarTransformContext<'a> {
 
 /// Transform a statement to use module attributes for module-level variables,
 /// with awareness of lifted globals for nested functions
-fn transform_stmt_for_module_vars_with_bundler(stmt: &mut Stmt, ctx: &ModuleVarTransformContext) {
+fn transform_stmt_for_module_vars_with_bundler(
+    stmt: &mut Stmt,
+    ctx: &ModuleVarTransformContext<'_>,
+) {
     if let Stmt::FunctionDef(nested_func) = stmt {
         // For function definitions, use the global-aware transformation
         if let Some(globals_map) = ctx.global_declarations {
@@ -1878,7 +1881,7 @@ fn transform_expr_for_module_vars_with_locals(
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
 pub(crate) fn transform_ast_with_lifted_globals(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -2065,7 +2068,7 @@ pub(crate) fn transform_expr_for_builtin_shadowing(
 
 /// Helper function to determine if a symbol should be included in the module namespace
 pub(crate) fn should_include_symbol(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     symbol_name: &str,
     module_name: &str,
     module_scope_symbols: Option<&FxIndexSet<String>>,
@@ -2135,7 +2138,7 @@ pub(crate) fn should_include_symbol(
 
 /// Add module attribute assignment if the symbol should be exported
 pub(crate) fn add_module_attr_if_exported(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     assign: &StmtAssign,
     module_name: &str,
     body: &mut Vec<Stmt>,
@@ -2156,7 +2159,7 @@ pub(crate) fn add_module_attr_if_exported(
 /// Helper to emit module attribute if a symbol should be exported
 /// This centralizes the logic for both Assign and `AnnAssign` paths
 pub(crate) fn emit_module_attr_if_exportable(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     symbol_name: &str,
     module_name: &str,
     body: &mut Vec<Stmt>,
@@ -2191,7 +2194,7 @@ pub(crate) fn emit_module_attr_if_exportable(
 
 /// Create namespace for inlined submodule
 pub(crate) fn create_namespace_for_inlined_submodule(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     full_module_name: &str,
     attr_name: &str,
     parent_module_var: &str,
@@ -2330,7 +2333,7 @@ pub(crate) fn create_namespace_for_inlined_submodule(
 
 /// Check if a renamed symbol exists after tree-shaking
 fn renamed_symbol_exists(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     renamed_symbol: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> bool {
@@ -2357,7 +2360,7 @@ fn renamed_symbol_exists(
 /// Process wildcard import from an inlined module
 /// Returns a list of symbols from wrapper modules that need deferred assignment
 pub(crate) fn process_wildcard_import(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     imports_from_inlined: &mut Vec<(String, String, Option<String>)>,
@@ -2571,7 +2574,7 @@ pub(crate) fn process_wildcard_import(
 
 /// Check if a symbol from an inlined module actually comes from a wrapper module
 fn symbol_comes_from_wrapper_module(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     inlined_module: &str,
     symbol_name: &str,
 ) -> bool {

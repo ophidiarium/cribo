@@ -36,7 +36,7 @@ pub(crate) struct WrapperHandler;
 impl WrapperHandler {
     /// Handle wrapper from-import in absolute context (rel→abs conversion + handler dispatch)
     pub(in crate::code_generator::import_transformer) fn handle_wrapper_from_import_absolute_context(
-        context: &WrapperContext,
+        context: &WrapperContext<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
     ) -> Vec<Stmt> {
@@ -82,7 +82,7 @@ impl WrapperHandler {
 
     /// Same as `rewrite_from_import_for_wrapper_module` but accepts explicit context.
     pub(in crate::code_generator::import_transformer) fn rewrite_from_import_for_wrapper_module_with_context(
-        context: &WrapperContext,
+        context: &WrapperContext<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
     ) -> Vec<Stmt> {
@@ -140,7 +140,7 @@ impl WrapperHandler {
     /// This method now uses the extracted logic from the bundler to handle
     /// individual symbol imports from wrapper modules.
     pub(in crate::code_generator::import_transformer) fn handle_symbol_imports_from_multiple(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         context: &crate::code_generator::bundler::BundledImportContext<'_>,
@@ -163,7 +163,7 @@ impl WrapperHandler {
 
     /// Handle wildcard-from imports (`from X import *`) for wrapper modules
     pub(in crate::code_generator::import_transformer) fn handle_wildcard_import_from_multiple(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         _import_from: &StmtImportFrom,
         module_name: &str,
         inside_wrapper_init: bool,
@@ -286,7 +286,7 @@ impl WrapperHandler {
     /// code)
     pub(in crate::code_generator::import_transformer) fn log_wrapper_wildcard_info(
         resolved: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) {
         log::debug!("  Handling wildcard import from wrapper module '{resolved}'");
         if let Some(exports) = bundler
@@ -314,7 +314,7 @@ impl WrapperHandler {
     /// Check if a module is a wrapper module (bundled but not inlined)
     pub(in crate::code_generator::import_transformer) fn is_wrapper_module(
         module_name: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> bool {
         bundler.get_module_id(module_name).is_some_and(|id| {
             bundler.bundled_modules.contains(&id) && !bundler.inlined_modules.contains(&id)
@@ -349,7 +349,7 @@ impl WrapperHandler {
 
     /// Handle from-import on resolved wrapper module
     pub(in crate::code_generator::import_transformer) fn handle_from_import_on_resolved_wrapper(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
         import_from: &StmtImportFrom,
         resolved: &str,
     ) -> Option<Vec<Stmt>> {
@@ -673,7 +673,7 @@ impl WrapperHandler {
 
     /// Maybe handle wrapper absolute imports (non-resolved branch)
     pub(in crate::code_generator::import_transformer) fn maybe_handle_wrapper_absolute(
-        context: &WrapperContext,
+        context: &WrapperContext<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
     ) -> Option<Vec<Stmt>> {
@@ -696,7 +696,7 @@ impl WrapperHandler {
     /// This is the main logic extracted from `Bundler::handle_symbol_imports_from_multiple`
     /// for handling individual symbol imports from wrapper modules.
     pub(in crate::code_generator::import_transformer) fn handle_symbol_imports_from_wrapper(
-        context: &WrapperContext,
+        context: &WrapperContext<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
     ) -> Vec<Stmt> {

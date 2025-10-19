@@ -734,7 +734,7 @@ impl<'a> Bundler<'a> {
     fn collect_module_renames(
         &mut self,
         module_id: ModuleId,
-        semantic_ctx: &SemanticContext,
+        semantic_ctx: &SemanticContext<'_>,
         symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) {
         let module_name = self
@@ -1084,7 +1084,7 @@ impl<'a> Bundler<'a> {
     pub(crate) fn collect_symbol_renames(
         &mut self,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
-        semantic_ctx: &SemanticContext,
+        semantic_ctx: &SemanticContext<'_>,
     ) -> FxIndexMap<ModuleId, FxIndexMap<String, String>> {
         let mut symbol_renames = FxIndexMap::default();
 
@@ -1428,7 +1428,7 @@ impl<'a> Bundler<'a> {
         &self,
         assign: &StmtAssign,
         module_name: &str,
-        _ctx: &InlineContext,
+        _ctx: &InlineContext<'_>,
     ) -> bool {
         // Check if the RHS is an attribute access on a name
         if let Expr::Attribute(attr) = assign.value.as_ref()
@@ -3152,7 +3152,7 @@ impl Bundler<'_> {
     /// Resolve the value expression for an import, handling special cases for circular dependencies
     pub(in crate::code_generator) fn resolve_import_value_expr(
         &self,
-        params: ImportResolveParams,
+        params: ImportResolveParams<'_>,
     ) -> Expr {
         // Special case: inside wrapper init importing from inlined parent
         if params.inside_wrapper_init {
@@ -4027,7 +4027,7 @@ impl Bundler<'_> {
     fn transform_function_body_for_lifted_globals(
         &self,
         func_def: &mut StmtFunctionDef,
-        params: &TransformFunctionParams,
+        params: &TransformFunctionParams<'_>,
     ) {
         let mut new_body = Vec::new();
 

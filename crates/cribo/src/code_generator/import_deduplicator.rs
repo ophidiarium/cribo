@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Check if a statement is a hoisted import
-pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
+pub(super) fn is_hoisted_import(_bundler: &Bundler<'_>, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::ImportFrom(import_from) => {
             if let Some(ref module) = import_from.module {
@@ -37,7 +37,7 @@ pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
 
 /// Check if an import from statement is a duplicate
 pub(super) fn is_duplicate_import_from(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
     python_version: u8,
@@ -71,7 +71,7 @@ pub(super) fn is_duplicate_import_from(
 
 /// Check if an import statement is a duplicate
 pub(super) fn is_duplicate_import(
-    _bundler: &Bundler,
+    _bundler: &Bundler<'_>,
     import_stmt: &StmtImport,
     existing_body: &[Stmt],
 ) -> bool {
@@ -102,7 +102,7 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
 }
 
 /// Check if a module is bundled or is a package containing bundled modules
-pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str) -> bool {
+pub(super) fn is_bundled_module_or_package(bundler: &Bundler<'_>, module_name: &str) -> bool {
     // Direct check - convert module_name to ModuleId for lookup
     if bundler
         .get_module_id(module_name)

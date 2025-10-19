@@ -37,7 +37,7 @@ pub(crate) struct RecursiveImportTransformer<'a> {
 
 /// Public bridge for Bundler to delegate wrapper wildcard from-import handling
 pub(crate) fn transform_wrapper_wildcard_import(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     module_name: &str,
     inside_wrapper_init: bool,
@@ -56,7 +56,7 @@ pub(crate) fn transform_wrapper_wildcard_import(
 
 /// Public bridge for Bundler to delegate wrapper non-wildcard from-import handling
 pub(in crate::code_generator) fn transform_wrapper_symbol_imports(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     module_name: &str,
     context: &crate::code_generator::bundler::BundledImportContext<'_>,
@@ -1146,7 +1146,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
 /// Emit `parent.attr = <full_path>` assignment for dotted imports when needed (free function)
 fn emit_dotted_assignment_if_needed_for(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     parent: &str,
     attr: &str,
     full_path: &str,
@@ -1190,7 +1190,7 @@ fn emit_dotted_assignment_if_needed_for(
 
 /// Populate namespace levels for non-aliased dotted imports (free function)
 fn populate_all_namespace_levels_for(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     parts: &[&str],
     populated_modules: &mut FxIndexSet<crate::resolver::ModuleId>,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -1227,7 +1227,7 @@ fn populate_all_namespace_levels_for(
 
 /// Rewrite import with renames
 fn rewrite_import_with_renames(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_stmt: StmtImport,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     populated_modules: &mut FxIndexSet<crate::resolver::ModuleId>,
@@ -1497,7 +1497,7 @@ fn rewrite_import_with_renames(
 /// This helper function reduces code duplication when creating the context
 /// for namespace population operations in import transformation.
 const fn create_namespace_population_context<'a>(
-    bundler: &'a Bundler,
+    bundler: &'a Bundler<'_>,
 ) -> crate::code_generator::namespace_manager::NamespacePopulationContext<'a> {
     crate::code_generator::namespace_manager::NamespacePopulationContext {
         inlined_modules: &bundler.inlined_modules,
@@ -1517,7 +1517,7 @@ const fn create_namespace_population_context<'a>(
 fn has_bundled_submodules(
     import_from: &StmtImportFrom,
     module_name: &str,
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
 ) -> bool {
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
@@ -1550,7 +1550,7 @@ struct RewriteImportFromParams<'a> {
 }
 
 /// Rewrite import from statement with proper handling for bundled modules
-fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
+fn rewrite_import_from(params: RewriteImportFromParams<'_>) -> Vec<Stmt> {
     let RewriteImportFromParams {
         bundler,
         import_from,

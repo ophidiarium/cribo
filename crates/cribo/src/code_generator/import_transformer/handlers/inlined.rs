@@ -13,7 +13,7 @@ impl InlinedHandler {
     /// Check if importing from an inlined module
     pub(in crate::code_generator::import_transformer) fn is_importing_from_inlined_module(
         module_name: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> bool {
         bundler
             .get_module_id(module_name)
@@ -24,7 +24,7 @@ impl InlinedHandler {
     pub(in crate::code_generator::import_transformer) fn create_namespace_call_for_inlined_module(
         module_name: &str,
         module_renames: Option<&FxIndexMap<String, String>>,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> Expr {
         // Create a types.SimpleNamespace with all the module's symbols
         let mut keywords = Vec::new();
@@ -118,7 +118,7 @@ impl InlinedHandler {
     /// into the bundle. It generates appropriate assignment statements to make the inlined
     /// symbols available under their expected names.
     pub(in crate::code_generator::import_transformer) fn handle_imports_from_inlined_module_with_context(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         source_module_id: crate::resolver::ModuleId,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -453,7 +453,7 @@ impl InlinedHandler {
 
     /// Handle from-import on resolved inlined module
     pub(in crate::code_generator::import_transformer) fn handle_from_import_on_resolved_inlined(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
         import_from: &StmtImportFrom,
         resolved: &str,
     ) -> Option<Vec<Stmt>> {
@@ -639,7 +639,7 @@ impl InlinedHandler {
 
     /// Handle inlined from-import in absolute context (namespace/submodules + assignments)
     pub(in crate::code_generator::import_transformer) fn handle_inlined_from_import_absolute_context(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -710,7 +710,7 @@ impl InlinedHandler {
 
     /// Handle entry-module resolution as inlined fast-path
     pub(in crate::code_generator::import_transformer) fn handle_entry_relative_as_inlined(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -764,7 +764,7 @@ impl InlinedHandler {
 
     /// Transform imports if the module has bundled submodules
     pub(in crate::code_generator::import_transformer) fn transform_if_has_bundled_submodules(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -803,7 +803,7 @@ impl InlinedHandler {
 
     /// Maybe handle inlined absolute imports (non-bundled case)
     pub(in crate::code_generator::import_transformer) fn maybe_handle_inlined_absolute(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -836,7 +836,7 @@ impl InlinedHandler {
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules
-fn is_package_init_reexport(bundler: &Bundler, module_name: &str) -> bool {
+fn is_package_init_reexport(bundler: &Bundler<'_>, module_name: &str) -> bool {
     // Special handling for package __init__.py files
     // If we're importing from "greetings" and there's a "greetings.X" module
     // that could be the source of the symbol

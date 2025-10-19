@@ -498,7 +498,7 @@ pub(crate) fn rewrite_aliases_in_expr(
 
 /// Transform expression for lifted globals
 pub(super) fn transform_expr_for_lifted_globals(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -669,7 +669,7 @@ pub(super) fn transform_expr_for_lifted_globals(
 
 /// Transform f-string expressions for lifted globals
 pub(super) fn transform_fstring_for_lifted_globals(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -735,7 +735,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
 
 /// Transform a single f-string expression element
 pub(super) fn transform_fstring_expression(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     expr_elem: &ruff_python_ast::InterpolatedElement,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,

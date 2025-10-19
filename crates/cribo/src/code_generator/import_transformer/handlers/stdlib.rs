@@ -98,7 +98,7 @@ impl StdlibHandler {
         is_wrapper_init: bool,
         module_id: crate::resolver::ModuleId,
         current_module_name: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> Vec<Stmt> {
         let mut assignments = Vec::new();
 
