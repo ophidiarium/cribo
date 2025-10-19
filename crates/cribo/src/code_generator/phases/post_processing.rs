@@ -8,24 +8,13 @@
 use ruff_python_ast::Stmt;
 
 use crate::{
-    code_generator::bundler::Bundler,
+    code_generator::{bundler::Bundler, context::PostProcessingResult},
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Post-processing phase handler (stateless)
 #[derive(Default)]
 pub struct PostProcessingPhase;
-
-/// Result from post-processing
-#[derive(Debug, Clone)]
-pub struct PostProcessingOutput {
-    /// Proxy statements for stdlib access
-    pub proxy_statements: Vec<Stmt>,
-    /// Package child alias statements
-    pub alias_statements: Vec<Stmt>,
-    /// Namespace attachment statements for entry module
-    pub namespace_attachments: Vec<Stmt>,
-}
 
 impl PostProcessingPhase {
     /// Create a new post-processing phase
@@ -47,7 +36,7 @@ impl PostProcessingPhase {
         entry_symbols: &FxIndexSet<String>,
         entry_renames: &FxIndexMap<String, String>,
         final_body: &[Stmt],
-    ) -> PostProcessingOutput {
+    ) -> PostProcessingResult {
         // Generate namespace attachments for entry module exports
         let namespace_attachments =
             Self::generate_namespace_attachments(bundler, entry_symbols, entry_renames);
@@ -58,7 +47,7 @@ impl PostProcessingPhase {
         // Generate package child aliases
         let alias_statements = Self::generate_package_child_aliases(bundler, final_body);
 
-        PostProcessingOutput {
+        PostProcessingResult {
             proxy_statements,
             alias_statements,
             namespace_attachments,
@@ -218,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_post_processing_output_construction() {
-        let output = PostProcessingOutput {
+        let output = PostProcessingResult {
             proxy_statements: vec![],
             alias_statements: vec![],
             namespace_attachments: vec![],
@@ -246,7 +235,7 @@ mod tests {
             )),
         });
 
-        let output = PostProcessingOutput {
+        let output = PostProcessingResult {
             proxy_statements: vec![stmt.clone()],
             alias_statements: vec![stmt.clone()],
             namespace_attachments: vec![stmt],

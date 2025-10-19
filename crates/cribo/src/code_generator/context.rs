@@ -74,3 +74,14 @@ pub struct InitializationResult {
     /// Future imports collected from all modules
     pub future_imports: FxIndexSet<String>,
 }
+
+/// Result from the post-processing phase
+#[derive(Debug, Clone)]
+pub struct PostProcessingResult {
+    /// Proxy statements for stdlib access
+    pub proxy_statements: Vec<ruff_python_ast::Stmt>,
+    /// Package child alias statements
+    pub alias_statements: Vec<ruff_python_ast::Stmt>,
+    /// Namespace attachment statements for entry module
+    pub namespace_attachments: Vec<ruff_python_ast::Stmt>,
+}
