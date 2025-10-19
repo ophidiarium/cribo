@@ -474,42 +474,40 @@ impl ProcessingPhase {
         log::debug!("Inlining module: {module_name}");
 
         // Create namespace for inlinable modules
-        if module_name != bundler.entry_module_name {
-            let namespace_var = sanitize_module_name_for_identifier(module_name);
-            if !bundler.created_namespaces.contains(&namespace_var) {
-                log::debug!("Creating namespace for inlinable module '{module_name}'");
+        let namespace_var = sanitize_module_name_for_identifier(module_name);
+        if !bundler.created_namespaces.contains(&namespace_var) {
+            log::debug!("Creating namespace for inlinable module '{module_name}'");
 
-                let module_docstring = docstring_extractor::extract_module_docstring(&ast);
+            let module_docstring = docstring_extractor::extract_module_docstring(&ast);
 
-                let mut keywords = vec![Keyword {
+            let mut keywords = vec![Keyword {
+                node_index: bundler.create_node_index(),
+                arg: Some(Identifier::new("__name__", TextRange::default())),
+                value: expressions::string_literal(module_name),
+                range: TextRange::default(),
+            }];
+
+            if let Some(docstring) = module_docstring {
+                keywords.push(Keyword {
                     node_index: bundler.create_node_index(),
-                    arg: Some(Identifier::new("__name__", TextRange::default())),
-                    value: expressions::string_literal(module_name),
+                    arg: Some(Identifier::new("__doc__", TextRange::default())),
+                    value: expressions::string_literal(&docstring),
                     range: TextRange::default(),
-                }];
-
-                if let Some(docstring) = module_docstring {
-                    keywords.push(Keyword {
-                        node_index: bundler.create_node_index(),
-                        arg: Some(Identifier::new("__doc__", TextRange::default())),
-                        value: expressions::string_literal(&docstring),
-                        range: TextRange::default(),
-                    });
-                }
-
-                let namespace_stmt = statements::simple_assign(
-                    &namespace_var,
-                    expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-                );
-                all_inlined_stmts.push(namespace_stmt);
-                bundler.created_namespaces.insert(namespace_var.clone());
-
-                bundler.create_namespace_chain_for_module(
-                    module_name,
-                    &namespace_var,
-                    all_inlined_stmts,
-                );
+                });
             }
+
+            let namespace_stmt = statements::simple_assign(
+                &namespace_var,
+                expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
+            );
+            all_inlined_stmts.push(namespace_stmt);
+            bundler.created_namespaces.insert(namespace_var.clone());
+
+            bundler.create_namespace_chain_for_module(
+                module_name,
+                &namespace_var,
+                all_inlined_stmts,
+            );
         }
 
         // Create inline context
@@ -527,35 +525,33 @@ impl ProcessingPhase {
         bundler.inline_module(module_name, ast, path, &mut inline_ctx);
 
         // Populate namespace with symbols
-        if module_id != ModuleId::ENTRY && bundler.inlined_modules.contains(&module_id) {
-            log::debug!("[processing] Populating namespace for inlined module: {module_name}");
+        log::debug!("[processing] Populating namespace for inlined module: {module_name}");
 
-            let namespace_var = sanitize_module_name_for_identifier(module_name);
-            let mut population_ctx =
-                crate::code_generator::namespace_manager::NamespacePopulationContext {
-                    bundled_modules: &bundler.bundled_modules,
-                    inlined_modules: &bundler.inlined_modules,
-                    module_exports: &bundler.module_exports,
-                    tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
-                    modules_with_accessed_all: &bundler.modules_with_accessed_all,
-                    wrapper_modules: &bundler.wrapper_modules,
-                    module_asts: &bundler.module_asts,
-                    modules_with_explicit_all: &bundler.modules_with_explicit_all,
-                    module_init_functions: &bundler.module_init_functions,
-                    resolver: bundler.resolver,
-                };
+        let namespace_var = sanitize_module_name_for_identifier(module_name);
+        let mut population_ctx =
+            crate::code_generator::namespace_manager::NamespacePopulationContext {
+                bundled_modules: &bundler.bundled_modules,
+                inlined_modules: &bundler.inlined_modules,
+                module_exports: &bundler.module_exports,
+                tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+                modules_with_accessed_all: &bundler.modules_with_accessed_all,
+                wrapper_modules: &bundler.wrapper_modules,
+                module_asts: &bundler.module_asts,
+                modules_with_explicit_all: &bundler.modules_with_explicit_all,
+                module_init_functions: &bundler.module_init_functions,
+                resolver: bundler.resolver,
+            };
 
-            let population_stmts =
-                crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                    &mut population_ctx,
-                    &namespace_var,
-                    module_id,
-                    symbol_renames,
-                );
+        let population_stmts =
+            crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                &mut population_ctx,
+                &namespace_var,
+                module_id,
+                symbol_renames,
+            );
 
-            all_inlined_stmts.extend(population_stmts);
-            bundler.modules_with_populated_symbols.insert(module_id);
-        }
+        all_inlined_stmts.extend(population_stmts);
+        bundler.modules_with_populated_symbols.insert(module_id);
     }
 
     /// Process a wrapper module
