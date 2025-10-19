@@ -450,7 +450,7 @@ impl ProcessingPhase {
     #[allow(clippy::too_many_arguments)]
     fn process_inlinable_module(
         bundler: &mut Bundler<'_>,
-        _module_id: ModuleId,
+        module_id: ModuleId,
         module_name: &str,
         ast: ruff_python_ast::ModModule,
         path: &Path,
@@ -527,13 +527,7 @@ impl ProcessingPhase {
         bundler.inline_module(module_name, ast, path, &mut inline_ctx);
 
         // Populate namespace with symbols
-        let current_module_id = bundler
-            .get_module_id(module_name)
-            .expect("Module should have ID");
-
-        if current_module_id != ModuleId::ENTRY
-            && bundler.inlined_modules.contains(&current_module_id)
-        {
+        if module_id != ModuleId::ENTRY && bundler.inlined_modules.contains(&module_id) {
             log::debug!("[processing] Populating namespace for inlined module: {module_name}");
 
             let namespace_var = sanitize_module_name_for_identifier(module_name);
@@ -555,14 +549,12 @@ impl ProcessingPhase {
                 crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                     &mut population_ctx,
                     &namespace_var,
-                    current_module_id,
+                    module_id,
                     symbol_renames,
                 );
 
             all_inlined_stmts.extend(population_stmts);
-            bundler
-                .modules_with_populated_symbols
-                .insert(current_module_id);
+            bundler.modules_with_populated_symbols.insert(module_id);
         }
     }
 
