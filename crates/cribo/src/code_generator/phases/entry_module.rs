@@ -103,7 +103,12 @@ impl EntryModulePhase {
         );
 
         // Add child module exposure
-        Self::expose_child_modules(bundler, &module_name, &mut entry_statements);
+        Self::expose_child_modules(
+            bundler,
+            &module_name,
+            &entry_module_symbols,
+            &mut entry_statements,
+        );
 
         Some(EntryModuleProcessingResult {
             statements: entry_statements,
@@ -323,6 +328,7 @@ impl EntryModulePhase {
     fn expose_child_modules(
         bundler: &mut Bundler<'_>,
         module_name: &str,
+        entry_module_symbols: &FxIndexSet<String>,
         entry_statements: &mut Vec<Stmt>,
     ) {
         use ruff_python_ast::ExprContext;
@@ -375,6 +381,7 @@ impl EntryModulePhase {
             if let Some(local_name) = child_module.strip_prefix(&format!("{package_name}."))
                 && !local_name.contains('.')
                 && !existing_variables.contains(local_name)
+                && !entry_module_symbols.contains(local_name)
             {
                 log::debug!("Exposing child module {child_module} as {local_name}");
 
@@ -387,26 +394,6 @@ impl EntryModulePhase {
                     ),
                 );
                 entry_statements.push(expose_stmt);
-            }
-        }
-
-        // Ensure critical 'exceptions' alias exists for packages
-        if let Some(entry_pkg) = bundler.entry_package_name() {
-            let exceptions_path = format!("{entry_pkg}.exceptions");
-            let exceptions_exists = bundler
-                .get_module_id(&exceptions_path)
-                .is_some_and(|id| bundler.bundled_modules.contains(&id));
-
-            if exceptions_exists && !existing_variables.contains("exceptions") {
-                log::debug!("Ensuring module-level alias for '{exceptions_path}' as 'exceptions'");
-                entry_statements.push(statements::simple_assign(
-                    "exceptions",
-                    expressions::attribute(
-                        expressions::name(entry_pkg, ExprContext::Load),
-                        "exceptions",
-                        ExprContext::Load,
-                    ),
-                ));
             }
         }
     }
