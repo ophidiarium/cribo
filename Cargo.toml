@@ -161,7 +161,7 @@ str_to_string                   = "warn"
 string_add                      = "warn"
 string_add_assign               = "warn"
 string_lit_as_bytes             = "warn"
-string_to_string                = "warn"
+# string_to_string has been removed - implicit_clone covers those cases
 type_repetition_in_bounds       = "warn"
 unnecessary_self_imports        = "warn"
 unnecessary_wraps               = "warn"
@@ -175,7 +175,7 @@ verbose_bit_mask                = "warn"
 wildcard_imports                = "warn"
 
 # Add these specific lints to catch .ok() misuse
-if_let_some_result = "warn" # Catches if let Some(x) = result.ok()
+match_result_ok = "warn" # Catches if let Some(x) = result.ok() (renamed from if_let_some_result)
 option_map_unit_fn = "warn" # Catches .map(|_| ())
 question_mark      = "warn" # Encourages using ? operator
 result_map_unit_fn = "warn" # Catches .map(|_| ())
