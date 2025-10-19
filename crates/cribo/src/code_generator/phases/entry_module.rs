@@ -271,8 +271,7 @@ impl EntryModulePhase {
                         continue;
                     }
 
-                    let is_duplicate =
-                        Self::check_duplicate_assignment(bundler, assign, final_body);
+                    let is_duplicate = Self::check_duplicate_assignment(assign, final_body);
 
                     if !is_duplicate {
                         let mut stmt_clone = stmt.clone();
@@ -297,7 +296,6 @@ impl EntryModulePhase {
 
     /// Check if an assignment is a duplicate
     fn check_duplicate_assignment(
-        _bundler: &Bundler<'_>,
         assign: &ruff_python_ast::StmtAssign,
         final_body: &[Stmt],
     ) -> bool {
