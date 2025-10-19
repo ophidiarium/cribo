@@ -1,9 +1,9 @@
 //! Initialization Phase
 //!
 //! This phase handles the initial setup of the bundler, including:
+//! - Storing graph and semantic bundler references
+//! - Initializing bundler settings
 //! - Collecting future imports from all modules
-//! - Identifying circular dependencies
-//! - Storing bundler configuration and references
 
 use ruff_python_ast::Stmt;
 
@@ -28,11 +28,10 @@ impl InitializationPhase {
     /// 1. Stores references to the graph and semantic bundler
     /// 2. Initializes bundler settings (tree shaking, __all__ access, entry module info)
     /// 3. Collects future imports from all modules
-    /// 4. Identifies circular dependencies
-    /// 5. Finds namespace-imported modules
     ///
-    /// Returns an `InitializationResult` containing the future imports, circular modules,
-    /// and namespace import information.
+    /// Returns an `InitializationResult` containing the collected future imports.
+    /// Note: Circular dependencies and namespace imports are discovered later in
+    /// `prepare_modules` phase.
     pub fn execute<'a>(
         &self,
         bundler: &mut Bundler<'a>,
