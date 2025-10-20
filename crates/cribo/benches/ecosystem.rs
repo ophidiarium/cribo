@@ -88,13 +88,14 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
     let output_path = output_dir.join("bundled_bench.py");
 
     // Prefer prebuilt binary if available
-    let mut cmd = if let Some(exe) = option_env!("CARGO_BIN_EXE_cribo") {
-        Command::new(exe)
-    } else {
-        let mut c = Command::new("cargo");
-        c.args(["run", "--release", "--"]);
-        c
-    };
+    let mut cmd = option_env!("CARGO_BIN_EXE_cribo").map_or_else(
+        || {
+            let mut c = Command::new("cargo");
+            c.args(["run", "--release", "--"]);
+            c
+        },
+        Command::new,
+    );
 
     let output = cmd
         .arg("--entry")
