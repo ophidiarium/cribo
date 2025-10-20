@@ -42,6 +42,7 @@ pub(crate) struct ModuleInfo {
 
 /// Central registry for module information
 /// This is the single source of truth for module identity throughout the bundling process
+#[derive(Debug)]
 pub(crate) struct ModuleRegistry {
     /// Map from `ModuleId` to complete module information
     modules: FxIndexMap<ModuleId, ModuleInfo>,
@@ -163,7 +164,7 @@ struct GraphBuildParams<'a> {
 }
 
 /// Result of the AST processing pipeline
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ProcessedModule {
     /// The transformed AST after all pipeline stages
     ast: ModModule,
@@ -175,6 +176,7 @@ struct ProcessedModule {
 
 /// Main orchestrator for bundling operations
 /// Note: Made `pub` for benchmark access via lib.rs (benchmarks are part of public API surface)
+#[derive(Debug)]
 #[allow(unreachable_pub)]
 pub struct BundleOrchestrator {
     config: Config,
