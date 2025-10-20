@@ -2824,12 +2824,10 @@ impl<'a> Bundler<'a> {
                 );
                 return true;
             }
-
-            false
-        } else {
-            // No exports at all, don't inline anything
-            false
         }
+
+        // No match found - either no exports or symbol not in export list
+        false
     }
 
     /// Get a unique name for a symbol, using the module suffix pattern

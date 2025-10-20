@@ -1430,12 +1430,13 @@ fn rewrite_import_with_renames(
                 continue;
             }
 
+            let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
             if bundler
                 .module_info_registry
                 .is_some_and(|reg| reg.contains_module(&module_id))
             {
                 // Module uses wrapper approach - need to initialize it now
-                let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                 // First, ensure the module is initialized
                 if let Some(module_id) = bundler.get_module_id(module_name) {
@@ -1451,7 +1452,6 @@ fn rewrite_import_with_renames(
                 }
             } else {
                 // Module was inlined - create a namespace object
-                let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                 // Create namespace object with the module's exports
                 // Check if namespace already exists

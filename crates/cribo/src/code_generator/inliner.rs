@@ -660,10 +660,8 @@ impl Bundler<'_> {
             );
             // Note: deferred imports functionality has been removed
             // This assignment was previously deferred but now added immediately
-            ctx.inlined_stmts.push(Stmt::Assign(assign_clone));
-        } else {
-            ctx.inlined_stmts.push(Stmt::Assign(assign_clone));
         }
+        ctx.inlined_stmts.push(Stmt::Assign(assign_clone));
     }
 
     /// Inline an annotated assignment statement

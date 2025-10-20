@@ -647,9 +647,7 @@ impl ProcessingPhase {
 
         // Insert lifted globals
         if let Some(ref info) = global_info {
-            if info.global_declarations.is_empty() {
-                all_inlined_stmts.extend(wrapper_stmts);
-            } else {
+            if !info.global_declarations.is_empty() {
                 let globals_lifter = crate::code_generator::globals::GlobalsLifter::new(info);
                 let mut lifted_declarations = Vec::new();
                 for (_, lifted_name) in &globals_lifter.lifted_names {
@@ -662,22 +660,15 @@ impl ProcessingPhase {
                 if !lifted_declarations.is_empty() && !wrapper_stmts.is_empty() {
                     if namespace_already_exists {
                         all_inlined_stmts.extend(lifted_declarations);
-                        all_inlined_stmts.extend(wrapper_stmts);
                     } else if wrapper_stmts.len() >= 2 {
                         let namespace_stmt = wrapper_stmts.remove(0);
                         all_inlined_stmts.push(namespace_stmt);
                         all_inlined_stmts.extend(lifted_declarations);
-                        all_inlined_stmts.extend(wrapper_stmts);
-                    } else {
-                        all_inlined_stmts.extend(wrapper_stmts);
                     }
-                } else {
-                    all_inlined_stmts.extend(wrapper_stmts);
                 }
             }
-        } else {
-            all_inlined_stmts.extend(wrapper_stmts);
         }
+        all_inlined_stmts.extend(wrapper_stmts);
 
         if !namespace_already_exists {
             bundler.created_namespaces.insert(module_var.clone());

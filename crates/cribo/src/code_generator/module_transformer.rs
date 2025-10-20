@@ -197,11 +197,10 @@ pub(crate) fn process_statements_for_init_function(
 
                         // For other relative imports that don't match our pattern, keep the
                         // original
-                        body.push(stmt.clone());
                     } else {
                         // For non-relative imports, keep the original
-                        body.push(stmt.clone());
                     }
+                    body.push(stmt.clone());
                 }
 
                 // Module attribute assignments for imported names are already handled by
