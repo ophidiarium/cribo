@@ -174,8 +174,9 @@ struct ProcessedModule {
 }
 
 /// Main orchestrator for bundling operations
-/// Note: Must be `pub` for benchmark access via lib.rs when bench feature is enabled
-pub(crate) struct BundleOrchestrator {
+/// Note: Made `pub` for benchmark access via lib.rs (benchmarks are part of public API surface)
+#[allow(unreachable_pub)]
+pub struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,
     /// Central registry for module information

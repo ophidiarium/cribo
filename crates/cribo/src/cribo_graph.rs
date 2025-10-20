@@ -270,9 +270,10 @@ impl ModuleDepGraph {
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
 ///
-/// Note: Must be `pub` for benchmark access via lib.rs when bench feature is enabled
+/// Note: Made `pub` for benchmark access via lib.rs (benchmarks are part of public API surface)
+#[allow(unreachable_pub)]
 #[derive(Debug)]
-pub(crate) struct CriboGraph {
+pub struct CriboGraph {
     /// All modules in the graph
     pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping
