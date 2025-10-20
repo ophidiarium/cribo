@@ -173,6 +173,8 @@ struct ProcessedModule {
     module_id: Option<ModuleId>,
 }
 
+/// Main orchestrator for bundling operations
+/// Note: Must be `pub` for benchmark access via lib.rs when bench feature is enabled
 pub(crate) struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,

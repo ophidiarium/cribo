@@ -269,6 +269,8 @@ impl ModuleDepGraph {
 /// - Turbopack's fine-grained tracking
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
+///
+/// Note: Must be `pub` for benchmark access via lib.rs when bench feature is enabled
 #[derive(Debug)]
 pub(crate) struct CriboGraph {
     /// All modules in the graph
