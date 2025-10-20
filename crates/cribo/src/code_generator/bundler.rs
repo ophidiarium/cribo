@@ -621,7 +621,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Create a new node with a proper index from the transformation context
-    pub(crate) fn create_node_index(&mut self) -> AtomicNodeIndex {
+    pub(crate) fn create_node_index(&self) -> AtomicNodeIndex {
         self.transformation_context.create_node_index()
     }
 
@@ -889,7 +889,7 @@ impl<'a> Bundler<'a> {
 
     /// Process entry module statement
     pub(crate) fn process_entry_module_statement(
-        &mut self,
+        &self,
         stmt: &mut Stmt,
         entry_module_renames: &FxIndexMap<String, String>,
         final_body: &mut Vec<Stmt>,

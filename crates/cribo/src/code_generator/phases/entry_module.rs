@@ -48,7 +48,7 @@ impl EntryModulePhase {
     /// Returns processed statements, symbols, and renames for the entry module.
     pub(crate) fn execute(
         &self,
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         params: &BundleParams<'_>,
         modules: &mut FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -119,7 +119,7 @@ impl EntryModulePhase {
 
     /// Reorder entry module statements for circular dependencies
     fn reorder_entry_module_statements(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         module_name: &str,
         body: Vec<Stmt>,
         python_version: u8,
@@ -162,7 +162,7 @@ impl EntryModulePhase {
 
     /// Transform imports in the entry module
     fn transform_entry_imports(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         ast: &mut ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         python_version: u8,
@@ -226,7 +226,7 @@ impl EntryModulePhase {
     /// Process entry module statements with deduplication
     #[expect(clippy::too_many_arguments)]
     fn process_entry_statements(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         ast: &ModModule,
         locally_defined_symbols: &FxIndexSet<String>,
         entry_module_renames: &FxIndexMap<String, String>,
@@ -325,7 +325,7 @@ impl EntryModulePhase {
 
     /// Expose child modules at module level for the entry module
     fn expose_child_modules(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         module_name: &str,
         entry_module_symbols: &FxIndexSet<String>,
         entry_statements: &mut Vec<Stmt>,

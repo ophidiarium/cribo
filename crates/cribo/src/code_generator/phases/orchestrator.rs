@@ -137,7 +137,7 @@ impl PhaseOrchestrator {
 
     /// Handle entry module symbol renaming to avoid namespace collisions
     fn handle_entry_symbol_renaming(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         modules: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
         symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) {

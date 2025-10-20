@@ -62,7 +62,7 @@ impl ImportRewriter {
 
     /// Analyze movable imports using semantic analysis for accurate context detection
     pub(crate) fn analyze_movable_imports_semantic(
-        &mut self,
+        &self,
         graph: &CriboGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
         semantic_bundler: &SemanticBundler,
@@ -269,7 +269,7 @@ impl ImportRewriter {
 
     /// Rewrite a module's AST to move imports into function scope
     pub(crate) fn rewrite_module(
-        &mut self,
+        &self,
         module_ast: &mut ModModule,
         movable_imports: &[MovableImport],
         module_id: ModuleId,

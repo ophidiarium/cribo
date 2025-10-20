@@ -454,7 +454,7 @@ impl InlinedHandler {
 
     /// Handle from-import on resolved inlined module
     pub(in crate::code_generator::import_transformer) fn handle_from_import_on_resolved_inlined(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
+        transformer: &crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
         import_from: &StmtImportFrom,
         resolved: &str,
     ) -> Option<Vec<Stmt>> {

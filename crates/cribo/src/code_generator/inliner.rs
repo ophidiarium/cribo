@@ -56,7 +56,7 @@ impl Bundler<'_> {
 
     /// Inline a module
     pub(crate) fn inline_module(
-        &mut self,
+        &self,
         module_name: &str,
         mut ast: ModModule,
         _module_path: &Path,
@@ -372,7 +372,7 @@ impl Bundler<'_> {
 
     /// Inline a class definition
     pub(crate) fn inline_class(
-        &mut self,
+        &self,
         class_def: &StmtClassDef,
         module_name: &str,
         module_id: crate::resolver::ModuleId,
@@ -481,7 +481,7 @@ impl Bundler<'_> {
 
     /// Inline an assignment statement
     pub(crate) fn inline_assignment(
-        &mut self,
+        &self,
         assign: &StmtAssign,
         module_name: &str,
         module_renames: &mut FxIndexMap<String, String>,
@@ -668,7 +668,7 @@ impl Bundler<'_> {
 
     /// Inline an annotated assignment statement
     pub(crate) fn inline_ann_assignment(
-        &mut self,
+        &self,
         ann_assign: &ruff_python_ast::StmtAnnAssign,
         module_name: &str,
         module_id: crate::resolver::ModuleId,

@@ -164,7 +164,7 @@ impl ProcessingPhase {
     /// modules must be initialized before inlinable modules can reference them.
     /// It computes both direct and transitive dependencies.
     fn analyze_wrapper_dependencies(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         classification: &ClassificationResult,
         _modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
     ) {

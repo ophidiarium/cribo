@@ -219,7 +219,7 @@ pub(super) fn transform_namespace_package_imports(
 /// This function generates AST statements to populate a namespace object with symbols
 /// from a module, handling tree-shaking, re-exports, and symbol renaming.
 pub(crate) fn populate_namespace_with_module_symbols(
-    ctx: &mut NamespacePopulationContext<'_>,
+    ctx: &NamespacePopulationContext<'_>,
     target_name: &str,
     module_id: ModuleId,
     symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
