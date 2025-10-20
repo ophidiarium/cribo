@@ -1150,7 +1150,6 @@ impl<'a> Bundler<'a> {
 
         // Index all module ASTs to assign node indices and initialize transformation context
         log::debug!("Indexing {} modules", modules.len());
-        let mut module_indices = Vec::new();
         let mut total_nodes = 0_u32;
         let mut module_id_counter = 0_u32;
 
@@ -1173,7 +1172,6 @@ impl<'a> Bundler<'a> {
                 module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
             );
             module_id_map.insert(*module_id, module_id_counter);
-            module_indices.push((*module_id, path.clone(), indexed));
             total_nodes += node_count;
             module_id_counter += 1;
         }

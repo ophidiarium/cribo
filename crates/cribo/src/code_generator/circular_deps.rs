@@ -55,14 +55,12 @@ impl SymbolDependencyGraph {
         // Build a directed graph of symbol dependencies ONLY for this module
         let mut graph = DiGraph::new();
         let mut node_map: FxIndexMap<String, NodeIndex> = FxIndexMap::default();
-        let mut symbols_in_module = Vec::new();
 
         // Add nodes for all symbols in this specific module
         for (module, symbol) in &self.symbol_definitions {
             if module == module_name {
                 let node = graph.add_node(symbol.clone());
                 node_map.insert(symbol.clone(), node);
-                symbols_in_module.push(symbol.clone());
             }
         }
 
