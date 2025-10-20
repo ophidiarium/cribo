@@ -734,7 +734,7 @@ impl ImportAnalyzer {
         importing_module: &str,
         target_module: &str,
     ) -> bool {
-        if let Some(import_module) = &import_from.module {
+        import_from.module.as_ref().is_some_and(|import_module| {
             let import_module_str = import_module.as_str();
 
             // Handle both absolute and relative imports
@@ -750,9 +750,7 @@ impl ImportAnalyzer {
                 );
                 resolved_module == target_module
             }
-        } else {
-            false
-        }
+        })
     }
 
     /// Collect module-level absolute `from __future__ import ...` names

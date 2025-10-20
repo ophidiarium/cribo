@@ -170,16 +170,13 @@ impl<'a> Bundler<'a> {
             }
         };
 
-        match module_path {
-            Some(path) => {
-                let clean = from_module.trim_start_matches('.');
-                let module_str = if clean.is_empty() { None } else { Some(clean) };
-                self.resolver
-                    .resolve_relative_to_absolute_module_name(level, module_str, &path)
-                    .unwrap_or_else(fallback)
-            }
-            None => fallback(),
-        }
+        module_path.map_or_else(fallback, |path| {
+            let clean = from_module.trim_start_matches('.');
+            let module_str = if clean.is_empty() { None } else { Some(clean) };
+            self.resolver
+                .resolve_relative_to_absolute_module_name(level, module_str, &path)
+                .unwrap_or_else(fallback)
+        })
     }
 
     /// Helper: check if `resolved` is an inlined submodule of `parent`
@@ -510,12 +507,13 @@ impl<'a> Bundler<'a> {
         module_id: ModuleId,
         symbol_name: &str,
     ) -> bool {
-        match &self.tree_shaking_keep_symbols {
-            Some(kept_symbols) => kept_symbols
-                .get(&module_id)
-                .is_some_and(|symbols| symbols.contains(symbol_name)),
-            None => true, // No tree shaking, all symbols are kept
-        }
+        self.tree_shaking_keep_symbols
+            .as_ref()
+            .is_none_or(|kept_symbols| {
+                kept_symbols
+                    .get(&module_id)
+                    .is_some_and(|symbols| symbols.contains(symbol_name))
+            })
     }
 
     /// Get the entry package name when entry is a package __init__.py
@@ -1051,16 +1049,15 @@ impl<'a> Bundler<'a> {
         self.entry_module_name = entry_module_name;
 
         // Check if entry is a package using resolver
-        self.entry_is_package_init_or_main = params.resolver.is_entry_package() || {
-            // Also check if it's __main__.py
-            if let Some(path) = params.resolver.get_module_path(ModuleId::ENTRY) {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name == crate::python::constants::MAIN_FILE)
-            } else {
-                false
-            }
-        };
+        self.entry_is_package_init_or_main = params.resolver.is_entry_package()
+            || params
+                .resolver
+                .get_module_path(ModuleId::ENTRY)
+                .is_some_and(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name == crate::python::constants::MAIN_FILE)
+                });
 
         log::debug!(
             "Entry is package init or main: {}",
@@ -1338,10 +1335,10 @@ impl<'a> Bundler<'a> {
             if exports.iter().any(|s| s == symbol_name) {
                 // Symbol is in __all__. For re-exported symbols, check if the symbol exists
                 // anywhere in the bundle.
-                let should_export = match &self.kept_symbols_global {
-                    Some(kept) => kept.contains(symbol_name),
-                    None => true, // No tree-shaking, export everything in __all__
-                };
+                let should_export = self
+                    .kept_symbols_global
+                    .as_ref()
+                    .is_none_or(|kept| kept.contains(symbol_name));
 
                 if should_export {
                     log::debug!(
@@ -1359,12 +1356,9 @@ impl<'a> Bundler<'a> {
         }
 
         // For symbols not in __all__ (or if no __all__ is defined), check tree-shaking
-        let is_kept_by_tree_shaking = if let Some(id) = module_id {
+        let is_kept_by_tree_shaking = module_id.is_some_and(|id| {
             self.is_symbol_kept_by_tree_shaking(id, symbol_name)
-        } else {
-            // Module not found, assume not kept
-            false
-        };
+        });
         if !is_kept_by_tree_shaking {
             log::debug!(
                 "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; \
@@ -2876,13 +2870,10 @@ impl<'a> Bundler<'a> {
         let is_entry_module = if self.entry_is_package_init_or_main {
             // If entry is __init__.py or __main__.py, the module might be identified
             // by its package name (e.g., 'yaml' instead of '__init__')
-            if let Some(entry_pkg) = self.entry_package_name() {
-                // Check if this module is the entry package
-                module_name == entry_pkg
-            } else {
-                // Direct comparison when we don't have package context
-                module_name == self.entry_module_name
-            }
+            self.entry_package_name().map_or_else(
+                || module_name == self.entry_module_name,
+                |entry_pkg| module_name == entry_pkg,
+            )
         } else {
             // Direct comparison for regular entry modules
             module_name == self.entry_module_name
