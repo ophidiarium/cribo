@@ -2613,9 +2613,8 @@ fn symbol_comes_from_wrapper_module(
                         };
 
                         // Check if the source module is a wrapper module
-                        let source_module_id = match bundler.get_module_id(source_module) {
-                            Some(id) => id,
-                            None => continue,
+                        let Some(source_module_id) = bundler.get_module_id(source_module) else {
+                            continue;
                         };
 
                         if !bundler.bundled_modules.contains(&source_module_id)

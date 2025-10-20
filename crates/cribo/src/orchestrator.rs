@@ -1374,26 +1374,21 @@ impl BundleOrchestrator {
         imports: &mut IndexSet<String>,
     ) {
         // Get resolver reference
-        let resolver_ref = if let Some(resolver) = resolver {
-            resolver
-        } else {
+        let Some(resolver_ref) = resolver else {
             debug!("No resolver available for relative import resolution");
             return;
         };
 
-        let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
+        let Some(base_module) = resolver_ref.resolve_relative_to_absolute_module_name(
             import.level,
             None, // Don't include module_name here, we'll handle it separately
             file_path,
-        ) {
-            Some(module) => module,
-            None => {
-                debug!(
-                    "Could not resolve relative import with level {}",
-                    import.level
-                );
-                return;
-            }
+        ) else {
+            debug!(
+                "Could not resolve relative import with level {}",
+                import.level
+            );
+            return;
         };
 
         if import.names.is_empty() {

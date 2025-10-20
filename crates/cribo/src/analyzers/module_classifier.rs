@@ -308,9 +308,8 @@ impl<'a> ModuleClassifier<'a> {
             // Collect exports from all source modules first to avoid double borrow
             let mut exports_to_add = Vec::new();
             for source_module in &wildcard_sources {
-                let source_id = match self.resolver.get_module_id_by_name(source_module) {
-                    Some(id) => id,
-                    None => continue,
+                let Some(source_id) = self.resolver.get_module_id_by_name(source_module) else {
+                    continue;
                 };
                 if let Some(source_exports) = module_exports_map.get(&source_id)
                     && let Some(source_exports) = source_exports
