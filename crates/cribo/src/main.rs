@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::anyhow;
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, info};
@@ -121,9 +122,12 @@ fn main() -> anyhow::Result<()> {
     let mut bundler = BundleOrchestrator::new(config);
 
     if cli.stdout {
-        // Output to stdout
+        // Output to stdout - use write_all for explicit I/O control and error handling
         let bundled_code = bundler.bundle_to_string(&cli.entry, cli.emit_requirements)?;
-        print!("{bundled_code}");
+        use std::io::Write;
+        std::io::stdout()
+            .write_all(bundled_code.as_bytes())
+            .map_err(|e| anyhow!("Failed to write bundle to stdout: {e}"))?;
         info!("Bundle output to stdout");
     } else {
         // Output to file
