@@ -25,8 +25,10 @@ use crate::{
 };
 
 /// Unique identifier for an item within a module
+/// Note: Made `pub` because it's exposed through `ModuleDepGraph::items` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ItemId(u32);
+pub struct ItemId(u32);
 
 impl ItemId {
     pub(crate) const fn new(id: u32) -> Self {
@@ -34,9 +36,11 @@ impl ItemId {
     }
 }
 
-/// Type of Python item (statement/definition)
+/// Type of Python item (function, class, import, etc.)
+/// Note: Made `pub` because it's exposed through `ItemData::item_type` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ItemType {
+pub enum ItemType {
     /// Function definition
     FunctionDef { name: String },
     /// Class definition
@@ -76,8 +80,10 @@ impl ItemType {
 }
 
 /// Variable state tracking
+/// Note: Made `pub` because it's exposed through `ModuleDepGraph::var_states` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone)]
-pub(crate) struct VarState {
+pub struct VarState {
     /// Items that write to this variable
     pub writers: Vec<ItemId>,
     /// Items that read this variable
@@ -85,8 +91,10 @@ pub(crate) struct VarState {
 }
 
 /// Data about a Python item (statement/definition)
+/// Note: Made `pub` because it's exposed through `ModuleDepGraph::items` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone)]
-pub(crate) struct ItemData {
+pub struct ItemData {
     /// Type of this item
     pub item_type: ItemType,
     /// Variables declared by this item
