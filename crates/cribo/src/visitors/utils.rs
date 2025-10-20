@@ -42,17 +42,16 @@ fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
         })
         .collect();
 
-    if let Some(names) = maybe_names {
-        ExtractedExports {
-            names: Some(names),
-            is_dynamic: false,
-        }
-    } else {
+    maybe_names.map_or(
         ExtractedExports {
             names: None,
             is_dynamic: true,
-        }
-    }
+        },
+        |names| ExtractedExports {
+            names: Some(names),
+            is_dynamic: false,
+        },
+    )
 }
 
 /// Collect all variable names from an assignment target expression.

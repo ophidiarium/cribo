@@ -956,7 +956,7 @@ impl<'a> TreeShaker<'a> {
 
     /// Check if a module has side effects that prevent tree-shaking
     pub(crate) fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
-        if let Some(items) = self.module_items.get(&module_id) {
+        self.module_items.get(&module_id).is_some_and(|items| {
             // Check if any top-level item has side effects
             items.iter().any(|item| {
                 item.has_side_effects
@@ -965,9 +965,7 @@ impl<'a> TreeShaker<'a> {
                         ItemType::Import { .. } | ItemType::FromImport { .. }
                     )
             })
-        } else {
-            false
-        }
+        })
     }
 
     /// Helper method to add variables to the worklist, resolving imports and finding definitions

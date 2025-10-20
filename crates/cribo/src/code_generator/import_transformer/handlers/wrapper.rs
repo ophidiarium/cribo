@@ -1024,20 +1024,20 @@ impl WrapperHandler {
                 // Ensure the module is initialized first if it's a wrapper module
                 // Only initialize if we're inside a wrapper init OR if the module's init
                 // function has already been defined (to avoid forward references)
-                let needs_init = if let Some(module_id) = bundler.get_module_id(module_name) {
-                    // Avoid initializing a parent namespace from within a child's wrapper init
-                    let is_parent_of_current =
-                        current_module.starts_with(&format!("{module_name}."));
+                let needs_init = bundler
+                    .get_module_id(module_name)
+                    .is_some_and(|module_id| {
+                        // Avoid initializing a parent namespace from within a child's wrapper init
+                        let is_parent_of_current =
+                            current_module.starts_with(&format!("{module_name}."));
 
-                    bundler.has_synthetic_name(module_name)
+                        bundler.has_synthetic_name(module_name)
                         && !locally_initialized.contains(&module_id)
                         && current_module != module_name // Prevent self-initialization
                         && !is_parent_of_current
                         && (inside_wrapper_init
                             || bundler.module_init_functions.contains_key(&module_id))
-                } else {
-                    false
-                };
+                    });
                 if needs_init {
                     // Check if this module is already initialized in any deferred imports
                     let module_init_exists = assignments.iter().any(|stmt| {

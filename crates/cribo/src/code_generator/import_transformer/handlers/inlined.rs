@@ -193,14 +193,15 @@ impl InlinedHandler {
                 }
 
                 // Get the renamed symbol name if it was renamed
-                let renamed_symbol = if let Some(renames) = module_renames {
-                    renames
-                        .get(symbol_name)
-                        .cloned()
-                        .unwrap_or_else(|| symbol_name.clone())
-                } else {
-                    symbol_name.clone()
-                };
+                let renamed_symbol = module_renames.map_or_else(
+                    || symbol_name.clone(),
+                    |renames| {
+                        renames
+                            .get(symbol_name)
+                            .cloned()
+                            .unwrap_or_else(|| symbol_name.clone())
+                    },
+                );
 
                 // For wildcard imports, we always need to create assignments for renamed symbols
                 // For non-renamed symbols, we only skip assignment if they're actually available
@@ -717,24 +718,29 @@ impl InlinedHandler {
         current_module: &str,
     ) -> Option<Vec<Stmt>> {
         // Check if this is the entry module or entry.__main__
-        let entry_module_id = if let Some(module_id) = bundler.get_module_id(module_name) {
-            if module_id.is_entry() {
-                Some(module_id)
-            } else {
-                None
-            }
-        } else if module_name.ends_with(".__main__") {
-            // Check if this is <entry>.__main__ where <entry> is the entry module
-            let base_module = module_name
-                .strip_suffix(".__main__")
-                .expect("checked with ends_with above");
-            log::debug!("  Checking if base module '{base_module}' is entry");
-            let base_id = bundler.get_module_id(base_module);
-            log::debug!("  Base module ID: {base_id:?}");
-            base_id.filter(|id| id.is_entry())
-        } else {
-            None
-        };
+        let entry_module_id = bundler.get_module_id(module_name).map_or_else(
+            || {
+                if module_name.ends_with(".__main__") {
+                    // Check if this is <entry>.__main__ where <entry> is the entry module
+                    let base_module = module_name
+                        .strip_suffix(".__main__")
+                        .expect("checked with ends_with above");
+                    log::debug!("  Checking if base module '{base_module}' is entry");
+                    let base_id = bundler.get_module_id(base_module);
+                    log::debug!("  Base module ID: {base_id:?}");
+                    base_id.filter(|id| id.is_entry())
+                } else {
+                    None
+                }
+            },
+            |module_id| {
+                if module_id.is_entry() {
+                    Some(module_id)
+                } else {
+                    None
+                }
+            },
+        );
 
         log::debug!(
             "Checking if '{module_name}' is entry module: entry_module_id={entry_module_id:?}"

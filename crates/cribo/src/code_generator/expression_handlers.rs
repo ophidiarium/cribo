@@ -466,15 +466,16 @@ pub(crate) fn rewrite_aliases_in_expr(
             // If any expressions were changed, rebuild the f-string
             if any_changed {
                 // Preserve the original flags from the f-string
-                let original_flags = if let Some(fstring_part) =
-                    fstring.value.iter().find_map(|part| match part {
+                let original_flags = fstring
+                    .value
+                    .iter()
+                    .find_map(|part| match part {
                         ruff_python_ast::FStringPart::FString(f) => Some(f),
                         _ => None,
-                    }) {
-                    fstring_part.flags
-                } else {
-                    ruff_python_ast::FStringFlags::empty()
-                };
+                    })
+                    .map_or_else(ruff_python_ast::FStringFlags::empty, |fstring_part| {
+                        fstring_part.flags
+                    });
                 let new_fstring = ruff_python_ast::FString {
                     node_index: AtomicNodeIndex::NONE,
                     elements: ruff_python_ast::InterpolatedStringElements::from(new_elements),

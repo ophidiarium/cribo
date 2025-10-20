@@ -103,15 +103,16 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if wrapper import assignments should be skipped due to type-only usage
     fn should_skip_assignments_for_type_only_imports(&self, import_from: &StmtImportFrom) -> bool {
-        if let Some(used_symbols) = &self.state.current_function_used_symbols {
-            let uses_alias = import_from.names.iter().any(|a| {
-                let local = a.asname.as_ref().unwrap_or(&a.name).as_str();
-                used_symbols.contains(local)
-            });
-            !uses_alias
-        } else {
-            false
-        }
+        self.state
+            .current_function_used_symbols
+            .as_ref()
+            .is_some_and(|used_symbols| {
+                let uses_alias = import_from.names.iter().any(|a| {
+                    let local = a.asname.as_ref().unwrap_or(&a.name).as_str();
+                    used_symbols.contains(local)
+                });
+                !uses_alias
+            })
     }
 
     /// Should emit __all__ for a local namespace binding

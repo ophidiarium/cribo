@@ -71,52 +71,53 @@ impl SymbolAnalyzer {
         enable_logging: bool,
         resolver: &crate::resolver::ModuleResolver,
     ) -> Vec<&'a String> {
-        if let Some(kept_symbols) = kept_symbols {
-            let result: Vec<&String> = exports
-                .iter()
-                .filter(|symbol| {
-                    // Check if this symbol is kept in this module
-                    // With the new data structure, we can do efficient lookups without allocations
-                    let is_kept = kept_symbols
-                        .get(module_id)
-                        .is_some_and(|symbols| symbols.contains(*symbol));
+        kept_symbols.map_or_else(
+            || exports.iter().collect(),
+            |kept_symbols| {
+                let result: Vec<&String> = exports
+                    .iter()
+                    .filter(|symbol| {
+                        // Check if this symbol is kept in this module
+                        // With the new data structure, we can do efficient lookups without
+                        // allocations
+                        let is_kept = kept_symbols
+                            .get(module_id)
+                            .is_some_and(|symbols| symbols.contains(*symbol));
 
-                    if enable_logging {
-                        let (action, preposition, reason) = if is_kept {
-                            ("Keeping", "in", "survived")
-                        } else {
-                            ("Filtering out", "from", "removed by")
-                        };
-                        let module_name = resolver
-                            .get_module_name(*module_id)
-                            .expect("Module name must exist for ModuleId");
-                        debug!(
-                            "{action} symbol '{symbol}' {preposition} __all__ of module \
-                             '{module_name}' - {reason} tree-shaking"
-                        );
-                    }
+                        if enable_logging {
+                            let (action, preposition, reason) = if is_kept {
+                                ("Keeping", "in", "survived")
+                            } else {
+                                ("Filtering out", "from", "removed by")
+                            };
+                            let module_name = resolver
+                                .get_module_name(*module_id)
+                                .expect("Module name must exist for ModuleId");
+                            debug!(
+                                "{action} symbol '{symbol}' {preposition} __all__ of module \
+                                 '{module_name}' - {reason} tree-shaking"
+                            );
+                        }
 
-                    is_kept
-                })
-                .collect();
+                        is_kept
+                    })
+                    .collect();
 
-            if enable_logging {
-                let module_name = resolver
-                    .get_module_name(*module_id)
-                    .expect("Module name must exist for ModuleId");
-                debug!(
-                    "Module '{}' __all__ filtering: {} symbols -> {} symbols",
-                    module_name,
-                    exports.len(),
-                    result.len()
-                );
-            }
+                if enable_logging {
+                    let module_name = resolver
+                        .get_module_name(*module_id)
+                        .expect("Module name must exist for ModuleId");
+                    debug!(
+                        "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                        module_name,
+                        exports.len(),
+                        result.len()
+                    );
+                }
 
-            result
-        } else {
-            // No tree-shaking, include all exports
-            exports.iter().collect()
-        }
+                result
+            },
+        )
     }
 }
 

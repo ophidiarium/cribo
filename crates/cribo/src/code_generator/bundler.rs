@@ -1356,9 +1356,8 @@ impl<'a> Bundler<'a> {
         }
 
         // For symbols not in __all__ (or if no __all__ is defined), check tree-shaking
-        let is_kept_by_tree_shaking = module_id.is_some_and(|id| {
-            self.is_symbol_kept_by_tree_shaking(id, symbol_name)
-        });
+        let is_kept_by_tree_shaking =
+            module_id.is_some_and(|id| self.is_symbol_kept_by_tree_shaking(id, symbol_name));
         if !is_kept_by_tree_shaking {
             log::debug!(
                 "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; \
