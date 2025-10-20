@@ -16,7 +16,6 @@ use crate::{
         context::{BundleParams, InlineContext, SemanticContext},
         expression_handlers, import_deduplicator,
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
-        namespace_manager::NamespaceInfo,
     },
     cribo_graph::CriboGraph,
     resolver::{ModuleId, ModuleResolver},
@@ -84,9 +83,6 @@ pub(crate) struct Bundler<'a> {
     /// Module ASTs for resolving re-exports
     pub(crate) module_asts: Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
     /// Track all namespaces that need to be created before module initialization
-    /// Central registry of all namespaces that need to be created
-    /// Maps sanitized name to `NamespaceInfo`
-    pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
     /// Track parent-child assignments that have been made to prevent duplicates
@@ -605,7 +601,6 @@ impl<'a> Bundler<'a> {
             all_circular_modules: FxIndexSet::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
-            namespace_registry: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
             parent_child_assignments_made: FxIndexSet::default(),
             modules_with_populated_symbols: FxIndexSet::default(),
@@ -3713,13 +3708,10 @@ impl Bundler<'_> {
             {
                 // Check if this namespace is registered in the centralized system
                 let sanitized = sanitize_module_name_for_identifier(&parent_path);
-                let registered_in_namespace_system =
-                    self.namespace_registry.contains_key(&sanitized);
 
                 // Check if we haven't already created this namespace globally or locally
                 let already_created = self.created_namespaces.contains(&sanitized)
-                    || self.is_namespace_already_created(&parent_path, result_stmts)
-                    || registered_in_namespace_system;
+                    || self.is_namespace_already_created(&parent_path, result_stmts);
 
                 if !already_created {
                     // This parent namespace wasn't registered during initial discovery
@@ -3741,16 +3733,6 @@ impl Bundler<'_> {
                         &parent_path,
                         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
                     ));
-                } else if registered_in_namespace_system
-                    && !self.created_namespaces.contains(&sanitized)
-                {
-                    // The namespace is registered but hasn't been created yet
-                    // This shouldn't happen if generate_required_namespaces() was called before
-                    // transformation
-                    log::debug!(
-                        "Warning: Namespace '{parent_path}' is registered but not yet created \
-                         during import transformation"
-                    );
                 }
             }
         }

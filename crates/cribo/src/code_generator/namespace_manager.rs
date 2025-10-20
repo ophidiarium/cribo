@@ -35,10 +35,6 @@ fn should_include_import(
     should_check && exports.iter().any(|e| e == name)
 }
 
-/// Information about a registered namespace
-#[derive(Debug, Clone)]
-pub(crate) struct NamespaceInfo {}
-
 /// Context for populating namespace with module symbols.
 ///
 /// This struct encapsulates the state required by the namespace population function,

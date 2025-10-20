@@ -686,21 +686,8 @@ impl InlinedHandler {
                 &params,
             );
 
-        // Check for unregistered namespaces - this indicates a bug in pre-detection
-        let unregistered_namespaces: Vec<_> = namespace_requirements
-            .iter()
-            .filter(|ns_req| !bundler.namespace_registry.contains_key(&ns_req.var_name))
-            .collect();
-
-        assert!(
-            unregistered_namespaces.is_empty(),
-            "Unregistered namespaces detected: {:?}. This indicates a bug in \
-             detect_namespace_requirements_from_imports",
-            unregistered_namespaces
-                .iter()
-                .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
-                .collect::<Vec<_>>()
-        );
+        // Namespace requirements are now handled dynamically during transformation
+        // No need for pre-registration checks
 
         // The namespaces are now pre-created by detect_namespace_requirements_from_imports
         // and the aliases are handled by create_assignments_for_inlined_imports,

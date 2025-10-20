@@ -148,7 +148,6 @@ Bundler {
     module_init_functions: FxIndexMap<ModuleId, String>,
     wrapper_modules: FxIndexSet<ModuleId>,
     inlined_modules: FxIndexSet<ModuleId>,
-    namespace_registry: FxIndexMap<String, NamespaceInfo>,
 }
 ```
 
