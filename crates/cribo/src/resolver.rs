@@ -1428,11 +1428,11 @@ impl ModuleResolver {
     }
 
     /// Register a module - entry gets 0, others get sequential IDs
-    pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
+    pub fn register_module(&self, name: &str, path: &Path) -> ModuleId {
         let mut registry = self.registry.lock().expect("Module registry lock poisoned");
 
         let canonical = self.canonicalize_path(path.to_path_buf());
-        let id = registry.register(name.clone(), &canonical);
+        let id = registry.register(name.to_owned(), &canonical);
 
         if id.is_entry() {
             info!("Registered ENTRY module '{name}' at the origin (ID 0)");

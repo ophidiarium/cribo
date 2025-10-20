@@ -237,7 +237,7 @@ impl BundleOrchestrator {
                 if cached.module_id.is_none() {
                     // Get or register module ID with resolver (required when graph is Some)
                     let resolver = resolver.expect("Resolver must be provided when graph is Some");
-                    let module_id = resolver.register_module(module_name.to_owned(), module_path);
+                    let module_id = resolver.register_module(module_name, module_path);
 
                     graph.add_module(module_id, module_name.to_owned(), module_path);
 
@@ -286,7 +286,7 @@ impl BundleOrchestrator {
         let module_id = if let Some(graph) = graph {
             // Get or register module ID with resolver (required when graph is Some)
             let resolver = resolver.expect("Resolver must be provided when graph is Some");
-            let module_id = resolver.register_module(module_name.to_owned(), module_path);
+            let module_id = resolver.register_module(module_name, module_path);
 
             graph.add_module(module_id, module_name.to_owned(), module_path);
 
@@ -471,7 +471,7 @@ impl BundleOrchestrator {
 
         // CRITICAL: Register the entry module FIRST to guarantee it gets ID 0
         // This is a fundamental invariant of our architecture
-        let entry_id = resolver.register_module(entry_module_name.clone(), entry_path);
+        let entry_id = resolver.register_module(&entry_module_name, entry_path);
         assert_eq!(
             entry_id,
             ModuleId::ENTRY,
@@ -1578,7 +1578,7 @@ impl BundleOrchestrator {
         // it returns the existing ID
         let module_id = discovery_params
             .resolver
-            .register_module(actual_module_name.clone(), &import_path);
+            .register_module(&actual_module_name, &import_path);
 
         if !discovery_params.processed_modules.contains(&module_id)
             && !discovery_params.queued_modules.contains(&module_id)

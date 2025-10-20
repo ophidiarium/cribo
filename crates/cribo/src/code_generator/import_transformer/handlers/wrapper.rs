@@ -111,7 +111,7 @@ impl WrapperHandler {
                 .transform_bundled_import_from_multiple_with_current_module(
                     import_from,
                     module_name,
-                    bundled_context,
+                    &bundled_context,
                     context.symbol_renames,
                     context.function_body,
                 );
@@ -129,7 +129,7 @@ impl WrapperHandler {
             .transform_bundled_import_from_multiple_with_current_module(
                 import_from,
                 module_name,
-                bundled_context,
+                &bundled_context,
                 context.symbol_renames,
                 context.function_body,
             )

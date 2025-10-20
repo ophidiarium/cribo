@@ -637,7 +637,7 @@ impl<'a> Bundler<'a> {
         &self,
         import_from: &StmtImportFrom,
         module_name: &str,
-        context: BundledImportContext<'_>,
+        context: &BundledImportContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         function_body: Option<&[Stmt]>,
     ) -> Vec<Stmt> {

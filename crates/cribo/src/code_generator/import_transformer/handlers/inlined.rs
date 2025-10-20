@@ -683,7 +683,7 @@ impl InlinedHandler {
             crate::code_generator::module_registry::create_assignments_for_inlined_imports(
                 import_from,
                 module_name,
-                params,
+                &params,
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection
