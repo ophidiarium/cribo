@@ -117,8 +117,11 @@ pub(crate) struct ItemData {
 }
 
 /// Fine-grained dependency graph for a single module
+/// Module-level dependency graph
+/// Note: Made `pub` because it's exposed through `CriboGraph::modules` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug)]
-pub(crate) struct ModuleDepGraph {
+pub struct ModuleDepGraph {
     /// Module identifier
     pub module_id: ModuleId,
     /// Module name (e.g., "utils.helpers")
