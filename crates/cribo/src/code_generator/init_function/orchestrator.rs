@@ -107,7 +107,7 @@ impl<'a> InitFunctionBuilder<'a> {
             self.ctx,
             &ast,
             &mut state,
-            &lifted_names_for_prep,
+            lifted_names_for_prep.as_ref(),
         )?;
 
         // Phase 7: Wrapper Globals Collection

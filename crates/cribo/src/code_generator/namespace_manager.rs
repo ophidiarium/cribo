@@ -259,7 +259,7 @@ pub(crate) fn populate_namespace_with_module_symbols(
             .iter()
             .any(|(_, accessed_module)| accessed_module == module_name)
             || any_module_wildcard_imports_and_uses_setattr(
-                ctx.module_asts,
+                ctx.module_asts.as_ref(),
                 ctx.resolver,
                 module_name,
                 module_id,
@@ -906,13 +906,13 @@ fn find_symbol_source_module(
 /// Heuristic: detect dynamic __all__ usage pattern in any module that wildcard-imports from
 /// `target_module` and uses `setattr` (e.g., httpx-like pattern).
 fn any_module_wildcard_imports_and_uses_setattr(
-    module_asts: &Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
+    module_asts: Option<&FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
     resolver: &crate::resolver::ModuleResolver,
     target_module: &str,
     current_module_id: ModuleId,
     current_module_name: &str,
 ) -> bool {
-    let Some(asts) = module_asts.as_ref() else {
+    let Some(asts) = module_asts else {
         return false;
     };
 

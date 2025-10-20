@@ -39,7 +39,7 @@ impl StatementProcessingPhase {
             &prep_context.vars_used_by_exported_functions,
             prep_context.module_scope_symbols,
             &prep_context.builtin_locals,
-            &state.lifted_names,
+            state.lifted_names.as_ref(),
             &state.inlined_import_bindings,
             &mut state.body,
             &mut state.initialized_lifted_globals,

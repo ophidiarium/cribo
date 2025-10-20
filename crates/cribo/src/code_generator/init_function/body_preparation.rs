@@ -48,7 +48,7 @@ impl BodyPreparationPhase {
         ctx: &ModuleTransformContext<'a>,
         ast: &ModModule,
         state: &mut InitFunctionState,
-        lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
+        lifted_names: Option<&crate::types::FxIndexMap<String, String>>,
     ) -> Result<BodyPreparationContext<'a>, TransformError> {
         // Check if __all__ is referenced in the module body
         let all_is_referenced = Self::check_all_referenced(ast, ctx);
@@ -273,7 +273,7 @@ impl BodyPreparationPhase {
 
     /// Declare lifted globals if any exist
     fn declare_lifted_globals(
-        lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
+        lifted_names: Option<&crate::types::FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
     ) {
         // Declare lifted globals FIRST if any - they need to be declared before any usage

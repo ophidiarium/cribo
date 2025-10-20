@@ -1113,7 +1113,7 @@ impl BundleOrchestrator {
                     &import,
                     is_in_error_handler,
                     import_type,
-                    &package_context,
+                    package_context.as_ref(),
                     &mut discovery_params,
                 )?;
             }
@@ -1641,7 +1641,7 @@ impl BundleOrchestrator {
         import: &str,
         is_in_error_handler: bool,
         import_type: Option<crate::visitors::ImportType>,
-        package_context: &Option<String>,
+        package_context: Option<&String>,
         params: &mut DiscoveryParams<'_>,
     ) -> Result<()> {
         // Special handling for ImportlibStatic imports that might have invalid Python identifiers
@@ -1651,7 +1651,7 @@ impl BundleOrchestrator {
             // Try to resolve ImportlibStatic with package context
             if let Some((resolved_name, import_path)) = params
                 .resolver
-                .resolve_importlib_static_with_context(import, package_context.as_deref())
+                .resolve_importlib_static_with_context(import, package_context.map(String::as_str))
             {
                 debug!(
                     "Resolved ImportlibStatic '{import}' to module '{resolved_name}' at path: {}",

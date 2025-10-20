@@ -34,7 +34,7 @@ pub(crate) fn process_statements_for_init_function(
     vars_used_by_exported_functions: &FxIndexSet<String>,
     module_scope_symbols: Option<&FxIndexSet<String>>,
     builtin_locals: &FxIndexSet<String>,
-    lifted_names: &Option<FxIndexMap<String, String>>,
+    lifted_names: Option<&FxIndexMap<String, String>>,
     inlined_import_bindings: &[String],
     body: &mut Vec<Stmt>,
     initialized_lifted_globals: &mut FxIndexSet<String>,
@@ -242,7 +242,7 @@ pub(crate) fn process_statements_for_init_function(
                         &mut func_def_clone,
                         &global_info.module_level_vars,
                         &global_info.global_declarations,
-                        lifted_names.as_ref(),
+                        lifted_names,
                         SELF_PARAM,
                     );
                 }
@@ -493,7 +493,7 @@ pub(crate) fn process_statements_for_init_function(
                             ctx.module_name,
                             body,
                             module_scope_symbols,
-                            lifted_names.as_ref(),
+                            lifted_names,
                         );
                     }
                 } else {
@@ -630,7 +630,7 @@ pub(crate) fn process_statements_for_init_function(
                     module_var_name: SELF_PARAM, /* Use "self" instead of module_var_name inside
                                                   * init function */
                     global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
-                    lifted_names: lifted_names.as_ref(),
+                    lifted_names,
                     python_version: ctx.python_version,
                 };
                 transform_stmt_for_module_vars_with_bundler(&mut stmt_clone, &transform_ctx);

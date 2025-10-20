@@ -343,7 +343,12 @@ impl ImportRewriter {
         let stmt_level = import_from.level;
 
         movable_imports.iter().any(|mi| {
-            self.import_matches_statement(&mi.import_stmt, &stmt_module, stmt_level, import_from)
+            self.import_matches_statement(
+                &mi.import_stmt,
+                stmt_module.as_ref(),
+                stmt_level,
+                import_from,
+            )
         })
     }
 
@@ -351,7 +356,7 @@ impl ImportRewriter {
     fn import_matches_statement(
         &self,
         import: &ImportStatement,
-        stmt_module: &Option<String>,
+        stmt_module: Option<&String>,
         stmt_level: u32,
         import_from: &StmtImportFrom,
     ) -> bool {
@@ -362,7 +367,7 @@ impl ImportRewriter {
                 names,
             } => {
                 // Module and level must match
-                if module != stmt_module || level != &stmt_level {
+                if module.as_ref() != stmt_module || level != &stmt_level {
                     return false;
                 }
 
