@@ -485,7 +485,8 @@ impl BundleOrchestrator {
         // Enhanced circular dependency detection and analysis
         let mut circular_dep_analysis = None;
         if graph.has_cycles() {
-            let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(graph);
+            let analysis =
+                crate::analyzers::dependency_analyzer::analyze_circular_dependencies(graph);
 
             // Check if we have unresolvable cycles - these we must fail on
             if !analysis.unresolvable_cycles.is_empty() {

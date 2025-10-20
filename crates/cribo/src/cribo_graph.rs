@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(sccs[0].len(), 3);
 
         // Analyze circular dependencies using the analyzer
-        let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(&graph);
+        let analysis = crate::analyzers::dependency_analyzer::analyze_circular_dependencies(&graph);
         assert!(!analysis.resolvable_cycles.is_empty());
     }
 
@@ -632,7 +632,7 @@ mod tests {
         graph.add_module_dependency(constants_b, constants_a);
 
         // Now we need to use the analyzer
-        let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(&graph);
+        let analysis = crate::analyzers::dependency_analyzer::analyze_circular_dependencies(&graph);
         assert_eq!(analysis.unresolvable_cycles.len(), 1);
 
         assert_eq!(
