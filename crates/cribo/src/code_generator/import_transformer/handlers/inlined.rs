@@ -598,39 +598,38 @@ impl InlinedHandler {
                     transformer.state.is_wrapper_init,
                     Some(transformer.state.module_id),
                 ));
-            } else {
-                log::debug!("  Module '{resolved}' is inlined, handling import assignments");
-                // For the entry module, we should not defer these imports
-                // because they need to be available when the entry module's code runs
-                let import_stmts = Self::handle_imports_from_inlined_module_with_context(
-                    transformer.state.bundler,
-                    import_from,
-                    resolved_id,
-                    transformer.state.symbol_renames,
-                    transformer.state.is_wrapper_init,
-                    Some(transformer.state.module_id),
-                );
+            }
+            log::debug!("  Module '{resolved}' is inlined, handling import assignments");
+            // For the entry module, we should not defer these imports
+            // because they need to be available when the entry module's code runs
+            let import_stmts = Self::handle_imports_from_inlined_module_with_context(
+                transformer.state.bundler,
+                import_from,
+                resolved_id,
+                transformer.state.symbol_renames,
+                transformer.state.is_wrapper_init,
+                Some(transformer.state.module_id),
+            );
 
-                // Only defer if we're not in the entry module or wrapper init
-                if transformer.state.module_id.is_entry() || transformer.state.is_wrapper_init {
-                    // For entry module and wrapper init functions, return the imports
-                    // immediately In wrapper init functions, module
-                    // attributes need to be set where the import was
-                    if !import_stmts.is_empty() {
-                        return Some(import_stmts);
-                    }
-                    // If handle_imports_from_inlined_module returned empty (e.g., for submodule
-                    // imports), fall through to check if we need to
-                    // handle it differently
-                    log::debug!(
-                        "  handle_imports_from_inlined_module returned empty for entry module or \
-                         wrapper init, checking for submodule imports"
-                    );
-                } else {
-                    // Return the import statements immediately
-                    // These were previously deferred but now need to be added immediately
+            // Only defer if we're not in the entry module or wrapper init
+            if transformer.state.module_id.is_entry() || transformer.state.is_wrapper_init {
+                // For entry module and wrapper init functions, return the imports
+                // immediately In wrapper init functions, module
+                // attributes need to be set where the import was
+                if !import_stmts.is_empty() {
                     return Some(import_stmts);
                 }
+                // If handle_imports_from_inlined_module returned empty (e.g., for submodule
+                // imports), fall through to check if we need to
+                // handle it differently
+                log::debug!(
+                    "  handle_imports_from_inlined_module returned empty for entry module or \
+                     wrapper init, checking for submodule imports"
+                );
+            } else {
+                // Return the import statements immediately
+                // These were previously deferred but now need to be added immediately
+                return Some(import_stmts);
             }
         }
 

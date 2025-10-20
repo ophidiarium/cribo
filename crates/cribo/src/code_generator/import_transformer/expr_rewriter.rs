@@ -250,28 +250,27 @@ impl ExpressionRewriter {
                                 }
                                 *expr = new_expr;
                                 return;
-                            } else {
-                                // For deeper paths like j.decoder.JSONDecoder, build the full path
-                                let mut full_path = stdlib_path.clone();
-                                for part in &attr_path {
-                                    full_path.push('.');
-                                    full_path.push_str(part);
-                                }
-                                log::debug!(
-                                    "Transforming {base}.{} to {full_path} (stdlib import alias, \
-                                     deep path)",
-                                    attr_path.join(".")
-                                );
-
-                                let parts: Vec<&str> = full_path.split('.').collect();
-                                let mut new_expr = expressions::dotted_name(&parts, attr_expr.ctx);
-                                // Preserve the original range
-                                if let Expr::Attribute(attr) = &mut new_expr {
-                                    attr.range = attr_expr.range;
-                                }
-                                *expr = new_expr;
-                                return;
                             }
+                            // For deeper paths like j.decoder.JSONDecoder, build the full path
+                            let mut full_path = stdlib_path.clone();
+                            for part in &attr_path {
+                                full_path.push('.');
+                                full_path.push_str(part);
+                            }
+                            log::debug!(
+                                "Transforming {base}.{} to {full_path} (stdlib import alias, deep \
+                                 path)",
+                                attr_path.join(".")
+                            );
+
+                            let parts: Vec<&str> = full_path.split('.').collect();
+                            let mut new_expr = expressions::dotted_name(&parts, attr_expr.ctx);
+                            // Preserve the original range
+                            if let Expr::Attribute(attr) = &mut new_expr {
+                                attr.range = attr_expr.range;
+                            }
+                            *expr = new_expr;
+                            return;
                         }
                         // Check if the base refers to an inlined module
                         else if let Some(actual_module) =

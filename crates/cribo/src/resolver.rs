@@ -890,59 +890,57 @@ impl ModuleResolver {
                             .borrow_mut()
                             .insert(module_name.to_owned(), import_type.clone());
                         return import_type;
-                    } else {
-                        // Check if the parent module is a package
-                        // If parent is NOT a package (just a .py file), then submodules can't exist
-                        // This preserves Python's shadowing behavior
+                    }
+                    // Check if the parent module is a package
+                    // If parent is NOT a package (just a .py file), then submodules can't exist
+                    // This preserves Python's shadowing behavior
 
-                        // First, try to resolve the parent module to get its path
-                        let parent_descriptor =
-                            ImportModuleDescriptor::from_module_name(parent_module);
-                        let mut parent_is_package = false;
-                        let mut parent_found = false;
+                    // First, try to resolve the parent module to get its path
+                    let parent_descriptor = ImportModuleDescriptor::from_module_name(parent_module);
+                    let mut parent_is_package = false;
+                    let mut parent_found = false;
 
-                        for search_dir in &search_dirs {
-                            if let Some(parent_path) =
-                                self.resolve_in_directory(search_dir, &parent_descriptor)
-                            {
-                                parent_found = true;
-                                // Check if it's a package (__init__.py) or a module (.py file)
-                                parent_is_package = parent_path
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .is_some_and(crate::python::module_path::is_init_file_name);
-                                break;
-                            }
+                    for search_dir in &search_dirs {
+                        if let Some(parent_path) =
+                            self.resolve_in_directory(search_dir, &parent_descriptor)
+                        {
+                            parent_found = true;
+                            // Check if it's a package (__init__.py) or a module (.py file)
+                            parent_is_package = parent_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .is_some_and(crate::python::module_path::is_init_file_name);
+                            break;
                         }
+                    }
 
-                        if parent_found && !parent_is_package {
-                            // Parent is a module file, not a package - submodules can't exist
-                            // This mimics Python's behavior where a .py file shadows a package
-                            debug!(
-                                "Module '{module_name}' cannot exist - parent '{parent_module}' \
-                                 is a module file, not a package (shadowing behavior)"
-                            );
-                            // Return FirstParty to trigger an error during bundling
-                            // (the module won't be found and will cause an appropriate error)
-                            let import_type = ImportType::FirstParty;
-                            self.classification_cache
-                                .borrow_mut()
-                                .insert(module_name.to_owned(), import_type.clone());
-                            return import_type;
-                        }
-
-                        // Can't find source file, treat as third-party
-                        // This could be a C extension or dynamically available module
+                    if parent_found && !parent_is_package {
+                        // Parent is a module file, not a package - submodules can't exist
+                        // This mimics Python's behavior where a .py file shadows a package
                         debug!(
-                            "Module '{module_name}' has first-party parent '{parent_module}' but \
-                             no source file found - treating as third-party"
+                            "Module '{module_name}' cannot exist - parent '{parent_module}' is a \
+                             module file, not a package (shadowing behavior)"
                         );
-                        let import_type = ImportType::ThirdParty;
+                        // Return FirstParty to trigger an error during bundling
+                        // (the module won't be found and will cause an appropriate error)
+                        let import_type = ImportType::FirstParty;
                         self.classification_cache
                             .borrow_mut()
                             .insert(module_name.to_owned(), import_type.clone());
                         return import_type;
                     }
+
+                    // Can't find source file, treat as third-party
+                    // This could be a C extension or dynamically available module
+                    debug!(
+                        "Module '{module_name}' has first-party parent '{parent_module}' but no \
+                         source file found - treating as third-party"
+                    );
+                    let import_type = ImportType::ThirdParty;
+                    self.classification_cache
+                        .borrow_mut()
+                        .insert(module_name.to_owned(), import_type.clone());
+                    return import_type;
                 }
             }
         }

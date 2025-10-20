@@ -3864,26 +3864,25 @@ impl Bundler<'_> {
                     target_name,
                     expressions::dotted_name(&parts, ExprContext::Load),
                 );
-            } else {
-                // Simple module name, check if it has a flattened variable
-                let flattened_name = sanitize_module_name_for_identifier(module_name);
-                let should_use_flattened = self
-                    .get_module_id(module_name)
-                    .is_some_and(|id| self.inlined_modules.contains(&id));
+            }
+            // Simple module name, check if it has a flattened variable
+            let flattened_name = sanitize_module_name_for_identifier(module_name);
+            let should_use_flattened = self
+                .get_module_id(module_name)
+                .is_some_and(|id| self.inlined_modules.contains(&id));
 
-                if should_use_flattened {
-                    // Reference the flattened namespace
-                    return statements::simple_assign(
-                        target_name,
-                        expressions::name(&flattened_name, ExprContext::Load),
-                    );
-                }
-                // Reference the module directly
+            if should_use_flattened {
+                // Reference the flattened namespace
                 return statements::simple_assign(
                     target_name,
-                    expressions::name(module_name, ExprContext::Load),
+                    expressions::name(&flattened_name, ExprContext::Load),
                 );
             }
+            // Reference the module directly
+            return statements::simple_assign(
+                target_name,
+                expressions::name(module_name, ExprContext::Load),
+            );
         }
 
         // For non-aliased imports, check if we should use a flattened namespace
