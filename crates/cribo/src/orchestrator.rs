@@ -1894,8 +1894,7 @@ impl BundleOrchestrator {
             info!("Applying function-scoped import rewriting to resolve circular dependencies");
 
             // Create import rewriter
-            let import_rewriter =
-                ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
+            let import_rewriter = ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
             // Prepare module ASTs for semantic analysis
             let module_ast_map: FxIndexMap<ModuleId, &ModModule> =
