@@ -445,7 +445,8 @@ impl BundleOrchestrator {
 
             // Canonicalize the path to avoid duplicates due to different lexical representations
             let src_dir = src_dir
-                .canonicalize().unwrap_or_else(|_| src_dir.to_path_buf());
+                .canonicalize()
+                .unwrap_or_else(|_| src_dir.to_path_buf());
             if !self.config.src.contains(&src_dir) {
                 debug!("Adding entry directory to src paths: {}", src_dir.display());
                 self.config.src.insert(0, src_dir);
@@ -1503,59 +1504,65 @@ impl BundleOrchestrator {
         } else if import.starts_with('.') {
             // This is a relative import that has already been resolved to an absolute path
             // We should NOT see relative imports here, but if we do, try to derive the name
-            if let Some(module_name) = self.find_module_in_src_dirs(&import_path) {
-                log::debug!(
-                    "Derived module name '{}' from path {} (relative import was '{}')",
-                    module_name,
-                    import_path.display(),
-                    import
-                );
-                module_name
-            } else {
-                log::debug!(
-                    "Could not derive module name from path: {}, using import string: {}",
-                    import_path.display(),
-                    import
-                );
-                import.to_owned()
-            }
+            self.find_module_in_src_dirs(&import_path).map_or_else(
+                || {
+                    log::debug!(
+                        "Could not derive module name from path: {}, using import string: {}",
+                        import_path.display(),
+                        import
+                    );
+                    import.to_owned()
+                },
+                |module_name| {
+                    log::debug!(
+                        "Derived module name '{}' from path {} (relative import was '{}')",
+                        module_name,
+                        import_path.display(),
+                        import
+                    );
+                    module_name
+                },
+            )
         } else {
             // For absolute imports, check if we need to derive the full module name
             // This is important for cases where the import might be incomplete (e.g., "jupyter"
             // instead of "rich.jupyter") But we also need to preserve symlink names
-            if let Some(derived_name) = self.find_module_in_src_dirs(&import_path) {
-                // Check if the derived name is significantly different (has more parts)
-                let import_parts = import.split('.').count();
-                let derived_parts = derived_name.split('.').count();
-
-                if derived_parts > import_parts {
-                    // The derived name has more context (e.g., "rich.jupyter" vs "jupyter")
+            self.find_module_in_src_dirs(&import_path).map_or_else(
+                || {
                     log::debug!(
-                        "Using derived module name '{}' instead of '{}' for path {}",
-                        derived_name,
-                        import,
-                        import_path.display()
-                    );
-                    derived_name
-                } else {
-                    // Use the import string to preserve things like symlink names
-                    log::debug!(
-                        "Using import string '{}' as module name for path {} (derived would be \
-                         '{}')",
-                        import,
+                        "Could not derive module name from path: {}, using import string: {}",
                         import_path.display(),
-                        derived_name
+                        import
                     );
                     import.to_owned()
-                }
-            } else {
-                log::debug!(
-                    "Could not derive module name from path: {}, using import string: {}",
-                    import_path.display(),
-                    import
-                );
-                import.to_owned()
-            }
+                },
+                |derived_name| {
+                    // Check if the derived name is significantly different (has more parts)
+                    let import_parts = import.split('.').count();
+                    let derived_parts = derived_name.split('.').count();
+
+                    if derived_parts > import_parts {
+                        // The derived name has more context (e.g., "rich.jupyter" vs "jupyter")
+                        log::debug!(
+                            "Using derived module name '{}' instead of '{}' for path {}",
+                            derived_name,
+                            import,
+                            import_path.display()
+                        );
+                        derived_name
+                    } else {
+                        // Use the import string to preserve things like symlink names
+                        log::debug!(
+                            "Using import string '{}' as module name for path {} (derived would \
+                             be '{}')",
+                            import,
+                            import_path.display(),
+                            derived_name
+                        );
+                        import.to_owned()
+                    }
+                },
+            )
         };
 
         // Register the module with resolver to get its ID

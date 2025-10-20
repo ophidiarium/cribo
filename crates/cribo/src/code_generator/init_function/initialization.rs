@@ -88,7 +88,7 @@ impl InitializationPhase {
         // The parent will be initialized by whoever imports the child module.
 
         // Apply globals lifting if needed
-        state.lifted_names = if let Some(ref global_info) = ctx.global_info {
+        state.lifted_names = ctx.global_info.as_ref().and_then(|global_info| {
             if global_info.global_declarations.is_empty() {
                 None
             } else {
@@ -111,9 +111,7 @@ impl InitializationPhase {
 
                 Some(lifted_names)
             }
-        } else {
-            None
-        };
+        });
 
         Ok(())
     }

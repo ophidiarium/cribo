@@ -1096,52 +1096,60 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Create module access expression
     pub(crate) fn create_module_access_expr(&self, module_name: &str) -> Expr {
         // Check if this is a wrapper module
-        if let Some(synthetic_name) = self
-            .state
+        self.state
             .bundler
             .get_module_id(module_name)
             .and_then(|id| self.state.bundler.module_synthetic_names.get(&id))
-        {
-            // This is a wrapper module - we need to call its init function
-            // This handles modules with invalid Python identifiers like "my-module"
-            let init_func_name = self
-                .state
-                .bundler
-                .get_module_id(module_name)
-                .and_then(|id| self.state.bundler.module_init_functions.get(&id).cloned())
-                .unwrap_or_else(|| {
-                    crate::code_generator::module_registry::get_init_function_name(synthetic_name)
-                });
+            .map_or_else(
+                || {
+                    if self
+                        .state
+                        .bundler
+                        .get_module_id(module_name)
+                        .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
+                    {
+                        // This is an inlined module - create namespace object
+                        let module_renames = self
+                            .state
+                            .bundler
+                            .get_module_id(module_name)
+                            .and_then(|id| self.state.symbol_renames.get(&id));
+                        InlinedHandler::create_namespace_call_for_inlined_module(
+                            module_name,
+                            module_renames,
+                            self.state.bundler,
+                        )
+                    } else {
+                        // This module wasn't bundled - shouldn't happen for static imports
+                        log::warn!(
+                            "Module '{module_name}' referenced in static import but not bundled"
+                        );
+                        expressions::none_literal()
+                    }
+                },
+                |synthetic_name| {
+                    // This is a wrapper module - we need to call its init function
+                    // This handles modules with invalid Python identifiers like "my-module"
+                    let init_func_name = self
+                        .state
+                        .bundler
+                        .get_module_id(module_name)
+                        .and_then(|id| self.state.bundler.module_init_functions.get(&id).cloned())
+                        .unwrap_or_else(|| {
+                            crate::code_generator::module_registry::get_init_function_name(
+                                synthetic_name,
+                            )
+                        });
 
-            // Create init function call with module as self argument
-            let module_var = sanitize_module_name_for_identifier(module_name);
-            expressions::call(
-                expressions::name(&init_func_name, ExprContext::Load),
-                vec![expressions::name(&module_var, ExprContext::Load)],
-                vec![],
+                    // Create init function call with module as self argument
+                    let module_var = sanitize_module_name_for_identifier(module_name);
+                    expressions::call(
+                        expressions::name(&init_func_name, ExprContext::Load),
+                        vec![expressions::name(&module_var, ExprContext::Load)],
+                        vec![],
+                    )
+                },
             )
-        } else if self
-            .state
-            .bundler
-            .get_module_id(module_name)
-            .is_some_and(|id| self.state.bundler.inlined_modules.contains(&id))
-        {
-            // This is an inlined module - create namespace object
-            let module_renames = self
-                .state
-                .bundler
-                .get_module_id(module_name)
-                .and_then(|id| self.state.symbol_renames.get(&id));
-            InlinedHandler::create_namespace_call_for_inlined_module(
-                module_name,
-                module_renames,
-                self.state.bundler,
-            )
-        } else {
-            // This module wasn't bundled - shouldn't happen for static imports
-            log::warn!("Module '{module_name}' referenced in static import but not bundled");
-            expressions::none_literal()
-        }
     }
 }
 

@@ -469,14 +469,15 @@ pub(crate) fn populate_namespace_with_module_symbols(
             }
 
             // Get the renamed symbol if it exists
-            let actual_symbol_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
-                module_renames
-                    .get(symbol_name)
-                    .cloned()
-                    .unwrap_or_else(|| symbol_name.to_owned())
-            } else {
-                symbol_name.to_owned()
-            };
+            let actual_symbol_name = symbol_renames.get(&module_id).map_or_else(
+                || symbol_name.to_owned(),
+                |module_renames| {
+                    module_renames
+                        .get(symbol_name)
+                        .cloned()
+                        .unwrap_or_else(|| symbol_name.to_owned())
+                },
+            );
 
             // Create the target expression
             // For simple modules, this will be the module name directly
@@ -779,11 +780,15 @@ pub(crate) fn populate_namespace_with_module_symbols(
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
                     .cloned()
-                    .or_else(|| match ctx.tree_shaking_keep_symbols.as_ref() {
-                        Some(map) => map.get(&module_id).and_then(|set| {
-                            set.contains(&symbol_name).then(|| symbol_name.clone())
-                        }),
-                        None => Some(symbol_name.clone()),
+                    .or_else(|| {
+                        ctx.tree_shaking_keep_symbols.as_ref().map_or_else(
+                            || Some(symbol_name.clone()),
+                            |map| {
+                                map.get(&module_id).and_then(|set| {
+                                    set.contains(&symbol_name).then(|| symbol_name.clone())
+                                })
+                            },
+                        )
                     });
 
                 let Some(actual_symbol_name) = actual_symbol_name else {

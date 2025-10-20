@@ -272,9 +272,10 @@ pub(crate) fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     }
 
     // Check if it's a submodule of a stdlib module
-    module_name.split('.').next().is_some_and(|top_level| {
-        sys::is_known_standard_library(python_version, top_level)
-    })
+    module_name
+        .split('.')
+        .next()
+        .is_some_and(|top_level| sys::is_known_standard_library(python_version, top_level))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -656,29 +657,30 @@ impl ModuleResolver {
         package_context: Option<&str>,
     ) -> Option<(String, PathBuf)> {
         // Handle relative imports with package context
-        let resolved_name = if let Some(package) = package_context {
-            if module_name.starts_with('.') {
-                // Count the number of leading dots
-                let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
-                let name_part = module_name.trim_start_matches('.');
+        let resolved_name = package_context.map_or_else(
+            || module_name.to_owned(),
+            |package| {
+                if module_name.starts_with('.') {
+                    // Count the number of leading dots
+                    let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+                    let name_part = module_name.trim_start_matches('.');
 
-                // Use the centralized helper for relative import resolution
-                self.resolve_relative_import_from_package_name(
-                    level,
-                    if name_part.is_empty() {
-                        None
-                    } else {
-                        Some(name_part)
-                    },
-                    package,
-                )
-            } else {
-                // Absolute import, use as-is
-                module_name.to_owned()
-            }
-        } else {
-            module_name.to_owned()
-        };
+                    // Use the centralized helper for relative import resolution
+                    self.resolve_relative_import_from_package_name(
+                        level,
+                        if name_part.is_empty() {
+                            None
+                        } else {
+                            Some(name_part)
+                        },
+                        package,
+                    )
+                } else {
+                    // Absolute import, use as-is
+                    module_name.to_owned()
+                }
+            },
+        );
 
         debug!(
             "Resolving ImportlibStatic: '{}' with package '{}' -> '{}'",
@@ -1154,14 +1156,15 @@ impl ModuleResolver {
     /// Normalize a package name according to PEP 503 using `pep508_rs`
     fn normalize_package_name(name: &str) -> String {
         // Use pep508_rs::PackageName for proper PEP 503 normalization
-        if let Ok(package_name) = PackageName::new(name.to_owned()) {
-            package_name.to_string()
-        } else {
-            // If normalization fails (shouldn't happen for valid package names),
-            // fall back to simple lowercase
-            debug!("Failed to normalize package name '{name}', using lowercase");
-            name.cow_to_lowercase().into_owned()
-        }
+        PackageName::new(name.to_owned()).map_or_else(
+            |_| {
+                // If normalization fails (shouldn't happen for valid package names),
+                // fall back to simple lowercase
+                debug!("Failed to normalize package name '{name}', using lowercase");
+                name.cow_to_lowercase().into_owned()
+            },
+            |package_name| package_name.to_string(),
+        )
     }
 
     /// Find the package name for an import by scanning dist-info directories

@@ -124,13 +124,14 @@ impl<'a> SourceOrderVisitor<'a> for LocalVarCollector<'a> {
             }
             Stmt::Import(import_stmt) => {
                 for alias in &import_stmt.names {
-                    let name = if let Some(asname) = &alias.asname {
-                        asname.to_string()
-                    } else {
-                        // For dotted imports like 'import a.b.c', bind only 'a'
-                        let full_name = alias.name.to_string();
-                        full_name.split('.').next().unwrap_or(&full_name).to_owned()
-                    };
+                    let name = alias.asname.as_ref().map_or_else(
+                        || {
+                            // For dotted imports like 'import a.b.c', bind only 'a'
+                            let full_name = alias.name.to_string();
+                            full_name.split('.').next().unwrap_or(&full_name).to_owned()
+                        },
+                        ToString::to_string,
+                    );
                     self.insert_if_not_global(&name);
                 }
             }

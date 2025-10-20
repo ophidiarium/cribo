@@ -159,21 +159,24 @@ impl BodyPreparationPhase {
         );
 
         // Use the central module registry for fast, reliable lookup
-        let module_id = if let Some(registry) = bundler.module_info_registry {
-            let id = registry.get_id_by_name(ctx.module_name);
-            if id.is_some() {
-                debug!(
-                    "Found module ID for '{}' using module registry",
-                    ctx.module_name
-                );
-            } else {
-                debug!("Module '{}' not found in module registry", ctx.module_name);
-            }
-            id
-        } else {
-            log::warn!("No module registry available for module ID lookup");
-            None
-        };
+        let module_id = bundler
+            .module_info_registry
+            .and_then(|registry| {
+                let id = registry.get_id_by_name(ctx.module_name);
+                if id.is_some() {
+                    debug!(
+                        "Found module ID for '{}' using module registry",
+                        ctx.module_name
+                    );
+                } else {
+                    debug!("Module '{}' not found in module registry", ctx.module_name);
+                }
+                id
+            })
+            .or_else(|| {
+                log::warn!("No module registry available for module ID lookup");
+                None
+            });
 
         if let Some(module_id) = module_id {
             if let Some(module_info) = semantic_bundler.get_module_info(module_id) {
