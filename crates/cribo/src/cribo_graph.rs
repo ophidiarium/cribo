@@ -118,7 +118,7 @@ pub(crate) struct ItemData {
 
 /// Fine-grained dependency graph for a single module
 #[derive(Debug)]
-pub struct ModuleDepGraph {
+pub(crate) struct ModuleDepGraph {
     /// Module identifier
     pub module_id: ModuleId,
     /// Module name (e.g., "utils.helpers")
@@ -270,7 +270,7 @@ impl ModuleDepGraph {
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
 #[derive(Debug)]
-pub struct CriboGraph {
+pub(crate) struct CriboGraph {
     /// All modules in the graph
     pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping

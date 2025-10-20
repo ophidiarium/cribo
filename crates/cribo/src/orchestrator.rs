@@ -173,7 +173,7 @@ struct ProcessedModule {
     module_id: Option<ModuleId>,
 }
 
-pub struct BundleOrchestrator {
+pub(crate) struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,
     /// Central registry for module information
