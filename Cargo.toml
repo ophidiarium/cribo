@@ -110,6 +110,7 @@ similar_names                = "allow"
 single_match_else            = "allow"
 too_many_lines               = "deny"
 unnecessary_debug_formatting = "allow"
+unused_self = "allow"
 
 # Additional allows for practical development
 cast_possible_truncation = "allow"

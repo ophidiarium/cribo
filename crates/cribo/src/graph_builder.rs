@@ -341,7 +341,7 @@ impl<'a> GraphBuilder<'a> {
             item_type: ItemType::FunctionDef {
                 name: func_name.clone(),
             },
-            var_decls: [func_name.clone()].into_iter().collect(),
+            var_decls: std::iter::once(func_name.clone()).collect(),
             read_vars,
             eventual_read_vars,
             write_vars: FxIndexSet::default(),
@@ -349,7 +349,7 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: [func_name.clone()].into_iter().collect(),
+            defined_symbols: std::iter::once(func_name.clone()).collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
             containing_scope: self.scope_name.clone(),
@@ -489,7 +489,7 @@ impl<'a> GraphBuilder<'a> {
             item_type: ItemType::ClassDef {
                 name: class_name.clone(),
             },
-            var_decls: [class_name.clone()].into_iter().collect(),
+            var_decls: std::iter::once(class_name.clone()).collect(),
             read_vars,
             eventual_read_vars: method_read_vars, // Methods may use these variables
             write_vars: FxIndexSet::default(),
@@ -497,7 +497,7 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: [class_name.clone()].into_iter().collect(),
+            defined_symbols: std::iter::once(class_name.clone()).collect(),
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
             containing_scope: self.scope_name.clone(),
@@ -567,7 +567,7 @@ impl<'a> GraphBuilder<'a> {
                         module: module_name.clone(),
                         alias: Some(target.clone()),
                     },
-                    var_decls: [target.clone()].into_iter().collect(),
+                    var_decls: std::iter::once(target.clone()).collect(),
                     read_vars: read_vars.clone(),
                     eventual_read_vars: FxIndexSet::default(),
                     write_vars: FxIndexSet::default(),
@@ -575,7 +575,7 @@ impl<'a> GraphBuilder<'a> {
                     has_side_effects: true, // Import always has side effects
                     imported_names,
                     reexported_names: FxIndexSet::default(),
-                    defined_symbols: [target.clone()].into_iter().collect(),
+                    defined_symbols: std::iter::once(target.clone()).collect(),
                     symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses: FxIndexMap::default(),
                     containing_scope: self.scope_name.clone(),
