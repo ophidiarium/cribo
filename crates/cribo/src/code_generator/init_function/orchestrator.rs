@@ -73,7 +73,7 @@ impl<'a> InitFunctionBuilder<'a> {
         let mut state = InitFunctionState::new();
 
         // Phase 1: Initialization
-        InitializationPhase::execute(self.bundler, self.ctx, &mut ast, &mut state)?;
+        InitializationPhase::execute(self.bundler, self.ctx, &mut ast, &mut state);
 
         // Phase 2: Import Analysis
         ImportAnalysisPhase::execute(
@@ -82,7 +82,7 @@ impl<'a> InitFunctionBuilder<'a> {
             &ast,
             self.symbol_renames,
             &mut state,
-        )?;
+        );
 
         // Phase 3: Import Transformation
         ImportTransformationPhase::execute(
@@ -94,10 +94,10 @@ impl<'a> InitFunctionBuilder<'a> {
         )?;
 
         // Phase 4: Wrapper Symbol Setup
-        WrapperSymbolSetupPhase::execute(self.bundler, &mut state)?;
+        WrapperSymbolSetupPhase::execute(self.bundler, &mut state);
 
         // Phase 5: Wildcard Import Processing
-        WildcardImportPhase::execute(self.bundler, self.ctx, &mut state)?;
+        WildcardImportPhase::execute(self.bundler, self.ctx, &mut state);
 
         // Phase 6: Body Preparation
         // Clone lifted_names to avoid borrow conflict
@@ -108,19 +108,19 @@ impl<'a> InitFunctionBuilder<'a> {
             &ast,
             &mut state,
             lifted_names_for_prep.as_ref(),
-        )?;
+        );
 
         // Phase 7: Wrapper Globals Collection
-        WrapperGlobalsPhase::execute(&prep_context.processed_body, &mut state)?;
+        WrapperGlobalsPhase::execute(&prep_context.processed_body, &mut state);
 
         // Phase 8: Statement Processing
-        StatementProcessingPhase::execute(prep_context, self.bundler, self.ctx, &mut state)?;
+        StatementProcessingPhase::execute(prep_context, self.bundler, self.ctx, &mut state);
 
         // Phase 9: Submodule Handling
-        SubmoduleHandlingPhase::execute(self.bundler, self.ctx, self.symbol_renames, &mut state)?;
+        SubmoduleHandlingPhase::execute(self.bundler, self.ctx, self.symbol_renames, &mut state);
 
         // Phase 10: Final Cleanup
-        CleanupPhase::execute(self.bundler, self.ctx, &mut state)?;
+        CleanupPhase::execute(self.bundler, self.ctx, &mut state);
 
         // Phase 11: Finalization
         FinalizationPhase::build_function_stmt(self.bundler, self.ctx, state)

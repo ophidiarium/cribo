@@ -5,7 +5,7 @@
 use log::debug;
 use ruff_python_ast::{ExprContext, ModModule};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     ast_builder,
     code_generator::{
@@ -32,7 +32,7 @@ impl InitializationPhase {
         ctx: &ModuleTransformContext<'_>,
         ast: &mut ModModule,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Add __initialized__ check
         // if getattr(self, "__initialized__", False):
         //     return self
@@ -112,7 +112,5 @@ impl InitializationPhase {
                 Some(lifted_names)
             }
         });
-
-        Ok(())
     }
 }

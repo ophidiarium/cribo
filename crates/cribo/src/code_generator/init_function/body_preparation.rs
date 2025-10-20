@@ -6,7 +6,7 @@
 use log::debug;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     ast_builder,
     code_generator::{bundler::Bundler, context::ModuleTransformContext, expression_handlers},
@@ -49,7 +49,7 @@ impl BodyPreparationPhase {
         ast: &ModModule,
         state: &mut InitFunctionState,
         lifted_names: Option<&crate::types::FxIndexMap<String, String>>,
-    ) -> Result<BodyPreparationContext<'a>, TransformError> {
+    ) -> BodyPreparationContext<'a> {
         // Check if __all__ is referenced in the module body
         let all_is_referenced = Self::check_all_referenced(ast, ctx);
 
@@ -79,13 +79,13 @@ impl BodyPreparationPhase {
         // Declare lifted globals FIRST if any
         Self::declare_lifted_globals(lifted_names, state);
 
-        Ok(BodyPreparationContext {
+        BodyPreparationContext {
             all_is_referenced,
             vars_used_by_exported_functions,
             module_scope_symbols,
             builtin_locals,
             processed_body,
-        })
+        }
     }
 
     /// Check if `__all__` is referenced in the module body

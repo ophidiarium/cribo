@@ -6,7 +6,7 @@
 
 use log::debug;
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{code_generator::bundler::Bundler, types::FxIndexSet};
 
 /// Phase responsible for processing wildcard imports
@@ -28,7 +28,7 @@ impl WildcardImportPhase {
         bundler: &Bundler<'_>,
         ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Dedup and sort wildcard imports for deterministic output
         let mut wildcard_attrs: Vec<(String, String, Option<String>)> = state
             .imports_from_inlined
@@ -86,7 +86,5 @@ impl WildcardImportPhase {
                 );
             }
         }
-
-        Ok(())
     }
 }

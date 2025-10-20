@@ -5,7 +5,6 @@
 
 use std::path::Path;
 
-use anyhow::Result;
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_semantic::{
     BindingFlags, BindingId, BindingKind, Module, ModuleKind, ModuleSource, SemanticModel,
@@ -457,12 +456,7 @@ impl SemanticBundler {
     }
 
     /// Analyze a module using full semantic model approach
-    pub(crate) fn analyze_module(
-        &mut self,
-        module_id: ModuleId,
-        ast: &ModModule,
-        path: &Path,
-    ) -> Result<()> {
+    pub(crate) fn analyze_module(&mut self, module_id: ModuleId, ast: &ModModule, path: &Path) {
         // Check if this ModuleId has already been analyzed
         // This prevents duplicate processing when multiple module names map to the same file
         if !self.analyzed_modules.insert(module_id) {
@@ -470,7 +464,7 @@ impl SemanticBundler {
                 "Module {} already analyzed, skipping duplicate processing",
                 module_id.as_u32()
             );
-            return Ok(());
+            return;
         }
 
         log::debug!(
@@ -544,8 +538,6 @@ impl SemanticBundler {
                 module_scope_symbols,
             },
         );
-
-        Ok(())
     }
 
     /// Detect and resolve symbol conflicts across all modules

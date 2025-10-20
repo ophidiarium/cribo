@@ -6,7 +6,7 @@
 use log::debug;
 use ruff_python_ast::{Identifier, ModModule, Stmt};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     code_generator::{bundler::Bundler, context::ModuleTransformContext},
     resolver::ModuleId,
@@ -35,7 +35,7 @@ impl ImportAnalysisPhase {
         ast: &ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Track imports from inlined modules before transformation
         // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard
         //   imports) Format: (exported_name, value_name, source_module)
@@ -171,8 +171,6 @@ impl ImportAnalysisPhase {
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Process stdlib import for re-exports

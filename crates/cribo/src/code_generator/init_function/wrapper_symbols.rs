@@ -5,7 +5,7 @@
 
 use log::debug;
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for setting up placeholder assignments for wrapper module symbols
@@ -21,10 +21,7 @@ impl WrapperSymbolSetupPhase {
     /// These symbols will be properly assigned later when wrapper modules are initialized,
     /// but we need them to exist in the local scope (not as module attributes yet).
     /// We use a sentinel object that can have attributes set on it.
-    pub(crate) fn execute(
-        _bundler: &Bundler<'_>,
-        state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    pub(crate) fn execute(_bundler: &Bundler<'_>, state: &mut InitFunctionState) {
         // Note: deferred imports functionality has been removed
         // Import alias assignments were previously added here
 
@@ -51,7 +48,5 @@ impl WrapperSymbolSetupPhase {
                 ),
             );
         }
-
-        Ok(())
     }
 }

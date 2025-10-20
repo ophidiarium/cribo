@@ -6,7 +6,7 @@
 use log::debug;
 use ruff_python_ast::{Expr, ExprContext, Stmt};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for final cleanup tasks
@@ -25,14 +25,12 @@ impl CleanupPhase {
         bundler: &Bundler<'_>,
         ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Add stdlib re-exports to the module namespace
         Self::add_stdlib_reexports(ctx, state);
 
         // Add explicit imports from inlined modules as module attributes
         Self::add_explicit_inlined_imports(bundler, ctx, state);
-
-        Ok(())
     }
 
     /// Add stdlib re-exports to the module namespace

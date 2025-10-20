@@ -76,17 +76,14 @@ impl ImportTransformationPhase {
         if !state.imports_from_inlined.is_empty()
             || !state.wrapper_module_symbols_global_only.is_empty()
         {
-            Self::add_global_declarations(bundler, state)?;
+            Self::add_global_declarations(bundler, state);
         }
 
         Ok(())
     }
 
     /// Add global declarations for symbols imported from inlined modules
-    fn add_global_declarations(
-        bundler: &Bundler<'_>,
-        state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    fn add_global_declarations(bundler: &Bundler<'_>, state: &mut InitFunctionState) {
         // Deduplicate by value name (what's actually in global scope) and sort for deterministic
         // output
         // Only add symbols from NON-inlined modules to globals (they exist as bare symbols)
@@ -146,7 +143,5 @@ impl ImportTransformationPhase {
                 unique_imports.iter().map(String::as_str).collect(),
             ));
         }
-
-        Ok(())
     }
 }
