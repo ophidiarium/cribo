@@ -186,7 +186,8 @@ pub struct BundleOrchestrator {
 }
 
 impl BundleOrchestrator {
-    pub(crate) fn new(config: Config) -> Self {
+    #[allow(unreachable_pub)]
+    pub fn new(config: Config) -> Self {
         Self {
             config,
             semantic_bundler: SemanticBundler::new(),
@@ -690,7 +691,8 @@ impl BundleOrchestrator {
     }
 
     /// Main bundling function
-    pub(crate) fn bundle(
+    #[allow(unreachable_pub)]
+    pub fn bundle(
         &mut self,
         entry_path: &Path,
         output_path: &Path,

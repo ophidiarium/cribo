@@ -302,7 +302,8 @@ pub struct CriboGraph {
 
 impl CriboGraph {
     /// Create a new cribo dependency graph
-    pub(crate) fn new() -> Self {
+    #[allow(unreachable_pub)]
+    pub fn new() -> Self {
         Self {
             modules: FxIndexMap::default(),
             module_names: FxIndexMap::default(),
@@ -317,7 +318,8 @@ impl CriboGraph {
     }
 
     /// Add a module to the graph with a pre-assigned `ModuleId` from the resolver
-    pub(crate) fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
+    #[allow(unreachable_pub)]
+    pub fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
 
@@ -430,7 +432,8 @@ impl CriboGraph {
     }
 
     /// Add a dependency between modules (from depends on to)
-    pub(crate) fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
+    #[allow(unreachable_pub)]
+    pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
         self.add_module_dependency_with_info(from, to, ());
     }
 
@@ -456,7 +459,8 @@ impl CriboGraph {
     }
 
     /// Get topologically sorted modules (uses petgraph)
-    pub(crate) fn topological_sort(&self) -> Result<Vec<ModuleId>> {
+    #[allow(unreachable_pub)]
+    pub fn topological_sort(&self) -> Result<Vec<ModuleId>> {
         toposort(&self.graph, None)
             .map(|nodes| nodes.into_iter().map(|n| self.graph[n]).collect())
             .map_err(|_| anyhow!("Circular dependency detected"))
