@@ -1310,8 +1310,12 @@ impl ModuleResolver {
         if let Some(raw_name) = name {
             let cleaned = raw_name.trim_start_matches('.');
             if !cleaned.is_empty() {
-                let name_parts: Vec<&str> = cleaned.split('.').filter(|s| !s.is_empty()).collect();
-                current_parts.extend(name_parts.into_iter().map(ToString::to_string));
+                current_parts.extend(
+                    cleaned
+                        .split('.')
+                        .filter(|s| !s.is_empty())
+                        .map(ToString::to_string),
+                );
             }
         }
 
