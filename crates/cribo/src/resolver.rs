@@ -46,15 +46,15 @@ impl ModuleId {
     /// Format this `ModuleId` with the resolver to show the module name and path
     /// This is useful for debugging and error messages
     pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
-        if let Some(name) = resolver.get_module_name(*self) {
-            if let Some(path) = resolver.get_module_path(*self) {
-                format!("ModuleId({})='{}' at '{}'", self.0, name, path.display())
-            } else {
-                format!("ModuleId({})='{}'", self.0, name)
-            }
-        } else {
-            format!("ModuleId({})", self.0)
-        }
+        resolver.get_module_name(*self).map_or_else(
+            || format!("ModuleId({})", self.0),
+            |name| {
+                resolver.get_module_path(*self).map_or_else(
+                    || format!("ModuleId({})='{}'", self.0, name),
+                    |path| format!("ModuleId({})='{}' at '{}'", self.0, name, path.display()),
+                )
+            },
+        )
     }
 }
 
@@ -272,11 +272,9 @@ pub(crate) fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     }
 
     // Check if it's a submodule of a stdlib module
-    if let Some(top_level) = module_name.split('.').next() {
+    module_name.split('.').next().is_some_and(|top_level| {
         sys::is_known_standard_library(python_version, top_level)
-    } else {
-        false
-    }
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -987,12 +985,10 @@ impl ModuleResolver {
             .map(ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
-        let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
-            vec![PathBuf::from(virtualenv_path)]
-        } else {
-            // Fallback: detect common virtual environment directory names
-            self.detect_fallback_virtualenv_paths()
-        };
+        let virtualenv_paths = explicit_virtualenv.map_or_else(
+            || self.detect_fallback_virtualenv_paths(),
+            |virtualenv_path| vec![PathBuf::from(virtualenv_path)],
+        );
 
         // Scan all discovered virtual environment paths
         for venv_path in virtualenv_paths {
@@ -1131,12 +1127,10 @@ impl ModuleResolver {
             .map(ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
-        let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
-            vec![PathBuf::from(virtualenv_path)]
-        } else {
-            // Fallback: detect common virtual environment directory names
-            self.detect_fallback_virtualenv_paths()
-        };
+        let virtualenv_paths = explicit_virtualenv.map_or_else(
+            || self.detect_fallback_virtualenv_paths(),
+            |virtualenv_path| vec![PathBuf::from(virtualenv_path)],
+        );
 
         // Try to find the package name from dist-info
         for venv_path in virtualenv_paths {

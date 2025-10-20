@@ -339,11 +339,9 @@ impl Bundler<'_> {
             // resolve the canonical symbol via ctx.import_aliases and use its last
             // segment to query the source module's renames.
             if let Some(source_module) = ctx.import_sources.get(name) {
-                let lookup_key = if let Some(canonical) = ctx.import_aliases.get(name) {
+                let lookup_key = ctx.import_aliases.get(name).map_or(name, |canonical| {
                     canonical.rsplit('.').next().unwrap_or(canonical.as_str())
-                } else {
-                    name
-                };
+                });
 
                 // Use that module's renames instead of the current module's
                 let source_module_id = self
@@ -561,15 +559,13 @@ impl Bundler<'_> {
                 let rhs_name = name_expr.id.as_str();
                 // Check if the RHS is a sanitized module name (e.g., greetings_messages)
                 self.bundled_modules.iter().any(|bundled_id| {
-                    if let Some(bundled_name) = self.resolver.get_module_name(*bundled_id) {
+                    self.resolver.get_module_name(*bundled_id).is_some_and(|bundled_name| {
                         let sanitized =
                             crate::code_generator::module_registry::sanitize_module_name_for_identifier(
                                 &bundled_name,
                             );
                         sanitized == rhs_name
-                    } else {
-                        false
-                    }
+                    })
                 })
             }
             Expr::Attribute(attr_expr) => {
@@ -579,15 +575,15 @@ impl Bundler<'_> {
                     let base = base_name.id.as_str();
                     // Check if the base is a sanitized module name
                     self.bundled_modules.iter().any(|bundled_id| {
-                        if let Some(bundled_name) = self.resolver.get_module_name(*bundled_id) {
-                            let sanitized =
-                                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                                    &bundled_name,
-                                );
-                            sanitized == base
-                        } else {
-                            false
-                        }
+                        self.resolver
+                            .get_module_name(*bundled_id)
+                            .is_some_and(|bundled_name| {
+                                let sanitized =
+                                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                        &bundled_name,
+                                    );
+                                sanitized == base
+                            })
                     })
                 } else {
                     false

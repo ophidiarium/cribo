@@ -444,14 +444,8 @@ impl BundleOrchestrator {
             };
 
             // Canonicalize the path to avoid duplicates due to different lexical representations
-            let src_dir = match src_dir.canonicalize() {
-                Ok(canonical_path) => canonical_path,
-                Err(_) => {
-                    // Fall back to the original path if canonicalization fails (e.g., path doesn't
-                    // exist)
-                    src_dir.to_path_buf()
-                }
-            };
+            let src_dir = src_dir
+                .canonicalize().unwrap_or_else(|_| src_dir.to_path_buf());
             if !self.config.src.contains(&src_dir) {
                 debug!("Adding entry directory to src paths: {}", src_dir.display());
                 self.config.src.insert(0, src_dir);
@@ -840,13 +834,9 @@ impl BundleOrchestrator {
         }
 
         // Topologically order components
-        let comp_order = match toposort(&comp_graph, None) {
-            Ok(nodes) => nodes.into_iter().map(|n| comp_graph[n]).collect::<Vec<_>>(),
-            Err(_) => {
-                // Condensation should be a DAG; if not, fall back to insertion order
-                comp_indices
-            }
-        };
+        let comp_order = toposort(&comp_graph, None).map_or(comp_indices, |nodes| {
+            nodes.into_iter().map(|n| comp_graph[n]).collect::<Vec<_>>()
+        });
 
         // Emit modules: singleton SCCs directly; multi-node SCCs with stable DFS-post-order
         let mut visited = IndexSet::new();

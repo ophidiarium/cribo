@@ -124,34 +124,36 @@ impl<'a> ModuleClassifier<'a> {
             }
 
             // Convert export info to the format expected by the bundler
-            let module_exports = if let Some(exported_names) = export_info.exported_names {
-                Some(exported_names)
-            } else {
-                // If no __all__, collect all top-level symbols using SymbolCollector
-                let collected = crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
-                let mut symbols: Vec<_> = collected
-                    .global_symbols
-                    .values()
-                    .filter(|s| {
-                        // Include all public symbols (not starting with underscore)
-                        // except __all__ itself
-                        // Dunder names (e.g., __version__, __author__, __doc__) are conventionally
-                        // public
-                        s.name != "__all__"
-                            && (!s.name.starts_with('_')
-                                || (s.name.starts_with("__") && s.name.ends_with("__")))
-                    })
-                    .map(|s| s.name.clone())
-                    .collect();
+            let module_exports = export_info.exported_names.map_or_else(
+                || {
+                    // If no __all__, collect all top-level symbols using SymbolCollector
+                    let collected =
+                        crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
+                    let mut symbols: Vec<_> = collected
+                        .global_symbols
+                        .values()
+                        .filter(|s| {
+                            // Include all public symbols (not starting with underscore)
+                            // except __all__ itself
+                            // Dunder names (e.g., __version__, __author__, __doc__) are
+                            // conventionally public
+                            s.name != "__all__"
+                                && (!s.name.starts_with('_')
+                                    || (s.name.starts_with("__") && s.name.ends_with("__")))
+                        })
+                        .map(|s| s.name.clone())
+                        .collect();
 
-                if symbols.is_empty() {
-                    None
-                } else {
-                    // Sort symbols for deterministic output
-                    symbols.sort();
-                    Some(symbols)
-                }
-            };
+                    if symbols.is_empty() {
+                        None
+                    } else {
+                        // Sort symbols for deterministic output
+                        symbols.sort();
+                        Some(symbols)
+                    }
+                },
+                Some,
+            );
 
             // Handle wildcard imports - if the module has wildcard imports and no explicit __all__,
             // we need to expand those to include the actual exports from the imported modules

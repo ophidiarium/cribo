@@ -16,10 +16,7 @@ const CONFIG_FILE: &str = "cribo.toml";
 /// On Windows, use, e.g., C:\Users\Alice\AppData\Roaming
 /// On Linux and macOS, use `XDG_CONFIG_HOME` or $HOME/.config, e.g., /home/alice/.config.
 pub(crate) fn user_config_dir() -> Option<PathBuf> {
-    match etcetera::choose_base_strategy() {
-        Ok(dirs) => Some(dirs.config_dir()),
-        Err(_) => None,
-    }
+    etcetera::choose_base_strategy().map_or(None, |dirs| Some(dirs.config_dir()))
 }
 
 pub(crate) fn user_cribo_config_dir() -> Option<PathBuf> {

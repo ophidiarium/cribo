@@ -127,11 +127,9 @@ impl SymbolCollector {
 
     /// Process a class definition
     fn process_class(&mut self, class: &StmtClassDef) {
-        let bases: Vec<String> = if let Some(arguments) = &class.arguments {
+        let bases: Vec<String> = class.arguments.as_ref().map_or_else(Vec::new, |arguments| {
             arguments.args.iter().map(Self::expr_to_string).collect()
-        } else {
-            Vec::new()
-        };
+        });
 
         let symbol = SymbolInfo {
             name: class.name.to_string(),
@@ -232,12 +230,10 @@ impl SymbolCollector {
 
     /// Check if a symbol is exported
     fn is_exported(&self, name: &str) -> bool {
-        if let Some(ref exports) = self.module_exports {
-            exports.contains(&name.to_owned())
-        } else {
-            // If no __all__, public symbols (not starting with _) are exported
-            !name.starts_with('_')
-        }
+        self.module_exports.as_ref().map_or_else(
+            || !name.starts_with('_'),
+            |exports| exports.contains(&name.to_owned()),
+        )
     }
 
     /// Convert an expression to a string representation
