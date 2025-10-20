@@ -254,7 +254,7 @@ pub(crate) fn create_assignments_for_inlined_imports(
         if let Some(module_id) = params.resolver.get_module_id_by_name(&full_module_path) {
             if params
                 .module_registry
-                .is_some_and(|reg| reg.contains_module(&module_id))
+                .is_some_and(|reg| reg.contains_module(module_id))
             {
                 // Skip wrapped modules - they will be handled as deferred imports
                 log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
@@ -471,6 +471,6 @@ pub(crate) fn is_wrapper_submodule(
     module_info_registry: Option<&crate::orchestrator::ModuleRegistry>,
     inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
 ) -> bool {
-    module_info_registry.is_some_and(|reg| reg.contains_module(&module_id))
+    module_info_registry.is_some_and(|reg| reg.contains_module(module_id))
         && !inlined_modules.contains(&module_id)
 }

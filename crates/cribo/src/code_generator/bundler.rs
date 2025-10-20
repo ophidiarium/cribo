@@ -3057,16 +3057,16 @@ impl Bundler<'_> {
 
     /// Check if a symbol is exported by a module, considering both explicit __all__ and semantic
     /// exports
-    fn is_symbol_exported(&self, module_id: &ModuleId, symbol_name: &str) -> bool {
-        if self.modules_with_explicit_all.contains(module_id) {
+    fn is_symbol_exported(&self, module_id: ModuleId, symbol_name: &str) -> bool {
+        if self.modules_with_explicit_all.contains(&module_id) {
             self.module_exports
-                .get(module_id)
+                .get(&module_id)
                 .and_then(|e| e.as_ref())
                 .is_some_and(|exports| exports.contains(&symbol_name.to_owned()))
         } else {
             // Fallback to semantic exports when __all__ is not defined
             self.semantic_exports
-                .get(module_id)
+                .get(&module_id)
                 .is_some_and(|set| set.contains(symbol_name))
         }
     }
@@ -3075,14 +3075,14 @@ impl Bundler<'_> {
     /// This handles wildcard re-exports where a wrapper module imports symbols from inlined modules
     fn find_symbol_source_in_inlined_submodules(
         &self,
-        wrapper_id: &ModuleId,
+        wrapper_id: ModuleId,
         symbol_name: &str,
     ) -> Option<ModuleId> {
         let Some(module_asts) = &self.module_asts else {
             return None;
         };
 
-        let (ast, _, _) = module_asts.get(wrapper_id)?;
+        let (ast, _, _) = module_asts.get(&wrapper_id)?;
 
         // Look for wildcard imports in the wrapper module
         for stmt in &ast.body {
@@ -3097,7 +3097,7 @@ impl Bundler<'_> {
 
                         use crate::code_generator::symbol_source::resolve_import_module;
 
-                        let Some(wrapper_path) = self.resolver.get_module_path(*wrapper_id) else {
+                        let Some(wrapper_path) = self.resolver.get_module_path(wrapper_id) else {
                             continue;
                         };
 
@@ -3113,7 +3113,7 @@ impl Bundler<'_> {
 
                         // Check if this module is inlined and exports the symbol we're looking for
                         if self.inlined_modules.contains(&source_id) {
-                            let exported = self.is_symbol_exported(&source_id, symbol_name);
+                            let exported = self.is_symbol_exported(source_id, symbol_name);
                             if exported {
                                 log::debug!(
                                     "Found symbol '{symbol_name}' in inlined module \
@@ -3263,7 +3263,7 @@ impl Bundler<'_> {
         // Check if this symbol comes from an inlined submodule that was imported via wildcard
         // This handles cases where a wrapper module re-exports symbols from inlined modules
         if let Some(source_module_id) =
-            self.find_symbol_source_in_inlined_submodules(&target_id, params.imported_name)
+            self.find_symbol_source_in_inlined_submodules(target_id, params.imported_name)
         {
             // Check if the source module has a renamed version of this symbol
             if let Some(renames) = params.symbol_renames.get(&source_module_id)

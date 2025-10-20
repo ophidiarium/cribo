@@ -90,7 +90,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             .flatten()?;
         let filtered: Vec<String> = SymbolAnalyzer::filter_exports_by_tree_shaking(
             &exports,
-            &module_id,
+            module_id,
             self.state.bundler.tree_shaking_keep_symbols.as_ref(),
             false,
             self.state.bundler.resolver,
@@ -382,7 +382,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         .bundler
                         .module_info_registry
                         .as_ref()
-                        .is_some_and(|reg| reg.contains_module(&id))
+                        .is_some_and(|reg| reg.contains_module(id))
                     || self.state.bundler.inlined_modules.contains(&id)
             });
         if is_actually_a_module {
@@ -1434,7 +1434,7 @@ fn rewrite_import_with_renames(
 
             if bundler
                 .module_info_registry
-                .is_some_and(|reg| reg.contains_module(&module_id))
+                .is_some_and(|reg| reg.contains_module(module_id))
             {
                 // Module uses wrapper approach - need to initialize it now
 

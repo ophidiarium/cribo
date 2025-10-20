@@ -106,8 +106,8 @@ impl ModuleRegistry {
     }
 
     /// Check if a module exists by `ModuleId`
-    pub(crate) fn contains_module(&self, id: &ModuleId) -> bool {
-        self.modules.contains_key(id)
+    pub(crate) fn contains_module(&self, id: ModuleId) -> bool {
+        self.modules.contains_key(&id)
     }
 }
 

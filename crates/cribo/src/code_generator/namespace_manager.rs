@@ -268,7 +268,7 @@ pub(crate) fn populate_namespace_with_module_symbols(
             // When tree-shaking is enabled, start with symbols kept by tree-shaking
             let kept: FxIndexSet<String> = SymbolAnalyzer::filter_exports_by_tree_shaking(
                 exports,
-                &module_id,
+                module_id,
                 ctx.tree_shaking_keep_symbols.as_ref(),
                 true,
                 ctx.resolver,

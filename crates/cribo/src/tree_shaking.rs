@@ -373,7 +373,7 @@ impl<'a> TreeShaker<'a> {
                                 // This is important for modules that export classes with
                                 // dependencies
                                 self.preserve_exported_symbols(
-                                    &imported_module_id,
+                                    imported_module_id,
                                     module,
                                     &mut worklist,
                                 );
@@ -709,11 +709,11 @@ impl<'a> TreeShaker<'a> {
     /// Preserve exported symbols from a directly imported module
     fn preserve_exported_symbols(
         &self,
-        imported_module_id: &ModuleId,
+        imported_module_id: ModuleId,
         module_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(module_items) = self.module_items.get(imported_module_id) else {
+        let Some(module_items) = self.module_items.get(&imported_module_id) else {
             return;
         };
 
@@ -730,7 +730,7 @@ impl<'a> TreeShaker<'a> {
                     "Preserving exported symbol '{symbol}' from directly imported module \
                      {module_name}"
                 );
-                worklist.push_back((*imported_module_id, symbol.clone()));
+                worklist.push_back((imported_module_id, symbol.clone()));
             }
         }
     }

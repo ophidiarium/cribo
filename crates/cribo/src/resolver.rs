@@ -45,11 +45,11 @@ impl ModuleId {
 
     /// Format this `ModuleId` with the resolver to show the module name and path
     /// This is useful for debugging and error messages
-    pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
-        resolver.get_module_name(*self).map_or_else(
+    pub fn format_with_resolver(self, resolver: &ModuleResolver) -> String {
+        resolver.get_module_name(self).map_or_else(
             || format!("ModuleId({})", self.0),
             |name| {
-                resolver.get_module_path(*self).map_or_else(
+                resolver.get_module_path(self).map_or_else(
                     || format!("ModuleId({})='{}'", self.0, name),
                     |path| format!("ModuleId({})='{}' at '{}'", self.0, name, path.display()),
                 )
