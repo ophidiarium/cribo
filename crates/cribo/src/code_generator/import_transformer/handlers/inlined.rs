@@ -679,20 +679,14 @@ impl InlinedHandler {
                 bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
             }),
         };
-        let (assignments, namespace_requirements) =
-            crate::code_generator::module_registry::create_assignments_for_inlined_imports(
-                import_from,
-                module_name,
-                &params,
-            );
 
-        // Namespace requirements are now handled dynamically during transformation
-        // No need for pre-registration checks
-
-        // The namespaces are now pre-created by detect_namespace_requirements_from_imports
-        // and the aliases are handled by create_assignments_for_inlined_imports,
-        // so we just return the assignments
-        assignments
+        // Create assignments for inlined imports
+        // Namespace requirements are handled dynamically during transformation
+        crate::code_generator::module_registry::create_assignments_for_inlined_imports(
+            import_from,
+            module_name,
+            &params,
+        )
     }
 
     /// Handle entry-module resolution as inlined fast-path

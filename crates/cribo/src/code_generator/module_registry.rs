@@ -146,12 +146,6 @@ pub(crate) fn create_reassignment(original_name: &str, renamed_name: &str) -> St
     )
 }
 
-/// Information about a namespace that needs to be created
-pub(crate) struct NamespaceRequirement {
-    pub path: String,
-    pub var_name: String,
-}
-
 /// Helper function to create an assignment if it doesn't conflict with stdlib names
 fn create_assignment_if_no_stdlib_conflict(
     local_name: &str,
@@ -232,14 +226,13 @@ pub(crate) struct InlinedImportParams<'a> {
 }
 
 /// Create assignments for inlined imports
-/// Returns (statements, `namespace_requirements`)
+/// Returns statements for the import assignments
 pub(crate) fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
     params: &InlinedImportParams<'_>,
-) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
+) -> Vec<Stmt> {
     let mut assignments = Vec::new();
-    let mut namespace_requirements = Vec::new();
 
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
@@ -277,11 +270,6 @@ pub(crate) fn create_assignments_for_inlined_imports(
 
                 // Record that we need a namespace for this module
                 let sanitized_name = get_module_var_identifier(module_id, params.resolver);
-
-                namespace_requirements.push(NamespaceRequirement {
-                    path: full_module_path.clone(),
-                    var_name: sanitized_name.clone(),
-                });
 
                 // If local name differs from sanitized name, create alias
                 // But skip if it would conflict with a stdlib name in scope
@@ -430,7 +418,7 @@ pub(crate) fn create_assignments_for_inlined_imports(
         }
     }
 
-    (assignments, namespace_requirements)
+    assignments
 }
 
 /// Prefix for all cribo-generated init-related names
