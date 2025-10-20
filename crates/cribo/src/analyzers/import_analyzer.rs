@@ -262,7 +262,7 @@ impl ImportAnalyzer {
     fn collect_direct_imports_recursive(
         body: &[Stmt],
         current_module: &str,
-        _module_path: &std::path::Path,
+        module_path: &std::path::Path,
         module_names: &FxIndexSet<&str>,
         directly_imported: &mut FxIndexSet<String>,
     ) {
@@ -284,7 +284,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &func_def.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -294,7 +294,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &class_def.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -304,7 +304,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &if_stmt.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -312,7 +312,7 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &clause.body,
                             current_module,
-                            _module_path,
+                            module_path,
                             module_names,
                             directly_imported,
                         );
@@ -323,7 +323,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &while_stmt.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -331,7 +331,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &while_stmt.orelse,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -341,7 +341,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &for_stmt.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -349,7 +349,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &for_stmt.orelse,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -359,7 +359,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &try_stmt.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -369,7 +369,7 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &except_handler.body,
                             current_module,
-                            _module_path,
+                            module_path,
                             module_names,
                             directly_imported,
                         );
@@ -378,7 +378,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &try_stmt.orelse,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -386,7 +386,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &try_stmt.finalbody,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -396,7 +396,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &with_stmt.body,
                         current_module,
-                        _module_path,
+                        module_path,
                         module_names,
                         directly_imported,
                     );
@@ -407,7 +407,7 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &case.body,
                             current_module,
-                            _module_path,
+                            module_path,
                             module_names,
                             directly_imported,
                         );

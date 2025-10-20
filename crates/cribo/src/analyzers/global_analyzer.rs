@@ -189,12 +189,13 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
             Stmt::Import(import_stmt) if self.is_module_level() => {
                 for alias in &import_stmt.names {
                     // Local binding is `asname` if present, otherwise top-level package segment
-                    let name = if let Some(asname) = &alias.asname {
-                        asname.to_string()
-                    } else {
-                        let full = alias.name.to_string();
-                        full.split('.').next().unwrap_or(&full).to_owned()
-                    };
+                    let name = alias.asname.as_ref().map_or_else(
+                        || {
+                            let full = alias.name.to_string();
+                            full.split('.').next().unwrap_or(&full).to_owned()
+                        },
+                        ToString::to_string,
+                    );
                     // Imports are liftable for globals handling but shouldn't affect
                     // module-level var rewriting behavior
                     self.liftable_vars.insert(name);

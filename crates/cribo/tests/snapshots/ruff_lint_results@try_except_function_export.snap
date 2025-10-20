@@ -1,11 +1,10 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 544
 input_file: crates/cribo/tests/fixtures/try_except_function_export/main.py
 ---
 RuffLintResults {
-    f401_violations: [],
-    f404_violations: [],
-    other_violations: [],
-    total_violations: 0,
+    f401: [],
+    f404: [],
+    other: [],
+    total: 0,
 }
