@@ -155,14 +155,13 @@ impl ImportAnalysisPhase {
                 for alias in &import_stmt.names {
                     // Local binding is either `asname` or the top-level package segment (`pkg` in
                     // `pkg.sub`)
-                    let local_name = alias
-                        .asname
-                        .as_ref()
-                        .map(Identifier::as_str)
-                        .unwrap_or_else(|| {
+                    let local_name = alias.asname.as_ref().map_or_else(
+                        || {
                             let full = alias.name.as_str();
                             full.split('.').next().unwrap_or(full)
-                        });
+                        },
+                        Identifier::as_str,
+                    );
                     state.imported_symbols.insert(local_name.to_owned());
                     debug!(
                         "Collected imported symbol '{}' via 'import' in module '{}'",
