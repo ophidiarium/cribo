@@ -182,14 +182,14 @@ impl PostProcessingPhase {
         log::debug!("Inserting _cribo proxy after __future__ imports");
 
         // Find position after optional module docstring and __future__ imports
-        let mut insert_position = 0;
-
         // Skip leading module docstring
-        if let Some(Stmt::Expr(expr)) = final_body.first()
+        let mut insert_position = if let Some(Stmt::Expr(expr)) = final_body.first()
             && matches!(expr.value.as_ref(), ruff_python_ast::Expr::StringLiteral(_))
         {
-            insert_position = 1;
-        }
+            1
+        } else {
+            0
+        };
 
         // Skip contiguous __future__ imports after docstring
         for (i, stmt) in final_body.iter().enumerate().skip(insert_position) {

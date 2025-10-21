@@ -311,8 +311,7 @@ pub(crate) fn process_statements_for_init_function(
                     body.push(Stmt::Assign(assign_clone.clone()));
 
                     // If this variable is being lifted to a global, update the global
-                    let mut lifted_var_handled = false;
-                    if let Some(lifted_names) = lifted_names
+                    let lifted_var_handled = if let Some(lifted_names) = lifted_names
                         && let Some(name) =
                             expression_handlers::extract_simple_assign_target(&assign_clone)
                         && let Some(lifted_name) = lifted_names.get(&name)
@@ -343,8 +342,10 @@ pub(crate) fn process_statements_for_init_function(
                                  '{name}'"
                             );
                         }
-                        lifted_var_handled = true;
-                    }
+                        true
+                    } else {
+                        false
+                    };
 
                     // Skip further module attribute handling if this was a lifted variable
                     if lifted_var_handled {
