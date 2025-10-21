@@ -1156,7 +1156,7 @@ impl<'a> Bundler<'a> {
         // Create a mapping from module ID to counter for debugging
         let mut module_id_map = FxIndexMap::default();
 
-        for (module_id, (ast, path, _content_hash)) in &mut modules {
+        for (module_id, (ast, _, _content_hash)) in &mut modules {
             let indexed = crate::ast_indexer::index_module_with_id(ast, module_id_counter);
             let node_count = indexed.node_count;
             let module_name = self
