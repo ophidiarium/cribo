@@ -151,10 +151,10 @@ Bundler {
 }
 ```
 
-**Dependency Graph** (`crates/cribo/src/cribo_graph.rs` struct `CriboGraph`)
+**Dependency Graph** (`crates/cribo/src/dependency_graph.rs` struct `DependencyGraph`)
 
 ```rust
-CriboGraph {
+DependencyGraph {
     modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     module_names: FxIndexMap<String, ModuleId>,
 }

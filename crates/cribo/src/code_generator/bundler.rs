@@ -17,7 +17,7 @@ use crate::{
         expression_handlers, import_deduplicator,
         module_registry::{INIT_RESULT_VAR, is_init_function, sanitize_module_name_for_identifier},
     },
-    cribo_graph::CriboGraph,
+    dependency_graph::DependencyGraph,
     resolver::{ModuleId, ModuleResolver},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
@@ -92,7 +92,7 @@ pub(crate) struct Bundler<'a> {
     /// This prevents duplicate population when modules are imported multiple times
     pub(crate) modules_with_populated_symbols: FxIndexSet<ModuleId>,
     /// Reference to the dependency graph for module relationship queries
-    pub(crate) graph: Option<&'a CriboGraph>,
+    pub(crate) graph: Option<&'a DependencyGraph>,
     /// Modules that have explicit __all__ defined
     pub(crate) modules_with_explicit_all: FxIndexSet<ModuleId>,
     /// Transformation context for tracking node mappings
@@ -693,7 +693,7 @@ impl<'a> Bundler<'a> {
         let module = graph.get_module_by_name(module_name)?;
 
         for item_data in module.items.values() {
-            let crate::cribo_graph::ItemType::FromImport {
+            let crate::dependency_graph::ItemType::FromImport {
                 module: from_module,
                 names,
                 level,

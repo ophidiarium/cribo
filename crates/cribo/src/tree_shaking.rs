@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use log::{debug, info, trace, warn};
 
 use crate::{
-    cribo_graph::{CriboGraph, ItemData, ItemType},
+    dependency_graph::{DependencyGraph, ItemData, ItemType},
     resolver::{ModuleId, ModuleResolver},
     types::{FxIndexMap, FxIndexSet},
 };
@@ -13,7 +13,7 @@ use crate::{
 pub(crate) struct TreeShaker<'a> {
     /// Centralized module resolver for import resolution
     resolver: &'a ModuleResolver,
-    /// Module items from semantic analysis (reused from `CriboGraph`)
+    /// Module items from semantic analysis (reused from `DependencyGraph`)
     module_items: FxIndexMap<ModuleId, Vec<ItemData>>,
     /// Final set of symbols to keep (`module_id`, `symbol_name`)
     used_symbols: FxIndexSet<(ModuleId, String)>,
@@ -52,8 +52,8 @@ impl<'a> TreeShaker<'a> {
             .resolve_relative_import_from_package_name(level, name_opt, current_name)
     }
 
-    /// Create a tree shaker from an existing `CriboGraph`
-    pub(crate) fn from_graph(graph: &CriboGraph, resolver: &'a ModuleResolver) -> Self {
+    /// Create a tree shaker from an existing `DependencyGraph`
+    pub(crate) fn from_graph(graph: &DependencyGraph, resolver: &'a ModuleResolver) -> Self {
         let mut module_items = FxIndexMap::default();
         let mut module_names = FxIndexMap::default();
 
@@ -1234,7 +1234,7 @@ mod tests {
 
     #[test]
     fn test_basic_tree_shaking() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
         let resolver = ModuleResolver::new(crate::config::Config::default());
 
         // Create a simple module with used and unused functions

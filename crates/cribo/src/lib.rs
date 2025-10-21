@@ -9,7 +9,7 @@
 
 // Include only the modules that export public API types needed by benchmarks
 pub mod config;
-pub mod cribo_graph;
+pub mod dependency_graph;
 pub mod orchestrator;
 pub mod resolver;
 

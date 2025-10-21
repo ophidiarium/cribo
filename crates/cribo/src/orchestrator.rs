@@ -17,7 +17,7 @@ use crate::{
     },
     code_generator::{Bundler, phases::orchestrator::PhaseOrchestrator},
     config::Config,
-    cribo_graph::CriboGraph,
+    dependency_graph::DependencyGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleId, ModuleResolver},
     symbol_conflict_resolver::SymbolConflictResolver,
@@ -146,7 +146,7 @@ struct StaticBundleParams<'a> {
     sorted_module_ids: &'a [ModuleId],
     parsed_modules: Option<&'a [ParsedModuleData]>, // Optional pre-parsed modules
     resolver: &'a ModuleResolver,
-    graph: &'a CriboGraph,
+    graph: &'a DependencyGraph,
     circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
     tree_shaker: Option<&'a TreeShaker<'a>>,
 }
@@ -154,14 +154,14 @@ struct StaticBundleParams<'a> {
 /// Context for dependency building operations
 struct DependencyContext<'a> {
     resolver: &'a ModuleResolver,
-    graph: &'a mut CriboGraph,
+    graph: &'a mut DependencyGraph,
     current_module_id: ModuleId,
 }
 
 /// Parameters for graph building operations
 struct GraphBuildParams<'a> {
     resolver: &'a ModuleResolver,
-    graph: &'a mut CriboGraph,
+    graph: &'a mut DependencyGraph,
 }
 
 /// Result of the AST processing pipeline
@@ -212,7 +212,7 @@ impl BundleOrchestrator {
         &mut self,
         module_path: &Path,
         module_name: &str,
-        graph: Option<&mut CriboGraph>,
+        graph: Option<&mut DependencyGraph>,
         resolver: Option<&ModuleResolver>,
     ) -> Result<ProcessedModule> {
         // Canonicalize path for consistent caching
@@ -365,7 +365,7 @@ impl BundleOrchestrator {
     fn bundle_core(
         &mut self,
         entry_path: &Path,
-        graph: &mut CriboGraph,
+        graph: &mut DependencyGraph,
         resolver_opt: &mut Option<ModuleResolver>,
     ) -> Result<(
         String,
@@ -488,7 +488,7 @@ impl BundleOrchestrator {
         };
         let parsed_modules = self.build_dependency_graph(&mut build_params)?;
 
-        // In CriboGraph, we track all modules but focus on reachable ones
+        // In DependencyGraph, we track all modules but focus on reachable ones
         debug!("Graph has {} modules", graph.modules.len());
 
         // Enhanced circular dependency detection and analysis
@@ -572,7 +572,7 @@ impl BundleOrchestrator {
     /// Helper to get sorted modules from graph
     fn get_sorted_modules_from_graph(
         &self,
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
         circular_dep_analysis: Option<&CircularDependencyAnalysis>,
     ) -> Result<Vec<ModuleId>> {
         debug!(
@@ -646,7 +646,7 @@ impl BundleOrchestrator {
         info!("Starting bundle process for stdout output");
 
         // Initialize empty graph - resolver will be created in bundle_core
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
         let mut resolver_opt = None;
 
         // Perform core bundling logic
@@ -707,7 +707,7 @@ impl BundleOrchestrator {
         debug!("Output: {}", output_path.display());
 
         // Initialize empty graph - resolver will be created in bundle_core
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
         let mut resolver_opt = None;
 
         // Perform core bundling logic
@@ -766,7 +766,7 @@ impl BundleOrchestrator {
     /// Get modules in a valid order for bundling when there are resolvable circular dependencies
     fn get_modules_with_cycle_resolution(
         &self,
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
         _analysis: &CircularDependencyAnalysis,
     ) -> Vec<ModuleId> {
         debug!("get_modules_with_cycle_resolution: computing SCC condensation over full graph");
@@ -920,13 +920,13 @@ impl BundleOrchestrator {
     /// Extract imports from module items
     fn extract_imports_from_module_items(
         &self,
-        items: &FxIndexMap<crate::cribo_graph::ItemId, crate::cribo_graph::ItemData>,
+        items: &FxIndexMap<crate::dependency_graph::ItemId, crate::dependency_graph::ItemData>,
     ) -> Vec<String> {
         let mut imports = Vec::new();
         for item_data in items.values() {
             match &item_data.item_type {
-                crate::cribo_graph::ItemType::Import { module, .. }
-                | crate::cribo_graph::ItemType::FromImport { module, .. } => {
+                crate::dependency_graph::ItemType::Import { module, .. }
+                | crate::dependency_graph::ItemType::FromImport { module, .. } => {
                     imports.push(module.clone());
                 }
                 _ => {}
@@ -1193,7 +1193,7 @@ impl BundleOrchestrator {
                             .items
                             .values()
                             .find_map(|i| match &i.item_type {
-                                crate::cribo_graph::ItemType::Import { module, alias }
+                                crate::dependency_graph::ItemType::Import { module, alias }
                                     if alias.as_deref() == Some(base_name) =>
                                 {
                                     Some(module.clone())
@@ -1800,7 +1800,7 @@ impl BundleOrchestrator {
         &self,
         sorted_module_ids: &[ModuleId],
         resolver: &ModuleResolver,
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_module_ids, resolver, graph);
         if requirements_content.is_empty() {
@@ -1825,7 +1825,7 @@ impl BundleOrchestrator {
         &self,
         sorted_module_ids: &[ModuleId],
         resolver: &ModuleResolver,
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
         output_path: &Path,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_module_ids, resolver, graph);
@@ -1982,7 +1982,7 @@ impl BundleOrchestrator {
         &self,
         module_ids: &[ModuleId],
         resolver: &ModuleResolver,
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
     ) -> String {
         let mut third_party_imports = IndexSet::new();
 

@@ -7,7 +7,7 @@ use ruff_python_ast::{
 };
 
 use crate::{
-    cribo_graph::CriboGraph,
+    dependency_graph::DependencyGraph,
     resolver::ModuleId,
     symbol_conflict_resolver::SymbolConflictResolver,
     types::{FxIndexMap, FxIndexSet},
@@ -63,7 +63,7 @@ impl ImportRewriter {
     /// Analyze movable imports using semantic analysis for accurate context detection
     pub(crate) fn analyze_movable_imports_semantic(
         &self,
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
         conflict_resolver: &SymbolConflictResolver,
         module_asts: &FxIndexMap<ModuleId, &ModModule>,
@@ -148,7 +148,7 @@ impl ImportRewriter {
         discovered_imports: &[DiscoveredImport],
         source_module_id: ModuleId,
         cycle_module_ids: &[ModuleId],
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
     ) -> Vec<MovableImport> {
         let mut movable = Vec::new();
 
@@ -250,7 +250,7 @@ impl ImportRewriter {
         &self,
         imported_module_name: &str,
         cycle_module_ids: &[ModuleId],
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
     ) -> bool {
         // Check each module ID in the cycle
         for &module_id in cycle_module_ids {

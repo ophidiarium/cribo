@@ -1,10 +1,10 @@
-/// Graph builder that creates `CriboGraph` from Python AST
+/// Graph builder that creates `DependencyGraph` from Python AST
 /// This module bridges the gap between ruff's AST and our dependency graph
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 
 use crate::{
-    cribo_graph::{ItemData, ItemType, ModuleDepGraph},
+    dependency_graph::{ItemData, ItemType, ModuleDepGraph},
     types::{FxIndexMap, FxIndexSet},
     visitors::ExpressionSideEffectDetector,
 };

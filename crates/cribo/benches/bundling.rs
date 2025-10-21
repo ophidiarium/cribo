@@ -131,11 +131,11 @@ fn benchmark_module_resolution(c: &mut Criterion) {
 fn benchmark_dependency_graph(c: &mut Criterion) {
     use std::path::PathBuf;
 
-    use cribo::{cribo_graph::CriboGraph, resolver::ModuleId};
+    use cribo::{dependency_graph::DependencyGraph, resolver::ModuleId};
 
     c.bench_function("build_dependency_graph", |b| {
         b.iter(|| {
-            let mut graph = CriboGraph::new();
+            let mut graph = DependencyGraph::new();
 
             // Add modules
             let main_id = graph.add_module(

@@ -3,7 +3,7 @@ use std::path::Path;
 use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
-    cribo_graph::CriboGraph as DependencyGraph,
+    dependency_graph::DependencyGraph,
     symbol_conflict_resolver::{SymbolConflictResolver, SymbolRegistry},
     types::{FxIndexMap, FxIndexSet},
 };

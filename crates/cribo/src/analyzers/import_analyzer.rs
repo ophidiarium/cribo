@@ -10,7 +10,7 @@ use ruff_python_ast::{Expr, ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
-    cribo_graph::{ItemData, ItemId},
+    dependency_graph::{ItemData, ItemId},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -23,7 +23,7 @@ struct ImportUsageContext<'a> {
     import_id: ItemId,
     is_init_py: bool,
     import_data: &'a ItemData,
-    module: &'a crate::cribo_graph::ModuleDepGraph,
+    module: &'a crate::dependency_graph::ModuleDepGraph,
 }
 
 impl ImportAnalyzer {
@@ -121,7 +121,7 @@ impl ImportAnalyzer {
 
     /// Find unused imports in a specific module
     pub(crate) fn find_unused_imports_in_module(
-        module: &crate::cribo_graph::ModuleDepGraph,
+        module: &crate::dependency_graph::ModuleDepGraph,
         is_init_py: bool,
     ) -> Vec<UnusedImportInfo> {
         let mut unused_imports = Vec::new();
@@ -142,8 +142,10 @@ impl ImportAnalyzer {
 
                 if Self::is_import_unused(&ctx) {
                     let module_name = match &import_data.item_type {
-                        crate::cribo_graph::ItemType::Import { module, .. }
-                        | crate::cribo_graph::ItemType::FromImport { module, .. } => module.clone(),
+                        crate::dependency_graph::ItemType::Import { module, .. }
+                        | crate::dependency_graph::ItemType::FromImport { module, .. } => {
+                            module.clone()
+                        }
                         _ => continue,
                     };
 
@@ -167,7 +169,7 @@ impl ImportAnalyzer {
         }
 
         // Check if it's a star import
-        if let crate::cribo_graph::ItemType::FromImport { is_star: true, .. } =
+        if let crate::dependency_graph::ItemType::FromImport { is_star: true, .. } =
             &ctx.import_data.item_type
         {
             // Star imports are always preserved
@@ -243,10 +245,10 @@ impl ImportAnalyzer {
     /// Check if a name is in the module's __all__ export list
     /// This is the single source of truth for __all__ exports, using the `reexported_names`
     /// field which is populated by the `ExportCollector` during graph building
-    fn is_in_module_exports(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
+    fn is_in_module_exports(module: &crate::dependency_graph::ModuleDepGraph, name: &str) -> bool {
         // Look for __all__ assignment
         for item_data in module.items.values() {
-            if let crate::cribo_graph::ItemType::Assignment { targets } = &item_data.item_type
+            if let crate::dependency_graph::ItemType::Assignment { targets } = &item_data.item_type
                 && targets.contains(&"__all__".to_owned())
             {
                 // Check if the name is in the reexported_names set

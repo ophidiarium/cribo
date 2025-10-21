@@ -8,7 +8,7 @@ use crate::{
         CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
         ResolutionStrategy,
     },
-    cribo_graph::{CriboGraph as DependencyGraph, ItemType},
+    dependency_graph::{DependencyGraph, ItemType},
 };
 
 /// Analyze circular dependencies and classify them
@@ -23,8 +23,8 @@ pub(crate) fn analyze_circular_dependencies(graph: &DependencyGraph) -> Circular
             continue; // Not a cycle
         }
 
-        // Work directly with module IDs (already resolver::ModuleId since CriboGraph re-exports
-        // it)
+        // Work directly with module IDs (already resolver::ModuleId since DependencyGraph
+        // re-exports it)
         let module_ids: Vec<crate::resolver::ModuleId> = scc.clone();
         // Non-empty by construction (scc.len() > 1 above)
 

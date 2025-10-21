@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-/// `CriboGraph`: Advanced dependency graph implementation for Python bundling
+/// `DependencyGraph`: Advanced dependency graph implementation for Python bundling
 ///
 /// This module provides a sophisticated dependency tracking system that combines:
 /// - Fine-grained item-level tracking (inspired by Turbopack)
@@ -126,7 +126,7 @@ pub struct ItemData {
 
 /// Fine-grained dependency graph for a single module
 /// Module-level dependency graph
-/// Note: Made `pub` because it's exposed through `CriboGraph::modules` (pub field)
+/// Note: Made `pub` because it's exposed through `DependencyGraph::modules` (pub field)
 #[allow(unreachable_pub)]
 #[derive(Debug)]
 pub struct ModuleDepGraph {
@@ -284,7 +284,7 @@ impl ModuleDepGraph {
 /// Note: Made `pub` for benchmark access via lib.rs (benchmarks are part of public API surface)
 #[allow(unreachable_pub)]
 #[derive(Debug)]
-pub struct CriboGraph {
+pub struct DependencyGraph {
     /// All modules in the graph
     pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping
@@ -311,7 +311,7 @@ pub struct CriboGraph {
     modules_accessing_all: FxIndexSet<(ModuleId, ModuleId)>,
 }
 
-impl CriboGraph {
+impl DependencyGraph {
     /// Create a new cribo dependency graph
     #[allow(unreachable_pub)]
     pub fn new() -> Self {
@@ -516,7 +516,7 @@ impl CriboGraph {
     }
 }
 
-impl Default for CriboGraph {
+impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
     }
@@ -529,7 +529,7 @@ mod tests {
 
     #[test]
     fn test_basic_module_graph() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         let utils_id = graph.add_module(
             ModuleId::new(0),
@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_circular_dependency_detection() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         // Create a three-module circular dependency: A -> B -> C -> A
         let module_a = graph.add_module(
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_circular_dependency_classification() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         // Create a circular dependency with "constants" in the name
         let constants_a = graph.add_module(
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_file_based_deduplication() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         // Add a module with a canonical path
         let path = PathBuf::from("src/utils.py");

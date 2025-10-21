@@ -12,7 +12,7 @@ mod ast_indexer;
 mod code_generator;
 mod combine;
 mod config;
-mod cribo_graph;
+mod dependency_graph;
 mod dirs;
 mod graph_builder;
 mod import_alias_tracker;
