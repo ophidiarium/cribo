@@ -55,7 +55,9 @@ impl ClassificationPhase {
         let classification = classifier.classify_modules(modules, python_version);
 
         // Store modules with explicit __all__ declarations
-        bundler.modules_with_explicit_all = classification.modules_with_explicit_all.clone();
+        bundler
+            .modules_with_explicit_all
+            .clone_from(&classification.modules_with_explicit_all);
 
         // Track inlined modules and store their exports
         Self::track_inlined_modules(bundler, &classification);
