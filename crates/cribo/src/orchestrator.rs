@@ -20,7 +20,7 @@ use crate::{
     cribo_graph::CriboGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleId, ModuleResolver},
-    semantic_bundler::SemanticBundler,
+    symbol_conflict_resolver::SymbolConflictResolver,
     tree_shaking::TreeShaker,
     types::FxIndexMap,
     util::{module_name_from_relative, normalize_line_endings},
@@ -181,7 +181,7 @@ struct ProcessedModule {
 #[allow(unreachable_pub)]
 pub struct BundleOrchestrator {
     config: Config,
-    semantic_bundler: SemanticBundler,
+    conflict_resolver: SymbolConflictResolver,
     /// Central registry for module information
     module_registry: ModuleRegistry,
     /// Cache of processed modules to ensure we only parse and transform once
@@ -193,7 +193,7 @@ impl BundleOrchestrator {
     pub fn new(config: Config) -> Self {
         Self {
             config,
-            semantic_bundler: SemanticBundler::new(),
+            conflict_resolver: SymbolConflictResolver::new(),
             module_registry: ModuleRegistry::new(),
             module_cache: std::sync::Mutex::new(FxIndexMap::default()),
         }
@@ -243,7 +243,7 @@ impl BundleOrchestrator {
                     graph.add_module(module_id, module_name.to_owned(), module_path);
 
                     // Perform semantic analysis
-                    self.semantic_bundler
+                    self.conflict_resolver
                         .analyze_module(module_id, &cached.ast, module_path);
 
                     // Add to module registry
@@ -292,7 +292,7 @@ impl BundleOrchestrator {
             graph.add_module(module_id, module_name.to_owned(), module_path);
 
             // Semantic analysis on raw AST
-            self.semantic_bundler
+            self.conflict_resolver
                 .analyze_module(module_id, &ast, module_path);
 
             // Add to module registry
@@ -1852,7 +1852,7 @@ impl BundleOrchestrator {
     /// Emit bundle using static bundler (no exec calls)
     fn emit_static_bundle(&mut self, params: &StaticBundleParams<'_>) -> Result<String> {
         // First, detect and resolve conflicts after all modules have been analyzed
-        let conflicts = self.semantic_bundler.detect_and_resolve_conflicts();
+        let conflicts = self.conflict_resolver.detect_and_resolve_conflicts();
         if !conflicts.is_empty() {
             info!(
                 "Detected {} symbol conflicts across modules, applying renaming strategy",
@@ -1909,7 +1909,7 @@ impl BundleOrchestrator {
             let movable_imports = import_rewriter.analyze_movable_imports_semantic(
                 params.graph,
                 &analysis.resolvable_cycles,
-                &self.semantic_bundler,
+                &self.conflict_resolver,
                 &module_ast_map,
             );
 
@@ -1932,7 +1932,7 @@ impl BundleOrchestrator {
                 sorted_module_ids: params.sorted_module_ids,
                 resolver: params.resolver,
                 graph: params.graph,
-                semantic_bundler: &self.semantic_bundler,
+                conflict_resolver: &self.conflict_resolver,
                 circular_dep_analysis: params.circular_dep_analysis,
                 tree_shaker: params.tree_shaker,
                 python_version: self.config.python_version().unwrap_or(10),

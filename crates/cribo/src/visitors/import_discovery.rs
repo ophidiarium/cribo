@@ -11,7 +11,7 @@ use ruff_text_size::TextRange;
 
 use crate::{
     resolver::ModuleId,
-    semantic_bundler::SemanticBundler,
+    symbol_conflict_resolver::SymbolConflictResolver,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -121,7 +121,7 @@ pub(crate) struct ImportDiscoveryVisitor<'a> {
     /// Track usage of each imported name
     name_usage: FxIndexMap<String, Vec<ImportUsage>>,
     /// Optional reference to semantic bundler for enhanced analysis
-    _semantic_bundler: Option<&'a SemanticBundler>,
+    _semantic_bundler: Option<&'a SymbolConflictResolver>,
     /// Current module ID if available
     _module_id: Option<ModuleId>,
     /// Current execution context
@@ -155,9 +155,9 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         }
     }
 
-    /// Create a new visitor with semantic bundler for enhanced analysis
-    pub(crate) fn with_semantic_bundler(
-        semantic_bundler: &'a SemanticBundler,
+    /// Create a new visitor with conflict resolver for enhanced analysis
+    pub(crate) fn with_conflict_resolver(
+        conflict_resolver: &'a SymbolConflictResolver,
         module_id: ModuleId,
     ) -> Self {
         Self {
@@ -165,7 +165,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             scope_stack: Vec::new(),
             imported_names_stack: vec![FxIndexMap::default()],
             name_usage: FxIndexMap::default(),
-            _semantic_bundler: Some(semantic_bundler),
+            _semantic_bundler: Some(conflict_resolver),
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
             type_checking_stack: Vec::new(),

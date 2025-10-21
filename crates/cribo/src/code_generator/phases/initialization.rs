@@ -41,7 +41,7 @@ impl InitializationPhase {
         bundler.graph = Some(params.graph);
 
         // Store the semantic bundler reference for use in transformations
-        bundler.semantic_bundler = Some(params.semantic_bundler);
+        bundler.conflict_resolver = Some(params.conflict_resolver);
 
         // Initialize bundler settings and collect preliminary data
         bundler.initialize_bundler(params);

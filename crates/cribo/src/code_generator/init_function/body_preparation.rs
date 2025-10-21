@@ -151,10 +151,10 @@ impl BodyPreparationPhase {
         bundler: &'a Bundler<'_>,
         ctx: &ModuleTransformContext<'a>,
     ) -> Option<&'a FxIndexSet<String>> {
-        let semantic_bundler = ctx.semantic_bundler?;
+        let conflict_resolver = ctx.conflict_resolver?;
 
         debug!(
-            "Looking up module ID for '{}' in semantic bundler",
+            "Looking up module ID for '{}' in conflict resolver",
             ctx.module_name
         );
 
@@ -179,7 +179,7 @@ impl BodyPreparationPhase {
             });
 
         if let Some(module_id) = module_id {
-            if let Some(module_info) = semantic_bundler.get_module_info(module_id) {
+            if let Some(module_info) = conflict_resolver.get_module_info(module_id) {
                 debug!(
                     "Found module-scope symbols for '{}': {:?}",
                     ctx.module_name, module_info.module_scope_symbols

@@ -27,7 +27,7 @@ use crate::{
 /// Parameters for transforming functions with lifted globals
 struct TransformFunctionParams<'a> {
     lifted_names: &'a FxIndexMap<String, String>,
-    global_info: &'a crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &'a crate::symbol_conflict_resolver::ModuleGlobalInfo,
     function_globals: &'a FxIndexSet<String>,
     module_name: Option<&'a str>,
 }
@@ -107,9 +107,10 @@ pub(crate) struct Bundler<'a> {
     /// Global cache of all kept symbols for O(1) lookup
     /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
     pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
-    /// Reference to the semantic bundler for semantic analysis
-    /// This is set during bundling and used by import transformers
-    pub(crate) semantic_bundler: Option<&'a crate::semantic_bundler::SemanticBundler>,
+    /// Reference to the symbol conflict resolver for detecting and resolving name conflicts
+    /// This is set during bundling and provides access to symbol renames and conflict information
+    pub(crate) conflict_resolver:
+        Option<&'a crate::symbol_conflict_resolver::SymbolConflictResolver>,
     /// Track which wrapper modules have had their init function emitted (definition + assignment)
     pub(crate) emitted_wrapper_inits: FxIndexSet<ModuleId>,
 }
@@ -610,7 +611,7 @@ impl<'a> Bundler<'a> {
             tree_shaking_keep_symbols: None,
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,
-            semantic_bundler: None,
+            conflict_resolver: None,
             emitted_wrapper_inits: FxIndexSet::default(),
         }
     }
@@ -748,7 +749,7 @@ impl<'a> Bundler<'a> {
         let mut module_renames = FxIndexMap::default();
 
         // Use ModuleSemanticInfo to get ALL exported symbols from the module
-        if let Some(module_info) = semantic_ctx.semantic_bundler.get_module_info(module_id) {
+        if let Some(module_info) = semantic_ctx.conflict_resolver.get_module_info(module_id) {
             log::debug!(
                 "Module '{}' exports {} symbols: {:?}",
                 module_name,
@@ -2441,7 +2442,7 @@ impl<'a> Bundler<'a> {
         &self,
         ast: &mut ModModule,
         lifted_names: &FxIndexMap<String, String>,
-        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
         module_name: Option<&str>,
     ) {
         // Transform all statements that use global declarations
@@ -2461,7 +2462,7 @@ impl<'a> Bundler<'a> {
         &self,
         stmt: &mut Stmt,
         lifted_names: &FxIndexMap<String, String>,
-        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
         current_function_globals: Option<&FxIndexSet<String>>,
         module_name: Option<&str>,
     ) {

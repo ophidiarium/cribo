@@ -4,7 +4,7 @@ use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
-    semantic_bundler::{SemanticBundler, SymbolRegistry},
+    symbol_conflict_resolver::{SymbolConflictResolver, SymbolRegistry},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -13,8 +13,8 @@ use crate::{
 pub(crate) struct ModuleTransformContext<'a> {
     pub module_name: &'a str,
     pub module_path: &'a Path,
-    pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
-    pub semantic_bundler: Option<&'a SemanticBundler>,
+    pub global_info: Option<crate::symbol_conflict_resolver::ModuleGlobalInfo>,
+    pub conflict_resolver: Option<&'a SymbolConflictResolver>,
     pub python_version: u8,
     /// Whether this module is being transformed as a wrapper function body
     pub is_wrapper_body: bool,
@@ -42,7 +42,7 @@ pub(crate) struct InlineContext<'a> {
 pub(crate) struct SemanticContext<'a> {
     pub graph: &'a DependencyGraph,
     pub symbol_registry: &'a SymbolRegistry,
-    pub semantic_bundler: &'a SemanticBundler,
+    pub conflict_resolver: &'a SymbolConflictResolver,
 }
 
 /// Parameters for the bundling process
@@ -56,7 +56,7 @@ pub(crate) struct BundleParams<'a> {
     pub resolver: &'a crate::resolver::ModuleResolver, // To query module info
     pub graph: &'a DependencyGraph,                    /* Dependency graph for unused import
                                                         * detection */
-    pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
+    pub conflict_resolver: &'a SymbolConflictResolver, // Symbol conflict resolution
     pub circular_dep_analysis: Option<&'a crate::analyzers::types::CircularDependencyAnalysis>, /* Circular dependency analysis */
     pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker<'a>>, // Tree shaking analysis
     pub python_version: u8,                                           /* Target Python version

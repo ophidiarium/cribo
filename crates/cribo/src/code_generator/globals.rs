@@ -6,7 +6,7 @@ use ruff_python_ast::{
 
 use crate::{
     ast_builder::expressions, code_generator::module_registry::sanitize_module_name_for_identifier,
-    semantic_bundler::ModuleGlobalInfo, types::FxIndexMap,
+    symbol_conflict_resolver::ModuleGlobalInfo, types::FxIndexMap,
 };
 
 /// Type of introspection function being transformed

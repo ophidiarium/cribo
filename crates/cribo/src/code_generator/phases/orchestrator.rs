@@ -70,8 +70,8 @@ impl PhaseOrchestrator {
         log::debug!("[Orchestrator] Phase 4: Symbol Rename Collection");
         let semantic_ctx = SemanticContext {
             graph: params.graph,
-            symbol_registry: params.semantic_bundler.symbol_registry(),
-            semantic_bundler: params.semantic_bundler,
+            symbol_registry: params.conflict_resolver.symbol_registry(),
+            conflict_resolver: params.conflict_resolver,
         };
         let mut symbol_renames = bundler.collect_symbol_renames(&modules, &semantic_ctx);
 

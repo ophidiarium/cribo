@@ -9,7 +9,7 @@ use ruff_python_ast::{
 use crate::{
     cribo_graph::CriboGraph,
     resolver::ModuleId,
-    semantic_bundler::SemanticBundler,
+    symbol_conflict_resolver::SymbolConflictResolver,
     types::{FxIndexMap, FxIndexSet},
     visitors::{DiscoveredImport, ImportDiscoveryVisitor, ImportLocation},
 };
@@ -65,7 +65,7 @@ impl ImportRewriter {
         &self,
         graph: &CriboGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
-        semantic_bundler: &SemanticBundler,
+        conflict_resolver: &SymbolConflictResolver,
         module_asts: &FxIndexMap<ModuleId, &ModModule>,
     ) -> Vec<MovableImport> {
         let mut movable_imports = Vec::new();
@@ -99,29 +99,30 @@ impl ImportRewriter {
                 };
 
                 // Check if we've already analyzed this module
-                let discovered_imports = if let Some(cached_imports) =
-                    module_import_cache.get(&module_id)
-                {
-                    trace!("Using cached import analysis for module '{module_name}'");
-                    cached_imports.clone()
-                } else {
-                    // Find the AST for this module using ModuleId
-                    let Some(ast) = module_asts.get(&module_id) else {
-                        continue;
+                let discovered_imports =
+                    if let Some(cached_imports) = module_import_cache.get(&module_id) {
+                        trace!("Using cached import analysis for module '{module_name}'");
+                        cached_imports.clone()
+                    } else {
+                        // Find the AST for this module using ModuleId
+                        let Some(ast) = module_asts.get(&module_id) else {
+                            continue;
+                        };
+
+                        // Perform semantic analysis using enhanced ImportDiscoveryVisitor
+                        let mut visitor = ImportDiscoveryVisitor::with_conflict_resolver(
+                            conflict_resolver,
+                            module_id,
+                        );
+                        for stmt in &ast.body {
+                            visitor.visit_stmt(stmt);
+                        }
+                        let imports = visitor.into_imports();
+
+                        // Cache the results for future use
+                        module_import_cache.insert(module_id, imports.clone());
+                        imports
                     };
-
-                    // Perform semantic analysis using enhanced ImportDiscoveryVisitor
-                    let mut visitor =
-                        ImportDiscoveryVisitor::with_semantic_bundler(semantic_bundler, module_id);
-                    for stmt in &ast.body {
-                        visitor.visit_stmt(stmt);
-                    }
-                    let imports = visitor.into_imports();
-
-                    // Cache the results for future use
-                    module_import_cache.insert(module_id, imports.clone());
-                    imports
-                };
 
                 // Find movable imports based on semantic analysis
                 let candidates = self.find_movable_imports_from_discovered(

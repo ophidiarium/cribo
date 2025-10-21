@@ -15,7 +15,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    semantic_bundler::ModuleGlobalInfo,
+    symbol_conflict_resolver::ModuleGlobalInfo,
     types::{FxIndexMap, FxIndexSet},
 };
 

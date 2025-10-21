@@ -502,7 +502,7 @@ pub(super) fn transform_expr_for_lifted_globals(
     bundler: &Bundler<'_>,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) {
     match expr {
@@ -673,7 +673,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
     bundler: &Bundler<'_>,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) {
     if let Expr::FString(fstring) = expr {
@@ -739,7 +739,7 @@ pub(super) fn transform_fstring_expression(
     bundler: &Bundler<'_>,
     expr_elem: &ruff_python_ast::InterpolatedElement,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) -> (ruff_python_ast::InterpolatedElement, bool) {
     // Clone and transform the expression

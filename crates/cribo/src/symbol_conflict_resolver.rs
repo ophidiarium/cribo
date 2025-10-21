@@ -1,7 +1,9 @@
-//! Semantic analysis for Python bundling using `ruff_python_semantic`
+//! Symbol conflict detection and resolution for Python bundling
 //!
-//! This module leverages ruff's existing semantic analysis infrastructure
-//! to detect symbol conflicts across modules during bundling.
+//! This module uses ruff's semantic analysis to detect when multiple modules
+//! define symbols with the same name, then generates unique renames to resolve
+//! conflicts. It maintains a global symbol registry and per-module semantic
+//! information to ensure the bundled output has no name collisions.
 
 use std::path::Path;
 
@@ -19,9 +21,15 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
+/// Analyzes and resolves symbol conflicts across modules during bundling
+///
+/// This analyzer uses ruff's semantic analysis to:
+/// - Detect when multiple modules define symbols with the same name
+/// - Generate unique renames to resolve conflicts (e.g., `Logger` → `Logger_1`, `Logger_2`)
+/// - Track exported symbols and module-scope bindings
+/// - Manage import aliases for resolving symbol sources
 #[derive(Debug)]
-pub(crate) struct SemanticBundler {
+pub(crate) struct SymbolConflictResolver {
     /// Module-specific semantic models
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
     /// Global symbol registry with full semantic information
@@ -438,14 +446,14 @@ pub(crate) struct ModuleGlobalInfo {
     pub module_name: String,
 }
 
-impl Default for SemanticBundler {
+impl Default for SymbolConflictResolver {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SemanticBundler {
-    /// Create a new semantic bundler
+impl SymbolConflictResolver {
+    /// Create a new symbol conflict resolver
     pub(crate) fn new() -> Self {
         Self {
             module_semantics: FxIndexMap::default(),

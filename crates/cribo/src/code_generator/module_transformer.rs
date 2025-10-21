@@ -1885,7 +1885,7 @@ pub(crate) fn transform_ast_with_lifted_globals(
     bundler: &Bundler<'_>,
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     module_name: Option<&str>,
 ) {
     bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info, module_name);
