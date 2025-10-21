@@ -220,7 +220,7 @@ mod tests {
             ruff_python_ast::Mod::Module(module) => {
                 SymbolUsageVisitor::collect_used_symbols(&module.body)
             }
-            _ => panic!("Expected module"),
+            ruff_python_ast::Mod::Expression(_) => panic!("Expected module"),
         }
     }
 

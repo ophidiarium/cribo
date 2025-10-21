@@ -374,7 +374,7 @@ impl ImportRewriter {
                 // Check if all names in the movable import are present in the statement
                 self.all_names_present_in_statement(names, &import_from.names)
             }
-            _ => false,
+            ImportStatement::Import { .. } => false,
         }
     }
 

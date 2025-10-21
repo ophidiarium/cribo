@@ -471,7 +471,7 @@ pub(crate) fn rewrite_aliases_in_expr(
                     .iter()
                     .find_map(|part| match part {
                         ruff_python_ast::FStringPart::FString(f) => Some(f),
-                        _ => None,
+                        ruff_python_ast::FStringPart::Literal(_) => None,
                     })
                     .map_or_else(ruff_python_ast::FStringFlags::empty, |fstring_part| {
                         fstring_part.flags
