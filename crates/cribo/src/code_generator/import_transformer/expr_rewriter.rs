@@ -600,7 +600,8 @@ impl ExpressionRewriter {
 
     /// Collect the full dotted attribute path from a potentially nested attribute expression
     /// Returns (`base_name`, [attr1, attr2, ...])
-    /// For example: greetings.greeting.message returns (Some("greetings"), ["greeting", "message"])
+    /// For example: `greetings.greeting.message` returns `(Some("greetings"), ["greeting",
+    /// "message"])`
     fn collect_attribute_path(expr: &Expr) -> (Option<String>, Vec<String>) {
         let mut attrs = Vec::new();
         let mut current = expr;

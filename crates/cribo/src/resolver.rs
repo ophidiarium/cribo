@@ -290,7 +290,7 @@ pub enum ImportType {
 struct ImportModuleDescriptor {
     /// Number of leading dots for relative imports
     leading_dots: usize,
-    /// Module name parts (e.g., ["foo", "bar"] for "foo.bar")
+    /// Module name parts (e.g., `["foo", "bar"]` for `"foo.bar"`)
     name_parts: Vec<String>,
 }
 

@@ -118,7 +118,7 @@ pub struct ItemData {
     /// NEW: Map of symbol -> other symbols it references (for tree-shaking)
     pub symbol_dependencies: FxIndexMap<String, FxIndexSet<String>>,
     /// NEW: Map of variable -> accessed attributes (for tree-shaking namespace access)
-    /// e.g., {"greetings": ["message"]} for greetings.message
+    /// e.g., `{"greetings": ["message"]}` for `greetings.message`
     pub attribute_accesses: FxIndexMap<String, FxIndexSet<String>>,
     /// For scoped items: the containing scope name (function or class name)
     pub containing_scope: Option<String>,
