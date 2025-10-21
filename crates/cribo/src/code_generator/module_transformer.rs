@@ -611,19 +611,7 @@ pub(crate) fn process_statements_for_init_function(
                 let mut stmt_clone = stmt.clone();
                 // Use actual module-level variables if available, but filter to only exported
                 // ones
-                let module_level_vars =
-                    ctx.global_info
-                        .as_ref()
-                        .map_or_else(FxIndexSet::default, |global_info| {
-                            let all_vars = &global_info.module_level_vars;
-                            let mut exported_vars = FxIndexSet::default();
-                            for var in all_vars {
-                                if bundler.should_export_symbol(var, ctx.module_name) {
-                                    exported_vars.insert(var.clone());
-                                }
-                            }
-                            exported_vars
-                        });
+                let module_level_vars = get_exported_module_vars(bundler, ctx);
                 let transform_ctx = ModuleVarTransformContext {
                     bundler,
                     module_level_vars: &module_level_vars,
