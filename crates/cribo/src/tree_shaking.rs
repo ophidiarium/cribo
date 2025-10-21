@@ -3,17 +3,17 @@ use std::collections::VecDeque;
 use log::{debug, info, trace, warn};
 
 use crate::{
-    cribo_graph::{CriboGraph, ItemData, ItemType},
+    dependency_graph::{DependencyGraph, ItemData, ItemType},
     resolver::{ModuleId, ModuleResolver},
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Tree shaker that removes unused symbols from modules
 #[derive(Debug)]
-pub struct TreeShaker<'a> {
+pub(crate) struct TreeShaker<'a> {
     /// Centralized module resolver for import resolution
     resolver: &'a ModuleResolver,
-    /// Module items from semantic analysis (reused from `CriboGraph`)
+    /// Module items from semantic analysis (reused from `DependencyGraph`)
     module_items: FxIndexMap<ModuleId, Vec<ItemData>>,
     /// Final set of symbols to keep (`module_id`, `symbol_name`)
     used_symbols: FxIndexSet<(ModuleId, String)>,
@@ -47,13 +47,13 @@ impl<'a> TreeShaker<'a> {
         let current_name = self
             .module_names
             .get(&current_module_id)
-            .map_or("", std::string::String::as_str);
+            .map_or("", String::as_str);
         self.resolver
             .resolve_relative_import_from_package_name(level, name_opt, current_name)
     }
 
-    /// Create a tree shaker from an existing `CriboGraph`
-    pub fn from_graph(graph: &CriboGraph, resolver: &'a ModuleResolver) -> Self {
+    /// Create a tree shaker from an existing `DependencyGraph`
+    pub(crate) fn from_graph(graph: &DependencyGraph, resolver: &'a ModuleResolver) -> Self {
         let mut module_items = FxIndexMap::default();
         let mut module_names = FxIndexMap::default();
 
@@ -90,7 +90,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Analyze which symbols should be kept based on entry point
-    pub fn analyze(&mut self, entry_module: &str) {
+    pub(crate) fn analyze(&mut self, entry_module: &str) {
         info!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // Verify that the entry module is registered with the expected ID
@@ -213,7 +213,7 @@ impl<'a> TreeShaker<'a> {
                                 Self::is_all_assignment(it) && it.eventual_read_vars.contains(alias)
                             });
                             if in_all {
-                                return Some((resolved_id, alias.to_string()));
+                                return Some((resolved_id, alias.to_owned()));
                             }
                         }
                     }
@@ -335,16 +335,13 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Mark all symbols transitively used from entry module
-    pub fn mark_used_symbols(&mut self, entry_id: ModuleId) {
+    pub(crate) fn mark_used_symbols(&mut self, entry_id: ModuleId) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
 
         // First pass: find all direct module imports across all modules
         // Also detect dynamic access patterns that require keeping all __all__ symbols
         for (&module_id, items) in &self.module_items {
-            let module_name = self
-                .module_names
-                .get(&module_id)
-                .map_or("", std::string::String::as_str);
+            let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
             // Check if this module uses dynamic access pattern (locals()/vars() with __all__)
             let uses_dynamic_access = self.module_uses_dynamic_all_access(items);
 
@@ -376,7 +373,7 @@ impl<'a> TreeShaker<'a> {
                                 // This is important for modules that export classes with
                                 // dependencies
                                 self.preserve_exported_symbols(
-                                    &imported_module_id,
+                                    imported_module_id,
                                     module,
                                     &mut worklist,
                                 );
@@ -601,7 +598,7 @@ impl<'a> TreeShaker<'a> {
                                     "Symbol {symbol} resolved via wildcard re-export from \
                                      {resolved_module_name}"
                                 );
-                                worklist.push_back((resolved_module_id, symbol.to_string()));
+                                worklist.push_back((resolved_module_id, symbol.to_owned()));
                                 self.add_item_dependencies(item, module_id, worklist);
                                 return;
                             }
@@ -712,11 +709,11 @@ impl<'a> TreeShaker<'a> {
     /// Preserve exported symbols from a directly imported module
     fn preserve_exported_symbols(
         &self,
-        imported_module_id: &ModuleId,
+        imported_module_id: ModuleId,
         module_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(module_items) = self.module_items.get(imported_module_id) else {
+        let Some(module_items) = self.module_items.get(&imported_module_id) else {
             return;
         };
 
@@ -733,7 +730,7 @@ impl<'a> TreeShaker<'a> {
                     "Preserving exported symbol '{symbol}' from directly imported module \
                      {module_name}"
                 );
-                worklist.push_back((*imported_module_id, symbol.clone()));
+                worklist.push_back((imported_module_id, symbol.clone()));
             }
         }
     }
@@ -931,10 +928,7 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Get symbols that survive tree-shaking for a module
-    pub fn get_used_symbols_for_module(
-        &self,
-        module_name: &str,
-    ) -> crate::types::FxIndexSet<String> {
+    pub(crate) fn get_used_symbols_for_module(&self, module_name: &str) -> FxIndexSet<String> {
         // Get the ModuleId for this module name
         if let Some(&module_id) = self.module_name_to_id.get(module_name) {
             self.used_symbols
@@ -948,11 +942,11 @@ impl<'a> TreeShaker<'a> {
     }
 
     /// Check if a symbol is used after tree-shaking
-    pub fn is_symbol_used(&self, module_name: &str, symbol_name: &str) -> bool {
+    pub(crate) fn is_symbol_used(&self, module_name: &str, symbol_name: &str) -> bool {
         // Get the ModuleId for this module name
         if let Some(&module_id) = self.module_name_to_id.get(module_name) {
             self.used_symbols
-                .contains(&(module_id, symbol_name.to_string()))
+                .contains(&(module_id, symbol_name.to_owned()))
         } else {
             false
         }
@@ -961,8 +955,8 @@ impl<'a> TreeShaker<'a> {
     // Removed get_unused_symbols_for_module: dead code
 
     /// Check if a module has side effects that prevent tree-shaking
-    pub fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
-        if let Some(items) = self.module_items.get(&module_id) {
+    pub(crate) fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
+        self.module_items.get(&module_id).is_some_and(|items| {
             // Check if any top-level item has side effects
             items.iter().any(|item| {
                 item.has_side_effects
@@ -971,9 +965,7 @@ impl<'a> TreeShaker<'a> {
                         ItemType::Import { .. } | ItemType::FromImport { .. }
                     )
             })
-        } else {
-            false
-        }
+        })
     }
 
     /// Helper method to add variables to the worklist, resolving imports and finding definitions
@@ -1009,10 +1001,7 @@ impl<'a> TreeShaker<'a> {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let module_name = self
-            .module_names
-            .get(&module_id)
-            .map_or("", std::string::String::as_str);
+        let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
         for (base_var, accessed_attrs) in attribute_accesses {
             // 1) Module alias via `import x.y as z`
             if let Some(source_module_id) = self.resolve_module_import_alias(module_id, base_var) {
@@ -1124,7 +1113,7 @@ impl<'a> TreeShaker<'a> {
         let resolved_from_module = self
             .module_names
             .get(&resolved_from_module_id)
-            .map_or("", std::string::String::as_str);
+            .map_or("", String::as_str);
         for item in target_items {
             if Self::is_all_assignment(item) {
                 // Mark all symbols listed in __all__
@@ -1146,7 +1135,7 @@ impl<'a> TreeShaker<'a> {
         let resolved_from_module = self
             .module_names
             .get(&resolved_from_module_id)
-            .map_or("", std::string::String::as_str);
+            .map_or("", String::as_str);
         for item in target_items {
             for symbol in &item.defined_symbols {
                 if !symbol.starts_with('_') {
@@ -1159,7 +1148,11 @@ impl<'a> TreeShaker<'a> {
 
     /// Helper method to check if an item is an __all__ assignment
     fn is_all_assignment(item: &ItemData) -> bool {
-        matches!(&item.item_type, ItemType::Assignment { targets, .. } if targets.contains(&"__all__".to_string()))
+        matches!(
+            &item.item_type,
+            ItemType::Assignment { targets, .. }
+                if targets.iter().any(|t| t == "__all__")
+        )
     }
 
     /// Check if a module uses the dynamic __all__ access pattern
@@ -1211,10 +1204,7 @@ impl<'a> TreeShaker<'a> {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let module_name = self
-            .module_names
-            .get(&module_id)
-            .map_or("", std::string::String::as_str);
+        let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
         if let Some(items) = self.module_items.get(&module_id) {
             for item in items {
                 if Self::is_all_assignment(item) {
@@ -1248,13 +1238,13 @@ mod tests {
 
     #[test]
     fn test_basic_tree_shaking() {
-        let mut graph = CriboGraph::new();
-        let resolver = crate::resolver::ModuleResolver::new(crate::config::Config::default());
+        let mut graph = DependencyGraph::new();
+        let resolver = ModuleResolver::new(crate::config::Config::default());
 
         // Create a simple module with used and unused functions
         let module_id = graph.add_module(
-            crate::resolver::ModuleId::new(1),
-            "test_module".to_string(),
+            ModuleId::new(1),
+            "test_module".to_owned(),
             &std::path::PathBuf::from("test.py"),
         );
         let module = graph
@@ -1265,12 +1255,12 @@ mod tests {
         // Add a used function
         module.add_item(ItemData {
             item_type: ItemType::FunctionDef {
-                name: "used_func".to_string(),
+                name: "used_func".to_owned(),
             },
-            defined_symbols: ["used_func".into()].into_iter().collect(),
+            defined_symbols: std::iter::once("used_func".into()).collect(),
             read_vars: FxIndexSet::default(),
             eventual_read_vars: FxIndexSet::default(),
-            var_decls: ["used_func".into()].into_iter().collect(),
+            var_decls: std::iter::once("used_func".into()).collect(),
             write_vars: FxIndexSet::default(),
             eventual_write_vars: FxIndexSet::default(),
             has_side_effects: false,
@@ -1284,12 +1274,12 @@ mod tests {
         // Add an unused function
         module.add_item(ItemData {
             item_type: ItemType::FunctionDef {
-                name: "unused_func".to_string(),
+                name: "unused_func".to_owned(),
             },
-            defined_symbols: ["unused_func".into()].into_iter().collect(),
+            defined_symbols: std::iter::once("unused_func".into()).collect(),
             read_vars: FxIndexSet::default(),
             eventual_read_vars: FxIndexSet::default(),
-            var_decls: ["unused_func".into()].into_iter().collect(),
+            var_decls: std::iter::once("unused_func".into()).collect(),
             write_vars: FxIndexSet::default(),
             eventual_write_vars: FxIndexSet::default(),
             has_side_effects: false,
@@ -1302,8 +1292,8 @@ mod tests {
 
         // Add entry module that uses only used_func
         let entry_id = graph.add_module(
-            crate::resolver::ModuleId::new(0),
-            "__main__".to_string(),
+            ModuleId::new(0),
+            "__main__".to_owned(),
             &std::path::PathBuf::from("main.py"),
         );
         let entry = graph
@@ -1314,7 +1304,7 @@ mod tests {
         entry.add_item(ItemData {
             item_type: ItemType::Expression,
             defined_symbols: FxIndexSet::default(),
-            read_vars: ["used_func".into()].into_iter().collect(),
+            read_vars: std::iter::once("used_func".into()).collect(),
             eventual_read_vars: FxIndexSet::default(),
             var_decls: FxIndexSet::default(),
             write_vars: FxIndexSet::default(),

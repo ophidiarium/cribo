@@ -25,7 +25,7 @@ fn run_cribo(args: &[&str]) -> (String, String, i32) {
 fn test_directory_entry_init_py_priority() {
     let temp_dir = TempDir::new().unwrap();
     let package_dir = temp_dir.path().join("testpkg");
-    fs::create_dir(&package_dir).unwrap();
+    fs::create_dir_all(&package_dir).unwrap();
 
     // Create __init__.py (should be preferred over __main__.py)
     fs::write(
@@ -75,7 +75,7 @@ print("Running from __main__.py - should not run")
 fn test_directory_entry_init_py_fallback() {
     let temp_dir = TempDir::new().unwrap();
     let package_dir = temp_dir.path().join("testpkg");
-    fs::create_dir(&package_dir).unwrap();
+    fs::create_dir_all(&package_dir).unwrap();
 
     // Create only __init__.py (no __main__.py)
     fs::write(
@@ -115,7 +115,7 @@ fn test_directory_entry_init_py_fallback() {
 fn test_directory_entry_main_py_only() {
     let temp_dir = TempDir::new().unwrap();
     let package_dir = temp_dir.path().join("testpkg");
-    fs::create_dir(&package_dir).unwrap();
+    fs::create_dir_all(&package_dir).unwrap();
 
     // Create only __main__.py (no __init__.py)
     fs::write(
@@ -157,7 +157,7 @@ print("Running from __main__.py")
 fn test_directory_entry_empty_dir_error() {
     let temp_dir = TempDir::new().unwrap();
     let empty_dir = temp_dir.path().join("empty");
-    fs::create_dir(&empty_dir).unwrap();
+    fs::create_dir_all(&empty_dir).unwrap();
 
     let output_path = temp_dir.path().join("bundled.py");
 

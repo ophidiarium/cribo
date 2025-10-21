@@ -28,7 +28,7 @@ use crate::{
 ///
 /// With the stateless phase design, the orchestrator can now sequentially
 /// execute each phase without violating Rust's borrow checker rules.
-pub struct PhaseOrchestrator;
+pub(crate) struct PhaseOrchestrator;
 
 impl PhaseOrchestrator {
     /// Execute the complete bundling process using the phase-based architecture
@@ -45,7 +45,7 @@ impl PhaseOrchestrator {
     /// 9. Finalization: Assemble final module and log statistics
     ///
     /// Returns the final bundled `ModModule`.
-    pub fn bundle<'a>(bundler: &mut Bundler<'a>, params: &BundleParams<'a>) -> ModModule {
+    pub(crate) fn bundle<'a>(bundler: &mut Bundler<'a>, params: &BundleParams<'a>) -> ModModule {
         let mut final_body = Vec::new();
 
         // Phase 1: Initialization
@@ -70,8 +70,8 @@ impl PhaseOrchestrator {
         log::debug!("[Orchestrator] Phase 4: Symbol Rename Collection");
         let semantic_ctx = SemanticContext {
             graph: params.graph,
-            symbol_registry: params.semantic_bundler.symbol_registry(),
-            semantic_bundler: params.semantic_bundler,
+            symbol_registry: params.conflict_resolver.symbol_registry(),
+            conflict_resolver: params.conflict_resolver,
         };
         let mut symbol_renames = bundler.collect_symbol_renames(&modules, &semantic_ctx);
 
@@ -137,7 +137,7 @@ impl PhaseOrchestrator {
 
     /// Handle entry module symbol renaming to avoid namespace collisions
     fn handle_entry_symbol_renaming(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         modules: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
         symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) {
@@ -195,7 +195,7 @@ impl PhaseOrchestrator {
         }
 
         let result = ModModule {
-            node_index: bundler.create_transformed_node("Bundled module root".to_string()),
+            node_index: bundler.create_transformed_node("Bundled module root".to_owned()),
             range: TextRange::default(),
             body: final_body,
         };

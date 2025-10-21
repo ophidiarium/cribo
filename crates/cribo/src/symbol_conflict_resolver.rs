@@ -1,11 +1,12 @@
-//! Semantic analysis for Python bundling using `ruff_python_semantic`
+//! Symbol conflict detection and resolution for Python bundling
 //!
-//! This module leverages ruff's existing semantic analysis infrastructure
-//! to detect symbol conflicts across modules during bundling.
+//! This module uses ruff's semantic analysis to detect when multiple modules
+//! define symbols with the same name, then generates unique renames to resolve
+//! conflicts. It maintains a global symbol registry and per-module semantic
+//! information to ensure the bundled output has no name collisions.
 
 use std::path::Path;
 
-use anyhow::Result;
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_semantic::{
     BindingFlags, BindingId, BindingKind, Module, ModuleKind, ModuleSource, SemanticModel,
@@ -20,9 +21,15 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
+/// Analyzes and resolves symbol conflicts across modules during bundling
+///
+/// This analyzer uses ruff's semantic analysis to:
+/// - Detect when multiple modules define symbols with the same name
+/// - Generate unique renames to resolve conflicts (e.g., `Logger` → `Logger_1`, `Logger_2`)
+/// - Track exported symbols and module-scope bindings
+/// - Manage import aliases for resolving symbol sources
 #[derive(Debug)]
-pub struct SemanticBundler {
+pub(crate) struct SymbolConflictResolver {
     /// Module-specific semantic models
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
     /// Global symbol registry with full semantic information
@@ -164,10 +171,7 @@ impl<'a> SemanticModelBuilder<'a> {
             }
             Stmt::ImportFrom(import_from) => {
                 // Get the module name
-                let module_name = import_from
-                    .module
-                    .as_ref()
-                    .map(std::string::ToString::to_string);
+                let module_name = import_from.module.as_ref().map(ToString::to_string);
 
                 for alias in &import_from.names {
                     let original_name = alias.name.as_str();
@@ -182,9 +186,9 @@ impl<'a> SemanticModelBuilder<'a> {
                             let has_alias = alias.asname.is_some();
                             self.from_imports.push(EnhancedFromImport {
                                 module: module.clone(),
-                                original_name: original_name.to_string(),
+                                original_name: original_name.to_owned(),
                                 local_alias: if has_alias {
-                                    Some(local_name.to_string())
+                                    Some(local_name.to_owned())
                                 } else {
                                     None
                                 },
@@ -236,7 +240,7 @@ impl<'a> SemanticModelBuilder<'a> {
     }
 
     /// Extract symbols from a populated semantic model
-    fn extract_symbols_from_semantic_model(semantic: &SemanticModel) -> FxIndexSet<String> {
+    fn extract_symbols_from_semantic_model(semantic: &SemanticModel<'_>) -> FxIndexSet<String> {
         let mut symbols = FxIndexSet::default();
 
         // Get the global scope (module scope)
@@ -258,20 +262,20 @@ impl<'a> SemanticModelBuilder<'a> {
                 BindingKind::ClassDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
                         log::trace!("Adding class symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 BindingKind::FunctionDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
                         log::trace!("Adding function symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 BindingKind::Assignment => {
                     // Include module-level assignments (variables)
                     if !name.starts_with('_') {
                         log::trace!("Adding assignment symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 BindingKind::FromImport(_) => {
@@ -279,7 +283,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     // This is important for __init__.py files that re-export symbols
                     if !name.starts_with('_') || name.starts_with("__") {
                         log::trace!("Adding from-import symbol: {name}");
-                        symbols.insert(name.to_string());
+                        symbols.insert(name.to_owned());
                     }
                 }
                 // Skip regular imports and builtins
@@ -302,7 +306,7 @@ impl<'a> SemanticModelBuilder<'a> {
 
     /// Extract ALL module-scope symbols that need to be exposed in the module namespace
     /// This includes symbols defined in conditional blocks (if/else, try/except) and imports
-    fn extract_all_module_scope_symbols(semantic: &SemanticModel) -> FxIndexSet<String> {
+    fn extract_all_module_scope_symbols(semantic: &SemanticModel<'_>) -> FxIndexSet<String> {
         let mut symbols = FxIndexSet::default();
 
         // Get the global scope (module scope)
@@ -318,7 +322,7 @@ impl<'a> SemanticModelBuilder<'a> {
             let binding = &semantic.bindings[binding_id];
 
             // Include ALL symbols except builtins
-            if let BindingKind::Builtin = &binding.kind {
+            if matches!(&binding.kind, BindingKind::Builtin) {
                 log::trace!("Skipping builtin binding: {name}");
             } else {
                 // Include all non-builtin symbols: classes, functions, assignments, imports
@@ -327,7 +331,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     name,
                     binding.kind
                 );
-                symbols.insert(name.to_string());
+                symbols.insert(name.to_owned());
             }
         }
 
@@ -339,7 +343,7 @@ impl<'a> SemanticModelBuilder<'a> {
 /// Module semantic analyzer that provides static methods for symbol extraction
 /// Semantic information for a single module
 #[derive(Debug)]
-pub struct ModuleSemanticInfo {
+pub(crate) struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
     /// Symbol conflicts detected in this module
@@ -351,7 +355,7 @@ pub struct ModuleSemanticInfo {
 
 /// Global symbol registry across all modules with semantic information
 #[derive(Debug)]
-pub struct SymbolRegistry {
+pub(crate) struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
     /// Renames: (`ModuleId`, `OriginalName`) -> `NewName`
@@ -366,7 +370,7 @@ impl Default for SymbolRegistry {
 
 impl SymbolRegistry {
     /// Create a new symbol registry
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             symbols: FxIndexMap::default(),
             renames: FxIndexMap::default(),
@@ -374,12 +378,12 @@ impl SymbolRegistry {
     }
 
     /// Register a symbol from a module (legacy interface)
-    pub fn register_symbol(&mut self, symbol: String, module_id: ModuleId) {
+    pub(crate) fn register_symbol(&mut self, symbol: String, module_id: ModuleId) {
         self.symbols.entry(symbol).or_default().push(module_id);
     }
 
     /// Detect conflicts across all modules
-    pub fn detect_conflicts(&self) -> Vec<SymbolConflict> {
+    pub(crate) fn detect_conflicts(&self) -> Vec<SymbolConflict> {
         let mut conflicts = Vec::new();
 
         for (symbol, modules) in &self.symbols {
@@ -395,7 +399,7 @@ impl SymbolRegistry {
     }
 
     /// Generate rename for conflicting symbol
-    pub fn generate_rename(
+    pub(crate) fn generate_rename(
         &mut self,
         module_id: ModuleId,
         original: &str,
@@ -403,27 +407,27 @@ impl SymbolRegistry {
     ) -> String {
         let new_name = format!("{original}_{suffix}");
         self.renames
-            .insert((module_id, original.to_string()), new_name.clone());
+            .insert((module_id, original.to_owned()), new_name.clone());
         new_name
     }
 
     /// Get rename for a symbol if it exists
-    pub fn get_rename(&self, module_id: ModuleId, original: &str) -> Option<&str> {
+    pub(crate) fn get_rename(&self, module_id: ModuleId, original: &str) -> Option<&str> {
         self.renames
-            .get(&(module_id, original.to_string()))
-            .map(std::string::String::as_str)
+            .get(&(module_id, original.to_owned()))
+            .map(String::as_str)
     }
 }
 
 /// Represents a symbol conflict across modules
-pub struct SymbolConflict {
+pub(crate) struct SymbolConflict {
     pub symbol: String,
     pub modules: Vec<ModuleId>,
 }
 
 /// Information about module-level global usage
 #[derive(Debug, Clone, Default)]
-pub struct ModuleGlobalInfo {
+pub(crate) struct ModuleGlobalInfo {
     /// Variables that exist at module level
     pub module_level_vars: FxIndexSet<String>,
 
@@ -442,15 +446,15 @@ pub struct ModuleGlobalInfo {
     pub module_name: String,
 }
 
-impl Default for SemanticBundler {
+impl Default for SymbolConflictResolver {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SemanticBundler {
-    /// Create a new semantic bundler
-    pub fn new() -> Self {
+impl SymbolConflictResolver {
+    /// Create a new symbol conflict resolver
+    pub(crate) fn new() -> Self {
         Self {
             module_semantics: FxIndexMap::default(),
             global_symbols: SymbolRegistry::new(),
@@ -460,12 +464,7 @@ impl SemanticBundler {
     }
 
     /// Analyze a module using full semantic model approach
-    pub fn analyze_module(
-        &mut self,
-        module_id: ModuleId,
-        ast: &ModModule,
-        path: &Path,
-    ) -> Result<()> {
+    pub(crate) fn analyze_module(&mut self, module_id: ModuleId, ast: &ModModule, path: &Path) {
         // Check if this ModuleId has already been analyzed
         // This prevents duplicate processing when multiple module names map to the same file
         if !self.analyzed_modules.insert(module_id) {
@@ -473,7 +472,7 @@ impl SemanticBundler {
                 "Module {} already analyzed, skipping duplicate processing",
                 module_id.as_u32()
             );
-            return Ok(());
+            return;
         }
 
         log::debug!(
@@ -547,12 +546,10 @@ impl SemanticBundler {
                 module_scope_symbols,
             },
         );
-
-        Ok(())
     }
 
     /// Detect and resolve symbol conflicts across all modules
-    pub fn detect_and_resolve_conflicts(&mut self) -> Vec<SymbolConflict> {
+    pub(crate) fn detect_and_resolve_conflicts(&mut self) -> Vec<SymbolConflict> {
         let conflicts = self.global_symbols.detect_conflicts();
 
         // Generate renames for conflicting symbols
@@ -577,12 +574,12 @@ impl SemanticBundler {
     }
 
     /// Get module semantic info
-    pub fn get_module_info(&self, module_id: ModuleId) -> Option<&ModuleSemanticInfo> {
+    pub(crate) fn get_module_info(&self, module_id: ModuleId) -> Option<&ModuleSemanticInfo> {
         self.module_semantics.get(&module_id)
     }
 
     /// Get symbol registry
-    pub fn symbol_registry(&self) -> &SymbolRegistry {
+    pub(crate) const fn symbol_registry(&self) -> &SymbolRegistry {
         &self.global_symbols
     }
 }

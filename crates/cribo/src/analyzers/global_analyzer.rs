@@ -15,12 +15,12 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    semantic_bundler::ModuleGlobalInfo,
+    symbol_conflict_resolver::ModuleGlobalInfo,
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Visitor that analyzes a module for global variable usage patterns
-pub struct GlobalAnalyzer {
+pub(crate) struct GlobalAnalyzer {
     /// Module-level variables collected during first pass
     module_level_vars: FxIndexSet<String>,
 
@@ -45,7 +45,7 @@ pub struct GlobalAnalyzer {
 
 impl GlobalAnalyzer {
     /// Create a new global analyzer for a module
-    pub fn new(module_name: impl Into<String>) -> Self {
+    pub(crate) fn new(module_name: impl Into<String>) -> Self {
         Self {
             module_level_vars: FxIndexSet::default(),
             liftable_vars: FxIndexSet::default(),
@@ -58,7 +58,10 @@ impl GlobalAnalyzer {
     }
 
     /// Analyze a module and return global usage information
-    pub fn analyze(module_name: impl Into<String>, ast: &ModModule) -> Option<ModuleGlobalInfo> {
+    pub(crate) fn analyze(
+        module_name: impl Into<String>,
+        ast: &ModModule,
+    ) -> Option<ModuleGlobalInfo> {
         let mut analyzer = Self::new(module_name);
         source_order::walk_body(&mut analyzer, &ast.body);
         analyzer.into_global_info()
@@ -81,7 +84,7 @@ impl GlobalAnalyzer {
 
     /// Check if we're at module level (depth == 0)
     #[inline]
-    fn is_module_level(&self) -> bool {
+    const fn is_module_level(&self) -> bool {
         self.depth == 0
     }
 
@@ -186,12 +189,13 @@ impl<'a> SourceOrderVisitor<'a> for GlobalAnalyzer {
             Stmt::Import(import_stmt) if self.is_module_level() => {
                 for alias in &import_stmt.names {
                     // Local binding is `asname` if present, otherwise top-level package segment
-                    let name = if let Some(asname) = &alias.asname {
-                        asname.to_string()
-                    } else {
-                        let full = alias.name.to_string();
-                        full.split('.').next().unwrap_or(&full).to_string()
-                    };
+                    let name = alias.asname.as_ref().map_or_else(
+                        || {
+                            let full = alias.name.to_string();
+                            full.split('.').next().unwrap_or(&full).to_owned()
+                        },
+                        ToString::to_string,
+                    );
                     // Imports are liftable for globals handling but shouldn't affect
                     // module-level var rewriting behavior
                     self.liftable_vars.insert(name);

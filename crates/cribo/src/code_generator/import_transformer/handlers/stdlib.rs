@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Handle stdlib import transformations
-pub struct StdlibHandler;
+pub(crate) struct StdlibHandler;
 
 impl StdlibHandler {
     /// Check if this is a stdlib import that should be normalized
@@ -50,11 +50,11 @@ impl StdlibHandler {
         }
 
         // Track that this stdlib module was imported
-        imported_stdlib_modules.insert(module_str.to_string());
+        imported_stdlib_modules.insert(module_str.to_owned());
         // Also track parent modules for dotted imports
         if let Some(dot_pos) = module_str.find('.') {
             let parent = &module_str[..dot_pos];
-            imported_stdlib_modules.insert(parent.to_string());
+            imported_stdlib_modules.insert(parent.to_owned());
         }
 
         let mut assignments = Vec::new();
@@ -74,19 +74,18 @@ impl StdlibHandler {
             // Track this renaming for expression rewriting
             if module_str == "importlib" && imported_name == "import_module" {
                 import_aliases.insert(
-                    local_name.to_string(),
+                    local_name.to_owned(),
                     format!("{module_str}.{imported_name}"),
                 );
             } else {
-                import_aliases.insert(local_name.to_string(), full_path.clone());
+                import_aliases.insert(local_name.to_owned(), full_path.clone());
             }
 
             // Create local assignment: local_name = _cribo.module.symbol
             let proxy_parts: Vec<&str> = full_path.split('.').collect();
-            let value_expr =
-                crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
-            let target = crate::ast_builder::expressions::name(local_name, ExprContext::Store);
-            let assign_stmt = crate::ast_builder::statements::assign(vec![target], value_expr);
+            let value_expr = expressions::dotted_name(&proxy_parts, ExprContext::Load);
+            let target = expressions::name(local_name, ExprContext::Store);
+            let assign_stmt = statements::assign(vec![target], value_expr);
             assignments.push(assign_stmt);
         }
 
@@ -99,7 +98,7 @@ impl StdlibHandler {
         is_wrapper_init: bool,
         module_id: crate::resolver::ModuleId,
         current_module_name: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> Vec<Stmt> {
         let mut assignments = Vec::new();
 
@@ -119,14 +118,9 @@ impl StdlibHandler {
             // 1) Create local alias: local = _cribo.<stdlib_module>
             let proxy_path = format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX);
             let proxy_parts: Vec<&str> = proxy_path.split('.').collect();
-            let value_expr =
-                crate::ast_builder::expressions::dotted_name(&proxy_parts, ExprContext::Load);
-            let target =
-                crate::ast_builder::expressions::name(local_name.as_str(), ExprContext::Store);
-            assignments.push(crate::ast_builder::statements::assign(
-                vec![target],
-                value_expr,
-            ));
+            let value_expr = expressions::dotted_name(&proxy_parts, ExprContext::Load);
+            let target = expressions::name(local_name.as_str(), ExprContext::Store);
+            assignments.push(statements::assign(vec![target], value_expr));
 
             // 2) Set module attribute: <current_module>.<local> = <local>
             // In wrapper init functions, use "self" instead of the module name

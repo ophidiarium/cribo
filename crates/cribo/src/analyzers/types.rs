@@ -8,11 +8,11 @@ use ruff_text_size::TextRange;
 use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Represents a scope path in the AST (e.g., module.function.class)
-pub type ScopePath = Vec<String>;
+pub(crate) type ScopePath = Vec<String>;
 
 /// Information about a defined symbol in the code
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SymbolInfo {
+pub(crate) struct SymbolInfo {
     /// The name of the symbol
     pub name: String,
     /// The type of symbol (function, class, variable, etc.)
@@ -29,7 +29,7 @@ pub struct SymbolInfo {
 
 /// Different kinds of symbols that can be defined
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SymbolKind {
+pub(crate) enum SymbolKind {
     /// A function definition
     Function {
         /// Decorator names applied to the function
@@ -54,7 +54,7 @@ pub enum SymbolKind {
 
 /// Collection of symbols found in a module
 #[derive(Debug, Default)]
-pub struct CollectedSymbols {
+pub(crate) struct CollectedSymbols {
     /// Global symbols mapped by name
     pub global_symbols: FxIndexMap<String, SymbolInfo>,
     /// Symbols organized by their scope
@@ -65,7 +65,7 @@ pub struct CollectedSymbols {
 
 /// Information about variable usage in the code
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VariableUsage {
+pub(crate) struct VariableUsage {
     /// The name of the variable
     pub name: String,
     /// How the variable is being used
@@ -78,7 +78,7 @@ pub struct VariableUsage {
 
 /// Different ways a variable can be used
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UsageType {
+pub(crate) enum UsageType {
     /// Reading the value of a variable
     Read,
     /// Assigning a new value to a variable
@@ -93,7 +93,7 @@ pub enum UsageType {
 
 /// Collection of variable usage information
 #[derive(Debug, Default)]
-pub struct CollectedVariables {
+pub(crate) struct CollectedVariables {
     /// All variable usages in the module
     pub usages: Vec<VariableUsage>,
     /// Functions and their global variable declarations
@@ -104,7 +104,7 @@ pub struct CollectedVariables {
 
 /// Information about module exports
 #[derive(Debug, Clone)]
-pub struct ExportInfo {
+pub(crate) struct ExportInfo {
     /// Explicitly exported names via __all__ (None means export all public symbols)
     pub exported_names: Option<Vec<String>>,
     /// Whether __all__ is modified dynamically
@@ -113,7 +113,7 @@ pub struct ExportInfo {
 
 /// Information about an unused import
 #[derive(Debug, Clone)]
-pub struct UnusedImportInfo {
+pub(crate) struct UnusedImportInfo {
     /// The imported name that is unused
     pub name: String,
     /// The module it was imported from
@@ -121,8 +121,8 @@ pub struct UnusedImportInfo {
 }
 
 /// Type of circular dependency
-#[derive(Debug, Clone, PartialEq)]
-pub enum CircularDependencyType {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CircularDependencyType {
     /// Can be resolved by moving imports inside functions
     FunctionLevel,
     /// May be resolvable depending on usage patterns
@@ -135,7 +135,7 @@ pub enum CircularDependencyType {
 
 /// Resolution strategy for circular dependencies
 #[derive(Debug, Clone)]
-pub enum ResolutionStrategy {
+pub(crate) enum ResolutionStrategy {
     LazyImport,
     FunctionScopedImport,
     ModuleSplit,
@@ -144,7 +144,7 @@ pub enum ResolutionStrategy {
 
 /// A group of modules forming a circular dependency
 #[derive(Debug, Clone)]
-pub struct CircularDependencyGroup {
+pub(crate) struct CircularDependencyGroup {
     pub modules: Vec<crate::resolver::ModuleId>,
     pub cycle_type: CircularDependencyType,
     pub suggested_resolution: ResolutionStrategy,
@@ -152,7 +152,7 @@ pub struct CircularDependencyGroup {
 
 /// Comprehensive analysis of circular dependencies
 #[derive(Debug, Clone)]
-pub struct CircularDependencyAnalysis {
+pub(crate) struct CircularDependencyAnalysis {
     /// Circular dependencies that can be resolved through code transformations
     pub resolvable_cycles: Vec<CircularDependencyGroup>,
     /// Circular dependencies that cannot be resolved

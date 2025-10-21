@@ -42,25 +42,25 @@ pub enum ModuleKind {
 
 /// Returns true if the given file name is exactly "__init__.py".
 #[inline]
-pub fn is_init_file_name(name: &str) -> bool {
+pub(crate) fn is_init_file_name(name: &str) -> bool {
     name == INIT_FILE
 }
 
 /// Returns true if the given file stem is exactly "__init__".
 #[inline]
-pub fn is_init_stem(stem: &str) -> bool {
+pub(crate) fn is_init_stem(stem: &str) -> bool {
     stem == INIT_STEM
 }
 
 /// Returns true if the given file name is exactly "__main__.py".
 #[inline]
-pub fn is_main_file_name(name: &str) -> bool {
+pub(crate) fn is_main_file_name(name: &str) -> bool {
     name == MAIN_FILE
 }
 
 /// Returns true if the given file name is an entry-like special file (init or main).
 #[inline]
-pub fn is_special_entry_file_name(name: &str) -> bool {
+pub(crate) fn is_special_entry_file_name(name: &str) -> bool {
     is_init_file_name(name) || is_main_file_name(name)
 }
 
@@ -68,13 +68,13 @@ pub fn is_special_entry_file_name(name: &str) -> bool {
 
 /// Returns true if `dir/__init__.py` exists.
 #[inline]
-pub fn is_package_dir_with_init(dir: &Path) -> bool {
+pub(crate) fn is_package_dir_with_init(dir: &Path) -> bool {
     dir.join(INIT_FILE).is_file()
 }
 
 /// Returns true if `dir` exists and is a directory without `__init__.py` (PEP 420).
 #[inline]
-pub fn is_namespace_package_dir(dir: &Path) -> bool {
+pub(crate) fn is_namespace_package_dir(dir: &Path) -> bool {
     dir.is_dir() && !is_package_dir_with_init(dir)
 }
 
@@ -82,7 +82,7 @@ pub fn is_namespace_package_dir(dir: &Path) -> bool {
 /// - Strips the `.py` extension
 /// - Collapses `__init__.py` and `__main__.py` to the parent package name
 /// - Returns `None` when path does not map to a module name (e.g., bare `__init__.py` at root)
-pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
+pub(crate) fn module_name_from_relative(relative_path: &Path) -> Option<String> {
     let mut parts: Vec<String> = relative_path
         .components()
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -101,7 +101,7 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
         && let Some(stem) = Path::new(last_part).file_stem().and_then(|s| s.to_str())
     {
         // Replace with stem to avoid any off-by-one issues
-        *last_part = stem.to_string();
+        *last_part = stem.to_owned();
     }
 
     // Handle __init__.py and __main__.py files
@@ -125,7 +125,7 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
 /// Return true if the module name refers to an `__init__` module.
 /// Accepts both bare "__init__" and dotted forms like "pkg.__init__".
 #[inline]
-pub fn is_init_module_name(module_name: &str) -> bool {
+pub(crate) fn is_init_module_name(module_name: &str) -> bool {
     module_name == INIT_STEM
         || module_name
             .strip_suffix(INIT_STEM)
@@ -159,19 +159,19 @@ mod tests {
     fn test_module_name_from_relative() {
         assert_eq!(
             module_name_from_relative(Path::new("pkg/module.py")),
-            Some("pkg.module".to_string())
+            Some("pkg.module".to_owned())
         );
         assert_eq!(
             module_name_from_relative(Path::new("pkg/__init__.py")),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
         assert_eq!(
             module_name_from_relative(Path::new("pkg/__main__.py")),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
         assert_eq!(
             module_name_from_relative(Path::new("pkg/subpkg/__init__.py")),
-            Some("pkg.subpkg".to_string())
+            Some("pkg.subpkg".to_owned())
         );
         assert_eq!(module_name_from_relative(Path::new("__init__.py")), None);
     }

@@ -5,13 +5,13 @@ use cow_utils::CowUtils;
 use crate::python::module_path;
 
 /// Convert a relative path to a Python module name, handling .py extension and __init__.py
-pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
+pub(crate) fn module_name_from_relative(relative_path: &Path) -> Option<String> {
     module_path::module_name_from_relative(relative_path)
 }
 
 /// Normalize line endings to LF (\n) for cross-platform consistency
 /// This ensures reproducible builds regardless of the platform where bundling occurs
-pub fn normalize_line_endings(content: &str) -> String {
+pub(crate) fn normalize_line_endings(content: &str) -> String {
     // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
     content
         .cow_replace("\r\n", "\n")
@@ -21,7 +21,7 @@ pub fn normalize_line_endings(content: &str) -> String {
 
 /// Check if a module name represents an __init__ module
 /// Returns true for both bare "__init__" and dotted forms like "pkg.__init__"
-pub fn is_init_module(module_name: &str) -> bool {
+pub(crate) fn is_init_module(module_name: &str) -> bool {
     module_path::is_init_module_name(module_name)
 }
 
@@ -56,7 +56,7 @@ mod tests {
         // Test regular module
         assert_eq!(
             module_name_from_relative(&PathBuf::from("pkg/module.py")),
-            Some("pkg.module".to_string())
+            Some("pkg.module".to_owned())
         );
 
         // Test __init__.py files - should return package name
@@ -65,7 +65,7 @@ mod tests {
                 "pkg/{}",
                 crate::python::constants::INIT_FILE
             ))),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
 
         // Test __main__.py files - should return package name
@@ -74,7 +74,7 @@ mod tests {
                 "pkg/{}",
                 crate::python::constants::MAIN_FILE
             ))),
-            Some("pkg".to_string())
+            Some("pkg".to_owned())
         );
 
         // Test nested packages
@@ -83,7 +83,7 @@ mod tests {
                 "pkg/subpkg/{}",
                 crate::python::constants::INIT_FILE
             ))),
-            Some("pkg.subpkg".to_string())
+            Some("pkg.subpkg".to_owned())
         );
 
         // Test bare __init__.py at root

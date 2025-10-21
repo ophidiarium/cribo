@@ -1,6 +1,7 @@
 use std::{path::PathBuf, process::Command, time::Duration};
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use log::warn;
 
 fn get_workspace_root() -> PathBuf {
     let output = Command::new("cargo")
@@ -17,7 +18,7 @@ fn get_workspace_root() -> PathBuf {
     let cargo_toml_path = String::from_utf8(output.stdout)
         .expect("Invalid UTF-8")
         .trim()
-        .to_string();
+        .to_owned();
 
     PathBuf::from(cargo_toml_path)
         .parent()
@@ -62,9 +63,8 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
                 // Check if it's a Python package directory
                 let has_init = p.join("__init__.py").exists() || p.join("__main__.py").exists();
                 if !has_init {
-                    eprintln!(
-                        "Warning: Directory {:?} exists but doesn't contain __init__.py or \
-                         __main__.py",
+                    warn!(
+                        "Directory {:?} exists but doesn't contain __init__.py or __main__.py",
                         p
                     );
                 }
@@ -88,13 +88,14 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
     let output_path = output_dir.join("bundled_bench.py");
 
     // Prefer prebuilt binary if available
-    let mut cmd = if let Some(exe) = option_env!("CARGO_BIN_EXE_cribo") {
-        Command::new(exe)
-    } else {
-        let mut c = Command::new("cargo");
-        c.args(["run", "--release", "--"]);
-        c
-    };
+    let mut cmd = option_env!("CARGO_BIN_EXE_cribo").map_or_else(
+        || {
+            let mut c = Command::new("cargo");
+            c.args(["run", "--release", "--"]);
+            c
+        },
+        Command::new,
+    );
 
     let output = cmd
         .arg("--entry")
@@ -107,14 +108,13 @@ fn bundle_ecosystem_package(package_name: &str) -> std::process::Output {
         .expect("Failed to run cribo");
 
     // Fail fast on bundling errors
-    if !output.status.success() {
-        panic!(
-            "Bundling {} failed\nSTDOUT:\n{}\nSTDERR:\n{}",
-            package_name,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    assert!(
+        output.status.success(),
+        "Bundling {} failed\nSTDOUT:\n{}\nSTDERR:\n{}",
+        package_name,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     output
 }
@@ -133,11 +133,11 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
     // Check if ecosystem packages are available
     let ecosystem_dir = workspace_root.join("ecosystem").join("packages");
     if !ecosystem_dir.exists() {
-        eprintln!(
-            "WARNING: Ecosystem packages directory does not exist at {:?}",
+        warn!(
+            "Ecosystem packages directory does not exist at {:?}",
             ecosystem_dir
         );
-        eprintln!(
+        warn!(
             "Skipping ecosystem benchmarks. Run 'git submodule update --init --recursive \
              ecosystem/' to initialize."
         );
@@ -150,7 +150,7 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
         let package_dir = ecosystem_dir.join(package);
 
         if !package_dir.exists() {
-            eprintln!(
+            warn!(
                 "Skipping {} - package directory not found at {:?}",
                 package, package_dir
             );
@@ -178,11 +178,11 @@ fn benchmark_ecosystem_bundling(c: &mut Criterion) {
         let entry_exists = possible_entries.iter().any(|p| p.exists());
 
         if !entry_exists {
-            eprintln!(
+            warn!(
                 "Skipping {} - package entry point not found in any expected location",
                 package
             );
-            eprintln!("  Checked: {:?}", possible_entries);
+            warn!("  Checked: {:?}", possible_entries);
             continue;
         }
 

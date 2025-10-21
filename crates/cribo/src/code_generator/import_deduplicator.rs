@@ -9,12 +9,12 @@ use ruff_python_ast::{Alias, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 use super::bundler::Bundler;
 use crate::{
-    cribo_graph::CriboGraph as DependencyGraph,
+    dependency_graph::DependencyGraph,
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Check if a statement is a hoisted import
-pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
+pub(super) fn is_hoisted_import(_bundler: &Bundler<'_>, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::ImportFrom(import_from) => {
             if let Some(ref module) = import_from.module {
@@ -37,7 +37,7 @@ pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
 
 /// Check if an import from statement is a duplicate
 pub(super) fn is_duplicate_import_from(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
     python_version: u8,
@@ -71,7 +71,7 @@ pub(super) fn is_duplicate_import_from(
 
 /// Check if an import statement is a duplicate
 pub(super) fn is_duplicate_import(
-    _bundler: &Bundler,
+    _bundler: &Bundler<'_>,
     import_stmt: &StmtImport,
     existing_body: &[Stmt],
 ) -> bool {
@@ -102,7 +102,7 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
 }
 
 /// Check if a module is bundled or is a package containing bundled modules
-pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str) -> bool {
+pub(super) fn is_bundled_module_or_package(bundler: &Bundler<'_>, module_name: &str) -> bool {
     // Direct check - convert module_name to ModuleId for lookup
     if bundler
         .get_module_id(module_name)
@@ -243,7 +243,7 @@ pub(super) fn trim_unused_imports_from_modules(
                 );
                 for (item_id, import_item) in import_items {
                     match &import_item.item_type {
-                        crate::cribo_graph::ItemType::FromImport {
+                        crate::dependency_graph::ItemType::FromImport {
                             module: from_module,
                             names,
                             ..
@@ -364,7 +364,7 @@ pub(super) fn trim_unused_imports_from_modules(
                                 }
                             }
                         }
-                        crate::cribo_graph::ItemType::Import { module, .. } => {
+                        crate::dependency_graph::ItemType::Import { module, .. } => {
                             // For regular imports (import module), check if they're only used
                             // by tree-shaken code
                             let import_name = module.split('.').next_back().unwrap_or(module);
@@ -457,7 +457,7 @@ pub(super) fn trim_unused_imports_from_modules(
                                      surviving code after tree-shaking (item_id: {item_id:?})"
                                 );
                                 unused_imports.push(crate::analyzers::types::UnusedImportInfo {
-                                    name: import_name.to_string(),
+                                    name: import_name.to_owned(),
                                     module: module.clone(),
                                 });
                             }
@@ -534,7 +534,7 @@ pub(super) fn trim_unused_imports_from_modules(
 /// Check if an import is used by any surviving symbol after tree-shaking
 fn is_import_used_by_surviving_symbols(
     used_symbols: &FxIndexSet<String>,
-    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    module_dep_graph: &crate::dependency_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
     log::debug!(
@@ -557,14 +557,14 @@ fn is_import_used_by_surviving_symbols(
 
 /// Check if an import is used by any symbols in __all__ exports
 fn is_import_used_by_all_exports(
-    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    module_dep_graph: &crate::dependency_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
     // Find __all__ assignment and get the exported symbols
     let mut all_exports = Vec::new();
     for item_data in module_dep_graph.items.values() {
-        if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
-            && targets.contains(&"__all__".to_string())
+        if let crate::dependency_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
+            && targets.contains(&"__all__".to_owned())
         {
             // The eventual_read_vars contains the names in __all__
             all_exports.extend(item_data.eventual_read_vars.iter().cloned());
@@ -598,7 +598,7 @@ fn is_import_used_by_all_exports(
 /// Check if an import is used by module-level code with side effects
 fn is_import_used_by_side_effect_code(
     shaker: &crate::tree_shaking::TreeShaker<'_>,
-    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    module_dep_graph: &crate::dependency_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
     let module_id = module_dep_graph.module_id;
@@ -610,24 +610,24 @@ fn is_import_used_by_side_effect_code(
     module_dep_graph.items.values().any(|item| {
         matches!(
             item.item_type,
-            crate::cribo_graph::ItemType::Expression
-                | crate::cribo_graph::ItemType::Assignment { .. }
-                | crate::cribo_graph::ItemType::Other
+            crate::dependency_graph::ItemType::Expression
+                | crate::dependency_graph::ItemType::Assignment { .. }
+                | crate::dependency_graph::ItemType::Other
         ) && (item.read_vars.contains(local_name) || item.eventual_read_vars.contains(local_name))
     })
 }
 
 /// Check if a module import is used by surviving code in a module with side effects
 fn is_module_import_used_by_side_effects(
-    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    module_dep_graph: &crate::dependency_graph::ModuleDepGraph,
     import_name: &str,
 ) -> bool {
     module_dep_graph.items.values().any(|item| {
         item.has_side_effects
             && !matches!(
                 item.item_type,
-                crate::cribo_graph::ItemType::Import { .. }
-                    | crate::cribo_graph::ItemType::FromImport { .. }
+                crate::dependency_graph::ItemType::Import { .. }
+                    | crate::dependency_graph::ItemType::FromImport { .. }
             )
             && (item.read_vars.contains(import_name)
                 || item.eventual_read_vars.contains(import_name))
@@ -636,12 +636,12 @@ fn is_module_import_used_by_side_effects(
 
 /// Check if an import is used by surviving assignment statements
 fn is_import_used_by_surviving_assignments(
-    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    module_dep_graph: &crate::dependency_graph::ModuleDepGraph,
     import_name: &str,
     used_symbols: &FxIndexSet<String>,
 ) -> bool {
     module_dep_graph.items.values().any(|item| {
-        if let crate::cribo_graph::ItemType::Assignment { targets } = &item.item_type {
+        if let crate::dependency_graph::ItemType::Assignment { targets } = &item.item_type {
             item.read_vars.contains(import_name)
                 && targets.iter().any(|target| used_symbols.contains(target))
         } else {

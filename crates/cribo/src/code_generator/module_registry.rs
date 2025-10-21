@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Create module initialization statements for wrapper modules
-pub fn create_module_initialization_for_import(
+pub(crate) fn create_module_initialization_for_import(
     module_id: crate::resolver::ModuleId,
     module_init_functions: &FxIndexMap<crate::resolver::ModuleId, String>,
     resolver: &crate::resolver::ModuleResolver,
@@ -53,7 +53,7 @@ pub fn create_module_initialization_for_import(
 }
 
 /// Get synthetic module name
-pub fn get_synthetic_module_name(module_name: &str, content_hash: &str) -> String {
+pub(crate) fn get_synthetic_module_name(module_name: &str, content_hash: &str) -> String {
     let module_name_escaped = sanitize_module_name_for_identifier(module_name);
     // Use first 6 characters of content hash for readability
     let short_hash = &content_hash[..6];
@@ -62,7 +62,7 @@ pub fn get_synthetic_module_name(module_name: &str, content_hash: &str) -> Strin
 
 /// Get the variable identifier for a module using its `ModuleId`
 /// This ensures symlinks resolve to the same variable name
-pub fn get_module_var_identifier(
+pub(crate) fn get_module_var_identifier(
     module_id: crate::resolver::ModuleId,
     resolver: &crate::resolver::ModuleResolver,
 ) -> String {
@@ -76,7 +76,7 @@ pub fn get_module_var_identifier(
 
 /// Sanitize a module name for use in a Python identifier
 /// This is a simple character replacement - collision handling should be done by the caller
-pub fn sanitize_module_name_for_identifier(name: &str) -> String {
+pub(crate) fn sanitize_module_name_for_identifier(name: &str) -> String {
     let mut result = name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
@@ -96,9 +96,12 @@ pub fn sanitize_module_name_for_identifier(name: &str) -> String {
 }
 
 /// Generate a unique symbol name to avoid conflicts
-pub fn generate_unique_name(base_name: &str, existing_symbols: &FxIndexSet<String>) -> String {
+pub(crate) fn generate_unique_name(
+    base_name: &str,
+    existing_symbols: &FxIndexSet<String>,
+) -> String {
     if !existing_symbols.contains(base_name) {
-        return base_name.to_string();
+        return base_name.to_owned();
     }
 
     // Try adding numeric suffixes
@@ -114,7 +117,7 @@ pub fn generate_unique_name(base_name: &str, existing_symbols: &FxIndexSet<Strin
 }
 
 /// Create a module attribute assignment statement
-pub fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt {
+pub(crate) fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt {
     ast_builder::statements::assign_attribute(
         module_var,
         attr_name,
@@ -123,7 +126,7 @@ pub fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt 
 }
 
 /// Create a module attribute assignment statement with a specific value
-pub fn create_module_attr_assignment_with_value(
+pub(crate) fn create_module_attr_assignment_with_value(
     module_var: &str,
     attr_name: &str,
     value_name: &str,
@@ -136,17 +139,11 @@ pub fn create_module_attr_assignment_with_value(
 }
 
 /// Create a reassignment statement (`original_name` = `renamed_name`)
-pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
+pub(crate) fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
     ast_builder::statements::simple_assign(
         original_name,
         ast_builder::expressions::name(renamed_name, ExprContext::Load),
     )
-}
-
-/// Information about a namespace that needs to be created
-pub struct NamespaceRequirement {
-    pub path: String,
-    pub var_name: String,
 }
 
 /// Helper function to create an assignment if it doesn't conflict with stdlib names
@@ -175,7 +172,7 @@ fn create_assignment_if_no_stdlib_conflict(
 ///
 /// This helper function checks if a module initialization already exists in the assignments
 /// and adds it if needed, updating the tracking sets accordingly.
-pub fn initialize_submodule_if_needed(
+pub(crate) fn initialize_submodule_if_needed(
     module_id: crate::resolver::ModuleId,
     module_init_functions: &FxIndexMap<crate::resolver::ModuleId, String>,
     resolver: &crate::resolver::ModuleResolver,
@@ -187,7 +184,7 @@ pub fn initialize_submodule_if_needed(
 
     let module_path = resolver
         .get_module_name(module_id)
-        .unwrap_or_else(|| "<unknown>".to_string());
+        .unwrap_or_else(|| "<unknown>".to_owned());
 
     // Check if we already have this module initialization in assignments
     let already_initialized = assignments.iter().any(|stmt| {
@@ -217,7 +214,7 @@ pub fn initialize_submodule_if_needed(
 }
 
 /// Parameters for creating assignments for inlined imports
-pub struct InlinedImportParams<'a> {
+pub(crate) struct InlinedImportParams<'a> {
     pub symbol_renames: &'a FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     pub module_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     pub inlined_modules: &'a FxIndexSet<crate::resolver::ModuleId>,
@@ -229,14 +226,13 @@ pub struct InlinedImportParams<'a> {
 }
 
 /// Create assignments for inlined imports
-/// Returns (statements, `namespace_requirements`)
-pub fn create_assignments_for_inlined_imports(
+/// Returns statements for the import assignments
+pub(crate) fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
     module_name: &str,
-    params: InlinedImportParams,
-) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
+    params: &InlinedImportParams<'_>,
+) -> Vec<Stmt> {
     let mut assignments = Vec::new();
-    let mut namespace_requirements = Vec::new();
 
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
@@ -258,7 +254,7 @@ pub fn create_assignments_for_inlined_imports(
         if let Some(module_id) = params.resolver.get_module_id_by_name(&full_module_path) {
             if params
                 .module_registry
-                .is_some_and(|reg| reg.contains_module(&module_id))
+                .is_some_and(|reg| reg.contains_module(module_id))
             {
                 // Skip wrapped modules - they will be handled as deferred imports
                 log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
@@ -274,11 +270,6 @@ pub fn create_assignments_for_inlined_imports(
 
                 // Record that we need a namespace for this module
                 let sanitized_name = get_module_var_identifier(module_id, params.resolver);
-
-                namespace_requirements.push(NamespaceRequirement {
-                    path: full_module_path.clone(),
-                    var_name: sanitized_name.clone(),
-                });
 
                 // If local name differs from sanitized name, create alias
                 // But skip if it would conflict with a stdlib name in scope
@@ -314,7 +305,7 @@ pub fn create_assignments_for_inlined_imports(
                 {
                     module_renames
                         .get(imported_name)
-                        .map_or(imported_name, std::string::String::as_str)
+                        .map_or(imported_name, String::as_str)
                 } else {
                     imported_name
                 };
@@ -332,7 +323,7 @@ pub fn create_assignments_for_inlined_imports(
                     );
                     format!("{ns}.{actual_name}")
                 } else {
-                    actual_name.to_string()
+                    actual_name.to_owned()
                 };
 
                 // Only create assignment if the names are different or we need qualification
@@ -384,7 +375,7 @@ pub fn create_assignments_for_inlined_imports(
             {
                 module_renames
                     .get(imported_name)
-                    .map_or(imported_name, std::string::String::as_str)
+                    .map_or(imported_name, String::as_str)
             } else {
                 imported_name
             };
@@ -401,7 +392,7 @@ pub fn create_assignments_for_inlined_imports(
                 );
                 format!("{ns}.{actual_name}")
             } else {
-                actual_name.to_string()
+                actual_name.to_owned()
             };
 
             // Only create assignment if the names are different or we need qualification
@@ -427,30 +418,30 @@ pub fn create_assignments_for_inlined_imports(
         }
     }
 
-    (assignments, namespace_requirements)
+    assignments
 }
 
 /// Prefix for all cribo-generated init-related names
 const CRIBO_INIT_PREFIX: &str = "_cribo_init_";
 
 /// The init result variable name
-pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
+pub(crate) const INIT_RESULT_VAR: &str = "__cribo_init_result";
 
 /// The module `SimpleNamespace` variable name in init functions
 /// Use single underscore to prevent Python mangling
 /// Generate init function name from synthetic name
-pub fn get_init_function_name(synthetic_name: &str) -> String {
+pub(crate) fn get_init_function_name(synthetic_name: &str) -> String {
     format!("{CRIBO_INIT_PREFIX}{synthetic_name}")
 }
 
 /// Check if a function name is an init function
-pub fn is_init_function(name: &str) -> bool {
+pub(crate) fn is_init_function(name: &str) -> bool {
     name.starts_with(CRIBO_INIT_PREFIX)
 }
 
 /// Register a module with its synthetic name and init function
 /// Returns (`synthetic_name`, `init_func_name`)
-pub fn register_module(
+pub(crate) fn register_module(
     module_id: crate::resolver::ModuleId,
     module_name: &str,
     content_hash: &str,
@@ -475,11 +466,11 @@ pub fn register_module(
 /// A module is considered a wrapper submodule if:
 /// - It exists in the module registry (meaning it has an init function)
 /// - It is NOT in the inlined modules set
-pub fn is_wrapper_submodule(
+pub(crate) fn is_wrapper_submodule(
     module_id: crate::resolver::ModuleId,
     module_info_registry: Option<&crate::orchestrator::ModuleRegistry>,
     inlined_modules: &FxIndexSet<crate::resolver::ModuleId>,
 ) -> bool {
-    module_info_registry.is_some_and(|reg| reg.contains_module(&module_id))
+    module_info_registry.is_some_and(|reg| reg.contains_module(module_id))
         && !inlined_modules.contains(&module_id)
 }

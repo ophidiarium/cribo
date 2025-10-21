@@ -6,7 +6,7 @@
 use log::debug;
 use ruff_python_ast::{Identifier, ModModule, Stmt};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     code_generator::{bundler::Bundler, context::ModuleTransformContext},
     resolver::ModuleId,
@@ -30,12 +30,12 @@ impl ImportAnalysisPhase {
     /// Note: This phase only analyzes imports - it doesn't transform the AST.
     /// The actual AST transformation happens in the Import Transformation phase.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Track imports from inlined modules before transformation
         // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard
         //   imports) Format: (exported_name, value_name, source_module)
@@ -63,8 +63,8 @@ impl ImportAnalysisPhase {
                         let local_name = alias
                             .asname
                             .as_ref()
-                            .map_or(imported_name, ruff_python_ast::Identifier::as_str);
-                        state.imported_symbols.insert(local_name.to_string());
+                            .map_or(imported_name, Identifier::as_str);
+                        state.imported_symbols.insert(local_name.to_owned());
                         debug!(
                             "Collected imported symbol '{}' in module '{}'",
                             local_name, ctx.module_name
@@ -79,17 +79,11 @@ impl ImportAnalysisPhase {
                 let resolved_module = if import_from.level > 0 {
                     bundler.resolver.resolve_relative_to_absolute_module_name(
                         import_from.level,
-                        import_from
-                            .module
-                            .as_ref()
-                            .map(ruff_python_ast::Identifier::as_str),
+                        import_from.module.as_ref().map(Identifier::as_str),
                         ctx.module_path,
                     )
                 } else {
-                    import_from
-                        .module
-                        .as_ref()
-                        .map(std::string::ToString::to_string)
+                    import_from.module.as_ref().map(ToString::to_string)
                 };
 
                 if let Some(ref module) = resolved_module {
@@ -142,14 +136,14 @@ impl ImportAnalysisPhase {
                                 let local_binding_name = alias
                                     .asname
                                     .as_ref()
-                                    .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+                                    .map_or(imported_name, Identifier::as_str);
                                 debug!(
                                     "Tracking imported name '{imported_name}' as local binding \
                                      '{local_binding_name}' from inlined module '{module}'"
                                 );
                                 state
                                     .inlined_import_bindings
-                                    .push(local_binding_name.to_string());
+                                    .push(local_binding_name.to_owned());
                             }
                         }
                     }
@@ -161,15 +155,14 @@ impl ImportAnalysisPhase {
                 for alias in &import_stmt.names {
                     // Local binding is either `asname` or the top-level package segment (`pkg` in
                     // `pkg.sub`)
-                    let local_name = alias
-                        .asname
-                        .as_ref()
-                        .map(Identifier::as_str)
-                        .unwrap_or_else(|| {
+                    let local_name = alias.asname.as_ref().map_or_else(
+                        || {
                             let full = alias.name.as_str();
                             full.split('.').next().unwrap_or(full)
-                        });
-                    state.imported_symbols.insert(local_name.to_string());
+                        },
+                        Identifier::as_str,
+                    );
+                    state.imported_symbols.insert(local_name.to_owned());
                     debug!(
                         "Collected imported symbol '{}' via 'import' in module '{}'",
                         local_name, ctx.module_name
@@ -177,14 +170,12 @@ impl ImportAnalysisPhase {
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Process stdlib import for re-exports
     fn process_stdlib_import_reexports(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         import_from: &ruff_python_ast::StmtImportFrom,
         module: &str,
         state: &mut InitFunctionState,
@@ -195,14 +186,14 @@ impl ImportAnalysisPhase {
                 let local_name = alias
                     .asname
                     .as_ref()
-                    .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+                    .map_or(imported_name, Identifier::as_str);
 
                 // Check if this symbol should be re-exported (in __all__ or no __all__)
                 let should_reexport = if let Some(Some(export_list)) = bundler
                     .get_module_id(ctx.module_name)
                     .and_then(|id| bundler.module_exports.get(&id))
                 {
-                    export_list.contains(&local_name.to_string())
+                    export_list.contains(&local_name.to_owned())
                 } else {
                     // No explicit __all__, re-export all public symbols
                     !local_name.starts_with('_')
@@ -219,7 +210,7 @@ impl ImportAnalysisPhase {
                     );
                     state
                         .stdlib_reexports
-                        .insert((local_name.to_string(), proxy_path));
+                        .insert((local_name.to_owned(), proxy_path));
                 }
             }
         }
@@ -242,7 +233,7 @@ impl ImportAnalysisPhase {
     /// Process wildcard import from an inlined module
     /// Returns a list of symbols from wrapper modules that need deferred assignment
     fn process_wildcard_import(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         module: &str,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         imports_from_inlined: &mut Vec<(String, String, Option<String>)>,

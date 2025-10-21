@@ -1,10 +1,13 @@
 [package]
 authors.workspace     = true
 build                 = "build.rs"
+categories            = ["command-line-utilities", "development-tools"]
 description.workspace = true
 edition.workspace     = true
+keywords              = ["python", "bundler", "ast", "tree-shaking"]
 license.workspace     = true
 name                  = "cribo"
+readme                = "../../README.md"
 repository.workspace  = true
 version.workspace     = true
 
@@ -62,5 +65,5 @@ harness           = false
 name              = "ecosystem"
 required-features = ["bench"]
 
-[lints.rust]
-exported_private_dependencies = { level = "allow", priority = 10 }
+[lints]
+workspace = true

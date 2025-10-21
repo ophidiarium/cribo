@@ -9,11 +9,11 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Symbol analyzer for processing collected symbol data
-pub struct SymbolAnalyzer;
+pub(crate) struct SymbolAnalyzer;
 
 impl SymbolAnalyzer {
     /// Collect global symbols from modules (matching bundler's `collect_global_symbols`)
-    pub fn collect_global_symbols(
+    pub(crate) fn collect_global_symbols(
         modules: &[(
             crate::resolver::ModuleId,
             &ModModule,
@@ -64,59 +64,60 @@ impl SymbolAnalyzer {
     ///
     /// # Returns
     /// A vector of references to the export symbols that should be kept
-    pub fn filter_exports_by_tree_shaking<'a>(
+    pub(crate) fn filter_exports_by_tree_shaking<'a>(
         exports: &'a [String],
-        module_id: &crate::resolver::ModuleId,
+        module_id: crate::resolver::ModuleId,
         kept_symbols: Option<&FxIndexMap<crate::resolver::ModuleId, FxIndexSet<String>>>,
         enable_logging: bool,
         resolver: &crate::resolver::ModuleResolver,
     ) -> Vec<&'a String> {
-        if let Some(kept_symbols) = kept_symbols {
-            let result: Vec<&String> = exports
-                .iter()
-                .filter(|symbol| {
-                    // Check if this symbol is kept in this module
-                    // With the new data structure, we can do efficient lookups without allocations
-                    let is_kept = kept_symbols
-                        .get(module_id)
-                        .is_some_and(|symbols| symbols.contains(*symbol));
+        kept_symbols.map_or_else(
+            || exports.iter().collect(),
+            |kept_symbols| {
+                let result: Vec<&String> = exports
+                    .iter()
+                    .filter(|symbol| {
+                        // Check if this symbol is kept in this module
+                        // With the new data structure, we can do efficient lookups without
+                        // allocations
+                        let is_kept = kept_symbols
+                            .get(&module_id)
+                            .is_some_and(|symbols| symbols.contains(*symbol));
 
-                    if enable_logging {
-                        let (action, preposition, reason) = if is_kept {
-                            ("Keeping", "in", "survived")
-                        } else {
-                            ("Filtering out", "from", "removed by")
-                        };
-                        let module_name = resolver
-                            .get_module_name(*module_id)
-                            .expect("Module name must exist for ModuleId");
-                        debug!(
-                            "{action} symbol '{symbol}' {preposition} __all__ of module \
-                             '{module_name}' - {reason} tree-shaking"
-                        );
-                    }
+                        if enable_logging {
+                            let (action, preposition, reason) = if is_kept {
+                                ("Keeping", "in", "survived")
+                            } else {
+                                ("Filtering out", "from", "removed by")
+                            };
+                            let module_name = resolver
+                                .get_module_name(module_id)
+                                .expect("Module name must exist for ModuleId");
+                            debug!(
+                                "{action} symbol '{symbol}' {preposition} __all__ of module \
+                                 '{module_name}' - {reason} tree-shaking"
+                            );
+                        }
 
-                    is_kept
-                })
-                .collect();
+                        is_kept
+                    })
+                    .collect();
 
-            if enable_logging {
-                let module_name = resolver
-                    .get_module_name(*module_id)
-                    .expect("Module name must exist for ModuleId");
-                debug!(
-                    "Module '{}' __all__ filtering: {} symbols -> {} symbols",
-                    module_name,
-                    exports.len(),
-                    result.len()
-                );
-            }
+                if enable_logging {
+                    let module_name = resolver
+                        .get_module_name(module_id)
+                        .expect("Module name must exist for ModuleId");
+                    debug!(
+                        "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                        module_name,
+                        exports.len(),
+                        result.len()
+                    );
+                }
 
-            result
-        } else {
-            // No tree-shaking, include all exports
-            exports.iter().collect()
-        }
+                result
+            },
+        )
     }
 }
 
@@ -143,7 +144,7 @@ VERSION = "1.0.0"
         // Create a ModuleId for the test
         let module_id = crate::resolver::ModuleId::new(0);
         let path = std::path::PathBuf::new();
-        let hash = "hash".to_string();
+        let hash = "hash".to_owned();
         let modules = vec![(module_id, &module, path.as_path(), hash.as_str())];
 
         let symbols = SymbolAnalyzer::collect_global_symbols(&modules);

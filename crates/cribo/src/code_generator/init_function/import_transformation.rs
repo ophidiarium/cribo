@@ -35,15 +35,15 @@ impl ImportTransformationPhase {
     /// Note: This phase mutates the AST, unlike the Import Analysis phase which only
     /// analyzes it.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &mut ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
     ) -> Result<(), TransformError> {
         let module_id = bundler.get_module_id(ctx.module_name).ok_or_else(|| {
             TransformError::ModuleIdNotFound {
-                module_name: ctx.module_name.to_string(),
+                module_name: ctx.module_name.to_owned(),
             }
         })?;
 
@@ -76,17 +76,14 @@ impl ImportTransformationPhase {
         if !state.imports_from_inlined.is_empty()
             || !state.wrapper_module_symbols_global_only.is_empty()
         {
-            Self::add_global_declarations(bundler, state)?;
+            Self::add_global_declarations(bundler, state);
         }
 
         Ok(())
     }
 
     /// Add global declarations for symbols imported from inlined modules
-    fn add_global_declarations(
-        bundler: &Bundler,
-        state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    fn add_global_declarations(bundler: &Bundler<'_>, state: &mut InitFunctionState) {
         // Deduplicate by value name (what's actually in global scope) and sort for deterministic
         // output
         // Only add symbols from NON-inlined modules to globals (they exist as bare symbols)
@@ -119,7 +116,7 @@ impl ImportTransformationPhase {
                                 .iter()
                                 .find(|(_, symbols)| symbols.contains(symbol))
                                 .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
-                                .unwrap_or_else(|| "unknown".to_string());
+                                .unwrap_or_else(|| "unknown".to_owned());
                             debug!(
                                 "Symbol '{symbol}' kept by tree-shaking from module \
                                  '{module_name}'"
@@ -146,7 +143,5 @@ impl ImportTransformationPhase {
                 unique_imports.iter().map(String::as_str).collect(),
             ));
         }
-
-        Ok(())
     }
 }

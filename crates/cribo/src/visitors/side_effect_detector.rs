@@ -10,7 +10,7 @@ use ruff_python_ast::{
 use rustc_hash::FxHashSet;
 
 /// Visitor for detecting side effects in Python code
-pub struct SideEffectDetector {
+pub(crate) struct SideEffectDetector {
     /// Names that were imported and may have side effects when used
     imported_names: FxHashSet<String>,
     /// Flag indicating if side effects were found
@@ -24,13 +24,13 @@ pub struct SideEffectDetector {
 }
 
 /// Simple expression visitor for checking side effects in a single expression
-pub struct ExpressionSideEffectDetector {
+pub(crate) struct ExpressionSideEffectDetector {
     has_side_effects: bool,
 }
 
 impl SideEffectDetector {
     /// Create a new side effect detector
-    pub fn new(python_version: u8) -> Self {
+    pub(crate) fn new(python_version: u8) -> Self {
         Self {
             imported_names: FxHashSet::default(),
             has_side_effects: false,
@@ -41,7 +41,7 @@ impl SideEffectDetector {
     }
 
     /// Check if a module has side effects (static method to avoid allocation in caller)
-    pub fn check_module(module: &ModModule, python_version: u8) -> bool {
+    pub(crate) fn check_module(module: &ModModule, python_version: u8) -> bool {
         let mut detector = Self::new(python_version);
         detector.module_has_side_effects(module)
     }
@@ -85,11 +85,11 @@ impl SideEffectDetector {
 
             // For imports like "import xml.etree.ElementTree",
             // we need to track both the full path and the root binding
-            self.imported_names.insert(local_name.to_string());
+            self.imported_names.insert(local_name.to_owned());
 
             // Also track the root module name (e.g., "xml" from "xml.etree.ElementTree")
             if let Some(root) = local_name.split('.').next() {
-                self.imported_names.insert(root.to_string());
+                self.imported_names.insert(root.to_owned());
             }
         }
     }
@@ -105,14 +105,14 @@ impl SideEffectDetector {
             let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
             // Track the imported name
-            self.imported_names.insert(name.to_string());
+            self.imported_names.insert(name.to_owned());
 
             // For "from x import y", the binding is just "y", but
             // if it's a dotted name, also track the root
             if name.contains('.')
                 && let Some(root) = name.split('.').next()
             {
-                self.imported_names.insert(root.to_string());
+                self.imported_names.insert(root.to_owned());
             }
         }
     }
@@ -420,14 +420,14 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
 impl ExpressionSideEffectDetector {
     /// Create a new expression side effect detector
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             has_side_effects: false,
         }
     }
 
     /// Check if an expression has side effects (static method to avoid allocation in caller)
-    pub fn check(expr: &Expr) -> bool {
+    pub(crate) fn check(expr: &Expr) -> bool {
         let mut detector = Self::new();
         detector.expression_has_side_effects(expr)
     }

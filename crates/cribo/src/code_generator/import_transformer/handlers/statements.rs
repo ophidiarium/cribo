@@ -5,11 +5,11 @@ use ruff_python_ast::{
 
 use crate::code_generator::import_transformer::RecursiveImportTransformer;
 
-pub struct StatementsHandler;
+pub(crate) struct StatementsHandler;
 
 impl StatementsHandler {
     pub(in crate::code_generator::import_transformer) fn handle_ann_assign(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtAnnAssign,
     ) {
         // Transform the annotation
@@ -25,7 +25,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_aug_assign(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtAugAssign,
     ) {
         t.transform_expr(&mut s.target);
@@ -33,14 +33,14 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_expr_stmt(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtExpr,
     ) {
         t.transform_expr(&mut s.value);
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_return(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtReturn,
     ) {
         if let Some(value) = &mut s.value {
@@ -49,7 +49,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_raise(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtRaise,
     ) {
         if let Some(exc) = &mut s.exc {
@@ -61,7 +61,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_assert(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtAssert,
     ) {
         t.transform_expr(&mut s.test);
@@ -71,7 +71,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_try(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtTry,
     ) {
         t.transform_statements(&mut s.body);
@@ -88,7 +88,7 @@ impl StatementsHandler {
                 t.transform_expr(exc_type);
             }
             if let Some(name) = &eh.name {
-                t.state.local_variables.insert(name.as_str().to_string());
+                t.state.local_variables.insert(name.as_str().to_owned());
                 log::debug!("Tracking except alias as local: {}", name.as_str());
             }
             t.transform_statements(&mut eh.body);
@@ -104,7 +104,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_with(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtWith,
     ) {
         for item in &mut s.items {
@@ -127,7 +127,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_for(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtFor,
     ) {
         // Track loop variable as local before transforming
@@ -150,7 +150,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_while(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtWhile,
     ) {
         t.transform_expr(&mut s.test);
@@ -159,7 +159,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_if(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtIf,
     ) {
         t.transform_expr(&mut s.test);
@@ -194,7 +194,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_class_def(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut StmtClassDef,
     ) {
         // Transform decorators
@@ -210,7 +210,7 @@ impl StatementsHandler {
     }
 
     pub(in crate::code_generator::import_transformer) fn handle_function_def(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut ruff_python_ast::StmtFunctionDef,
     ) {
         log::debug!(
@@ -279,7 +279,7 @@ impl StatementsHandler {
         for param in &s.parameters.posonlyargs {
             t.state
                 .local_variables
-                .insert(param.parameter.name.as_str().to_string());
+                .insert(param.parameter.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (posonly): {}",
                 param.parameter.name.as_str()
@@ -290,7 +290,7 @@ impl StatementsHandler {
         for param in &s.parameters.args {
             t.state
                 .local_variables
-                .insert(param.parameter.name.as_str().to_string());
+                .insert(param.parameter.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local: {}",
                 param.parameter.name.as_str()
@@ -301,7 +301,7 @@ impl StatementsHandler {
         if let Some(vararg) = &s.parameters.vararg {
             t.state
                 .local_variables
-                .insert(vararg.name.as_str().to_string());
+                .insert(vararg.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (vararg): {}",
                 vararg.name.as_str()
@@ -312,7 +312,7 @@ impl StatementsHandler {
         for param in &s.parameters.kwonlyargs {
             t.state
                 .local_variables
-                .insert(param.parameter.name.as_str().to_string());
+                .insert(param.parameter.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (kwonly): {}",
                 param.parameter.name.as_str()
@@ -323,7 +323,7 @@ impl StatementsHandler {
         if let Some(kwarg) = &s.parameters.kwarg {
             t.state
                 .local_variables
-                .insert(kwarg.name.as_str().to_string());
+                .insert(kwarg.name.as_str().to_owned());
             log::debug!(
                 "Tracking function parameter as local (kwarg): {}",
                 kwarg.name.as_str()
@@ -375,7 +375,7 @@ impl StatementsHandler {
     /// (true) or perform `i += 1; continue;` (false). Mirrors current control flow which
     /// advances and continues within the arm.
     pub(in crate::code_generator::import_transformer) fn handle_assign(
-        t: &mut RecursiveImportTransformer,
+        t: &mut RecursiveImportTransformer<'_>,
         s: &mut ruff_python_ast::StmtAssign,
     ) -> bool {
         // Track assignment LHS names to prevent collapsing RHS to self

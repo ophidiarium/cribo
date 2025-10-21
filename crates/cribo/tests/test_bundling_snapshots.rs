@@ -50,8 +50,8 @@ impl Drop for TestSummary {
     fn drop(&mut self) {
         let count = FIXTURE_COUNT.load(Ordering::Relaxed);
         if count > 0 && !std::thread::panicking() {
-            // Use eprintln to ensure it's printed even if tests pass and stdout is captured
-            eprintln!("\nTotal fixtures checked: {count}");
+            // Use logging to ensure it's printed even if tests pass and stdout is captured
+            log::info!("Total fixtures checked: {count}");
         }
     }
 }
@@ -106,10 +106,10 @@ enum ExecutionStatus {
 #[derive(Debug)]
 #[allow(dead_code)] // Fields are used via Debug trait for snapshots
 struct RuffLintResults {
-    f401_violations: Vec<String>, // Unused imports
-    f404_violations: Vec<String>, // Late future imports
-    other_violations: Vec<String>,
-    total_violations: usize,
+    f401: Vec<String>, // Unused imports
+    f404: Vec<String>, // Late future imports
+    other: Vec<String>,
+    total: usize,
 }
 
 /// Structured requirements data for YAML snapshots
@@ -130,7 +130,7 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
     };
 
     let path = Path::new("<bundled>.py");
-    let source_kind = SourceKind::Python(bundled_code.to_string());
+    let source_kind = SourceKind::Python(bundled_code.to_owned());
 
     let result = lint_only(
         path,
@@ -142,41 +142,42 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
         ParseSource::None,
     );
 
-    let mut f401_violations = Vec::new();
-    let mut f404_violations = Vec::new();
-    let mut other_violations = Vec::new();
+    let mut f401 = Vec::new();
+    let mut f404 = Vec::new();
+    let mut other = Vec::new();
 
     for message in &result.diagnostics {
         let location = message.ruff_start_location();
         let rule_name = message.name();
-        let violation_info = if let Some(loc) = location {
-            format!(
-                "Line {}: {} - {}",
-                loc.line.get(),
-                rule_name,
-                message.body()
-            )
-        } else {
-            format!("{} - {}", rule_name, message.body())
-        };
+        let violation_info = location.map_or_else(
+            || format!("{} - {}", rule_name, message.body()),
+            |loc| {
+                format!(
+                    "Line {}: {} - {}",
+                    loc.line.get(),
+                    rule_name,
+                    message.body()
+                )
+            },
+        );
 
         // Check if it's a lint rule by looking at the diagnostic id
         if message.id().is_lint_named("F401") {
-            f401_violations.push(violation_info);
+            f401.push(violation_info);
         } else if message.id().is_lint_named("F404") {
-            f404_violations.push(violation_info);
+            f404.push(violation_info);
         } else {
-            other_violations.push(violation_info);
+            other.push(violation_info);
         }
     }
 
-    let total_violations = f401_violations.len() + f404_violations.len() + other_violations.len();
+    let total = f401.len() + f404.len() + other.len();
 
     RuffLintResults {
-        f401_violations,
-        f404_violations,
-        other_violations,
-        total_violations,
+        f401,
+        f404,
+        other,
+        total,
     }
 }
 
@@ -271,8 +272,7 @@ fn test_bundling_fixtures() {
         // Store original execution results for comparison
         let original_stdout = String::from_utf8_lossy(&original_output.stdout)
             .trim()
-            .replace("\r\n", "\n")
-            .clone();
+            .replace("\r\n", "\n");
         let original_exit_code = original_output.status.code().unwrap_or(-1);
 
         // Create temporary directory for output
@@ -327,7 +327,7 @@ fn test_bundling_fixtures() {
             let packages: Vec<String> = content
                 .lines()
                 .filter(|line| !line.trim().is_empty())
-                .map(|line| line.trim().to_string())
+                .map(|line| line.trim().to_owned())
                 .collect();
             let count = packages.len();
             RequirementsData { packages, count }
@@ -352,7 +352,7 @@ fn test_bundling_fixtures() {
             }
             if let Ok(output) = child.wait_with_output()
                 && !output.status.success()
-                && std::env::var("RUST_TEST_VERBOSE").is_ok()
+                && env::var("RUST_TEST_VERBOSE").is_ok()
             {
                 eprintln!("Warning: Bundled code has syntax errors for fixture {fixture_name}");
                 eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
@@ -365,12 +365,12 @@ fn test_bundling_fixtures() {
         // Check for F401 violations (unused imports) - fail if any are found
         // This ensures we catch regressions where imports aren't properly removed
         assert!(
-            ruff_results.f401_violations.is_empty(),
+            ruff_results.f401.is_empty(),
             "F401 violations (unused imports) detected in bundled code for fixture \
              '{}':\n{}\n\nThis indicates a regression in import handling. The bundler should \
              remove all unused imports.",
             fixture_name,
-            ruff_results.f401_violations.join("\n")
+            ruff_results.f401.join("\n")
         );
 
         // Execute the bundled code via stdin for consistent snapshots
@@ -415,8 +415,7 @@ fn test_bundling_fixtures() {
         // Compare bundled execution to original execution
         let bundled_stdout = String::from_utf8_lossy(&python_output.stdout)
             .trim()
-            .replace("\r\n", "\n")
-            .clone();
+            .replace("\r\n", "\n");
         let python_exit_code = python_output.status.code().unwrap_or(-1);
 
         // For normal tests (not pyfail_ or xfail_), stdout should match exactly
@@ -505,8 +504,7 @@ fn test_bundling_fixtures() {
             status: execution_status,
             stdout: String::from_utf8_lossy(&python_output.stdout)
                 .trim()
-                .replace("\r\n", "\n")
-                .clone(),
+                .replace("\r\n", "\n"),
             stderr: {
                 let full_stderr = String::from_utf8_lossy(&python_output.stderr)
                     .trim()
@@ -550,7 +548,7 @@ fn test_bundling_fixtures() {
     // Fail the test if no fixtures were executed
     let count = FIXTURE_COUNT.load(Ordering::Relaxed);
     // Report applied glob filter and instruct on running a specific fixture
-    let filter = std::env::var("INSTA_GLOB_FILTER").unwrap_or_else(|_| "<none>".to_string());
+    let filter = env::var("INSTA_GLOB_FILTER").unwrap_or_else(|_| "<none>".to_owned());
     assert!(
         count > 0,
         "\x1b[1;31m 🛑 No fixtures tested from `fixtures/` directory.\x1b[0m\n 🧩 Applied glob \
@@ -597,7 +595,7 @@ fn check_for_duplicate_lines_with_result(
 
         // Track line numbers where this line appears
         line_counts
-            .entry(trimmed_line.to_string())
+            .entry(trimmed_line.to_owned())
             .or_default()
             .push(line_num + 1); // Use 1-based line numbers
     }
@@ -637,7 +635,7 @@ fn check_for_duplicate_lines_with_result(
                 occurrences.len(),
                 occurrences
                     .iter()
-                    .map(std::string::ToString::to_string)
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             );

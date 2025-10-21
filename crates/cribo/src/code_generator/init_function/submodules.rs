@@ -5,7 +5,7 @@
 
 use log::debug;
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     code_generator::{bundler::Bundler, context::ModuleTransformContext},
     resolver::ModuleId,
@@ -29,11 +29,11 @@ impl SubmoduleHandlingPhase {
     /// **NOTE**: This phase runs after Statement Processing to ensure submodule
     /// namespace objects are available for any references in later phases.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Set submodules as attributes on this module for later reference
         let current_module_prefix = format!("{}.", ctx.module_name);
         let mut submodules_to_add = Vec::new();
@@ -71,15 +71,13 @@ impl SubmoduleHandlingPhase {
                 &full_name,
                 &relative_name,
                 state,
-            )?;
+            );
         }
-
-        Ok(())
     }
 
     /// Collect direct submodules from a given module set
     fn collect_submodules_from_set(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         module_set: &FxIndexSet<ModuleId>,
         current_module_prefix: &str,
         submodules_to_add: &mut Vec<(String, String)>,
@@ -93,7 +91,7 @@ impl SubmoduleHandlingPhase {
             if let Some(relative_name) = module_name.strip_prefix(current_module_prefix) {
                 // Only handle direct children, not nested submodules
                 if !relative_name.contains('.') {
-                    submodules_to_add.push((module_name.clone(), relative_name.to_string()));
+                    submodules_to_add.push((module_name.clone(), relative_name.to_owned()));
                 }
             }
         }
@@ -111,13 +109,13 @@ impl SubmoduleHandlingPhase {
 
     /// Add a submodule as an attribute on the parent module
     fn add_submodule_attribute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         full_name: &str,
         relative_name: &str,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // CRITICAL: Check if this wrapper module already imports a symbol with the same name
         // as the submodule. If it does, skip setting the submodule namespace to avoid
         // overwriting the imported symbol.
@@ -126,7 +124,7 @@ impl SubmoduleHandlingPhase {
                 "Skipping submodule namespace assignment for {full_name} because symbol \
                  '{relative_name}' is already imported"
             );
-            return Ok(());
+            return;
         }
 
         debug!(
@@ -147,26 +145,24 @@ impl SubmoduleHandlingPhase {
                 full_name,
                 relative_name,
                 state,
-            )?;
+            );
         } else {
             // For wrapped submodules, we'll set them up later when they're initialized
             // For now, just skip - the parent module will get the submodule reference
             // when the submodule's init function is called
             debug!("Skipping wrapped submodule {full_name} - will be set up when initialized");
         }
-
-        Ok(())
     }
 
     /// Handle an inlined submodule
     fn handle_inlined_submodule(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         full_name: &str,
         relative_name: &str,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Check if we're inside a wrapper function context
         if ctx.is_wrapper_body {
             // Inside wrapper: bind existing global namespace object
@@ -179,10 +175,8 @@ impl SubmoduleHandlingPhase {
                 relative_name,
                 symbol_renames,
                 state,
-            )?;
+            );
         }
-
-        Ok(())
     }
 
     /// Bind an existing global namespace object to module attribute
@@ -216,12 +210,12 @@ impl SubmoduleHandlingPhase {
 
     /// Create namespace for inlined submodule
     fn create_inlined_namespace(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         full_name: &str,
         relative_name: &str,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         debug!("Creating namespace for inlined submodule '{full_name}' in non-wrapper context");
 
         // Use the existing helper function from module_transformer
@@ -235,7 +229,5 @@ impl SubmoduleHandlingPhase {
             );
 
         state.body.extend(create_namespace_stmts);
-
-        Ok(())
     }
 }

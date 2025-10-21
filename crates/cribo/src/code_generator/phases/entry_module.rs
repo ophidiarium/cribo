@@ -16,11 +16,11 @@ use crate::{
 
 /// Entry module phase handler (stateless)
 #[derive(Default)]
-pub struct EntryModulePhase;
+pub(crate) struct EntryModulePhase;
 
 /// Result from processing the entry module
 #[derive(Debug, Clone)]
-pub struct EntryModuleProcessingResult {
+pub(crate) struct EntryModuleProcessingResult {
     /// Transformed and processed entry module statements
     pub statements: Vec<Stmt>,
     /// Locally defined symbols in the entry module
@@ -31,7 +31,7 @@ pub struct EntryModuleProcessingResult {
 
 impl EntryModulePhase {
     /// Create a new entry module phase
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -46,9 +46,9 @@ impl EntryModulePhase {
     /// 6. Exposes child modules at module level
     ///
     /// Returns processed statements, symbols, and renames for the entry module.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         params: &BundleParams<'_>,
         modules: &mut FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -119,7 +119,7 @@ impl EntryModulePhase {
 
     /// Reorder entry module statements for circular dependencies
     fn reorder_entry_module_statements(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         module_name: &str,
         body: Vec<Stmt>,
         python_version: u8,
@@ -130,9 +130,9 @@ impl EntryModulePhase {
                 .iter()
                 .filter_map(|id| bundler.resolver.get_module_name(*id))
                 .find(|name| !name.contains('.') && !crate::util::is_init_module(name))
-                .unwrap_or_else(|| module_name.to_string())
+                .unwrap_or_else(|| module_name.to_owned())
         } else {
-            module_name.to_string()
+            module_name.to_owned()
         };
 
         log::debug!(
@@ -162,7 +162,7 @@ impl EntryModulePhase {
 
     /// Transform imports in the entry module
     fn transform_entry_imports(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         ast: &mut ModModule,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         python_version: u8,
@@ -197,7 +197,7 @@ impl EntryModulePhase {
                                 .asname
                                 .as_ref()
                                 .map_or(imported, ruff_python_ast::Identifier::as_str);
-                            entry_stdlib_aliases.insert(local.to_string(), imported.to_string());
+                            entry_stdlib_aliases.insert(local.to_owned(), imported.to_owned());
                         }
                     }
                 }
@@ -226,7 +226,7 @@ impl EntryModulePhase {
     /// Process entry module statements with deduplication
     #[expect(clippy::too_many_arguments)]
     fn process_entry_statements(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         ast: &ModModule,
         locally_defined_symbols: &FxIndexSet<String>,
         entry_module_renames: &FxIndexMap<String, String>,
@@ -325,7 +325,7 @@ impl EntryModulePhase {
 
     /// Expose child modules at module level for the entry module
     fn expose_child_modules(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         module_name: &str,
         entry_module_symbols: &FxIndexSet<String>,
         entry_statements: &mut Vec<Stmt>,
@@ -343,11 +343,11 @@ impl EntryModulePhase {
         let package_name = if crate::util::is_init_module(module_name) {
             module_name
                 .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
-                .map(std::string::ToString::to_string)
+                .map(ToString::to_string)
                 .or_else(|| bundler.infer_entry_root_package())
-                .unwrap_or_else(|| module_name.to_string())
+                .unwrap_or_else(|| module_name.to_owned())
         } else {
-            module_name.to_string()
+            module_name.to_owned()
         };
 
         log::debug!("Package name for exposure: {package_name}");
@@ -405,10 +405,10 @@ mod tests {
     #[test]
     fn test_entry_module_processing_result_construction() {
         let mut entry_symbols = FxIndexSet::default();
-        entry_symbols.insert("foo".to_string());
+        entry_symbols.insert("foo".to_owned());
 
         let mut entry_renames = FxIndexMap::default();
-        entry_renames.insert("bar".to_string(), "bar_renamed".to_string());
+        entry_renames.insert("bar".to_owned(), "bar_renamed".to_owned());
 
         let result = EntryModuleProcessingResult {
             statements: vec![],
@@ -450,9 +450,9 @@ mod tests {
     #[test]
     fn test_entry_module_symbols_tracking() {
         let mut entry_symbols = FxIndexSet::default();
-        entry_symbols.insert("main".to_string());
-        entry_symbols.insert("helper".to_string());
-        entry_symbols.insert("Config".to_string());
+        entry_symbols.insert("main".to_owned());
+        entry_symbols.insert("helper".to_owned());
+        entry_symbols.insert("Config".to_owned());
 
         let result = EntryModuleProcessingResult {
             statements: vec![],
@@ -469,8 +469,8 @@ mod tests {
     #[test]
     fn test_entry_module_renames_tracking() {
         let mut entry_renames = FxIndexMap::default();
-        entry_renames.insert("main".to_string(), "main_requests".to_string());
-        entry_renames.insert("session".to_string(), "session_requests".to_string());
+        entry_renames.insert("main".to_owned(), "main_requests".to_owned());
+        entry_renames.insert("session".to_owned(), "session_requests".to_owned());
 
         let result = EntryModuleProcessingResult {
             statements: vec![],
@@ -481,11 +481,11 @@ mod tests {
         assert_eq!(result.entry_renames.len(), 2);
         assert_eq!(
             result.entry_renames.get("main"),
-            Some(&"main_requests".to_string())
+            Some(&"main_requests".to_owned())
         );
         assert_eq!(
             result.entry_renames.get("session"),
-            Some(&"session_requests".to_string())
+            Some(&"session_requests".to_owned())
         );
     }
 }

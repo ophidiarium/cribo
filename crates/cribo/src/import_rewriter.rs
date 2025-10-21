@@ -7,23 +7,23 @@ use ruff_python_ast::{
 };
 
 use crate::{
-    cribo_graph::CriboGraph,
+    dependency_graph::DependencyGraph,
     resolver::ModuleId,
-    semantic_bundler::SemanticBundler,
+    symbol_conflict_resolver::SymbolConflictResolver,
     types::{FxIndexMap, FxIndexSet},
     visitors::{DiscoveredImport, ImportDiscoveryVisitor, ImportLocation},
 };
 
 /// Strategy for deduplicating imports within functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImportDeduplicationStrategy {
+pub(crate) enum ImportDeduplicationStrategy {
     /// Place import at the start of the function
     FunctionStart,
 }
 
 /// Information about an import that can be moved
 #[derive(Debug, Clone)]
-pub struct MovableImport {
+pub(crate) struct MovableImport {
     /// The original import statement
     pub import_stmt: ImportStatement,
     /// Functions that use this import
@@ -34,7 +34,7 @@ pub struct MovableImport {
 
 /// Represents an import statement in a normalized form
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ImportStatement {
+pub(crate) enum ImportStatement {
     /// Regular import: `import module` or `import module as alias`
     Import {
         module: String,
@@ -49,23 +49,23 @@ pub enum ImportStatement {
 }
 
 /// Import rewriter that transforms module-level imports to function-level
-pub struct ImportRewriter {
+pub(crate) struct ImportRewriter {
     /// Import deduplication strategy
     dedup_strategy: ImportDeduplicationStrategy,
 }
 
 impl ImportRewriter {
     /// Create a new import rewriter
-    pub fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
+    pub(crate) const fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
         Self { dedup_strategy }
     }
 
     /// Analyze movable imports using semantic analysis for accurate context detection
-    pub fn analyze_movable_imports_semantic(
-        &mut self,
-        graph: &CriboGraph,
+    pub(crate) fn analyze_movable_imports_semantic(
+        &self,
+        graph: &DependencyGraph,
         resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
-        semantic_bundler: &SemanticBundler,
+        conflict_resolver: &SymbolConflictResolver,
         module_asts: &FxIndexMap<ModuleId, &ModModule>,
     ) -> Vec<MovableImport> {
         let mut movable_imports = Vec::new();
@@ -99,29 +99,30 @@ impl ImportRewriter {
                 };
 
                 // Check if we've already analyzed this module
-                let discovered_imports = if let Some(cached_imports) =
-                    module_import_cache.get(&module_id)
-                {
-                    trace!("Using cached import analysis for module '{module_name}'");
-                    cached_imports.clone()
-                } else {
-                    // Find the AST for this module using ModuleId
-                    let Some(ast) = module_asts.get(&module_id) else {
-                        continue;
+                let discovered_imports =
+                    if let Some(cached_imports) = module_import_cache.get(&module_id) {
+                        trace!("Using cached import analysis for module '{module_name}'");
+                        cached_imports.clone()
+                    } else {
+                        // Find the AST for this module using ModuleId
+                        let Some(ast) = module_asts.get(&module_id) else {
+                            continue;
+                        };
+
+                        // Perform semantic analysis using enhanced ImportDiscoveryVisitor
+                        let mut visitor = ImportDiscoveryVisitor::with_conflict_resolver(
+                            conflict_resolver,
+                            module_id,
+                        );
+                        for stmt in &ast.body {
+                            visitor.visit_stmt(stmt);
+                        }
+                        let imports = visitor.into_imports();
+
+                        // Cache the results for future use
+                        module_import_cache.insert(module_id, imports.clone());
+                        imports
                     };
-
-                    // Perform semantic analysis using enhanced ImportDiscoveryVisitor
-                    let mut visitor =
-                        ImportDiscoveryVisitor::with_semantic_bundler(semantic_bundler, module_id);
-                    for stmt in &ast.body {
-                        visitor.visit_stmt(stmt);
-                    }
-                    let imports = visitor.into_imports();
-
-                    // Cache the results for future use
-                    module_import_cache.insert(module_id, imports.clone());
-                    imports
-                };
 
                 // Find movable imports based on semantic analysis
                 let candidates = self.find_movable_imports_from_discovered(
@@ -147,7 +148,7 @@ impl ImportRewriter {
         discovered_imports: &[DiscoveredImport],
         source_module_id: ModuleId,
         cycle_module_ids: &[ModuleId],
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
     ) -> Vec<MovableImport> {
         let mut movable = Vec::new();
 
@@ -199,7 +200,7 @@ impl ImportRewriter {
                             "Import {imported_module} in {module_name} is at module level, moving \
                              to all functions"
                         );
-                        vec!["*".to_string()]
+                        vec!["*".to_owned()]
                     }
                     _ => {
                         // Other locations (Class, Conditional, Nested) are not handled yet
@@ -249,7 +250,7 @@ impl ImportRewriter {
         &self,
         imported_module_name: &str,
         cycle_module_ids: &[ModuleId],
-        graph: &CriboGraph,
+        graph: &DependencyGraph,
     ) -> bool {
         // Check each module ID in the cycle
         for &module_id in cycle_module_ids {
@@ -268,8 +269,8 @@ impl ImportRewriter {
     }
 
     /// Rewrite a module's AST to move imports into function scope
-    pub fn rewrite_module(
-        &mut self,
+    pub(crate) fn rewrite_module(
+        &self,
         module_ast: &mut ModModule,
         movable_imports: &[MovableImport],
         module_id: ModuleId,
@@ -313,7 +314,7 @@ impl ImportRewriter {
                     let all_aliases_movable = import_stmt.names.iter().all(|alias| {
                         let import = ImportStatement::Import {
                             module: alias.name.to_string(),
-                            alias: alias.asname.as_ref().map(std::string::ToString::to_string),
+                            alias: alias.asname.as_ref().map(ToString::to_string),
                         };
                         movable_imports.iter().any(|mi| mi.import_stmt == import)
                     });
@@ -339,14 +340,16 @@ impl ImportRewriter {
         import_from: &StmtImportFrom,
         movable_imports: &[&MovableImport],
     ) -> bool {
-        let stmt_module = import_from
-            .module
-            .as_ref()
-            .map(std::string::ToString::to_string);
+        let stmt_module = import_from.module.as_ref().map(ToString::to_string);
         let stmt_level = import_from.level;
 
         movable_imports.iter().any(|mi| {
-            self.import_matches_statement(&mi.import_stmt, &stmt_module, stmt_level, import_from)
+            self.import_matches_statement(
+                &mi.import_stmt,
+                stmt_module.as_ref(),
+                stmt_level,
+                import_from,
+            )
         })
     }
 
@@ -354,7 +357,7 @@ impl ImportRewriter {
     fn import_matches_statement(
         &self,
         import: &ImportStatement,
-        stmt_module: &Option<String>,
+        stmt_module: Option<&String>,
         stmt_level: u32,
         import_from: &StmtImportFrom,
     ) -> bool {
@@ -365,14 +368,14 @@ impl ImportRewriter {
                 names,
             } => {
                 // Module and level must match
-                if module != stmt_module || level != &stmt_level {
+                if module.as_ref() != stmt_module || level != &stmt_level {
                     return false;
                 }
 
                 // Check if all names in the movable import are present in the statement
                 self.all_names_present_in_statement(names, &import_from.names)
             }
-            _ => false,
+            ImportStatement::Import { .. } => false,
         }
     }
 
@@ -476,7 +479,7 @@ impl ImportRewriter {
                     for alias in &import_stmt.names {
                         existing_imports.insert(ImportStatement::Import {
                             module: alias.name.to_string(),
-                            alias: alias.asname.as_ref().map(std::string::ToString::to_string),
+                            alias: alias.asname.as_ref().map(ToString::to_string),
                         });
                     }
                 }
@@ -487,15 +490,12 @@ impl ImportRewriter {
                         .map(|alias| {
                             (
                                 alias.name.to_string(),
-                                alias.asname.as_ref().map(std::string::ToString::to_string),
+                                alias.asname.as_ref().map(ToString::to_string),
                             )
                         })
                         .collect();
                     existing_imports.insert(ImportStatement::FromImport {
-                        module: from_stmt
-                            .module
-                            .as_ref()
-                            .map(std::string::ToString::to_string),
+                        module: from_stmt.module.as_ref().map(ToString::to_string),
                         names,
                         level: from_stmt.level,
                     });

@@ -19,11 +19,11 @@ use crate::{
 
 /// Classification phase handler (stateless)
 #[derive(Default)]
-pub struct ClassificationPhase;
+pub(crate) struct ClassificationPhase;
 
 impl ClassificationPhase {
     /// Create a new classification phase
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -38,7 +38,7 @@ impl ClassificationPhase {
     ///
     /// Returns the `ClassificationResult` containing inlinable modules, wrapper modules,
     /// and module export information.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
@@ -55,7 +55,9 @@ impl ClassificationPhase {
         let classification = classifier.classify_modules(modules, python_version);
 
         // Store modules with explicit __all__ declarations
-        bundler.modules_with_explicit_all = classification.modules_with_explicit_all.clone();
+        bundler
+            .modules_with_explicit_all
+            .clone_from(&classification.modules_with_explicit_all);
 
         // Track inlined modules and store their exports
         Self::track_inlined_modules(bundler, &classification);
@@ -160,7 +162,7 @@ mod tests {
         use ruff_text_size::TextRange;
 
         let mut module_exports_map = FxIndexMap::default();
-        module_exports_map.insert(ModuleId::ENTRY, Some(vec!["foo".to_string()]));
+        module_exports_map.insert(ModuleId::ENTRY, Some(vec!["foo".to_owned()]));
 
         // Create an empty ModModule
         let empty_module = ModModule {
@@ -174,7 +176,7 @@ mod tests {
                 ModuleId::ENTRY,
                 empty_module,
                 PathBuf::new(),
-                "hash".to_string(),
+                "hash".to_owned(),
             )],
             wrapper_modules: vec![],
             module_exports_map: module_exports_map.clone(),
@@ -186,7 +188,7 @@ mod tests {
         assert_eq!(result.module_exports_map.len(), 1);
         assert_eq!(
             result.module_exports_map.get(&ModuleId::ENTRY),
-            Some(&Some(vec!["foo".to_string()]))
+            Some(&Some(vec!["foo".to_owned()]))
         );
     }
 
@@ -230,13 +232,13 @@ mod tests {
                 ModuleId::ENTRY,
                 empty_module1,
                 PathBuf::new(),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             )],
             wrapper_modules: vec![(
                 ModuleId::new(1),
                 empty_module2,
                 PathBuf::new(),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             )],
             module_exports_map: FxIndexMap::default(),
             modules_with_explicit_all: FxIndexSet::default(),

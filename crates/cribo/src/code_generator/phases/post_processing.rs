@@ -14,11 +14,11 @@ use crate::{
 
 /// Post-processing phase handler (stateless)
 #[derive(Default)]
-pub struct PostProcessingPhase;
+pub(crate) struct PostProcessingPhase;
 
 impl PostProcessingPhase {
     /// Create a new post-processing phase
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -30,7 +30,7 @@ impl PostProcessingPhase {
     /// 3. Generates package child alias statements
     ///
     /// Returns statements to be inserted at appropriate positions in the final bundle.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         entry_symbols: &FxIndexSet<String>,
@@ -73,7 +73,7 @@ impl PostProcessingPhase {
 
         let entry_pkg = bundler
             .entry_package_name()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .or_else(|| bundler.infer_entry_root_package())
             .unwrap_or_else(|| bundler.entry_module_name.clone());
 
@@ -138,7 +138,7 @@ impl PostProcessingPhase {
 
         // Add aliases for all direct child modules
         let mut seen: FxIndexSet<String> = FxIndexSet::default();
-        let mut added = 0usize;
+        let mut added = 0_usize;
 
         for child in bundler
             .bundled_modules
@@ -150,7 +150,7 @@ impl PostProcessingPhase {
                 if first.is_empty() || first.starts_with('_') {
                     continue;
                 }
-                if !seen.insert(first.to_string()) {
+                if !seen.insert(first.to_owned()) {
                     continue;
                 }
                 if existing_variables.contains(first) {
@@ -178,18 +178,18 @@ impl PostProcessingPhase {
     }
 
     /// Insert proxy statements after __future__ imports
-    pub fn insert_proxy_statements(proxy_statements: Vec<Stmt>, final_body: &mut Vec<Stmt>) {
+    pub(crate) fn insert_proxy_statements(proxy_statements: Vec<Stmt>, final_body: &mut Vec<Stmt>) {
         log::debug!("Inserting _cribo proxy after __future__ imports");
 
         // Find position after optional module docstring and __future__ imports
-        let mut insert_position = 0;
-
         // Skip leading module docstring
-        if let Some(Stmt::Expr(expr)) = final_body.first()
+        let mut insert_position = if let Some(Stmt::Expr(expr)) = final_body.first()
             && matches!(expr.value.as_ref(), ruff_python_ast::Expr::StringLiteral(_))
         {
-            insert_position = 1;
-        }
+            1
+        } else {
+            0
+        };
 
         // Skip contiguous __future__ imports after docstring
         for (i, stmt) in final_body.iter().enumerate().skip(insert_position) {

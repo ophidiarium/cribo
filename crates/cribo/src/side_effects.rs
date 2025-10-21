@@ -9,7 +9,7 @@ use ruff_python_ast::{ModModule, StmtImportFrom};
 use crate::visitors::SideEffectDetector;
 
 /// Check if an import statement would have side effects
-pub fn import_has_side_effects(module_name: &str, python_version: u8) -> bool {
+pub(crate) fn import_has_side_effects(module_name: &str, python_version: u8) -> bool {
     // Check if it's a stdlib module
     let root_module = module_name.split('.').next().unwrap_or(module_name);
     if ruff_python_stdlib::sys::is_known_standard_library(python_version, root_module) {
@@ -23,7 +23,10 @@ pub fn import_has_side_effects(module_name: &str, python_version: u8) -> bool {
 }
 
 /// Check if a from-import statement would have side effects
-pub fn from_import_has_side_effects(import_from: &StmtImportFrom, python_version: u8) -> bool {
+pub(crate) fn from_import_has_side_effects(
+    import_from: &StmtImportFrom,
+    python_version: u8,
+) -> bool {
     // Star imports always have potential side effects (except from stdlib)
     let is_star = import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
 
@@ -54,7 +57,7 @@ pub fn from_import_has_side_effects(import_from: &StmtImportFrom, python_version
 ///
 /// This checks for executable code at the module level beyond simple
 /// definitions and safe imports.
-pub fn module_has_side_effects(ast: &ModModule, python_version: u8) -> bool {
+pub(crate) fn module_has_side_effects(ast: &ModModule, python_version: u8) -> bool {
     // Delegate to the AST visitor
     SideEffectDetector::check_module(ast, python_version)
 }

@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Result of module classification
-pub struct ClassificationResult {
+pub(crate) struct ClassificationResult {
     pub inlinable_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
     pub wrapper_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
     pub module_exports_map: FxIndexMap<ModuleId, Option<Vec<String>>>,
@@ -19,7 +19,7 @@ pub struct ClassificationResult {
 }
 
 /// Analyzes and classifies modules for bundling
-pub struct ModuleClassifier<'a> {
+pub(crate) struct ModuleClassifier<'a> {
     resolver: &'a ModuleResolver,
     entry_is_package_init_or_main: bool,
     modules_with_explicit_all: FxIndexSet<ModuleId>,
@@ -29,7 +29,7 @@ pub struct ModuleClassifier<'a> {
 
 impl<'a> ModuleClassifier<'a> {
     /// Create a new module classifier
-    pub fn new(
+    pub(crate) fn new(
         resolver: &'a ModuleResolver,
         entry_is_package_init_or_main: bool,
         namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
@@ -54,12 +54,12 @@ impl<'a> ModuleClassifier<'a> {
             .or_else(|| {
                 entry_module_name.strip_suffix(&format!(".{}", crate::python::constants::MAIN_STEM))
             })
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
     }
 
     /// Classify modules into inlinable and wrapper modules
     /// Also collects module exports and tracks modules with explicit __all__
-    pub fn classify_modules(
+    pub(crate) fn classify_modules(
         mut self,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         python_version: u8,
@@ -71,7 +71,7 @@ impl<'a> ModuleClassifier<'a> {
         let entry_module_name = self
             .resolver
             .get_module_name(ModuleId::ENTRY)
-            .unwrap_or_else(|| "entry".to_string());
+            .unwrap_or_else(|| "entry".to_owned());
 
         for (module_id, (ast, module_path, content_hash)) in modules {
             let module_name = self
@@ -124,34 +124,36 @@ impl<'a> ModuleClassifier<'a> {
             }
 
             // Convert export info to the format expected by the bundler
-            let module_exports = if let Some(exported_names) = export_info.exported_names {
-                Some(exported_names)
-            } else {
-                // If no __all__, collect all top-level symbols using SymbolCollector
-                let collected = crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
-                let mut symbols: Vec<_> = collected
-                    .global_symbols
-                    .values()
-                    .filter(|s| {
-                        // Include all public symbols (not starting with underscore)
-                        // except __all__ itself
-                        // Dunder names (e.g., __version__, __author__, __doc__) are conventionally
-                        // public
-                        s.name != "__all__"
-                            && (!s.name.starts_with('_')
-                                || (s.name.starts_with("__") && s.name.ends_with("__")))
-                    })
-                    .map(|s| s.name.clone())
-                    .collect();
+            let module_exports = export_info.exported_names.map_or_else(
+                || {
+                    // If no __all__, collect all top-level symbols using SymbolCollector
+                    let collected =
+                        crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
+                    let mut symbols: Vec<_> = collected
+                        .global_symbols
+                        .values()
+                        .filter(|s| {
+                            // Include all public symbols (not starting with underscore)
+                            // except __all__ itself
+                            // Dunder names (e.g., __version__, __author__, __doc__) are
+                            // conventionally public
+                            s.name != "__all__"
+                                && (!s.name.starts_with('_')
+                                    || (s.name.starts_with("__") && s.name.ends_with("__")))
+                        })
+                        .map(|s| s.name.clone())
+                        .collect();
 
-                if symbols.is_empty() {
-                    None
-                } else {
-                    // Sort symbols for deterministic output
-                    symbols.sort();
-                    Some(symbols)
-                }
-            };
+                    if symbols.is_empty() {
+                        None
+                    } else {
+                        // Sort symbols for deterministic output
+                        symbols.sort();
+                        Some(symbols)
+                    }
+                },
+                Some,
+            );
 
             // Handle wildcard imports - if the module has wildcard imports and no explicit __all__,
             // we need to expand those to include the actual exports from the imported modules
@@ -306,9 +308,8 @@ impl<'a> ModuleClassifier<'a> {
             // Collect exports from all source modules first to avoid double borrow
             let mut exports_to_add = Vec::new();
             for source_module in &wildcard_sources {
-                let source_id = match self.resolver.get_module_id_by_name(source_module) {
-                    Some(id) => id,
-                    None => continue,
+                let Some(source_id) = self.resolver.get_module_id_by_name(source_module) else {
+                    continue;
                 };
                 if let Some(source_exports) = module_exports_map.get(&source_id)
                     && let Some(source_exports) = source_exports

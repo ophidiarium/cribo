@@ -14,11 +14,11 @@ use crate::code_generator::{
 
 /// Initialization phase handler (stateless)
 #[derive(Default)]
-pub struct InitializationPhase;
+pub(crate) struct InitializationPhase;
 
 impl InitializationPhase {
     /// Create a new initialization phase
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -32,7 +32,7 @@ impl InitializationPhase {
     /// Returns an `InitializationResult` containing the collected future imports.
     /// Note: Circular dependencies and namespace imports are discovered later in
     /// `prepare_modules` phase.
-    pub fn execute<'a>(
+    pub(crate) fn execute<'a>(
         &self,
         bundler: &mut Bundler<'a>,
         params: &BundleParams<'a>,
@@ -41,7 +41,7 @@ impl InitializationPhase {
         bundler.graph = Some(params.graph);
 
         // Store the semantic bundler reference for use in transformations
-        bundler.semantic_bundler = Some(params.semantic_bundler);
+        bundler.conflict_resolver = Some(params.conflict_resolver);
 
         // Initialize bundler settings and collect preliminary data
         bundler.initialize_bundler(params);
@@ -61,7 +61,7 @@ impl InitializationPhase {
 ///
 /// This converts the collected future imports into AST statements
 /// that should be placed at the beginning of the bundle.
-pub fn generate_future_import_statements(result: &InitializationResult) -> Vec<Stmt> {
+pub(crate) fn generate_future_import_statements(result: &InitializationResult) -> Vec<Stmt> {
     if result.future_imports.is_empty() {
         return Vec::new();
     }
@@ -103,8 +103,8 @@ mod tests {
     #[test]
     fn test_generate_future_import_statements_with_imports() {
         let mut future_imports = FxIndexSet::default();
-        future_imports.insert("annotations".to_string());
-        future_imports.insert("division".to_string());
+        future_imports.insert("annotations".to_owned());
+        future_imports.insert("division".to_owned());
 
         let result = InitializationResult { future_imports };
 
@@ -119,9 +119,9 @@ mod tests {
     fn test_future_imports_deterministic_ordering() {
         let mut future_imports = FxIndexSet::default();
         // Insert in non-alphabetical order
-        future_imports.insert("with_statement".to_string());
-        future_imports.insert("annotations".to_string());
-        future_imports.insert("division".to_string());
+        future_imports.insert("with_statement".to_owned());
+        future_imports.insert("annotations".to_owned());
+        future_imports.insert("division".to_owned());
 
         let result = InitializationResult { future_imports };
 
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_initialization_result_construction() {
         let mut future_imports = FxIndexSet::default();
-        future_imports.insert("annotations".to_string());
+        future_imports.insert("annotations".to_owned());
 
         let result = InitializationResult {
             future_imports: future_imports.clone(),

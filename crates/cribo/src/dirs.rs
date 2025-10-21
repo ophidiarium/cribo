@@ -15,14 +15,11 @@ const CONFIG_FILE: &str = "cribo.toml";
 ///
 /// On Windows, use, e.g., C:\Users\Alice\AppData\Roaming
 /// On Linux and macOS, use `XDG_CONFIG_HOME` or $HOME/.config, e.g., /home/alice/.config.
-pub fn user_config_dir() -> Option<PathBuf> {
-    match etcetera::choose_base_strategy() {
-        Ok(dirs) => Some(dirs.config_dir()),
-        Err(_) => None,
-    }
+pub(crate) fn user_config_dir() -> Option<PathBuf> {
+    etcetera::choose_base_strategy().map_or(None, |dirs| Some(dirs.config_dir()))
 }
 
-pub fn user_cribo_config_dir() -> Option<PathBuf> {
+pub(crate) fn user_cribo_config_dir() -> Option<PathBuf> {
     user_config_dir().map(|mut path| {
         path.push(CONFIG_DIR);
         path
@@ -61,7 +58,7 @@ fn locate_system_config_windows(system_drive: impl AsRef<Path>) -> Option<PathBu
 /// `/etc/xdg/cribo/cribo.toml` if unset or empty) and then `/etc/cribo/cribo.toml`
 ///
 /// On Windows, uses `%SYSTEMDRIVE%\ProgramData\cribo\cribo.toml`.
-pub fn system_config_file() -> Option<PathBuf> {
+pub(crate) fn system_config_file() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         env::var("SYSTEMDRIVE")

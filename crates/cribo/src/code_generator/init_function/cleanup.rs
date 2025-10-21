@@ -6,7 +6,7 @@
 use log::debug;
 use ruff_python_ast::{Expr, ExprContext, Stmt};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{ast_builder, code_generator::bundler::Bundler};
 
 /// Phase responsible for final cleanup tasks
@@ -22,24 +22,22 @@ impl CleanupPhase {
     /// **NOTE**: Wildcard imports (`imports_from_inlined`) were already handled earlier
     /// by the Wildcard Import Processing phase, so we only handle explicit imports here.
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Add stdlib re-exports to the module namespace
         Self::add_stdlib_reexports(ctx, state);
 
         // Add explicit imports from inlined modules as module attributes
         Self::add_explicit_inlined_imports(bundler, ctx, state);
-
-        Ok(())
     }
 
     /// Add stdlib re-exports to the module namespace
     ///
     /// Creates assignments like: `_cribo_module.local_name = _cribo.module.symbol`
     fn add_stdlib_reexports(
-        ctx: &crate::code_generator::context::ModuleTransformContext,
+        ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
     ) {
         for (local_name, proxy_path) in &state.stdlib_reexports {
@@ -71,8 +69,8 @@ impl CleanupPhase {
     /// For explicit imports from inlined modules that don't create assignments,
     /// we still need to set them as module attributes if they're exported.
     fn add_explicit_inlined_imports(
-        bundler: &Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
     ) {
         for imported_name in &state.inlined_import_bindings {

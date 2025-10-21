@@ -9,9 +9,9 @@
 //! - **Composable**: Phases can be combined in different ways
 //! - **Explicit**: Data dependencies between phases are visible through types
 
-pub mod classification;
-pub mod entry_module;
-pub mod initialization;
-pub mod orchestrator;
-pub mod post_processing;
-pub mod processing;
+pub(crate) mod classification;
+pub(crate) mod entry_module;
+pub(crate) mod initialization;
+pub(crate) mod orchestrator;
+pub(crate) mod post_processing;
+pub(crate) mod processing;

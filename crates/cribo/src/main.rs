@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::anyhow;
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, info};
@@ -11,7 +12,7 @@ mod ast_indexer;
 mod code_generator;
 mod combine;
 mod config;
-mod cribo_graph;
+mod dependency_graph;
 mod dirs;
 mod graph_builder;
 mod import_alias_tracker;
@@ -19,8 +20,8 @@ mod import_rewriter;
 mod orchestrator;
 mod python;
 mod resolver;
-mod semantic_bundler;
 mod side_effects;
+mod symbol_conflict_resolver;
 mod transformation_context;
 mod tree_shaking;
 mod types;
@@ -121,9 +122,12 @@ fn main() -> anyhow::Result<()> {
     let mut bundler = BundleOrchestrator::new(config);
 
     if cli.stdout {
-        // Output to stdout
+        // Output to stdout - use write_all for explicit I/O control and error handling
         let bundled_code = bundler.bundle_to_string(&cli.entry, cli.emit_requirements)?;
-        print!("{bundled_code}");
+        use std::io::Write;
+        std::io::stdout()
+            .write_all(bundled_code.as_bytes())
+            .map_err(|e| anyhow!("Failed to write bundle to stdout: {e}"))?;
         info!("Bundle output to stdout");
     } else {
         // Output to file

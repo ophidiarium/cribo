@@ -4,7 +4,7 @@
 //! initialization functions that can be called to create module objects.
 
 /// Name of the module object parameter used in generated init functions.
-pub const SELF_PARAM: &str = "self";
+pub(crate) const SELF_PARAM: &str = "self";
 
 use log::debug;
 use ruff_python_ast::{
@@ -28,32 +28,32 @@ use crate::{
 #[expect(clippy::too_many_arguments)] // Necessary for extracting complex logic
 pub(crate) fn process_statements_for_init_function(
     processed_body: Vec<Stmt>,
-    bundler: &Bundler,
-    ctx: &ModuleTransformContext,
+    bundler: &Bundler<'_>,
+    ctx: &ModuleTransformContext<'_>,
     all_is_referenced: bool,
     vars_used_by_exported_functions: &FxIndexSet<String>,
     module_scope_symbols: Option<&FxIndexSet<String>>,
     builtin_locals: &FxIndexSet<String>,
-    lifted_names: &Option<FxIndexMap<String, String>>,
+    lifted_names: Option<&FxIndexMap<String, String>>,
     inlined_import_bindings: &[String],
     body: &mut Vec<Stmt>,
     initialized_lifted_globals: &mut FxIndexSet<String>,
 ) {
     // Helper function to get exported module-level variables
     let get_exported_module_vars =
-        |bundler: &Bundler, ctx: &ModuleTransformContext| -> FxIndexSet<String> {
-            if let Some(ref global_info) = ctx.global_info {
-                let all_vars = &global_info.module_level_vars;
-                let mut exported_vars = FxIndexSet::default();
-                for var in all_vars {
-                    if bundler.should_export_symbol(var, ctx.module_name) {
-                        exported_vars.insert(var.clone());
+        |bundler: &Bundler<'_>, ctx: &ModuleTransformContext<'_>| -> FxIndexSet<String> {
+            ctx.global_info
+                .as_ref()
+                .map_or_else(FxIndexSet::default, |global_info| {
+                    let all_vars = &global_info.module_level_vars;
+                    let mut exported_vars = FxIndexSet::default();
+                    for var in all_vars {
+                        if bundler.should_export_symbol(var, ctx.module_name) {
+                            exported_vars.insert(var.clone());
+                        }
                     }
-                }
-                exported_vars
-            } else {
-                FxIndexSet::default()
-            }
+                    exported_vars
+                })
         };
 
     // Process each statement from the transformed module body
@@ -197,11 +197,10 @@ pub(crate) fn process_statements_for_init_function(
 
                         // For other relative imports that don't match our pattern, keep the
                         // original
-                        body.push(stmt.clone());
                     } else {
                         // For non-relative imports, keep the original
-                        body.push(stmt.clone());
                     }
+                    body.push(stmt.clone());
                 }
 
                 // Module attribute assignments for imported names are already handled by
@@ -242,7 +241,7 @@ pub(crate) fn process_statements_for_init_function(
                         &mut func_def_clone,
                         &global_info.module_level_vars,
                         &global_info.global_declarations,
-                        lifted_names.as_ref(),
+                        lifted_names,
                         SELF_PARAM,
                     );
                 }
@@ -312,8 +311,7 @@ pub(crate) fn process_statements_for_init_function(
                     body.push(Stmt::Assign(assign_clone.clone()));
 
                     // If this variable is being lifted to a global, update the global
-                    let mut lifted_var_handled = false;
-                    if let Some(lifted_names) = lifted_names
+                    let lifted_var_handled = if let Some(lifted_names) = lifted_names
                         && let Some(name) =
                             expression_handlers::extract_simple_assign_target(&assign_clone)
                         && let Some(lifted_name) = lifted_names.get(&name)
@@ -344,8 +342,10 @@ pub(crate) fn process_statements_for_init_function(
                                  '{name}'"
                             );
                         }
-                        lifted_var_handled = true;
-                    }
+                        true
+                    } else {
+                        false
+                    };
 
                     // Skip further module attribute handling if this was a lifted variable
                     if lifted_var_handled {
@@ -493,7 +493,7 @@ pub(crate) fn process_statements_for_init_function(
                             ctx.module_name,
                             body,
                             module_scope_symbols,
-                            lifted_names.as_ref(),
+                            lifted_names,
                         );
                     }
                 } else {
@@ -611,25 +611,14 @@ pub(crate) fn process_statements_for_init_function(
                 let mut stmt_clone = stmt.clone();
                 // Use actual module-level variables if available, but filter to only exported
                 // ones
-                let module_level_vars = if let Some(ref global_info) = ctx.global_info {
-                    let all_vars = &global_info.module_level_vars;
-                    let mut exported_vars = FxIndexSet::default();
-                    for var in all_vars {
-                        if bundler.should_export_symbol(var, ctx.module_name) {
-                            exported_vars.insert(var.clone());
-                        }
-                    }
-                    exported_vars
-                } else {
-                    FxIndexSet::default()
-                };
+                let module_level_vars = get_exported_module_vars(bundler, ctx);
                 let transform_ctx = ModuleVarTransformContext {
                     bundler,
                     module_level_vars: &module_level_vars,
                     module_var_name: SELF_PARAM, /* Use "self" instead of module_var_name inside
                                                   * init function */
                     global_declarations: ctx.global_info.as_ref().map(|g| &g.global_declarations),
-                    lifted_names: lifted_names.as_ref(),
+                    lifted_names,
                     python_version: ctx.python_version,
                 };
                 transform_stmt_for_module_vars_with_bundler(&mut stmt_clone, &transform_ctx);
@@ -1420,7 +1409,10 @@ struct ModuleVarTransformContext<'a> {
 
 /// Transform a statement to use module attributes for module-level variables,
 /// with awareness of lifted globals for nested functions
-fn transform_stmt_for_module_vars_with_bundler(stmt: &mut Stmt, ctx: &ModuleVarTransformContext) {
+fn transform_stmt_for_module_vars_with_bundler(
+    stmt: &mut Stmt,
+    ctx: &ModuleVarTransformContext<'_>,
+) {
     if let Stmt::FunctionDef(nested_func) = stmt {
         // For function definitions, use the global-aware transformation
         if let Some(globals_map) = ctx.global_declarations {
@@ -1877,11 +1869,11 @@ fn transform_expr_for_module_vars_with_locals(
 
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
-pub fn transform_ast_with_lifted_globals(
-    bundler: &Bundler,
+pub(crate) fn transform_ast_with_lifted_globals(
+    bundler: &Bundler<'_>,
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     module_name: Option<&str>,
 ) {
     bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info, module_name);
@@ -2065,7 +2057,7 @@ pub(crate) fn transform_expr_for_builtin_shadowing(
 
 /// Helper function to determine if a symbol should be included in the module namespace
 pub(crate) fn should_include_symbol(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     symbol_name: &str,
     module_name: &str,
     module_scope_symbols: Option<&FxIndexSet<String>>,
@@ -2135,7 +2127,7 @@ pub(crate) fn should_include_symbol(
 
 /// Add module attribute assignment if the symbol should be exported
 pub(crate) fn add_module_attr_if_exported(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     assign: &StmtAssign,
     module_name: &str,
     body: &mut Vec<Stmt>,
@@ -2156,7 +2148,7 @@ pub(crate) fn add_module_attr_if_exported(
 /// Helper to emit module attribute if a symbol should be exported
 /// This centralizes the logic for both Assign and `AnnAssign` paths
 pub(crate) fn emit_module_attr_if_exportable(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     symbol_name: &str,
     module_name: &str,
     body: &mut Vec<Stmt>,
@@ -2191,7 +2183,7 @@ pub(crate) fn emit_module_attr_if_exportable(
 
 /// Create namespace for inlined submodule
 pub(crate) fn create_namespace_for_inlined_submodule(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     full_module_name: &str,
     attr_name: &str,
     parent_module_var: &str,
@@ -2330,7 +2322,7 @@ pub(crate) fn create_namespace_for_inlined_submodule(
 
 /// Check if a renamed symbol exists after tree-shaking
 fn renamed_symbol_exists(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     renamed_symbol: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
 ) -> bool {
@@ -2357,7 +2349,7 @@ fn renamed_symbol_exists(
 /// Process wildcard import from an inlined module
 /// Returns a list of symbols from wrapper modules that need deferred assignment
 pub(crate) fn process_wildcard_import(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     module: &str,
     symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
     imports_from_inlined: &mut Vec<(String, String, Option<String>)>,
@@ -2458,7 +2450,7 @@ pub(crate) fn process_wildcard_import(
                     imports_from_inlined.push((
                         symbol.clone(),
                         value_name,
-                        Some(module.to_string()),
+                        Some(module.to_owned()),
                     ));
                 } else {
                     debug!(
@@ -2503,7 +2495,7 @@ pub(crate) fn process_wildcard_import(
                         imports_from_inlined.push((
                             original_name.clone(),
                             renamed_name.clone(),
-                            Some(module.to_string()),
+                            Some(module.to_owned()),
                         ));
                     } else {
                         debug!(
@@ -2545,7 +2537,7 @@ pub(crate) fn process_wildcard_import(
                         imports_from_inlined.push((
                             symbol.clone(),
                             symbol.clone(),
-                            Some(module.to_string()),
+                            Some(module.to_owned()),
                         ));
                     } else {
                         debug!(
@@ -2571,7 +2563,7 @@ pub(crate) fn process_wildcard_import(
 
 /// Check if a symbol from an inlined module actually comes from a wrapper module
 fn symbol_comes_from_wrapper_module(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     inlined_module: &str,
     symbol_name: &str,
 ) -> bool {
@@ -2601,10 +2593,7 @@ fn symbol_comes_from_wrapper_module(
                                 module_path,
                             )
                         } else {
-                            import_from
-                                .module
-                                .as_ref()
-                                .map(std::string::ToString::to_string)
+                            import_from.module.as_ref().map(ToString::to_string)
                         };
 
                         let Some(ref source_module) = resolved_module else {
@@ -2612,9 +2601,8 @@ fn symbol_comes_from_wrapper_module(
                         };
 
                         // Check if the source module is a wrapper module
-                        let source_module_id = match bundler.get_module_id(source_module) {
-                            Some(id) => id,
-                            None => continue,
+                        let Some(source_module_id) = bundler.get_module_id(source_module) else {
+                            continue;
                         };
 
                         if !bundler.bundled_modules.contains(&source_module_id)

@@ -30,8 +30,8 @@ impl FinalizationPhase {
     ///
     /// Note: This phase consumes the state (takes ownership) as it's the final phase
     pub(crate) fn build_function_stmt(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         mut state: InitFunctionState,
     ) -> Result<ruff_python_ast::Stmt, TransformError> {
         // Transform globals() calls to module.__dict__ in the entire body
@@ -103,7 +103,7 @@ impl FinalizationPhase {
         // Get the init function name from the bundler
         let module_id = bundler.get_module_id(ctx.module_name).ok_or_else(|| {
             TransformError::ModuleIdNotFound {
-                module_name: ctx.module_name.to_string(),
+                module_name: ctx.module_name.to_owned(),
             }
         })?;
         let init_func_name = bundler

@@ -24,7 +24,7 @@ pub struct ModuleId(pub u32);
 impl ModuleId {
     /// The entry point - always ID 0
     /// This is where bundling starts, the origin of our module universe
-    pub const ENTRY: ModuleId = ModuleId(0);
+    pub const ENTRY: Self = Self(0);
 
     #[inline]
     pub const fn new(id: u32) -> Self {
@@ -45,16 +45,16 @@ impl ModuleId {
 
     /// Format this `ModuleId` with the resolver to show the module name and path
     /// This is useful for debugging and error messages
-    pub fn format_with_resolver(&self, resolver: &ModuleResolver) -> String {
-        if let Some(name) = resolver.get_module_name(*self) {
-            if let Some(path) = resolver.get_module_path(*self) {
-                format!("ModuleId({})='{}' at '{}'", self.0, name, path.display())
-            } else {
-                format!("ModuleId({})='{}'", self.0, name)
-            }
-        } else {
-            format!("ModuleId({})", self.0)
-        }
+    pub fn format_with_resolver(self, resolver: &ModuleResolver) -> String {
+        resolver.get_module_name(self).map_or_else(
+            || format!("ModuleId({})", self.0),
+            |name| {
+                resolver.get_module_path(self).map_or_else(
+                    || format!("ModuleId({})='{}'", self.0, name),
+                    |path| format!("ModuleId({})='{}' at '{}'", self.0, name, path.display()),
+                )
+            },
+        )
     }
 }
 
@@ -66,12 +66,12 @@ impl fmt::Display for ModuleId {
 
 impl From<u32> for ModuleId {
     fn from(value: u32) -> Self {
-        ModuleId(value)
+        Self(value)
     }
 }
 
 impl From<ModuleId> for u32 {
-    fn from(value: ModuleId) -> u32 {
+    fn from(value: ModuleId) -> Self {
         value.0
     }
 }
@@ -226,7 +226,7 @@ impl ModuleRegistry {
 ///
 /// # Returns
 /// The resolved absolute module name
-pub fn resolve_relative_import_from_name(
+pub(crate) fn resolve_relative_import_from_name(
     level: u32,
     name: Option<&str>,
     current_module_name: &str,
@@ -265,21 +265,20 @@ pub fn resolve_relative_import_from_name(
 }
 
 /// Check if a module is part of the Python standard library using `ruff_python_stdlib`
-pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
+pub(crate) fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     // Check direct match using ruff_python_stdlib
     if sys::is_known_standard_library(python_version, module_name) {
         return true;
     }
 
     // Check if it's a submodule of a stdlib module
-    if let Some(top_level) = module_name.split('.').next() {
-        sys::is_known_standard_library(python_version, top_level)
-    } else {
-        false
-    }
+    module_name
+        .split('.')
+        .next()
+        .is_some_and(|top_level| sys::is_known_standard_library(python_version, top_level))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportType {
     FirstParty,
     ThirdParty,
@@ -291,7 +290,7 @@ pub enum ImportType {
 struct ImportModuleDescriptor {
     /// Number of leading dots for relative imports
     leading_dots: usize,
-    /// Module name parts (e.g., ["foo", "bar"] for "foo.bar")
+    /// Module name parts (e.g., `["foo", "bar"]` for `"foo.bar"`)
     name_parts: Vec<String>,
 }
 
@@ -367,8 +366,8 @@ impl ModuleResolver {
             virtualenv_packages_cache: RefCell::new(None),
             entry_dir: None,
             python_version: 38, // Default to Python 3.8
-            pythonpath_override: pythonpath_override.map(std::string::ToString::to_string),
-            virtualenv_override: virtualenv_override.map(std::string::ToString::to_string),
+            pythonpath_override: pythonpath_override.map(ToString::to_string),
+            virtualenv_override: virtualenv_override.map(ToString::to_string),
         }
     }
 
@@ -505,7 +504,7 @@ impl ModuleResolver {
 
         // 2. Add PYTHONPATH directories
         let pythonpath = pythonpath_override
-            .map(std::borrow::ToOwned::to_owned)
+            .map(ToOwned::to_owned)
             .or_else(|| std::env::var("PYTHONPATH").ok());
 
         if let Some(pythonpath) = pythonpath {
@@ -594,7 +593,7 @@ impl ModuleResolver {
             if let Some(resolved_path) = self.resolve_in_directory(search_dir, &descriptor) {
                 self.module_cache
                     .borrow_mut()
-                    .insert(module_name.to_string(), Some(resolved_path.clone()));
+                    .insert(module_name.to_owned(), Some(resolved_path.clone()));
                 return Ok(Some(resolved_path));
             }
         }
@@ -602,7 +601,7 @@ impl ModuleResolver {
         // Not found - cache the negative result
         self.module_cache
             .borrow_mut()
-            .insert(module_name.to_string(), None);
+            .insert(module_name.to_owned(), None);
         Ok(None)
     }
 
@@ -658,29 +657,30 @@ impl ModuleResolver {
         package_context: Option<&str>,
     ) -> Option<(String, PathBuf)> {
         // Handle relative imports with package context
-        let resolved_name = if let Some(package) = package_context {
-            if module_name.starts_with('.') {
-                // Count the number of leading dots
-                let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
-                let name_part = module_name.trim_start_matches('.');
+        let resolved_name = package_context.map_or_else(
+            || module_name.to_owned(),
+            |package| {
+                if module_name.starts_with('.') {
+                    // Count the number of leading dots
+                    let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
+                    let name_part = module_name.trim_start_matches('.');
 
-                // Use the centralized helper for relative import resolution
-                self.resolve_relative_import_from_package_name(
-                    level,
-                    if name_part.is_empty() {
-                        None
-                    } else {
-                        Some(name_part)
-                    },
-                    package,
-                )
-            } else {
-                // Absolute import, use as-is
-                module_name.to_string()
-            }
-        } else {
-            module_name.to_string()
-        };
+                    // Use the centralized helper for relative import resolution
+                    self.resolve_relative_import_from_package_name(
+                        level,
+                        if name_part.is_empty() {
+                            None
+                        } else {
+                            Some(name_part)
+                        },
+                        package,
+                    )
+                } else {
+                    // Absolute import, use as-is
+                    module_name.to_owned()
+                }
+            },
+        );
 
         debug!(
             "Resolving ImportlibStatic: '{}' with package '{}' -> '{}'",
@@ -818,7 +818,7 @@ impl ModuleResolver {
             let import_type = ImportType::FirstParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -827,14 +827,14 @@ impl ModuleResolver {
             let import_type = ImportType::FirstParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
         if self.config.known_third_party.contains(module_name) {
             let import_type = ImportType::ThirdParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -843,7 +843,7 @@ impl ModuleResolver {
             let import_type = ImportType::StandardLibrary;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -856,7 +856,7 @@ impl ModuleResolver {
                 let import_type = ImportType::FirstParty;
                 self.classification_cache
                     .borrow_mut()
-                    .insert(module_name.to_string(), import_type.clone());
+                    .insert(module_name.to_owned(), import_type.clone());
                 return import_type;
             }
         }
@@ -888,61 +888,59 @@ impl ModuleResolver {
                         let import_type = ImportType::FirstParty;
                         self.classification_cache
                             .borrow_mut()
-                            .insert(module_name.to_string(), import_type.clone());
-                        return import_type;
-                    } else {
-                        // Check if the parent module is a package
-                        // If parent is NOT a package (just a .py file), then submodules can't exist
-                        // This preserves Python's shadowing behavior
-
-                        // First, try to resolve the parent module to get its path
-                        let parent_descriptor =
-                            ImportModuleDescriptor::from_module_name(parent_module);
-                        let mut parent_is_package = false;
-                        let mut parent_found = false;
-
-                        for search_dir in &search_dirs {
-                            if let Some(parent_path) =
-                                self.resolve_in_directory(search_dir, &parent_descriptor)
-                            {
-                                parent_found = true;
-                                // Check if it's a package (__init__.py) or a module (.py file)
-                                parent_is_package = parent_path
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .is_some_and(crate::python::module_path::is_init_file_name);
-                                break;
-                            }
-                        }
-
-                        if parent_found && !parent_is_package {
-                            // Parent is a module file, not a package - submodules can't exist
-                            // This mimics Python's behavior where a .py file shadows a package
-                            debug!(
-                                "Module '{module_name}' cannot exist - parent '{parent_module}' \
-                                 is a module file, not a package (shadowing behavior)"
-                            );
-                            // Return FirstParty to trigger an error during bundling
-                            // (the module won't be found and will cause an appropriate error)
-                            let import_type = ImportType::FirstParty;
-                            self.classification_cache
-                                .borrow_mut()
-                                .insert(module_name.to_string(), import_type.clone());
-                            return import_type;
-                        }
-
-                        // Can't find source file, treat as third-party
-                        // This could be a C extension or dynamically available module
-                        debug!(
-                            "Module '{module_name}' has first-party parent '{parent_module}' but \
-                             no source file found - treating as third-party"
-                        );
-                        let import_type = ImportType::ThirdParty;
-                        self.classification_cache
-                            .borrow_mut()
-                            .insert(module_name.to_string(), import_type.clone());
+                            .insert(module_name.to_owned(), import_type.clone());
                         return import_type;
                     }
+                    // Check if the parent module is a package
+                    // If parent is NOT a package (just a .py file), then submodules can't exist
+                    // This preserves Python's shadowing behavior
+
+                    // First, try to resolve the parent module to get its path
+                    let parent_descriptor = ImportModuleDescriptor::from_module_name(parent_module);
+                    let mut parent_is_package = false;
+                    let mut parent_found = false;
+
+                    for search_dir in &search_dirs {
+                        if let Some(parent_path) =
+                            self.resolve_in_directory(search_dir, &parent_descriptor)
+                        {
+                            parent_found = true;
+                            // Check if it's a package (__init__.py) or a module (.py file)
+                            parent_is_package = parent_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .is_some_and(crate::python::module_path::is_init_file_name);
+                            break;
+                        }
+                    }
+
+                    if parent_found && !parent_is_package {
+                        // Parent is a module file, not a package - submodules can't exist
+                        // This mimics Python's behavior where a .py file shadows a package
+                        debug!(
+                            "Module '{module_name}' cannot exist - parent '{parent_module}' is a \
+                             module file, not a package (shadowing behavior)"
+                        );
+                        // Return FirstParty to trigger an error during bundling
+                        // (the module won't be found and will cause an appropriate error)
+                        let import_type = ImportType::FirstParty;
+                        self.classification_cache
+                            .borrow_mut()
+                            .insert(module_name.to_owned(), import_type.clone());
+                        return import_type;
+                    }
+
+                    // Can't find source file, treat as third-party
+                    // This could be a C extension or dynamically available module
+                    debug!(
+                        "Module '{module_name}' has first-party parent '{parent_module}' but no \
+                         source file found - treating as third-party"
+                    );
+                    let import_type = ImportType::ThirdParty;
+                    self.classification_cache
+                        .borrow_mut()
+                        .insert(module_name.to_owned(), import_type.clone());
+                    return import_type;
                 }
             }
         }
@@ -952,7 +950,7 @@ impl ModuleResolver {
             let import_type = ImportType::ThirdParty;
             self.classification_cache
                 .borrow_mut()
-                .insert(module_name.to_string(), import_type.clone());
+                .insert(module_name.to_owned(), import_type.clone());
             return import_type;
         }
 
@@ -960,7 +958,7 @@ impl ModuleResolver {
         let import_type = ImportType::ThirdParty;
         self.classification_cache
             .borrow_mut()
-            .insert(module_name.to_string(), import_type.clone());
+            .insert(module_name.to_owned(), import_type.clone());
         import_type
     }
 
@@ -986,15 +984,13 @@ impl ModuleResolver {
 
         // Try to get explicit VIRTUAL_ENV
         let explicit_virtualenv = virtualenv_override
-            .map(std::borrow::ToOwned::to_owned)
+            .map(ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
-        let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
-            vec![PathBuf::from(virtualenv_path)]
-        } else {
-            // Fallback: detect common virtual environment directory names
-            self.detect_fallback_virtualenv_paths()
-        };
+        let virtualenv_paths = explicit_virtualenv.map_or_else(
+            || self.detect_fallback_virtualenv_paths(),
+            |virtualenv_path| vec![PathBuf::from(virtualenv_path)],
+        );
 
         // Scan all discovered virtual environment paths
         for venv_path in virtualenv_paths {
@@ -1130,15 +1126,13 @@ impl ModuleResolver {
         let explicit_virtualenv = self
             .virtualenv_override
             .as_deref()
-            .map(std::borrow::ToOwned::to_owned)
+            .map(ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
-        let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
-            vec![PathBuf::from(virtualenv_path)]
-        } else {
-            // Fallback: detect common virtual environment directory names
-            self.detect_fallback_virtualenv_paths()
-        };
+        let virtualenv_paths = explicit_virtualenv.map_or_else(
+            || self.detect_fallback_virtualenv_paths(),
+            |virtualenv_path| vec![PathBuf::from(virtualenv_path)],
+        );
 
         // Try to find the package name from dist-info
         for venv_path in virtualenv_paths {
@@ -1156,20 +1150,21 @@ impl ModuleResolver {
 
         // If no mapping found, return the import name as-is
         debug!("No package mapping found for '{root_import}', using import name as-is");
-        root_import.to_string()
+        root_import.to_owned()
     }
 
     /// Normalize a package name according to PEP 503 using `pep508_rs`
     fn normalize_package_name(name: &str) -> String {
         // Use pep508_rs::PackageName for proper PEP 503 normalization
-        if let Ok(package_name) = PackageName::new(name.to_string()) {
-            package_name.to_string()
-        } else {
-            // If normalization fails (shouldn't happen for valid package names),
-            // fall back to simple lowercase
-            debug!("Failed to normalize package name '{name}', using lowercase");
-            name.cow_to_lowercase().into_owned()
-        }
+        PackageName::new(name.to_owned()).map_or_else(
+            |_| {
+                // If normalization fails (shouldn't happen for valid package names),
+                // fall back to simple lowercase
+                debug!("Failed to normalize package name '{name}', using lowercase");
+                name.cow_to_lowercase().into_owned()
+            },
+            |package_name| package_name.to_string(),
+        )
     }
 
     /// Find the package name for an import by scanning dist-info directories
@@ -1312,8 +1307,12 @@ impl ModuleResolver {
         if let Some(raw_name) = name {
             let cleaned = raw_name.trim_start_matches('.');
             if !cleaned.is_empty() {
-                let name_parts: Vec<&str> = cleaned.split('.').filter(|s| !s.is_empty()).collect();
-                current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
+                current_parts.extend(
+                    cleaned
+                        .split('.')
+                        .filter(|s| !s.is_empty())
+                        .map(ToString::to_string),
+                );
             }
         }
 
@@ -1429,11 +1428,16 @@ impl ModuleResolver {
     }
 
     /// Register a module - entry gets 0, others get sequential IDs
-    pub fn register_module(&self, name: String, path: &Path) -> ModuleId {
-        let mut registry = self.registry.lock().expect("Module registry lock poisoned");
-
+    pub fn register_module(&self, name: &str, path: &Path) -> ModuleId {
         let canonical = self.canonicalize_path(path.to_path_buf());
-        let id = registry.register(name.clone(), &canonical);
+        let id = {
+            let mut registry = self.registry.lock().expect("Module registry lock poisoned");
+            registry.register(name.to_owned(), &canonical)
+        };
+        let is_package = {
+            let registry = self.registry.lock().expect("Module registry lock poisoned");
+            registry.get_metadata(id).is_some_and(|m| m.is_package)
+        };
 
         if id.is_entry() {
             info!("Registered ENTRY module '{name}' at the origin (ID 0)");
@@ -1442,7 +1446,7 @@ impl ModuleResolver {
                 "Registered module '{}' with ID {} (package: {})",
                 name,
                 id.as_u32(),
-                registry.get_metadata(id).is_some_and(|m| m.is_package)
+                is_package
             );
         }
 
@@ -1518,7 +1522,7 @@ mod tests {
         create_test_file(&other_src.join("helper.py"), "# Other helper")?;
 
         let config = Config {
-            src: vec![other_src.clone()],
+            src: vec![other_src],
             ..Default::default()
         };
         let mut resolver = ModuleResolver::new(config);
@@ -1612,8 +1616,8 @@ mod tests {
 
         let config = Config {
             src: vec![root.to_path_buf()],
-            known_first_party: IndexSet::from(["known_first".to_string()]),
-            known_third_party: IndexSet::from(["requests".to_string()]),
+            known_first_party: IndexSet::from(["known_first".to_owned()]),
+            known_third_party: IndexSet::from(["requests".to_owned()]),
             ..Default::default()
         };
         let resolver = ModuleResolver::new(config);
@@ -1834,7 +1838,7 @@ mod tests {
 
         // Set up config with src directory
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 
@@ -1904,7 +1908,7 @@ mod tests {
 
         // Set up config
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 
@@ -1951,7 +1955,7 @@ mod tests {
 
         // Set up config
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 
@@ -2003,7 +2007,7 @@ mod tests {
         fs::write(&test_module, "# Test module")?;
 
         let config = Config {
-            src: vec![src_dir.clone()],
+            src: vec![src_dir],
             ..Default::default()
         };
 

@@ -221,7 +221,10 @@ pub(super) fn resolve_import_aliases_in_expr(
 }
 
 /// Rewrite aliases in expression using the bundler's alias mappings
-pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
+pub(crate) fn rewrite_aliases_in_expr(
+    expr: &mut Expr,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
     match expr {
         Expr::Name(name_expr) => {
             // Check if this is an aliased import that should be rewritten
@@ -445,7 +448,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
 
                         // Create a new interpolation element with the rewritten expression
                         let new_element = ruff_python_ast::InterpolatedElement {
-                            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                            node_index: AtomicNodeIndex::NONE,
                             expression: Box::new(new_expr),
                             debug_text: expr_elem.debug_text.clone(),
                             conversion: expr_elem.conversion,
@@ -463,17 +466,18 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
             // If any expressions were changed, rebuild the f-string
             if any_changed {
                 // Preserve the original flags from the f-string
-                let original_flags = if let Some(fstring_part) =
-                    fstring.value.iter().find_map(|part| match part {
+                let original_flags = fstring
+                    .value
+                    .iter()
+                    .find_map(|part| match part {
                         ruff_python_ast::FStringPart::FString(f) => Some(f),
-                        _ => None,
-                    }) {
-                    fstring_part.flags
-                } else {
-                    ruff_python_ast::FStringFlags::empty()
-                };
+                        ruff_python_ast::FStringPart::Literal(_) => None,
+                    })
+                    .map_or_else(ruff_python_ast::FStringFlags::empty, |fstring_part| {
+                        fstring_part.flags
+                    });
                 let new_fstring = ruff_python_ast::FString {
-                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    node_index: AtomicNodeIndex::NONE,
                     elements: ruff_python_ast::InterpolatedStringElements::from(new_elements),
                     range: fstring.range,
                     flags: original_flags, // Preserve the original flags including quote style
@@ -482,7 +486,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
                 let new_value = ruff_python_ast::FStringValue::single(new_fstring);
 
                 *expr = Expr::FString(ruff_python_ast::ExprFString {
-                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    node_index: AtomicNodeIndex::NONE,
                     value: new_value,
                     range: fstring.range,
                 });
@@ -495,10 +499,10 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
 
 /// Transform expression for lifted globals
 pub(super) fn transform_expr_for_lifted_globals(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) {
     match expr {
@@ -666,10 +670,10 @@ pub(super) fn transform_expr_for_lifted_globals(
 
 /// Transform f-string expressions for lifted globals
 pub(super) fn transform_fstring_for_lifted_globals(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) {
     if let Expr::FString(fstring) = expr {
@@ -706,10 +710,10 @@ pub(super) fn transform_fstring_for_lifted_globals(
         // If any expressions were transformed, we need to rebuild the f-string
         if any_transformed {
             // Preserve the original flags from the f-string
-            let original_flags = crate::ast_builder::expressions::get_fstring_flags(&fstring.value);
+            let original_flags = expressions::get_fstring_flags(&fstring.value);
             // Create a new FString with our transformed elements
             let new_fstring = ruff_python_ast::FString {
-                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                node_index: AtomicNodeIndex::NONE,
                 elements: ruff_python_ast::InterpolatedStringElements::from(transformed_elements),
                 range: fstring_range,
                 flags: original_flags, // Preserve the original flags including quote style
@@ -720,7 +724,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
 
             // Replace the entire expression with the new f-string
             *expr = Expr::FString(ruff_python_ast::ExprFString {
-                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                node_index: AtomicNodeIndex::NONE,
                 value: new_value,
                 range: fstring_range,
             });
@@ -732,10 +736,10 @@ pub(super) fn transform_fstring_for_lifted_globals(
 
 /// Transform a single f-string expression element
 pub(super) fn transform_fstring_expression(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     expr_elem: &ruff_python_ast::InterpolatedElement,
     lifted_names: &FxIndexMap<String, String>,
-    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::symbol_conflict_resolver::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) -> (ruff_python_ast::InterpolatedElement, bool) {
     // Clone and transform the expression
@@ -755,7 +759,7 @@ pub(super) fn transform_fstring_expression(
 
     // Create a new expression element with the transformed expression
     let new_element = ruff_python_ast::InterpolatedElement {
-        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+        node_index: AtomicNodeIndex::NONE,
         expression: Box::new(new_expr),
         debug_text: expr_elem.debug_text.clone(),
         conversion: expr_elem.conversion,
@@ -767,7 +771,10 @@ pub(super) fn transform_fstring_expression(
 }
 
 /// Recursively rewrite aliases in statements
-pub fn rewrite_aliases_in_stmt(stmt: &mut Stmt, alias_to_canonical: &FxIndexMap<String, String>) {
+pub(crate) fn rewrite_aliases_in_stmt(
+    stmt: &mut Stmt,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
     match stmt {
         Stmt::Expr(expr_stmt) => {
             rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
@@ -1067,7 +1074,7 @@ fn hoist_and_dedup_global_statements(func_def: &mut StmtFunctionDef) {
         if let Stmt::Global(g) = stmt {
             has_global = true;
             for ident in &g.names {
-                names.insert(ident.as_str().to_string());
+                names.insert(ident.as_str().to_owned());
             }
         }
     }
@@ -1129,7 +1136,7 @@ fn rewrite_aliases_in_class(
 }
 
 /// Extract target name from a simple assignment
-pub fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
+pub(crate) fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
     if assign.targets.len() == 1
         && let Expr::Name(name) = &assign.targets[0]
     {
@@ -1139,7 +1146,7 @@ pub fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
 }
 
 /// Check if an assignment is self-referential (e.g., x = x)
-pub fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -> bool {
+pub(crate) fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -> bool {
     // Check if this is a simple assignment with a single target and value
     if assign.targets.len() == 1
         && let (Expr::Name(target), Expr::Name(value)) = (&assign.targets[0], assign.value.as_ref())
@@ -1172,7 +1179,7 @@ pub fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -
 
 /// Check if two expressions are structurally equal (for simple cases)
 /// This is a basic implementation that handles common cases for namespace attachments
-pub fn expressions_are_equal(expr1: &Expr, expr2: &Expr) -> bool {
+pub(crate) fn expressions_are_equal(expr1: &Expr, expr2: &Expr) -> bool {
     match (expr1, expr2) {
         // Name expressions - compare identifiers
         (Expr::Name(name1), Expr::Name(name2)) => name1.id == name2.id,

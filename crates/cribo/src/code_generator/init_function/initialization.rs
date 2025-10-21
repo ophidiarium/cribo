@@ -5,7 +5,7 @@
 use log::debug;
 use ruff_python_ast::{ExprContext, ModModule};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     ast_builder,
     code_generator::{
@@ -28,11 +28,11 @@ impl InitializationPhase {
     /// 3. Set __initializing__ = True
     /// 4. Apply globals lifting if needed
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &mut ModModule,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Add __initialized__ check
         // if getattr(self, "__initialized__", False):
         //     return self
@@ -88,7 +88,7 @@ impl InitializationPhase {
         // The parent will be initialized by whoever imports the child module.
 
         // Apply globals lifting if needed
-        state.lifted_names = if let Some(ref global_info) = ctx.global_info {
+        state.lifted_names = ctx.global_info.as_ref().and_then(|global_info| {
             if global_info.global_declarations.is_empty() {
                 None
             } else {
@@ -111,10 +111,6 @@ impl InitializationPhase {
 
                 Some(lifted_names)
             }
-        } else {
-            None
-        };
-
-        Ok(())
+        });
     }
 }

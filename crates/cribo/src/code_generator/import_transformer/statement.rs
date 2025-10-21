@@ -13,7 +13,7 @@ impl StatementProcessor {
     pub(super) fn collect_assigned_names(target: &Expr, out: &mut FxIndexSet<String>) {
         match target {
             Expr::Name(name) => {
-                out.insert(name.id.as_str().to_string());
+                out.insert(name.id.as_str().to_owned());
             }
             Expr::Tuple(t) => {
                 for elt in &t.elts {
@@ -62,7 +62,7 @@ impl StatementProcessor {
             if let Stmt::Global(g) = stmt {
                 has_global = true;
                 for ident in &g.names {
-                    names.insert(ident.as_str().to_string());
+                    names.insert(ident.as_str().to_owned());
                 }
             }
         }

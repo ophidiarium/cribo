@@ -19,7 +19,10 @@ pub(super) struct ExpressionRewriter;
 
 impl ExpressionRewriter {
     /// Recursively transform expressions within the import transformer context
-    pub(super) fn transform_expr(transformer: &mut RecursiveImportTransformer, expr: &mut Expr) {
+    pub(super) fn transform_expr(
+        transformer: &mut RecursiveImportTransformer<'_>,
+        expr: &mut Expr,
+    ) {
         // First check if this is an attribute expression and collect the path
         let attribute_info = if matches!(expr, Expr::Attribute(_)) {
             let info = Self::collect_attribute_path(expr);
@@ -240,34 +243,7 @@ impl ExpressionRewriter {
                                 // Create dotted name expression like _cribo.json.dumps
                                 let full_path = format!("{stdlib_path}.{attr_name}");
                                 let parts: Vec<&str> = full_path.split('.').collect();
-                                let mut new_expr = crate::ast_builder::expressions::dotted_name(
-                                    &parts,
-                                    attr_expr.ctx,
-                                );
-                                // Preserve the original range
-                                if let Expr::Attribute(attr) = &mut new_expr {
-                                    attr.range = attr_expr.range;
-                                }
-                                *expr = new_expr;
-                                return;
-                            } else {
-                                // For deeper paths like j.decoder.JSONDecoder, build the full path
-                                let mut full_path = stdlib_path.clone();
-                                for part in &attr_path {
-                                    full_path.push('.');
-                                    full_path.push_str(part);
-                                }
-                                log::debug!(
-                                    "Transforming {base}.{} to {full_path} (stdlib import alias, \
-                                     deep path)",
-                                    attr_path.join(".")
-                                );
-
-                                let parts: Vec<&str> = full_path.split('.').collect();
-                                let mut new_expr = crate::ast_builder::expressions::dotted_name(
-                                    &parts,
-                                    attr_expr.ctx,
-                                );
+                                let mut new_expr = expressions::dotted_name(&parts, attr_expr.ctx);
                                 // Preserve the original range
                                 if let Expr::Attribute(attr) = &mut new_expr {
                                     attr.range = attr_expr.range;
@@ -275,6 +251,26 @@ impl ExpressionRewriter {
                                 *expr = new_expr;
                                 return;
                             }
+                            // For deeper paths like j.decoder.JSONDecoder, build the full path
+                            let mut full_path = stdlib_path.clone();
+                            for part in &attr_path {
+                                full_path.push('.');
+                                full_path.push_str(part);
+                            }
+                            log::debug!(
+                                "Transforming {base}.{} to {full_path} (stdlib import alias, deep \
+                                 path)",
+                                attr_path.join(".")
+                            );
+
+                            let parts: Vec<&str> = full_path.split('.').collect();
+                            let mut new_expr = expressions::dotted_name(&parts, attr_expr.ctx);
+                            // Preserve the original range
+                            if let Expr::Attribute(attr) = &mut new_expr {
+                                attr.range = attr_expr.range;
+                            }
+                            *expr = new_expr;
+                            return;
                         }
                         // Check if the base refers to an inlined module
                         else if let Some(actual_module) =
@@ -485,8 +481,7 @@ impl ExpressionRewriter {
                 // Transform expressions within the f-string
                 let fstring_range = fstring_expr.range;
                 // Preserve the original flags from the f-string
-                let original_flags =
-                    crate::ast_builder::expressions::get_fstring_flags(&fstring_expr.value);
+                let original_flags = expressions::get_fstring_flags(&fstring_expr.value);
                 let mut transformed_elements = Vec::new();
                 let mut any_transformed = false;
 
@@ -605,7 +600,8 @@ impl ExpressionRewriter {
 
     /// Collect the full dotted attribute path from a potentially nested attribute expression
     /// Returns (`base_name`, [attr1, attr2, ...])
-    /// For example: greetings.greeting.message returns (Some("greetings"), ["greeting", "message"])
+    /// For example: `greetings.greeting.message` returns `(Some("greetings"), ["greeting",
+    /// "message"])`
     fn collect_attribute_path(expr: &Expr) -> (Option<String>, Vec<String>) {
         let mut attrs = Vec::new();
         let mut current = expr;
@@ -613,12 +609,12 @@ impl ExpressionRewriter {
         loop {
             match current {
                 Expr::Attribute(attr) => {
-                    attrs.push(attr.attr.as_str().to_string());
+                    attrs.push(attr.attr.as_str().to_owned());
                     current = &attr.value;
                 }
                 Expr::Name(name) => {
                     attrs.reverse();
-                    return (Some(name.id.as_str().to_string()), attrs);
+                    return (Some(name.id.as_str().to_owned()), attrs);
                 }
                 _ => {
                     attrs.reverse();
@@ -629,7 +625,7 @@ impl ExpressionRewriter {
     }
 
     /// Find the actual module name for a given alias
-    fn find_module_for_alias(alias: &str, state: &TransformerState) -> Option<String> {
+    fn find_module_for_alias(alias: &str, state: &TransformerState<'_>) -> Option<String> {
         log::debug!(
             "find_module_for_alias: alias={}, is_entry_module={}, local_vars={:?}",
             alias,
@@ -656,7 +652,7 @@ impl ExpressionRewriter {
                 .get_module_id(alias)
                 .is_some_and(|id| state.bundler.inlined_modules.contains(&id))
         {
-            Some(alias.to_string())
+            Some(alias.to_owned())
         } else {
             None
         }

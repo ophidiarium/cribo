@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Variable collection visitor
-pub struct VariableCollector {
+pub(crate) struct VariableCollector {
     /// Collected data
     collected: CollectedVariables,
     /// Current scope stack
@@ -38,10 +38,10 @@ impl Default for VariableCollector {
 
 impl VariableCollector {
     /// Create a new variable collector
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             collected: CollectedVariables::default(),
-            scope_stack: vec!["<module>".to_string()],
+            scope_stack: vec!["<module>".to_owned()],
             in_deletion: false,
             in_assignment_target: false,
             current_function: None,
@@ -64,7 +64,7 @@ impl VariableCollector {
     /// Record a variable usage
     fn record_usage(&mut self, name: &str, usage_type: UsageType, location: TextRange) {
         self.collected.usages.push(VariableUsage {
-            name: name.to_string(),
+            name: name.to_owned(),
             usage_type,
             location,
             scope: self.current_scope_path(),
@@ -72,7 +72,7 @@ impl VariableCollector {
 
         // Track referenced vars for quick lookup
         if matches!(usage_type, UsageType::Read | UsageType::Write) {
-            self.collected.referenced_vars.insert(name.to_string());
+            self.collected.referenced_vars.insert(name.to_owned());
         }
     }
 
@@ -120,7 +120,7 @@ impl VariableCollector {
     }
 
     /// Collect global declarations from a function body (static helper)
-    pub fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
+    pub(crate) fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
         let mut function_globals = FxIndexSet::default();
         for stmt in body {
             if let Stmt::Global(global_stmt) = stmt {
@@ -133,7 +133,7 @@ impl VariableCollector {
     }
 
     /// Check if a statement references a specific variable
-    pub fn statement_references_variable(stmt: &Stmt, var_name: &str) -> bool {
+    pub(crate) fn statement_references_variable(stmt: &Stmt, var_name: &str) -> bool {
         struct VarChecker<'a> {
             var_name: &'a str,
             found: bool,
@@ -160,7 +160,7 @@ impl VariableCollector {
     }
 
     /// Collect variables referenced in statements (static helper for compatibility)
-    pub fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
+    pub(crate) fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
         struct SimpleStmtCollector<'a> {
             vars: &'a mut FxIndexSet<String>,
         }
@@ -315,11 +315,9 @@ print(y)
         assert!(collected.referenced_vars.contains("print"));
 
         // Check usage types
-        let x_usages: Vec<_> = collected.usages.iter().filter(|u| u.name == "x").collect();
-        assert_eq!(x_usages.len(), 2); // 1 write, 1 read
+        assert_eq!(collected.usages.iter().filter(|u| u.name == "x").count(), 2); // 1 write, 1 read
 
-        let y_usages: Vec<_> = collected.usages.iter().filter(|u| u.name == "y").collect();
-        assert_eq!(y_usages.len(), 2); // 1 write, 1 read
+        assert_eq!(collected.usages.iter().filter(|u| u.name == "y").count(), 2); // 1 write, 1 read
     }
 
     #[test]
@@ -343,12 +341,14 @@ def foo():
         assert!(foo_globals.contains("y"));
 
         // Check global declarations
-        let global_decls: Vec<_> = collected
-            .usages
-            .iter()
-            .filter(|u| matches!(u.usage_type, UsageType::GlobalDeclaration))
-            .collect();
-        assert_eq!(global_decls.len(), 2);
+        assert_eq!(
+            collected
+                .usages
+                .iter()
+                .filter(|u| matches!(u.usage_type, UsageType::GlobalDeclaration))
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -361,8 +361,7 @@ x += 2
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
 
-        let x_usages: Vec<_> = collected.usages.iter().filter(|u| u.name == "x").collect();
-        assert_eq!(x_usages.len(), 3); // 1 initial write, 1 read + 1 write from +=
+        assert_eq!(collected.usages.iter().filter(|u| u.name == "x").count(), 3); // 1 initial write, 1 read + 1 write from +=
     }
 
     #[test]

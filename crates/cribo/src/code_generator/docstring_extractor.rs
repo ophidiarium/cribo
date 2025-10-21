@@ -23,7 +23,7 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 /// ```
 ///
 /// Both examples above would extract the docstring successfully.
-pub fn extract_module_docstring(module: &ModModule) -> Option<String> {
+pub(crate) fn extract_module_docstring(module: &ModModule) -> Option<String> {
     // Module docstring can appear after `__future__` imports.
     // We need to skip them to find the first "real" statement.
     for stmt in &module.body {
@@ -31,7 +31,7 @@ pub fn extract_module_docstring(module: &ModModule) -> Option<String> {
             if let Expr::StringLiteral(string_lit) = expr_stmt.value.as_ref() {
                 // This is the first non-__future__ import statement, and it's a string literal.
                 // It's a docstring.
-                let docstring = string_lit.value.to_str().to_string();
+                let docstring = string_lit.value.to_str().to_owned();
                 return Some(docstring);
             }
             // The first non-`__future__` statement is not a string literal, so there's no
@@ -69,7 +69,7 @@ def foo():
 "#;
         let module = parse_module(source).expect("Failed to parse").into_syntax();
         let docstring = extract_module_docstring(&module);
-        assert_eq!(docstring, Some("This is a module docstring.".to_string()));
+        assert_eq!(docstring, Some("This is a module docstring.".to_owned()));
     }
 
     #[test]
@@ -131,7 +131,7 @@ def foo():
         let docstring = extract_module_docstring(&module);
         assert_eq!(
             docstring,
-            Some("This is a module docstring with single quotes.".to_string())
+            Some("This is a module docstring with single quotes.".to_owned())
         );
     }
 
@@ -150,7 +150,7 @@ def foo():
         // Docstring after __future__ import IS a valid module docstring
         assert_eq!(
             docstring,
-            Some("This is a module docstring after __future__ import.".to_string())
+            Some("This is a module docstring after __future__ import.".to_owned())
         );
     }
 
@@ -169,7 +169,7 @@ def foo():
         // Module docstring can appear before __future__ import
         assert_eq!(
             docstring,
-            Some("This is a module docstring before __future__ import.".to_string())
+            Some("This is a module docstring before __future__ import.".to_owned())
         );
     }
 
@@ -187,7 +187,7 @@ def foo():
         let docstring = extract_module_docstring(&module);
         assert_eq!(
             docstring,
-            Some("This is a module docstring after shebang.".to_string())
+            Some("This is a module docstring after shebang.".to_owned())
         );
     }
 
@@ -204,7 +204,7 @@ import os
         let docstring = extract_module_docstring(&module);
         assert_eq!(
             docstring,
-            Some("This is a module docstring after shebang and encoding.".to_string())
+            Some("This is a module docstring after shebang and encoding.".to_owned())
         );
     }
 

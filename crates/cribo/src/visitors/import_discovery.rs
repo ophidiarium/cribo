@@ -11,13 +11,13 @@ use ruff_text_size::TextRange;
 
 use crate::{
     resolver::ModuleId,
-    semantic_bundler::SemanticBundler,
+    symbol_conflict_resolver::SymbolConflictResolver,
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ExecutionContext {
+pub(crate) enum ExecutionContext {
     /// Code at module level - executes when module is imported
     ModuleLevel,
     /// Inside a function body - executes when function is called
@@ -32,7 +32,7 @@ pub enum ExecutionContext {
 
 /// Usage information for an imported name
 #[derive(Debug, Clone)]
-pub struct ImportUsage {
+pub(super) struct ImportUsage {
     /// Where the name was used
     pub _location: TextRange,
     /// In what execution context
@@ -43,7 +43,7 @@ pub struct ImportUsage {
 
 /// Type of import statement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ImportType {
+pub(crate) enum ImportType {
     /// import module
     Direct,
     /// from module import ...
@@ -56,7 +56,7 @@ pub enum ImportType {
 
 /// An import discovered during AST traversal
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoveredImport {
+pub(crate) struct DiscoveredImport {
     /// The module being imported
     pub module_name: Option<String>,
     /// Names being imported (for from imports)
@@ -84,7 +84,7 @@ pub struct DiscoveredImport {
 
 /// Where an import was discovered in the AST
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImportLocation {
+pub(crate) enum ImportLocation {
     /// Import at module level
     Module,
     /// Import inside a function
@@ -100,7 +100,7 @@ pub enum ImportLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ScopeElement {
+pub(crate) enum ScopeElement {
     Function(String),
     Class(String),
     If,
@@ -111,7 +111,7 @@ pub enum ScopeElement {
 }
 
 /// Visitor that discovers all imports in a Python module and analyzes their usage
-pub struct ImportDiscoveryVisitor<'a> {
+pub(crate) struct ImportDiscoveryVisitor<'a> {
     /// All discovered imports
     imports: Vec<DiscoveredImport>,
     /// Current scope stack
@@ -121,7 +121,7 @@ pub struct ImportDiscoveryVisitor<'a> {
     /// Track usage of each imported name
     name_usage: FxIndexMap<String, Vec<ImportUsage>>,
     /// Optional reference to semantic bundler for enhanced analysis
-    _semantic_bundler: Option<&'a SemanticBundler>,
+    _semantic_bundler: Option<&'a SymbolConflictResolver>,
     /// Current module ID if available
     _module_id: Option<ModuleId>,
     /// Current execution context
@@ -140,7 +140,7 @@ impl Default for ImportDiscoveryVisitor<'_> {
 
 impl<'a> ImportDiscoveryVisitor<'a> {
     /// Create a new import discovery visitor
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         log::debug!("Creating new ImportDiscoveryVisitor");
         Self {
             imports: Vec::new(),
@@ -155,9 +155,9 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         }
     }
 
-    /// Create a new visitor with semantic bundler for enhanced analysis
-    pub fn with_semantic_bundler(
-        semantic_bundler: &'a SemanticBundler,
+    /// Create a new visitor with conflict resolver for enhanced analysis
+    pub(crate) fn with_conflict_resolver(
+        conflict_resolver: &'a SymbolConflictResolver,
         module_id: ModuleId,
     ) -> Self {
         Self {
@@ -165,7 +165,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             scope_stack: Vec::new(),
             imported_names_stack: vec![FxIndexMap::default()],
             name_usage: FxIndexMap::default(),
-            _semantic_bundler: Some(semantic_bundler),
+            _semantic_bundler: Some(conflict_resolver),
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
             type_checking_stack: Vec::new(),
@@ -191,7 +191,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
     }
 
     /// Get all discovered imports
-    pub fn into_imports(mut self) -> Vec<DiscoveredImport> {
+    pub(crate) fn into_imports(mut self) -> Vec<DiscoveredImport> {
         // Post-process imports to determine movability based on usage
         for i in 0..self.imports.len() {
             let import = &self.imports[i];
@@ -394,7 +394,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 // Check if this is an alias for import_module
                 // Look for imports like "from importlib import import_module as im"
                 if let Some(_import_info) = self.imports.iter().find(|imp| {
-                    if let ImportType::From = imp.import_type {
+                    if imp.import_type == ImportType::From {
                         imp.module_name.as_deref() == Some("importlib")
                             && imp.names.iter().any(|(orig, alias)| {
                                 orig == "import_module" && alias.as_deref() == Some(name)
@@ -417,7 +417,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         if let Some(arg) = call.arguments.args.first()
             && let Expr::StringLiteral(ExprStringLiteral { value, .. }) = arg
         {
-            return Some(value.to_str().to_string());
+            return Some(value.to_str().to_owned());
         }
         None
     }
@@ -427,7 +427,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         if call.arguments.args.len() >= 2
             && let Expr::StringLiteral(ExprStringLiteral { value, .. }) = &call.arguments.args[1]
         {
-            return Some(value.to_str().to_string());
+            return Some(value.to_str().to_owned());
         }
         None
     }
@@ -439,7 +439,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             let imported_as = alias
                 .asname
                 .as_ref()
-                .map_or_else(|| module_name.clone(), std::string::ToString::to_string);
+                .map_or_else(|| module_name.clone(), ToString::to_string);
 
             // Track the import mapping
             self.insert_imported_name(imported_as.clone(), module_name.clone());
@@ -453,7 +453,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 module_name: Some(module_name),
                 names: vec![(
                     alias.name.to_string(),
-                    alias.asname.as_ref().map(std::string::ToString::to_string),
+                    alias.asname.as_ref().map(ToString::to_string),
                 )],
                 location: self.current_location(),
                 range: stmt.range,
@@ -471,14 +471,14 @@ impl<'a> ImportDiscoveryVisitor<'a> {
 
     /// Record a from import statement
     fn record_import_from(&mut self, stmt: &StmtImportFrom) {
-        let module_name = stmt.module.as_ref().map(std::string::ToString::to_string);
+        let module_name = stmt.module.as_ref().map(ToString::to_string);
 
         let names: Vec<(String, Option<String>)> = stmt
             .names
             .iter()
             .map(|alias| {
                 let name = alias.name.to_string();
-                let asname = alias.asname.as_ref().map(std::string::ToString::to_string);
+                let asname = alias.asname.as_ref().map(ToString::to_string);
 
                 // Track import mappings (also for relative imports with no module_name)
                 let imported_as = asname.clone().unwrap_or_else(|| name.clone());
@@ -491,7 +491,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                     }
                     (None, _) => name.clone(),
                 };
-                self.insert_imported_name(imported_as.clone(), module_key);
+                self.insert_imported_name(imported_as, module_key);
 
                 // Check if we're importing import_module from importlib
                 if module_name.as_deref() == Some("importlib") && name == "import_module" {
@@ -671,7 +671,7 @@ impl<'a> SourceOrderVisitor<'a> for ImportDiscoveryVisitor<'a> {
 
                     // Track this as an import
                     let import = DiscoveredImport {
-                        module_name: Some(module_name.clone()),
+                        module_name: Some(module_name),
                         names: vec![], // No specific names for direct module import
                         location: self.current_location(),
                         range: call.range,
@@ -757,11 +757,11 @@ from sys import path
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 2);
-        assert_eq!(imports[0].module_name, Some("os".to_string()));
+        assert_eq!(imports[0].module_name, Some("os".to_owned()));
         assert!(matches!(imports[0].location, ImportLocation::Module));
         assert!(matches!(imports[0].import_type, ImportType::Direct));
-        assert_eq!(imports[1].module_name, Some("sys".to_string()));
-        assert_eq!(imports[1].names, vec![("path".to_string(), None)]);
+        assert_eq!(imports[1].module_name, Some("sys".to_owned()));
+        assert_eq!(imports[1].names, vec![("path".to_owned(), None)]);
         assert!(matches!(imports[1].import_type, ImportType::From));
     }
 
@@ -781,14 +781,14 @@ def my_function():
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 2);
-        assert_eq!(imports[0].module_name, Some("json".to_string()));
+        assert_eq!(imports[0].module_name, Some("json".to_owned()));
         assert!(matches!(
             imports[0].location,
             ImportLocation::Function(ref name) if name == "my_function"
         ));
         assert!(matches!(imports[0].import_type, ImportType::Direct));
-        assert_eq!(imports[1].module_name, Some("datetime".to_string()));
-        assert_eq!(imports[1].names, vec![("datetime".to_string(), None)]);
+        assert_eq!(imports[1].module_name, Some("datetime".to_owned()));
+        assert_eq!(imports[1].names, vec![("datetime".to_owned(), None)]);
         assert!(matches!(imports[1].import_type, ImportType::From));
     }
 
@@ -891,14 +891,14 @@ else:
         // typing_extensions should be marked as type-checking only
         let typing_import = imports
             .iter()
-            .find(|i| i.module_name == Some("typing_extensions".to_string()))
+            .find(|i| i.module_name == Some("typing_extensions".to_owned()))
             .expect("typing_extensions import not found");
         assert!(typing_import.is_type_checking_only);
 
         // json should NOT be marked as type-checking only
         let json_import = imports
             .iter()
-            .find(|i| i.module_name == Some("json".to_string()))
+            .find(|i| i.module_name == Some("json".to_owned()))
             .expect("json import not found");
         assert!(!json_import.is_type_checking_only);
     }
@@ -927,14 +927,14 @@ else:
         // branch)
         let json_import = imports
             .iter()
-            .find(|i| i.module_name == Some("json".to_string()))
+            .find(|i| i.module_name == Some("json".to_owned()))
             .expect("json import not found");
         assert!(!json_import.is_type_checking_only);
 
         // typing_extensions should be marked as type-checking only (it's in the else branch)
         let typing_import = imports
             .iter()
-            .find(|i| i.module_name == Some("typing_extensions".to_string()))
+            .find(|i| i.module_name == Some("typing_extensions".to_owned()))
             .expect("typing_extensions import not found");
         assert!(typing_import.is_type_checking_only);
     }
@@ -970,29 +970,29 @@ def load_module():
         assert_eq!(imports.len(), 5);
 
         // First two are regular imports
-        assert_eq!(imports[0].module_name, Some("importlib".to_string()));
+        assert_eq!(imports[0].module_name, Some("importlib".to_owned()));
         assert!(matches!(imports[0].import_type, ImportType::Direct));
 
-        assert_eq!(imports[1].module_name, Some("importlib".to_string()));
-        assert_eq!(imports[1].names, vec![("import_module".to_string(), None)]);
+        assert_eq!(imports[1].module_name, Some("importlib".to_owned()));
+        assert_eq!(imports[1].names, vec![("import_module".to_owned(), None)]);
         assert!(matches!(imports[1].import_type, ImportType::From));
 
         // Static importlib calls
-        assert_eq!(imports[2].module_name, Some("json".to_string()));
+        assert_eq!(imports[2].module_name, Some("json".to_owned()));
         assert!(matches!(
             imports[2].import_type,
             ImportType::ImportlibStatic
         ));
         assert!(matches!(imports[2].location, ImportLocation::Module));
 
-        assert_eq!(imports[3].module_name, Some("datetime".to_string()));
+        assert_eq!(imports[3].module_name, Some("datetime".to_owned()));
         assert!(matches!(
             imports[3].import_type,
             ImportType::ImportlibStatic
         ));
         assert!(matches!(imports[3].location, ImportLocation::Module));
 
-        assert_eq!(imports[4].module_name, Some("collections".to_string()));
+        assert_eq!(imports[4].module_name, Some("collections".to_owned()));
         assert!(matches!(
             imports[4].import_type,
             ImportType::ImportlibStatic

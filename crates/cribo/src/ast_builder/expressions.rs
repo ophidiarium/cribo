@@ -24,9 +24,9 @@ use ruff_text_size::TextRange;
 /// // Creates: `variable_name`
 /// let expr = name("variable_name", ExprContext::Load);
 /// ```
-pub fn name(name: &str, ctx: ExprContext) -> Expr {
+pub(crate) fn name(name: &str, ctx: ExprContext) -> Expr {
     Expr::Name(ExprName {
-        id: name.to_string().into(),
+        id: name.to_owned().into(),
         ctx,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::NONE,
@@ -46,7 +46,7 @@ pub fn name(name: &str, ctx: ExprContext) -> Expr {
 /// let base = name("module", ExprContext::Load);
 /// let expr = attribute(base, "attribute", ExprContext::Load);
 /// ```
-pub fn attribute(value: Expr, attr: &str, ctx: ExprContext) -> Expr {
+pub(crate) fn attribute(value: Expr, attr: &str, ctx: ExprContext) -> Expr {
     Expr::Attribute(ExprAttribute {
         value: Box::new(value),
         attr: ruff_python_ast::Identifier::new(attr, TextRange::default()),
@@ -75,7 +75,7 @@ pub fn attribute(value: Expr, attr: &str, ctx: ExprContext) -> Expr {
 /// # Note
 /// The base name is always loaded (`ExprContext::Load`) regardless of the
 /// context of the attribute access, as per Python AST semantics.
-pub fn name_attribute(base_name: &str, attr: &str, ctx: ExprContext) -> Expr {
+pub(crate) fn name_attribute(base_name: &str, attr: &str, ctx: ExprContext) -> Expr {
     attribute(name(base_name, ExprContext::Load), attr, ctx)
 }
 
@@ -89,7 +89,7 @@ pub fn name_attribute(base_name: &str, attr: &str, ctx: ExprContext) -> Expr {
 /// // Creates: `"hello world"`
 /// let expr = string_literal("hello world");
 /// ```
-pub fn string_literal(value: &str) -> Expr {
+pub(crate) fn string_literal(value: &str) -> Expr {
     Expr::StringLiteral(ExprStringLiteral {
         value: StringLiteralValue::single(StringLiteral {
             range: TextRange::default(),
@@ -109,7 +109,7 @@ pub fn string_literal(value: &str) -> Expr {
 /// // Creates: `None`
 /// let expr = none_literal();
 /// ```
-pub fn none_literal() -> Expr {
+pub(crate) fn none_literal() -> Expr {
     Expr::NoneLiteral(ExprNoneLiteral {
         range: TextRange::default(),
         node_index: AtomicNodeIndex::NONE,
@@ -127,7 +127,7 @@ pub fn none_literal() -> Expr {
 /// let true_expr = bool_literal(true);
 /// let false_expr = bool_literal(false);
 /// ```
-pub fn bool_literal(value: bool) -> Expr {
+pub(crate) fn bool_literal(value: bool) -> Expr {
     Expr::BooleanLiteral(ExprBooleanLiteral {
         value,
         range: TextRange::default(),
@@ -150,7 +150,7 @@ pub fn bool_literal(value: bool) -> Expr {
 /// let keyword = keyword("key", string_literal("value"));
 /// let expr = call(func_expr, vec![arg], vec![keyword]);
 /// ```
-pub fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
+pub(crate) fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
     Expr::Call(ExprCall {
         func: Box::new(func),
         arguments: ruff_python_ast::Arguments {
@@ -175,7 +175,7 @@ pub fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
 /// // Creates: `sys.modules.get`
 /// let expr = dotted_name(&["sys", "modules", "get"], ExprContext::Load);
 /// ```
-pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
+pub(crate) fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
     assert!(
         !parts.is_empty(),
         "Cannot create a dotted name: the 'parts' array must contain at least one string. Ensure \
@@ -218,7 +218,7 @@ pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
 /// // Creates: `os.path` (dotted name)
 /// let expr = module_reference("os.path", ExprContext::Load);
 /// ```
-pub fn module_reference(module_name: &str, ctx: ExprContext) -> Expr {
+pub(crate) fn module_reference(module_name: &str, ctx: ExprContext) -> Expr {
     if module_name.contains('.') {
         let parts: Vec<&str> = module_name.split('.').collect();
         dotted_name(&parts, ctx)
@@ -243,7 +243,7 @@ pub fn module_reference(module_name: &str, ctx: ExprContext) -> Expr {
 /// ];
 /// let expr = list(elements, ExprContext::Load);
 /// ```
-pub fn list(elts: Vec<Expr>, ctx: ExprContext) -> Expr {
+pub(crate) fn list(elts: Vec<Expr>, ctx: ExprContext) -> Expr {
     Expr::List(ExprList {
         elts,
         ctx,
@@ -264,7 +264,7 @@ pub fn list(elts: Vec<Expr>, ctx: ExprContext) -> Expr {
 /// let operand = name("x", ExprContext::Load);
 /// let expr = unary_op(UnaryOp::Not, operand);
 /// ```
-pub fn unary_op(op: UnaryOp, operand: Expr) -> Expr {
+pub(crate) fn unary_op(op: UnaryOp, operand: Expr) -> Expr {
     Expr::UnaryOp(ExprUnaryOp {
         op,
         operand: Box::new(operand),
@@ -305,7 +305,7 @@ pub(crate) fn simple_namespace_ctor() -> Expr {
 /// ```rust
 /// let flags = get_fstring_flags(&fstring_expr.value);
 /// ```
-pub fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
+pub(crate) fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
     value
         .iter()
         .find_map(|part| {
@@ -319,7 +319,7 @@ pub fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
 }
 
 /// Create a subscript expression: obj[key]
-pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
+pub(crate) fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
     Expr::Subscript(ExprSubscript {
         node_index: AtomicNodeIndex::NONE,
         value: Box::new(value),
@@ -344,7 +344,7 @@ pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
 /// ];
 /// let expr = tuple(elements);
 /// ```
-pub fn tuple(elts: Vec<Expr>) -> Expr {
+pub(crate) fn tuple(elts: Vec<Expr>) -> Expr {
     Expr::Tuple(ExprTuple {
         elts,
         ctx: ExprContext::Load,
@@ -368,7 +368,7 @@ pub fn tuple(elts: Vec<Expr>) -> Expr {
 /// let right = name("b", ExprContext::Load);
 /// let expr = bin_op(left, Operator::Add, right);
 /// ```
-pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
+pub(crate) fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
     Expr::BinOp(ExprBinOp {
         left: Box::new(left),
         op,
@@ -390,7 +390,7 @@ pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
 /// let values = vec![name("a", ExprContext::Load), name("b", ExprContext::Load)];
 /// let expr = bool_op(BoolOp::Or, values);
 /// ```
-pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
+pub(crate) fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
     Expr::BoolOp(ExprBoolOp {
         op,
         values,
@@ -414,7 +414,7 @@ pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
 /// let orelse = name("b", ExprContext::Load);
 /// let expr = if_exp(condition, body, orelse);
 /// ```
-pub fn if_exp(condition: Expr, body: Expr, orelse: Expr) -> Expr {
+pub(crate) fn if_exp(condition: Expr, body: Expr, orelse: Expr) -> Expr {
     Expr::If(ExprIf {
         test: Box::new(condition),
         body: Box::new(body),
@@ -437,7 +437,7 @@ pub fn if_exp(condition: Expr, body: Expr, orelse: Expr) -> Expr {
 /// let right = list(vec![...], ExprContext::Load);
 /// let expr = in_op(left, right);
 /// ```
-pub fn in_op(left: Expr, right: Expr) -> Expr {
+pub(crate) fn in_op(left: Expr, right: Expr) -> Expr {
     Expr::Compare(ExprCompare {
         left: Box::new(left),
         ops: Box::new([CmpOp::In]),
@@ -459,7 +459,7 @@ pub fn in_op(left: Expr, right: Expr) -> Expr {
 /// let value_expr = name("value", ExprContext::Load);
 /// let kw = keyword(Some("key"), value_expr);
 /// ```
-pub fn keyword(arg: Option<&str>, value: Expr) -> Keyword {
+pub(crate) fn keyword(arg: Option<&str>, value: Expr) -> Keyword {
     Keyword {
         node_index: AtomicNodeIndex::NONE,
         arg: arg.map(|s| ruff_python_ast::Identifier::new(s, TextRange::default())),

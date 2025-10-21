@@ -6,7 +6,7 @@
 use log::debug;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{
     ast_builder,
     code_generator::{bundler::Bundler, context::ModuleTransformContext, expression_handlers},
@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Context data computed during body preparation
-pub struct BodyPreparationContext<'a> {
+pub(crate) struct BodyPreparationContext<'a> {
     /// Whether `__all__` is referenced in the module body
     pub all_is_referenced: bool,
     /// Variables referenced by exported functions
@@ -43,13 +43,13 @@ impl BodyPreparationPhase {
     /// 7. Declares lifted globals
     ///
     /// Returns a context with computed analysis results and the processed body.
-    pub fn execute<'a>(
-        bundler: &'a Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
+    pub(crate) fn execute<'a>(
+        bundler: &'a Bundler<'_>,
+        ctx: &ModuleTransformContext<'a>,
         ast: &ModModule,
         state: &mut InitFunctionState,
-        lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
-    ) -> Result<BodyPreparationContext<'a>, TransformError> {
+        lifted_names: Option<&crate::types::FxIndexMap<String, String>>,
+    ) -> BodyPreparationContext<'a> {
         // Check if __all__ is referenced in the module body
         let all_is_referenced = Self::check_all_referenced(ast, ctx);
 
@@ -79,17 +79,17 @@ impl BodyPreparationPhase {
         // Declare lifted globals FIRST if any
         Self::declare_lifted_globals(lifted_names, state);
 
-        Ok(BodyPreparationContext {
+        BodyPreparationContext {
             all_is_referenced,
             vars_used_by_exported_functions,
             module_scope_symbols,
             builtin_locals,
             processed_body,
-        })
+        }
     }
 
     /// Check if `__all__` is referenced in the module body
-    fn check_all_referenced(ast: &ModModule, ctx: &ModuleTransformContext) -> bool {
+    fn check_all_referenced(ast: &ModModule, ctx: &ModuleTransformContext<'_>) -> bool {
         let mut all_is_referenced = false;
         for stmt in &ast.body {
             // Skip checking __all__ assignment itself
@@ -121,8 +121,8 @@ impl BodyPreparationPhase {
 
     /// Collect all variables that are referenced by exported functions
     fn collect_vars_used_by_exported_functions(
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         ast: &ModModule,
     ) -> FxIndexSet<String> {
         let mut vars = FxIndexSet::default();
@@ -148,35 +148,38 @@ impl BodyPreparationPhase {
 
     /// Get module scope symbols from semantic bundler
     fn get_module_scope_symbols<'a>(
-        bundler: &'a Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext<'a>,
+        bundler: &'a Bundler<'_>,
+        ctx: &ModuleTransformContext<'a>,
     ) -> Option<&'a FxIndexSet<String>> {
-        let semantic_bundler = ctx.semantic_bundler?;
+        let conflict_resolver = ctx.conflict_resolver?;
 
         debug!(
-            "Looking up module ID for '{}' in semantic bundler",
+            "Looking up module ID for '{}' in conflict resolver",
             ctx.module_name
         );
 
         // Use the central module registry for fast, reliable lookup
-        let module_id = if let Some(registry) = bundler.module_info_registry {
-            let id = registry.get_id_by_name(ctx.module_name);
-            if id.is_some() {
-                debug!(
-                    "Found module ID for '{}' using module registry",
-                    ctx.module_name
-                );
-            } else {
-                debug!("Module '{}' not found in module registry", ctx.module_name);
-            }
-            id
-        } else {
-            log::warn!("No module registry available for module ID lookup");
-            None
-        };
+        let module_id = bundler
+            .module_info_registry
+            .and_then(|registry| {
+                let id = registry.get_id_by_name(ctx.module_name);
+                if id.is_some() {
+                    debug!(
+                        "Found module ID for '{}' using module registry",
+                        ctx.module_name
+                    );
+                } else {
+                    debug!("Module '{}' not found in module registry", ctx.module_name);
+                }
+                id
+            })
+            .or_else(|| {
+                log::warn!("No module registry available for module ID lookup");
+                None
+            });
 
         if let Some(module_id) = module_id {
-            if let Some(module_info) = semantic_bundler.get_module_info(module_id) {
+            if let Some(module_info) = conflict_resolver.get_module_info(module_id) {
                 debug!(
                     "Found module-scope symbols for '{}': {:?}",
                     ctx.module_name, module_info.module_scope_symbols
@@ -199,7 +202,10 @@ impl BodyPreparationPhase {
     }
 
     /// Scan the body to find all built-in names that will be assigned as local variables
-    fn scan_builtin_locals(ast: &ModModule, ctx: &ModuleTransformContext) -> FxIndexSet<String> {
+    fn scan_builtin_locals(
+        ast: &ModModule,
+        ctx: &ModuleTransformContext<'_>,
+    ) -> FxIndexSet<String> {
         let mut builtin_locals = FxIndexSet::default();
         for stmt in &ast.body {
             let target_opt = match stmt {
@@ -267,7 +273,7 @@ impl BodyPreparationPhase {
 
     /// Declare lifted globals if any exist
     fn declare_lifted_globals(
-        lifted_names: &Option<crate::types::FxIndexMap<String, String>>,
+        lifted_names: Option<&crate::types::FxIndexMap<String, String>>,
         state: &mut InitFunctionState,
     ) {
         // Declare lifted globals FIRST if any - they need to be declared before any usage
@@ -276,10 +282,7 @@ impl BodyPreparationPhase {
             && !lifted_names.is_empty()
         {
             // Declare all lifted globals once (sorted) for deterministic output
-            let mut lifted: Vec<&str> = lifted_names
-                .values()
-                .map(std::string::String::as_str)
-                .collect();
+            let mut lifted: Vec<&str> = lifted_names.values().map(String::as_str).collect();
             lifted.sort_unstable();
 
             debug!(

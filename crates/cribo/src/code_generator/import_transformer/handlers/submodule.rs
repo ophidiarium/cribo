@@ -3,12 +3,12 @@ use ruff_python_ast::{ExprContext, Stmt, StmtImportFrom};
 use crate::ast_builder::{expressions, statements};
 
 /// Handle submodule import transformations
-pub struct SubmoduleHandler;
+pub(crate) struct SubmoduleHandler;
 
 impl SubmoduleHandler {
     /// Handle from-import submodules
     pub(in crate::code_generator::import_transformer) fn handle_from_import_submodules(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
         import_from: &StmtImportFrom,
         resolved_base: &str,
     ) -> Option<Vec<Stmt>> {
@@ -105,7 +105,7 @@ impl SubmoduleHandler {
                     transformer
                         .state
                         .local_variables
-                        .insert(local_name.to_string());
+                        .insert(local_name.to_owned());
 
                     log::debug!(
                         "  Created assignment for wrapper submodule: {local_name} = \
@@ -147,7 +147,7 @@ impl SubmoduleHandler {
                     transformer
                         .state
                         .local_variables
-                        .insert(local_name.to_string());
+                        .insert(local_name.to_owned());
 
                     // Do not consume the import; let fallback keep it.
                     continue;
@@ -203,7 +203,7 @@ impl SubmoduleHandler {
                             transformer
                                 .state
                                 .local_variables
-                                .insert(local_name.to_string());
+                                .insert(local_name.to_owned());
                             log::debug!(
                                 "  Tracked '{local_name}' as local variable to prevent stdlib \
                                  transformation"
@@ -325,7 +325,7 @@ impl SubmoduleHandler {
                         transformer
                             .state
                             .local_variables
-                            .insert(local_name.to_string());
+                            .insert(local_name.to_owned());
 
                         handled_any = true;
                     }

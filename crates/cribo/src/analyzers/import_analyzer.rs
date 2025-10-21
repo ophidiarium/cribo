@@ -10,12 +10,12 @@ use ruff_python_ast::{Expr, ModModule, Stmt, StmtImportFrom};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
-    cribo_graph::{ItemData, ItemId},
+    dependency_graph::{ItemData, ItemId},
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Import analyzer for processing import patterns and relationships
-pub struct ImportAnalyzer;
+pub(crate) struct ImportAnalyzer;
 
 /// Context for checking if an import is unused
 struct ImportUsageContext<'a> {
@@ -23,12 +23,12 @@ struct ImportUsageContext<'a> {
     import_id: ItemId,
     is_init_py: bool,
     import_data: &'a ItemData,
-    module: &'a crate::cribo_graph::ModuleDepGraph,
+    module: &'a crate::dependency_graph::ModuleDepGraph,
 }
 
 impl ImportAnalyzer {
     /// Find modules that are imported directly (e.g., `import module`)
-    pub fn find_directly_imported_modules(
+    pub(crate) fn find_directly_imported_modules(
         modules: &[(String, ModModule, PathBuf, String)],
         _entry_module_name: &str,
     ) -> FxIndexSet<String> {
@@ -41,14 +41,13 @@ impl ImportAnalyzer {
             .collect();
 
         // Check all modules for direct imports (both module-level and function-scoped)
-        for (module_name, ast, module_path, _) in modules {
+        for (module_name, ast, _, _) in modules {
             debug!("Checking module '{module_name}' for direct imports");
 
             // Check the module body
             Self::collect_direct_imports_recursive(
                 &ast.body,
                 module_name,
-                module_path,
                 &module_names,
                 &mut directly_imported,
             );
@@ -62,7 +61,7 @@ impl ImportAnalyzer {
     }
 
     /// Find modules that are imported as namespaces (e.g., `from pkg import module`)
-    pub fn find_namespace_imported_modules(
+    pub(crate) fn find_namespace_imported_modules(
         modules: &[(String, ModModule, PathBuf, String)],
     ) -> FxIndexMap<String, FxIndexSet<String>> {
         let mut namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>> =
@@ -103,7 +102,7 @@ impl ImportAnalyzer {
     }
 
     /// Find matching module name for namespace imports
-    pub fn find_matching_module_name_namespace(
+    pub(crate) fn find_matching_module_name_namespace(
         modules: &[(String, ModModule, PathBuf, String)],
         full_module_path: &str,
     ) -> String {
@@ -117,12 +116,12 @@ impl ImportAnalyzer {
                     None
                 }
             })
-            .unwrap_or_else(|| full_module_path.to_string())
+            .unwrap_or_else(|| full_module_path.to_owned())
     }
 
     /// Find unused imports in a specific module
-    pub fn find_unused_imports_in_module(
-        module: &crate::cribo_graph::ModuleDepGraph,
+    pub(crate) fn find_unused_imports_in_module(
+        module: &crate::dependency_graph::ModuleDepGraph,
         is_init_py: bool,
     ) -> Vec<UnusedImportInfo> {
         let mut unused_imports = Vec::new();
@@ -143,8 +142,10 @@ impl ImportAnalyzer {
 
                 if Self::is_import_unused(&ctx) {
                     let module_name = match &import_data.item_type {
-                        crate::cribo_graph::ItemType::Import { module, .. }
-                        | crate::cribo_graph::ItemType::FromImport { module, .. } => module.clone(),
+                        crate::dependency_graph::ItemType::Import { module, .. }
+                        | crate::dependency_graph::ItemType::FromImport { module, .. } => {
+                            module.clone()
+                        }
                         _ => continue,
                     };
 
@@ -168,7 +169,7 @@ impl ImportAnalyzer {
         }
 
         // Check if it's a star import
-        if let crate::cribo_graph::ItemType::FromImport { is_star: true, .. } =
+        if let crate::dependency_graph::ItemType::FromImport { is_star: true, .. } =
             &ctx.import_data.item_type
         {
             // Star imports are always preserved
@@ -244,11 +245,11 @@ impl ImportAnalyzer {
     /// Check if a name is in the module's __all__ export list
     /// This is the single source of truth for __all__ exports, using the `reexported_names`
     /// field which is populated by the `ExportCollector` during graph building
-    fn is_in_module_exports(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
+    fn is_in_module_exports(module: &crate::dependency_graph::ModuleDepGraph, name: &str) -> bool {
         // Look for __all__ assignment
         for item_data in module.items.values() {
-            if let crate::cribo_graph::ItemType::Assignment { targets } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
+            if let crate::dependency_graph::ItemType::Assignment { targets } = &item_data.item_type
+                && targets.contains(&"__all__".to_owned())
             {
                 // Check if the name is in the reexported_names set
                 // which contains the parsed __all__ list values from ExportCollector
@@ -262,7 +263,6 @@ impl ImportAnalyzer {
     fn collect_direct_imports_recursive(
         body: &[Stmt],
         current_module: &str,
-        _module_path: &std::path::Path,
         module_names: &FxIndexSet<&str>,
         directly_imported: &mut FxIndexSet<String>,
     ) {
@@ -284,7 +284,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &func_def.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -294,7 +293,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &class_def.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -304,7 +302,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &if_stmt.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -312,7 +309,6 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &clause.body,
                             current_module,
-                            _module_path,
                             module_names,
                             directly_imported,
                         );
@@ -323,7 +319,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &while_stmt.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -331,7 +326,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &while_stmt.orelse,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -341,7 +335,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &for_stmt.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -349,7 +342,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &for_stmt.orelse,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -359,7 +351,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &try_stmt.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -369,7 +360,6 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &except_handler.body,
                             current_module,
-                            _module_path,
                             module_names,
                             directly_imported,
                         );
@@ -378,7 +368,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &try_stmt.orelse,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -386,7 +375,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &try_stmt.finalbody,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -396,7 +384,6 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &with_stmt.body,
                         current_module,
-                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -407,7 +394,6 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &case.body,
                             current_module,
-                            _module_path,
                             module_names,
                             directly_imported,
                         );
@@ -459,7 +445,7 @@ impl ImportAnalyzer {
                             namespace_imported_modules
                                 .entry(actual_module_name)
                                 .or_default()
-                                .insert(importing_module.to_string());
+                                .insert(importing_module.to_owned());
                         }
                     }
                 }
@@ -631,7 +617,7 @@ impl ImportAnalyzer {
     ///
     /// This function is used to determine if private symbols (e.g., starting with underscore)
     /// should still be exported because they're imported by other modules.
-    pub fn is_symbol_imported_by_other_modules(
+    pub(crate) fn is_symbol_imported_by_other_modules(
         module_asts: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
         module_id: crate::resolver::ModuleId,
         symbol_name: &str,
@@ -734,7 +720,7 @@ impl ImportAnalyzer {
         importing_module: &str,
         target_module: &str,
     ) -> bool {
-        if let Some(import_module) = &import_from.module {
+        import_from.module.as_ref().is_some_and(|import_module| {
             let import_module_str = import_module.as_str();
 
             // Handle both absolute and relative imports
@@ -750,9 +736,7 @@ impl ImportAnalyzer {
                 );
                 resolved_module == target_module
             }
-        } else {
-            false
-        }
+        })
     }
 
     /// Collect module-level absolute `from __future__ import ...` names
@@ -762,7 +746,7 @@ impl ImportAnalyzer {
     /// Performance optimization: Returns early when encountering non-import/non-docstring
     /// statements, as `__future__` imports must appear at the top of the file per Python's
     /// specification (after module docstring but before any other code).
-    pub fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
+    pub(crate) fn collect_future_imports(ast: &ModModule) -> FxIndexSet<String> {
         let mut future_imports = FxIndexSet::default();
         let mut seen_docstring = false;
 
@@ -792,7 +776,7 @@ impl ImportAnalyzer {
                             let name = alias.name.as_str();
                             // Ignore wildcard imports (invalid for __future__)
                             if name != "*" {
-                                future_imports.insert(name.to_string());
+                                future_imports.insert(name.to_owned());
                             }
                         }
                     }
@@ -821,7 +805,7 @@ struct SymbolImportVisitor<'a> {
 }
 
 impl<'a> SymbolImportVisitor<'a> {
-    fn new(
+    const fn new(
         importing_module: &'a str,
         target_module: &'a str,
         symbol_name: &'a str,
@@ -926,28 +910,28 @@ def other_func():
 
         let modules = vec![
             (
-                "test_module".to_string(),
+                "test_module".to_owned(),
                 ast1,
                 PathBuf::from("test.py"),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             ),
             (
-                "module_a".to_string(),
+                "module_a".to_owned(),
                 ast2.clone(),
                 PathBuf::from("module_a.py"),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             ),
             (
-                "module_b".to_string(),
+                "module_b".to_owned(),
                 ast2.clone(),
                 PathBuf::from("module_b.py"),
-                "hash3".to_string(),
+                "hash3".to_owned(),
             ),
             (
-                "module_c".to_string(),
+                "module_c".to_owned(),
                 ast2,
                 PathBuf::from("module_c.py"),
-                "hash4".to_string(),
+                "hash4".to_owned(),
             ),
         ];
 
@@ -995,58 +979,58 @@ match x:
 
         let modules = vec![
             (
-                "test_module".to_string(),
+                "test_module".to_owned(),
                 ast,
                 PathBuf::from("test.py"),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             ),
             (
-                "module_in_try".to_string(),
+                "module_in_try".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_try.py"),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             ),
             (
-                "module_in_except".to_string(),
+                "module_in_except".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_except.py"),
-                "hash3".to_string(),
+                "hash3".to_owned(),
             ),
             (
-                "module_in_else".to_string(),
+                "module_in_else".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_else.py"),
-                "hash4".to_string(),
+                "hash4".to_owned(),
             ),
             (
-                "module_in_finally".to_string(),
+                "module_in_finally".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_finally.py"),
-                "hash5".to_string(),
+                "hash5".to_owned(),
             ),
             (
-                "module_in_for".to_string(),
+                "module_in_for".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_for.py"),
-                "hash6".to_string(),
+                "hash6".to_owned(),
             ),
             (
-                "module_in_while".to_string(),
+                "module_in_while".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_while.py"),
-                "hash7".to_string(),
+                "hash7".to_owned(),
             ),
             (
-                "module_in_with".to_string(),
+                "module_in_with".to_owned(),
                 dummy_ast.clone(),
                 PathBuf::from("module_in_with.py"),
-                "hash8".to_string(),
+                "hash8".to_owned(),
             ),
             (
-                "module_in_match".to_string(),
+                "module_in_match".to_owned(),
                 dummy_ast,
                 PathBuf::from("module_in_match.py"),
-                "hash9".to_string(),
+                "hash9".to_owned(),
             ),
         ];
 
@@ -1080,22 +1064,22 @@ from pkg.sub import module_b
 
         let modules = vec![
             (
-                "test_module".to_string(),
+                "test_module".to_owned(),
                 ast1,
                 PathBuf::from("test.py"),
-                "hash1".to_string(),
+                "hash1".to_owned(),
             ),
             (
-                "pkg.module_a".to_string(),
+                "pkg.module_a".to_owned(),
                 ast2.clone(),
                 PathBuf::from("pkg/module_a.py"),
-                "hash2".to_string(),
+                "hash2".to_owned(),
             ),
             (
-                "pkg.sub.module_b".to_string(),
+                "pkg.sub.module_b".to_owned(),
                 ast2,
                 PathBuf::from("pkg/sub/module_b.py"),
-                "hash3".to_string(),
+                "hash3".to_owned(),
             ),
         ];
 

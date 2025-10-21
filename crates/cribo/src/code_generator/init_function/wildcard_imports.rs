@@ -6,7 +6,7 @@
 
 use log::debug;
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{code_generator::bundler::Bundler, types::FxIndexSet};
 
 /// Phase responsible for processing wildcard imports
@@ -25,10 +25,10 @@ impl WildcardImportPhase {
     /// code that accesses these symbols via `vars(__cribo_module)` or `locals()`
     /// (e.g., the setattr pattern used by httpx and similar libraries).
     pub(crate) fn execute(
-        bundler: &Bundler,
-        ctx: &crate::code_generator::context::ModuleTransformContext,
+        bundler: &Bundler<'_>,
+        ctx: &crate::code_generator::context::ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Dedup and sort wildcard imports for deterministic output
         let mut wildcard_attrs: Vec<(String, String, Option<String>)> = state
             .imports_from_inlined
@@ -42,27 +42,30 @@ impl WildcardImportPhase {
         for (exported_name, value_name, source_module) in wildcard_attrs {
             if bundler.should_export_symbol(&exported_name, ctx.module_name) {
                 // Build the value expression: either a simple Name or Attribute access
-                let value_expr = if let Some(ref module) = source_module {
-                    // Access through the inlined module's namespace as an Attribute node
-                    let sanitized =
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            module,
-                        );
-                    crate::ast_builder::expressions::attribute(
+                let value_expr = source_module.as_ref().map_or_else(
+                    || {
+                        // Direct name reference
                         crate::ast_builder::expressions::name(
-                            &sanitized,
+                            &value_name,
                             ruff_python_ast::ExprContext::Load,
-                        ),
-                        &value_name,
-                        ruff_python_ast::ExprContext::Load,
-                    )
-                } else {
-                    // Direct name reference
-                    crate::ast_builder::expressions::name(
-                        &value_name,
-                        ruff_python_ast::ExprContext::Load,
-                    )
-                };
+                        )
+                    },
+                    |module| {
+                        // Access through the inlined module's namespace as an Attribute node
+                        let sanitized =
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                module,
+                            );
+                        crate::ast_builder::expressions::attribute(
+                            crate::ast_builder::expressions::name(
+                                &sanitized,
+                                ruff_python_ast::ExprContext::Load,
+                            ),
+                            &value_name,
+                            ruff_python_ast::ExprContext::Load,
+                        )
+                    },
+                );
 
                 // Create assignment: self.exported_name = value_expr
                 state.body.push(crate::ast_builder::statements::assign(
@@ -83,7 +86,5 @@ impl WildcardImportPhase {
                 );
             }
         }
-
-        Ok(())
     }
 }

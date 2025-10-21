@@ -148,14 +148,13 @@ Bundler {
     module_init_functions: FxIndexMap<ModuleId, String>,
     wrapper_modules: FxIndexSet<ModuleId>,
     inlined_modules: FxIndexSet<ModuleId>,
-    namespace_registry: FxIndexMap<String, NamespaceInfo>,
 }
 ```
 
-**Dependency Graph** (`crates/cribo/src/cribo_graph.rs` struct `CriboGraph`)
+**Dependency Graph** (`crates/cribo/src/dependency_graph.rs` struct `DependencyGraph`)
 
 ```rust
-CriboGraph {
+DependencyGraph {
     modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     module_names: FxIndexMap<String, ModuleId>,
 }

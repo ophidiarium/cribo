@@ -13,7 +13,7 @@
 //! - Try statements (collect exportable symbols from branches)
 //! - Default statements (transform for module vars)
 
-use super::{InitFunctionState, TransformError, body_preparation::BodyPreparationContext};
+use super::{InitFunctionState, body_preparation::BodyPreparationContext};
 use crate::code_generator::{bundler::Bundler, context::ModuleTransformContext};
 
 /// Statement Processing phase - processes transformed statements
@@ -25,11 +25,11 @@ impl StatementProcessingPhase {
     /// Takes the preparation context from `BodyPreparationPhase` and processes each statement,
     /// applying transformations and adding module attributes for exported symbols.
     pub(crate) fn execute(
-        prep_context: BodyPreparationContext,
-        bundler: &Bundler,
-        ctx: &ModuleTransformContext,
+        prep_context: BodyPreparationContext<'_>,
+        bundler: &Bundler<'_>,
+        ctx: &ModuleTransformContext<'_>,
         state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    ) {
         // Call the extracted function from module_transformer
         crate::code_generator::module_transformer::process_statements_for_init_function(
             prep_context.processed_body,
@@ -39,12 +39,10 @@ impl StatementProcessingPhase {
             &prep_context.vars_used_by_exported_functions,
             prep_context.module_scope_symbols,
             &prep_context.builtin_locals,
-            &state.lifted_names,
+            state.lifted_names.as_ref(),
             &state.inlined_import_bindings,
             &mut state.body,
             &mut state.initialized_lifted_globals,
         );
-
-        Ok(())
     }
 }

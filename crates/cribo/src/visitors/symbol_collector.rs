@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Visitor that collects symbol definitions and their metadata
-pub struct SymbolCollector {
+pub(crate) struct SymbolCollector {
     /// Current scope stack
     scope_stack: ScopePath,
     /// Collected symbol information
@@ -41,7 +41,7 @@ impl Default for SymbolCollector {
 
 impl SymbolCollector {
     /// Create a new symbol collector
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             scope_stack: Vec::new(),
             collected_symbols: CollectedSymbols::default(),
@@ -52,7 +52,7 @@ impl SymbolCollector {
     }
 
     /// Run the collector on a module and return collected symbols
-    pub fn analyze(module: &ModModule) -> CollectedSymbols {
+    pub(crate) fn analyze(module: &ModModule) -> CollectedSymbols {
         let mut collector = Self::new();
         collector.visit_body(&module.body);
         collector.collected_symbols
@@ -60,7 +60,7 @@ impl SymbolCollector {
 
     /// Enter a new scope
     fn enter_scope(&mut self, name: &str) {
-        self.scope_stack.push(name.to_string());
+        self.scope_stack.push(name.to_owned());
         self.at_module_level = false;
     }
 
@@ -71,7 +71,7 @@ impl SymbolCollector {
     }
 
     /// Get the current scope path
-    fn current_scope(&self) -> &ScopePath {
+    const fn current_scope(&self) -> &ScopePath {
         &self.scope_stack
     }
 
@@ -127,11 +127,9 @@ impl SymbolCollector {
 
     /// Process a class definition
     fn process_class(&mut self, class: &StmtClassDef) {
-        let bases: Vec<String> = if let Some(arguments) = &class.arguments {
+        let bases: Vec<String> = class.arguments.as_ref().map_or_else(Vec::new, |arguments| {
             arguments.args.iter().map(Self::expr_to_string).collect()
-        } else {
-            Vec::new()
-        };
+        });
 
         let symbol = SymbolInfo {
             name: class.name.to_string(),
@@ -199,10 +197,10 @@ impl SymbolCollector {
     /// Process from imports
     fn process_from_import(&mut self, import: &StmtImportFrom, range: TextRange) {
         // Handle relative imports properly
-        let from_module = import.module.as_ref().map_or_else(
-            || ".".repeat(import.level as usize),
-            std::string::ToString::to_string,
-        );
+        let from_module = import
+            .module
+            .as_ref()
+            .map_or_else(|| ".".repeat(import.level as usize), ToString::to_string);
 
         for alias in &import.names {
             let import_name = alias.asname.as_ref().unwrap_or(&alias.name);
@@ -232,12 +230,10 @@ impl SymbolCollector {
 
     /// Check if a symbol is exported
     fn is_exported(&self, name: &str) -> bool {
-        if let Some(ref exports) = self.module_exports {
-            exports.contains(&name.to_string())
-        } else {
-            // If no __all__, public symbols (not starting with _) are exported
-            !name.starts_with('_')
-        }
+        self.module_exports.as_ref().map_or_else(
+            || !name.starts_with('_'),
+            |exports| exports.contains(&name.to_owned()),
+        )
     }
 
     /// Convert an expression to a string representation
@@ -248,7 +244,7 @@ impl SymbolCollector {
                 format!("{}.{}", Self::expr_to_string(&attr.value), attr.attr)
             }
             Expr::Call(call) => Self::expr_to_string(&call.func),
-            _ => "<complex>".to_string(),
+            _ => "<complex>".to_owned(),
         }
     }
 
@@ -358,8 +354,8 @@ from typing import List as L
         let symbols = SymbolCollector::analyze(&module);
 
         assert_eq!(symbols.module_renames.len(), 2);
-        assert_eq!(symbols.module_renames.get("np"), Some(&"numpy".to_string()));
-        assert_eq!(symbols.module_renames.get("L"), Some(&"List".to_string()));
+        assert_eq!(symbols.module_renames.get("np"), Some(&"numpy".to_owned()));
+        assert_eq!(symbols.module_renames.get("L"), Some(&"List".to_owned()));
     }
 
     #[test]

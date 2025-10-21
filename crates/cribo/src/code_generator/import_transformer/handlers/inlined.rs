@@ -7,13 +7,13 @@ use crate::{
 };
 
 /// Handle inlined module import transformations
-pub struct InlinedHandler;
+pub(crate) struct InlinedHandler;
 
 impl InlinedHandler {
     /// Check if importing from an inlined module
     pub(in crate::code_generator::import_transformer) fn is_importing_from_inlined_module(
         module_name: &str,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> bool {
         bundler
             .get_module_id(module_name)
@@ -24,7 +24,7 @@ impl InlinedHandler {
     pub(in crate::code_generator::import_transformer) fn create_namespace_call_for_inlined_module(
         module_name: &str,
         module_renames: Option<&FxIndexMap<String, String>>,
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
     ) -> Expr {
         // Create a types.SimpleNamespace with all the module's symbols
         let mut keywords = Vec::new();
@@ -118,7 +118,7 @@ impl InlinedHandler {
     /// into the bundle. It generates appropriate assignment statements to make the inlined
     /// symbols available under their expected names.
     pub(in crate::code_generator::import_transformer) fn handle_imports_from_inlined_module_with_context(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         source_module_id: crate::resolver::ModuleId,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -193,14 +193,15 @@ impl InlinedHandler {
                 }
 
                 // Get the renamed symbol name if it was renamed
-                let renamed_symbol = if let Some(renames) = module_renames {
-                    renames
-                        .get(symbol_name)
-                        .cloned()
-                        .unwrap_or_else(|| symbol_name.clone())
-                } else {
-                    symbol_name.clone()
-                };
+                let renamed_symbol = module_renames.map_or_else(
+                    || symbol_name.clone(),
+                    |renames| {
+                        renames
+                            .get(symbol_name)
+                            .cloned()
+                            .unwrap_or_else(|| symbol_name.clone())
+                    },
+                );
 
                 // For wildcard imports, we always need to create assignments for renamed symbols
                 // For non-renamed symbols, we only skip assignment if they're actually available
@@ -300,13 +301,13 @@ impl InlinedHandler {
                         "Using original name '{imported_name}' for symbol imported from package \
                          '{module_name}' (no rename found)"
                     );
-                    imported_name.to_string()
+                    imported_name.to_owned()
                 } else {
                     symbol_renames
                         .get(&source_module_id)
                         .and_then(|renames| renames.get(imported_name))
                         .cloned()
-                        .unwrap_or_else(|| imported_name.to_string())
+                        .unwrap_or_else(|| imported_name.to_owned())
                 }
             };
 
@@ -453,7 +454,7 @@ impl InlinedHandler {
 
     /// Handle from-import on resolved inlined module
     pub(in crate::code_generator::import_transformer) fn handle_from_import_on_resolved_inlined(
-        transformer: &mut crate::code_generator::import_transformer::RecursiveImportTransformer,
+        transformer: &crate::code_generator::import_transformer::RecursiveImportTransformer<'_>,
         import_from: &StmtImportFrom,
         resolved: &str,
     ) -> Option<Vec<Stmt>> {
@@ -598,39 +599,38 @@ impl InlinedHandler {
                     transformer.state.is_wrapper_init,
                     Some(transformer.state.module_id),
                 ));
-            } else {
-                log::debug!("  Module '{resolved}' is inlined, handling import assignments");
-                // For the entry module, we should not defer these imports
-                // because they need to be available when the entry module's code runs
-                let import_stmts = Self::handle_imports_from_inlined_module_with_context(
-                    transformer.state.bundler,
-                    import_from,
-                    resolved_id,
-                    transformer.state.symbol_renames,
-                    transformer.state.is_wrapper_init,
-                    Some(transformer.state.module_id),
-                );
+            }
+            log::debug!("  Module '{resolved}' is inlined, handling import assignments");
+            // For the entry module, we should not defer these imports
+            // because they need to be available when the entry module's code runs
+            let import_stmts = Self::handle_imports_from_inlined_module_with_context(
+                transformer.state.bundler,
+                import_from,
+                resolved_id,
+                transformer.state.symbol_renames,
+                transformer.state.is_wrapper_init,
+                Some(transformer.state.module_id),
+            );
 
-                // Only defer if we're not in the entry module or wrapper init
-                if transformer.state.module_id.is_entry() || transformer.state.is_wrapper_init {
-                    // For entry module and wrapper init functions, return the imports
-                    // immediately In wrapper init functions, module
-                    // attributes need to be set where the import was
-                    if !import_stmts.is_empty() {
-                        return Some(import_stmts);
-                    }
-                    // If handle_imports_from_inlined_module returned empty (e.g., for submodule
-                    // imports), fall through to check if we need to
-                    // handle it differently
-                    log::debug!(
-                        "  handle_imports_from_inlined_module returned empty for entry module or \
-                         wrapper init, checking for submodule imports"
-                    );
-                } else {
-                    // Return the import statements immediately
-                    // These were previously deferred but now need to be added immediately
+            // Only defer if we're not in the entry module or wrapper init
+            if transformer.state.module_id.is_entry() || transformer.state.is_wrapper_init {
+                // For entry module and wrapper init functions, return the imports
+                // immediately In wrapper init functions, module
+                // attributes need to be set where the import was
+                if !import_stmts.is_empty() {
                     return Some(import_stmts);
                 }
+                // If handle_imports_from_inlined_module returned empty (e.g., for submodule
+                // imports), fall through to check if we need to
+                // handle it differently
+                log::debug!(
+                    "  handle_imports_from_inlined_module returned empty for entry module or \
+                     wrapper init, checking for submodule imports"
+                );
+            } else {
+                // Return the import statements immediately
+                // These were previously deferred but now need to be added immediately
+                return Some(import_stmts);
             }
         }
 
@@ -639,7 +639,7 @@ impl InlinedHandler {
 
     /// Handle inlined from-import in absolute context (namespace/submodules + assignments)
     pub(in crate::code_generator::import_transformer) fn handle_inlined_from_import_absolute_context(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -679,38 +679,19 @@ impl InlinedHandler {
                 bundler.is_symbol_kept_by_tree_shaking(module_id, symbol)
             }),
         };
-        let (assignments, namespace_requirements) =
-            crate::code_generator::module_registry::create_assignments_for_inlined_imports(
-                import_from,
-                module_name,
-                params,
-            );
 
-        // Check for unregistered namespaces - this indicates a bug in pre-detection
-        let unregistered_namespaces: Vec<_> = namespace_requirements
-            .iter()
-            .filter(|ns_req| !bundler.namespace_registry.contains_key(&ns_req.var_name))
-            .collect();
-
-        assert!(
-            unregistered_namespaces.is_empty(),
-            "Unregistered namespaces detected: {:?}. This indicates a bug in \
-             detect_namespace_requirements_from_imports",
-            unregistered_namespaces
-                .iter()
-                .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
-                .collect::<Vec<_>>()
-        );
-
-        // The namespaces are now pre-created by detect_namespace_requirements_from_imports
-        // and the aliases are handled by create_assignments_for_inlined_imports,
-        // so we just return the assignments
-        assignments
+        // Create assignments for inlined imports
+        // Namespace requirements are handled dynamically during transformation
+        crate::code_generator::module_registry::create_assignments_for_inlined_imports(
+            import_from,
+            module_name,
+            &params,
+        )
     }
 
     /// Handle entry-module resolution as inlined fast-path
     pub(in crate::code_generator::import_transformer) fn handle_entry_relative_as_inlined(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -718,24 +699,29 @@ impl InlinedHandler {
         current_module: &str,
     ) -> Option<Vec<Stmt>> {
         // Check if this is the entry module or entry.__main__
-        let entry_module_id = if let Some(module_id) = bundler.get_module_id(module_name) {
-            if module_id.is_entry() {
-                Some(module_id)
-            } else {
-                None
-            }
-        } else if module_name.ends_with(".__main__") {
-            // Check if this is <entry>.__main__ where <entry> is the entry module
-            let base_module = module_name
-                .strip_suffix(".__main__")
-                .expect("checked with ends_with above");
-            log::debug!("  Checking if base module '{base_module}' is entry");
-            let base_id = bundler.get_module_id(base_module);
-            log::debug!("  Base module ID: {base_id:?}");
-            base_id.filter(|id| id.is_entry())
-        } else {
-            None
-        };
+        let entry_module_id = bundler.get_module_id(module_name).map_or_else(
+            || {
+                if module_name.ends_with(".__main__") {
+                    // Check if this is <entry>.__main__ where <entry> is the entry module
+                    let base_module = module_name
+                        .strip_suffix(".__main__")
+                        .expect("checked with ends_with above");
+                    log::debug!("  Checking if base module '{base_module}' is entry");
+                    let base_id = bundler.get_module_id(base_module);
+                    log::debug!("  Base module ID: {base_id:?}");
+                    base_id.filter(|id| id.is_entry())
+                } else {
+                    None
+                }
+            },
+            |module_id| {
+                if module_id.is_entry() {
+                    Some(module_id)
+                } else {
+                    None
+                }
+            },
+        );
 
         log::debug!(
             "Checking if '{module_name}' is entry module: entry_module_id={entry_module_id:?}"
@@ -764,7 +750,7 @@ impl InlinedHandler {
 
     /// Transform imports if the module has bundled submodules
     pub(in crate::code_generator::import_transformer) fn transform_if_has_bundled_submodules(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -803,7 +789,7 @@ impl InlinedHandler {
 
     /// Maybe handle inlined absolute imports (non-bundled case)
     pub(in crate::code_generator::import_transformer) fn maybe_handle_inlined_absolute(
-        bundler: &Bundler,
+        bundler: &Bundler<'_>,
         import_from: &StmtImportFrom,
         module_name: &str,
         symbol_renames: &FxIndexMap<crate::resolver::ModuleId, FxIndexMap<String, String>>,
@@ -836,7 +822,7 @@ impl InlinedHandler {
 }
 
 /// Check if a module is a package __init__.py that re-exports from submodules
-fn is_package_init_reexport(bundler: &Bundler, module_name: &str) -> bool {
+fn is_package_init_reexport(bundler: &Bundler<'_>, module_name: &str) -> bool {
     // Special handling for package __init__.py files
     // If we're importing from "greetings" and there's a "greetings.X" module
     // that could be the source of the symbol

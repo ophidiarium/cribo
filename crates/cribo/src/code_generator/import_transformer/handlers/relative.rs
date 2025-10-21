@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub(in crate::code_generator::import_transformer) fn handle_unbundled_relative_import(
-    _bundler: &Bundler,
+    _bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     module_name: &str,
     current_module: &str,
@@ -69,8 +69,8 @@ pub(in crate::code_generator::import_transformer) fn handle_unbundled_relative_i
 /// * `current_module` - Current module being processed
 /// * `result` - Vector to append generated statements to
 /// * `add_module_attr` - Whether to add module attributes for non-private symbols
-pub fn transform_relative_import_aliases(
-    bundler: &Bundler,
+pub(crate) fn transform_relative_import_aliases(
+    bundler: &Bundler<'_>,
     import_from: &StmtImportFrom,
     parent_package: &str,
     current_module: &str,
@@ -88,7 +88,7 @@ pub fn transform_relative_import_aliases(
         // Try to resolve the import to an actual file path
         // First, construct the expected module name for resolution
         let full_module_name = if parent_package.is_empty() {
-            imported_name.to_string()
+            imported_name.to_owned()
         } else {
             format!("{parent_package}.{imported_name}")
         };

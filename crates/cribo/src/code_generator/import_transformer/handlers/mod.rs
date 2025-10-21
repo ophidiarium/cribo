@@ -1,9 +1,9 @@
 // Handler modules for different import types
-pub mod dynamic;
-pub mod fallback;
-pub mod inlined;
-pub mod relative;
-pub mod statements;
-pub mod stdlib;
-pub mod submodule;
-pub mod wrapper;
+pub(crate) mod dynamic;
+pub(crate) mod fallback;
+pub(crate) mod inlined;
+pub(crate) mod relative;
+pub(crate) mod statements;
+pub(crate) mod stdlib;
+pub(crate) mod submodule;
+pub(crate) mod wrapper;

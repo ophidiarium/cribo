@@ -1,10 +1,10 @@
-/// Graph builder that creates `CriboGraph` from Python AST
+/// Graph builder that creates `DependencyGraph` from Python AST
 /// This module bridges the gap between ruff's AST and our dependency graph
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 
 use crate::{
-    cribo_graph::{ItemData, ItemType, ModuleDepGraph},
+    dependency_graph::{ItemData, ItemType, ModuleDepGraph},
     types::{FxIndexMap, FxIndexSet},
     visitors::ExpressionSideEffectDetector,
 };
@@ -18,7 +18,7 @@ struct ForStmtContext<'a, 'b> {
 }
 
 /// Builds a `ModuleDepGraph` from a Python AST
-pub struct GraphBuilder<'a> {
+pub(crate) struct GraphBuilder<'a> {
     graph: &'a mut ModuleDepGraph,
     current_scope: ScopeType,
     /// Track import aliases for importlib detection
@@ -38,7 +38,7 @@ enum ScopeType {
 }
 
 impl<'a> GraphBuilder<'a> {
-    pub fn new(graph: &'a mut ModuleDepGraph, python_version: u8) -> Self {
+    pub(crate) fn new(graph: &'a mut ModuleDepGraph, python_version: u8) -> Self {
         Self {
             graph,
             current_scope: ScopeType::Module,
@@ -49,7 +49,7 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Build the graph from an AST
-    pub fn build_from_ast(&mut self, ast: &ModModule) -> Result<()> {
+    pub(crate) fn build_from_ast(&mut self, ast: &ModModule) -> Result<()> {
         // Process all statements in the module
         log::trace!("Building graph from AST with {} statements", ast.body.len());
         for stmt in &ast.body {
@@ -141,7 +141,7 @@ impl<'a> GraphBuilder<'a> {
             // Track importlib aliases for later detection
             if module_name == "importlib" {
                 self.import_aliases
-                    .insert(local_name.to_string(), "importlib".to_string());
+                    .insert(local_name.to_owned(), "importlib".to_owned());
             }
 
             let mut imported_names = FxIndexSet::default();
@@ -153,28 +153,28 @@ impl<'a> GraphBuilder<'a> {
             if alias.asname.is_some() {
                 // import xml.etree.ElementTree as ET
                 // Imported: xml.etree.ElementTree, Declared: ET
-                imported_names.insert(local_name.to_string());
-                var_decls.insert(local_name.to_string());
+                imported_names.insert(local_name.to_owned());
+                var_decls.insert(local_name.to_owned());
             } else if module_name.contains('.') {
                 // import xml.etree.ElementTree
                 // Imported: xml.etree.ElementTree, Declared: xml (root variable)
-                imported_names.insert(module_name.to_string());
+                imported_names.insert(module_name.to_owned());
                 let root_module = module_name
                     .split('.')
                     .next()
                     .expect("module name should have at least one part");
-                var_decls.insert(root_module.to_string());
+                var_decls.insert(root_module.to_owned());
             } else {
                 // import os
                 // Imported: os, Declared: os
-                imported_names.insert(local_name.to_string());
-                var_decls.insert(local_name.to_string());
+                imported_names.insert(local_name.to_owned());
+                var_decls.insert(local_name.to_owned());
             }
 
             let item_data = ItemData {
                 item_type: ItemType::Import {
-                    module: module_name.to_string(),
-                    alias: alias.asname.as_ref().map(std::string::ToString::to_string),
+                    module: module_name.to_owned(),
+                    alias: alias.asname.as_ref().map(ToString::to_string),
                 },
                 var_decls,
                 read_vars: FxIndexSet::default(),
@@ -220,7 +220,7 @@ impl<'a> GraphBuilder<'a> {
                 format!("{dots}{module_name}")
             }
         } else {
-            module_name.to_string()
+            module_name.to_owned()
         };
 
         let is_star = import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
@@ -230,7 +230,7 @@ impl<'a> GraphBuilder<'a> {
         let mut reexported_names = FxIndexSet::default();
 
         if is_star {
-            imported_names.insert("*".to_string());
+            imported_names.insert("*".to_owned());
         } else {
             for alias in &import_from.names {
                 let imported_name = alias.name.as_str();
@@ -239,10 +239,10 @@ impl<'a> GraphBuilder<'a> {
                     .as_ref()
                     .map_or(imported_name, ruff_python_ast::Identifier::as_str);
 
-                imported_names.insert(local_name.to_string());
+                imported_names.insert(local_name.to_owned());
                 names.push((
-                    imported_name.to_string(),
-                    alias.asname.as_ref().map(std::string::ToString::to_string),
+                    imported_name.to_owned(),
+                    alias.asname.as_ref().map(ToString::to_string),
                 ));
 
                 // Check for explicit re-export pattern: from foo import Bar as Bar
@@ -252,22 +252,20 @@ impl<'a> GraphBuilder<'a> {
                     .map(ruff_python_ast::Identifier::as_str)
                     == Some(imported_name)
                 {
-                    reexported_names.insert(local_name.to_string());
+                    reexported_names.insert(local_name.to_owned());
                 }
 
                 // Track import_module from importlib
                 if module_name == "importlib" && imported_name == "import_module" {
-                    self.import_aliases.insert(
-                        local_name.to_string(),
-                        "importlib.import_module".to_string(),
-                    );
+                    self.import_aliases
+                        .insert(local_name.to_owned(), "importlib.import_module".to_owned());
                 }
             }
         }
 
         let item_data = ItemData {
             item_type: ItemType::FromImport {
-                module: effective_module.clone(),
+                module: effective_module,
                 names,
                 level: import_from.level,
                 is_star,
@@ -343,7 +341,7 @@ impl<'a> GraphBuilder<'a> {
             item_type: ItemType::FunctionDef {
                 name: func_name.clone(),
             },
-            var_decls: [func_name.clone()].into_iter().collect(),
+            var_decls: std::iter::once(func_name.clone()).collect(),
             read_vars,
             eventual_read_vars,
             write_vars: FxIndexSet::default(),
@@ -351,7 +349,7 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: [func_name.clone()].into_iter().collect(),
+            defined_symbols: std::iter::once(func_name.clone()).collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
             containing_scope: self.scope_name.clone(),
@@ -363,7 +361,7 @@ impl<'a> GraphBuilder<'a> {
         let old_scope = self.current_scope;
         let old_scope_name = self.scope_name.clone();
         self.current_scope = ScopeType::Function;
-        self.scope_name = Some(func_name.clone());
+        self.scope_name = Some(func_name);
         for stmt in &func_def.body {
             self.process_statement(stmt)?;
         }
@@ -491,7 +489,7 @@ impl<'a> GraphBuilder<'a> {
             item_type: ItemType::ClassDef {
                 name: class_name.clone(),
             },
-            var_decls: [class_name.clone()].into_iter().collect(),
+            var_decls: std::iter::once(class_name.clone()).collect(),
             read_vars,
             eventual_read_vars: method_read_vars, // Methods may use these variables
             write_vars: FxIndexSet::default(),
@@ -499,7 +497,7 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: [class_name.clone()].into_iter().collect(),
+            defined_symbols: std::iter::once(class_name.clone()).collect(),
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
             containing_scope: self.scope_name.clone(),
@@ -511,7 +509,7 @@ impl<'a> GraphBuilder<'a> {
         let old_scope = self.current_scope;
         let old_scope_name = self.scope_name.clone();
         self.current_scope = ScopeType::Class;
-        self.scope_name = Some(class_name.clone());
+        self.scope_name = Some(class_name);
         for stmt in &class_def.body {
             self.process_statement(stmt)?;
         }
@@ -569,7 +567,7 @@ impl<'a> GraphBuilder<'a> {
                         module: module_name.clone(),
                         alias: Some(target.clone()),
                     },
-                    var_decls: [target.clone()].into_iter().collect(),
+                    var_decls: std::iter::once(target.clone()).collect(),
                     read_vars: read_vars.clone(),
                     eventual_read_vars: FxIndexSet::default(),
                     write_vars: FxIndexSet::default(),
@@ -577,7 +575,7 @@ impl<'a> GraphBuilder<'a> {
                     has_side_effects: true, // Import always has side effects
                     imported_names,
                     reexported_names: FxIndexSet::default(),
-                    defined_symbols: [target.clone()].into_iter().collect(),
+                    defined_symbols: std::iter::once(target.clone()).collect(),
                     symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses: FxIndexMap::default(),
                     containing_scope: self.scope_name.clone(),
@@ -588,7 +586,7 @@ impl<'a> GraphBuilder<'a> {
         } else {
             // Regular assignment
             // Check if this is an __all__ assignment
-            let is_all_assignment = targets.contains(&"__all__".to_string());
+            let is_all_assignment = targets.contains(&"__all__".to_owned());
             let mut reexported_names = FxIndexSet::default();
 
             if is_all_assignment {
@@ -1137,7 +1135,7 @@ impl<'a> GraphBuilder<'a> {
                             .split('.')
                             .next()
                             .expect("full_name should have at least one part");
-                        vars.insert(root.to_string());
+                        vars.insert(root.to_owned());
                     }
                 }
 
@@ -1386,7 +1384,7 @@ impl<'a> GraphBuilder<'a> {
                                 .asname
                                 .as_ref()
                                 .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
-                            read_vars.insert(local_name.to_string());
+                            read_vars.insert(local_name.to_owned());
                         }
                     }
                     Stmt::ImportFrom(import_from) => {
@@ -1400,7 +1398,7 @@ impl<'a> GraphBuilder<'a> {
                                     alias.name.as_str(),
                                     ruff_python_ast::Identifier::as_str,
                                 );
-                                read_vars.insert(local_name.to_string());
+                                read_vars.insert(local_name.to_owned());
                             }
                         }
                     }

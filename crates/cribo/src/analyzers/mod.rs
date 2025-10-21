@@ -4,13 +4,13 @@
 //! Analyzers work with data collected by visitors to derive insights about
 //! module dependencies, symbol relationships, and import requirements.
 
-pub mod dependency_analyzer;
-pub mod global_analyzer;
-pub mod import_analyzer;
-pub mod module_classifier;
-pub mod symbol_analyzer;
-pub mod types;
+pub(crate) mod dependency_analyzer;
+pub(crate) mod global_analyzer;
+pub(crate) mod import_analyzer;
+pub(crate) mod module_classifier;
+pub(crate) mod symbol_analyzer;
+pub(crate) mod types;
 
-pub use global_analyzer::GlobalAnalyzer;
-pub use import_analyzer::ImportAnalyzer;
-pub use symbol_analyzer::SymbolAnalyzer;
+pub(crate) use global_analyzer::GlobalAnalyzer;
+pub(crate) use import_analyzer::ImportAnalyzer;
+pub(crate) use symbol_analyzer::SymbolAnalyzer;

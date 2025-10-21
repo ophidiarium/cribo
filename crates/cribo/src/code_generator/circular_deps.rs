@@ -2,7 +2,7 @@ use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Handles symbol-level circular dependency analysis and resolution
 #[derive(Debug, Default, Clone)]
-pub struct SymbolDependencyGraph {
+pub(crate) struct SymbolDependencyGraph {
     /// Track which symbols are defined in which modules
     pub symbol_definitions: FxIndexSet<(String, String)>,
     /// Module-level dependencies (used at definition time, not inside function bodies)
@@ -47,7 +47,7 @@ impl SymbolDependencyGraph {
     }
 
     /// Get symbols for a specific module in dependency order
-    pub fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
+    pub(crate) fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
         use petgraph::{
             algo::toposort,
             graph::{DiGraph, NodeIndex},
@@ -55,14 +55,12 @@ impl SymbolDependencyGraph {
         // Build a directed graph of symbol dependencies ONLY for this module
         let mut graph = DiGraph::new();
         let mut node_map: FxIndexMap<String, NodeIndex> = FxIndexMap::default();
-        let mut symbols_in_module = Vec::new();
 
         // Add nodes for all symbols in this specific module
         for (module, symbol) in &self.symbol_definitions {
             if module == module_name {
                 let node = graph.add_node(symbol.clone());
                 node_map.insert(symbol.clone(), node);
-                symbols_in_module.push(symbol.clone());
             }
         }
 

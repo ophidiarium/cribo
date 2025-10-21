@@ -35,15 +35,11 @@ fn should_include_import(
     should_check && exports.iter().any(|e| e == name)
 }
 
-/// Information about a registered namespace
-#[derive(Debug, Clone)]
-pub struct NamespaceInfo {}
-
 /// Context for populating namespace with module symbols.
 ///
 /// This struct encapsulates the state required by the namespace population function,
 /// which was previously accessed directly from the `Bundler` struct.
-pub struct NamespacePopulationContext<'a> {
+pub(crate) struct NamespacePopulationContext<'a> {
     pub inlined_modules: &'a FxIndexSet<ModuleId>,
     pub module_exports: &'a FxIndexMap<ModuleId, Option<Vec<String>>>,
     pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<ModuleId, FxIndexSet<String>>>,
@@ -84,8 +80,8 @@ fn expr_matches_qualified_name(expr: &Expr, qname: &str) -> bool {
 /// This function creates `parent.attr = value` statements, but intelligently uses
 /// namespace variables when they exist. For example, if assigning `services.auth`,
 /// it will use the `services_auth` namespace variable if it exists.
-pub fn create_attribute_assignment(
-    bundler: &Bundler,
+pub(crate) fn create_attribute_assignment(
+    bundler: &Bundler<'_>,
     parent: &str,
     attr: &str,
     module_name: &str,
@@ -121,7 +117,7 @@ pub fn create_attribute_assignment(
 /// This function handles the transformation of imports from namespace packages,
 /// creating appropriate assignments and namespace objects as needed.
 pub(super) fn transform_namespace_package_imports(
-    bundler: &Bundler,
+    bundler: &Bundler<'_>,
     import_from: StmtImportFrom,
     module_name: &str,
     _symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -218,8 +214,8 @@ pub(super) fn transform_namespace_package_imports(
 ///
 /// This function generates AST statements to populate a namespace object with symbols
 /// from a module, handling tree-shaking, re-exports, and symbol renaming.
-pub fn populate_namespace_with_module_symbols(
-    ctx: &mut NamespacePopulationContext,
+pub(crate) fn populate_namespace_with_module_symbols(
+    ctx: &NamespacePopulationContext<'_>,
     target_name: &str,
     module_id: ModuleId,
     symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
@@ -259,7 +255,7 @@ pub fn populate_namespace_with_module_symbols(
             .iter()
             .any(|(_, accessed_module)| accessed_module == module_name)
             || any_module_wildcard_imports_and_uses_setattr(
-                ctx.module_asts,
+                ctx.module_asts.as_ref(),
                 ctx.resolver,
                 module_name,
                 module_id,
@@ -272,7 +268,7 @@ pub fn populate_namespace_with_module_symbols(
             // When tree-shaking is enabled, start with symbols kept by tree-shaking
             let kept: FxIndexSet<String> = SymbolAnalyzer::filter_exports_by_tree_shaking(
                 exports,
-                &module_id,
+                module_id,
                 ctx.tree_shaking_keep_symbols.as_ref(),
                 true,
                 ctx.resolver,
@@ -307,8 +303,7 @@ pub fn populate_namespace_with_module_symbols(
 
             use crate::code_generator::symbol_source::resolve_import_module;
 
-            let mut augmented: crate::types::FxIndexSet<String> =
-                filtered_exports.iter().cloned().collect();
+            let mut augmented: FxIndexSet<String> = filtered_exports.iter().cloned().collect();
 
             for (other_id, (other_ast, other_path, _)) in module_asts {
                 // Skip the same module
@@ -332,7 +327,7 @@ pub fn populate_namespace_with_module_symbols(
                             // For regular modules without explicit __all__, only augment
                             // with dunder names.
                             if should_include_import(name, is_wrapper, has_explicit_all, exports) {
-                                augmented.insert(name.to_string());
+                                augmented.insert(name.to_owned());
                             }
                         }
                     }
@@ -429,7 +424,7 @@ pub fn populate_namespace_with_module_symbols(
                         continue;
                     };
 
-                    if !submodule_exports.contains(&symbol_name.to_string()) {
+                    if !submodule_exports.contains(&symbol_name.to_owned()) {
                         continue;
                     }
 
@@ -470,14 +465,15 @@ pub fn populate_namespace_with_module_symbols(
             }
 
             // Get the renamed symbol if it exists
-            let actual_symbol_name = if let Some(module_renames) = symbol_renames.get(&module_id) {
-                module_renames
-                    .get(symbol_name)
-                    .cloned()
-                    .unwrap_or_else(|| symbol_name.to_string())
-            } else {
-                symbol_name.to_string()
-            };
+            let actual_symbol_name = symbol_renames.get(&module_id).map_or_else(
+                || symbol_name.to_owned(),
+                |module_renames| {
+                    module_renames
+                        .get(symbol_name)
+                        .cloned()
+                        .unwrap_or_else(|| symbol_name.to_owned())
+                },
+            );
 
             // Create the target expression
             // For simple modules, this will be the module name directly
@@ -517,7 +513,7 @@ pub fn populate_namespace_with_module_symbols(
                 if !parent_module.is_empty()
                     && let Some(parent_id) = ctx.resolver.get_module_id_by_name(parent_module)
                     && let Some(Some(parent_exports)) = ctx.module_exports.get(&parent_id)
-                    && parent_exports.contains(&symbol_name.to_string())
+                    && parent_exports.contains(&symbol_name.to_owned())
                 {
                     // This symbol is re-exported by the parent module
                     // Check if the parent assignment already exists
@@ -548,7 +544,7 @@ pub fn populate_namespace_with_module_symbols(
             // For explicit export lists, skip dunder names not listed in __all__
             if symbol_name.starts_with("__")
                 && symbol_name.ends_with("__")
-                && !exports.contains(&symbol_name.to_string())
+                && !exports.contains(&symbol_name.to_owned())
             {
                 debug!(
                     "Skipping dunder name '{symbol_name}' not in __all__ for module \
@@ -780,11 +776,15 @@ pub fn populate_namespace_with_module_symbols(
                     .get(&module_id)
                     .and_then(|m| m.get(&symbol_name))
                     .cloned()
-                    .or_else(|| match ctx.tree_shaking_keep_symbols.as_ref() {
-                        Some(map) => map.get(&module_id).and_then(|set| {
-                            set.contains(&symbol_name).then(|| symbol_name.clone())
-                        }),
-                        None => Some(symbol_name.clone()),
+                    .or_else(|| {
+                        ctx.tree_shaking_keep_symbols.as_ref().map_or_else(
+                            || Some(symbol_name.clone()),
+                            |map| {
+                                map.get(&module_id).and_then(|set| {
+                                    set.contains(&symbol_name).then(|| symbol_name.clone())
+                                })
+                            },
+                        )
                     });
 
                 let Some(actual_symbol_name) = actual_symbol_name else {
@@ -821,7 +821,7 @@ pub fn populate_namespace_with_module_symbols(
 /// by extracting the logic for checking if a symbol is already handled via module
 /// attribute assignments.
 fn is_symbol_from_inlined_submodule(
-    ctx: &NamespacePopulationContext,
+    ctx: &NamespacePopulationContext<'_>,
     module_name: &str,
     symbol_name: &str,
 ) -> bool {
@@ -885,7 +885,7 @@ fn is_symbol_from_inlined_submodule(
 /// and returns the source module name and original symbol name if it's a wrapper module.
 /// This handles import aliases correctly (e.g., `from .base import YAMLObject as YO`).
 fn find_symbol_source_module(
-    ctx: &NamespacePopulationContext,
+    ctx: &NamespacePopulationContext<'_>,
     module_name: &str,
     symbol_name: &str,
 ) -> Option<(String, String)> {
@@ -902,13 +902,13 @@ fn find_symbol_source_module(
 /// Heuristic: detect dynamic __all__ usage pattern in any module that wildcard-imports from
 /// `target_module` and uses `setattr` (e.g., httpx-like pattern).
 fn any_module_wildcard_imports_and_uses_setattr(
-    module_asts: &Option<FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>>,
+    module_asts: Option<&FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
     resolver: &crate::resolver::ModuleResolver,
     target_module: &str,
     current_module_id: ModuleId,
     current_module_name: &str,
 ) -> bool {
-    let Some(asts) = module_asts.as_ref() else {
+    let Some(asts) = module_asts else {
         return false;
     };
 

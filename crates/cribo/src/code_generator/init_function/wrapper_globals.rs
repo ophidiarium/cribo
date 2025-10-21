@@ -9,7 +9,7 @@ use ruff_python_ast::{
     visitor::source_order::{self, SourceOrderVisitor},
 };
 
-use super::{TransformError, state::InitFunctionState};
+use super::state::InitFunctionState;
 use crate::{ast_builder, types::FxIndexSet};
 
 /// Phase responsible for collecting and declaring wrapper module globals
@@ -27,19 +27,14 @@ impl WrapperGlobalsPhase {
     /// This is necessary because wrapper module init functions may pass their own namespace
     /// object as an argument (e.g., `foo = init_foo(foo)`), which requires `foo` to be
     /// declared as global to avoid `UnboundLocalError`.
-    pub(crate) fn execute(
-        processed_body: &[Stmt],
-        state: &mut InitFunctionState,
-    ) -> Result<(), TransformError> {
+    pub(crate) fn execute(processed_body: &[Stmt], state: &mut InitFunctionState) {
         // Use visitor to properly traverse the AST
         let wrapper_globals_needed = WrapperGlobalCollector::collect(processed_body);
 
         // Add global declarations for wrapper module namespace variables at the beginning
         if !wrapper_globals_needed.is_empty() {
-            let mut globals: Vec<&str> = wrapper_globals_needed
-                .iter()
-                .map(std::string::String::as_str)
-                .collect();
+            let mut globals: Vec<&str> =
+                wrapper_globals_needed.iter().map(String::as_str).collect();
             globals.sort_unstable();
 
             debug!(
@@ -50,8 +45,6 @@ impl WrapperGlobalsPhase {
 
             state.body.push(ast_builder::statements::global(globals));
         }
-
-        Ok(())
     }
 }
 

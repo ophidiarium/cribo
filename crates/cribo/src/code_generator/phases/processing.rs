@@ -20,7 +20,7 @@ use crate::{
 
 /// Processing phase handler (stateless)
 #[derive(Default)]
-pub struct ProcessingPhase;
+pub(crate) struct ProcessingPhase;
 
 /// Context for SCC group processing
 #[derive(Debug)]
@@ -31,7 +31,7 @@ struct CircularGroupContext {
 
 impl ProcessingPhase {
     /// Create a new processing phase
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
@@ -46,7 +46,7 @@ impl ProcessingPhase {
     ///
     /// Returns the generated statements and set of processed modules.
     #[expect(clippy::too_many_arguments)]
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
         params: &BundleParams<'_>,
@@ -164,7 +164,7 @@ impl ProcessingPhase {
     /// modules must be initialized before inlinable modules can reference them.
     /// It computes both direct and transitive dependencies.
     fn analyze_wrapper_dependencies(
-        bundler: &mut Bundler<'_>,
+        bundler: &Bundler<'_>,
         classification: &ClassificationResult,
         _modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
     ) {
@@ -391,7 +391,7 @@ impl ProcessingPhase {
                 module_name: mname,
                 module_path: &path,
                 global_info: global_info.clone(),
-                semantic_bundler: bundler.semantic_bundler,
+                conflict_resolver: bundler.conflict_resolver,
                 python_version,
                 is_wrapper_body: true,
                 is_in_circular_deps: is_in_circular,
@@ -416,7 +416,7 @@ impl ProcessingPhase {
 
             if bundler.emitted_wrapper_inits.insert(*mid) {
                 let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
-                    f.name.as_str().to_string()
+                    f.name.as_str().to_owned()
                 } else {
                     bundler
                         .module_init_functions
@@ -518,23 +518,22 @@ impl ProcessingPhase {
         log::debug!("[processing] Populating namespace for inlined module: {module_name}");
 
         let namespace_var = sanitize_module_name_for_identifier(module_name);
-        let mut population_ctx =
-            crate::code_generator::namespace_manager::NamespacePopulationContext {
-                bundled_modules: &bundler.bundled_modules,
-                inlined_modules: &bundler.inlined_modules,
-                module_exports: &bundler.module_exports,
-                tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
-                modules_with_accessed_all: &bundler.modules_with_accessed_all,
-                wrapper_modules: &bundler.wrapper_modules,
-                module_asts: &bundler.module_asts,
-                modules_with_explicit_all: &bundler.modules_with_explicit_all,
-                module_init_functions: &bundler.module_init_functions,
-                resolver: bundler.resolver,
-            };
+        let population_ctx = crate::code_generator::namespace_manager::NamespacePopulationContext {
+            bundled_modules: &bundler.bundled_modules,
+            inlined_modules: &bundler.inlined_modules,
+            module_exports: &bundler.module_exports,
+            tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+            modules_with_accessed_all: &bundler.modules_with_accessed_all,
+            wrapper_modules: &bundler.wrapper_modules,
+            module_asts: &bundler.module_asts,
+            modules_with_explicit_all: &bundler.modules_with_explicit_all,
+            module_init_functions: &bundler.module_init_functions,
+            resolver: bundler.resolver,
+        };
 
         let population_stmts =
             crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                &mut population_ctx,
+                &population_ctx,
                 &namespace_var,
                 module_id,
                 symbol_renames,
@@ -569,7 +568,7 @@ impl ProcessingPhase {
 
         let content_hash = modules
             .get(&module_id)
-            .map_or_else(|| "000000".to_string(), |(_, _, hash)| hash.clone());
+            .map_or_else(|| "000000".to_owned(), |(_, _, hash)| hash.clone());
 
         let _synthetic_name = bundler
             .module_synthetic_names
@@ -595,18 +594,18 @@ impl ProcessingPhase {
             module_name,
             module_path: path,
             global_info: global_info.clone(),
-            semantic_bundler: bundler.semantic_bundler,
+            conflict_resolver: bundler.conflict_resolver,
             python_version,
             is_wrapper_body: true,
             is_in_circular_deps: is_in_circular,
         };
 
         let init_function = InitFunctionBuilder::new(bundler, &transform_ctx, symbol_renames)
-            .build(ast.clone())
+            .build(ast)
             .expect("Init function transformation should not fail");
 
         let init_func_name = if let Stmt::FunctionDef(f) = &init_function {
-            f.name.as_str().to_string()
+            f.name.as_str().to_owned()
         } else {
             init_func_name_from_map
         };
@@ -647,9 +646,7 @@ impl ProcessingPhase {
 
         // Insert lifted globals
         if let Some(ref info) = global_info {
-            if info.global_declarations.is_empty() {
-                all_inlined_stmts.extend(wrapper_stmts);
-            } else {
+            if !info.global_declarations.is_empty() {
                 let globals_lifter = crate::code_generator::globals::GlobalsLifter::new(info);
                 let mut lifted_declarations = Vec::new();
                 for (_, lifted_name) in &globals_lifter.lifted_names {
@@ -662,22 +659,15 @@ impl ProcessingPhase {
                 if !lifted_declarations.is_empty() && !wrapper_stmts.is_empty() {
                     if namespace_already_exists {
                         all_inlined_stmts.extend(lifted_declarations);
-                        all_inlined_stmts.extend(wrapper_stmts);
                     } else if wrapper_stmts.len() >= 2 {
                         let namespace_stmt = wrapper_stmts.remove(0);
                         all_inlined_stmts.push(namespace_stmt);
                         all_inlined_stmts.extend(lifted_declarations);
-                        all_inlined_stmts.extend(wrapper_stmts);
-                    } else {
-                        all_inlined_stmts.extend(wrapper_stmts);
                     }
-                } else {
-                    all_inlined_stmts.extend(wrapper_stmts);
                 }
             }
-        } else {
-            all_inlined_stmts.extend(wrapper_stmts);
         }
+        all_inlined_stmts.extend(wrapper_stmts);
 
         if !namespace_already_exists {
             bundler.created_namespaces.insert(module_var.clone());
@@ -706,7 +696,7 @@ mod tests {
         }
 
         let ctx = CircularGroupContext {
-            cycle_groups: cycle_groups.clone(),
+            cycle_groups,
             member_to_group: member_to_group.clone(),
         };
 

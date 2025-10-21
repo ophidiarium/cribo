@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-/// `CriboGraph`: Advanced dependency graph implementation for Python bundling
+/// `DependencyGraph`: Advanced dependency graph implementation for Python bundling
 ///
 /// This module provides a sophisticated dependency tracking system that combines:
 /// - Fine-grained item-level tracking (inspired by Turbopack)
@@ -25,16 +25,20 @@ use crate::{
 };
 
 /// Unique identifier for an item within a module
+/// Note: Made `pub` because it's exposed through `ModuleDepGraph::items` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemId(u32);
 
 impl ItemId {
-    pub fn new(id: u32) -> Self {
+    pub(crate) const fn new(id: u32) -> Self {
         Self(id)
     }
 }
 
-/// Type of Python item (statement/definition)
+/// Type of Python item (function, class, import, etc.)
+/// Note: Made `pub` because it's exposed through `ItemData::item_type` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemType {
     /// Function definition
@@ -67,15 +71,17 @@ pub enum ItemType {
 
 impl ItemType {
     /// Get the name of this item if it has one
-    pub fn name(&self) -> Option<&str> {
+    pub(crate) fn name(&self) -> Option<&str> {
         match self {
-            ItemType::FunctionDef { name } | ItemType::ClassDef { name } => Some(name),
+            Self::FunctionDef { name } | Self::ClassDef { name } => Some(name),
             _ => None,
         }
     }
 }
 
 /// Variable state tracking
+/// Note: Made `pub` because it's exposed through `ModuleDepGraph::var_states` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone)]
 pub struct VarState {
     /// Items that write to this variable
@@ -85,6 +91,8 @@ pub struct VarState {
 }
 
 /// Data about a Python item (statement/definition)
+/// Note: Made `pub` because it's exposed through `ModuleDepGraph::items` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug, Clone)]
 pub struct ItemData {
     /// Type of this item
@@ -110,13 +118,16 @@ pub struct ItemData {
     /// NEW: Map of symbol -> other symbols it references (for tree-shaking)
     pub symbol_dependencies: FxIndexMap<String, FxIndexSet<String>>,
     /// NEW: Map of variable -> accessed attributes (for tree-shaking namespace access)
-    /// e.g., {"greetings": ["message"]} for greetings.message
+    /// e.g., `{"greetings": ["message"]}` for `greetings.message`
     pub attribute_accesses: FxIndexMap<String, FxIndexSet<String>>,
     /// For scoped items: the containing scope name (function or class name)
     pub containing_scope: Option<String>,
 }
 
 /// Fine-grained dependency graph for a single module
+/// Module-level dependency graph
+/// Note: Made `pub` because it's exposed through `DependencyGraph::modules` (pub field)
+#[allow(unreachable_pub)]
 #[derive(Debug)]
 pub struct ModuleDepGraph {
     /// Module identifier
@@ -135,7 +146,7 @@ pub struct ModuleDepGraph {
 
 impl ModuleDepGraph {
     /// Create a new module dependency graph
-    pub fn new(module_id: ModuleId, module_name: String) -> Self {
+    pub(crate) fn new(module_id: ModuleId, module_name: String) -> Self {
         Self {
             module_id,
             module_name,
@@ -147,7 +158,7 @@ impl ModuleDepGraph {
     }
 
     /// Add a new item to the graph
-    pub fn add_item(&mut self, data: ItemData) -> ItemId {
+    pub(crate) fn add_item(&mut self, data: ItemData) -> ItemId {
         let id = ItemId::new(self.next_item_id);
         self.next_item_id += 1;
 
@@ -195,7 +206,7 @@ impl ModuleDepGraph {
     }
 
     /// Get all import items in the module with their IDs
-    pub fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
+    pub(crate) fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
         self.items
             .iter()
             .filter(|(_, data)| {
@@ -209,11 +220,11 @@ impl ModuleDepGraph {
     }
 
     /// Check if a name is in __all__ export
-    pub fn is_in_all_export(&self, name: &str) -> bool {
+    pub(crate) fn is_in_all_export(&self, name: &str) -> bool {
         // Look for __all__ assignments
         for item_data in self.items.values() {
             if let ItemType::Assignment { targets, .. } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
+                && targets.contains(&"__all__".to_owned())
             {
                 // Check if the name is in the eventual_read_vars (where __all__ names are
                 // stored)
@@ -226,7 +237,7 @@ impl ModuleDepGraph {
     }
 
     /// Check if a symbol uses a specific import
-    pub fn does_symbol_use_import(&self, symbol: &str, import_name: &str) -> bool {
+    pub(crate) fn does_symbol_use_import(&self, symbol: &str, import_name: &str) -> bool {
         // Find the item that defines the symbol
         for item in self.items.values() {
             if item.defined_symbols.contains(symbol) {
@@ -269,8 +280,11 @@ impl ModuleDepGraph {
 /// - Turbopack's fine-grained tracking
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
+///
+/// Note: Made `pub` for benchmark access via lib.rs (benchmarks are part of public API surface)
+#[allow(unreachable_pub)]
 #[derive(Debug)]
-pub struct CriboGraph {
+pub struct DependencyGraph {
     /// All modules in the graph
     pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping
@@ -297,8 +311,9 @@ pub struct CriboGraph {
     modules_accessing_all: FxIndexSet<(ModuleId, ModuleId)>,
 }
 
-impl CriboGraph {
+impl DependencyGraph {
     /// Create a new cribo dependency graph
+    #[allow(unreachable_pub)]
     pub fn new() -> Self {
         Self {
             modules: FxIndexMap::default(),
@@ -314,6 +329,7 @@ impl CriboGraph {
     }
 
     /// Add a module to the graph with a pre-assigned `ModuleId` from the resolver
+    #[allow(unreachable_pub)]
     pub fn add_module(&mut self, id: ModuleId, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
@@ -325,7 +341,7 @@ impl CriboGraph {
                 if existing_canonical == &canonical_path {
                     // Same import name, same file - track and reuse
                     self.file_to_import_names
-                        .entry(canonical_path.clone())
+                        .entry(canonical_path)
                         .or_default()
                         .insert(name.clone());
                     return existing_id;
@@ -391,19 +407,19 @@ impl CriboGraph {
     }
 
     /// Get a module by ID
-    pub fn get_module(&self, id: ModuleId) -> Option<&ModuleDepGraph> {
+    pub(crate) fn get_module(&self, id: ModuleId) -> Option<&ModuleDepGraph> {
         self.modules.get(&id)
     }
 
     /// Get a module by name (for compatibility during migration)
-    pub fn get_module_by_name(&self, name: &str) -> Option<&ModuleDepGraph> {
+    pub(crate) fn get_module_by_name(&self, name: &str) -> Option<&ModuleDepGraph> {
         self.module_names
             .get(name)
             .and_then(|&id| self.modules.get(&id))
     }
 
     /// Get a mutable module by name (for compatibility during migration)
-    pub fn get_module_by_name_mut(&mut self, name: &str) -> Option<&mut ModuleDepGraph> {
+    pub(crate) fn get_module_by_name_mut(&mut self, name: &str) -> Option<&mut ModuleDepGraph> {
         if let Some(&id) = self.module_names.get(name) {
             self.modules.get_mut(&id)
         } else {
@@ -412,12 +428,12 @@ impl CriboGraph {
     }
 
     /// Get modules that access __all__ attribute
-    pub fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
+    pub(crate) const fn get_modules_accessing_all(&self) -> &FxIndexSet<(ModuleId, ModuleId)> {
         &self.modules_accessing_all
     }
 
     /// Add a module that accesses __all__ of another module
-    pub fn add_module_accessing_all(
+    pub(crate) fn add_module_accessing_all(
         &mut self,
         accessing_module_id: ModuleId,
         accessed_module_id: ModuleId,
@@ -427,12 +443,18 @@ impl CriboGraph {
     }
 
     /// Add a dependency between modules (from depends on to)
+    #[allow(unreachable_pub)]
     pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
         self.add_module_dependency_with_info(from, to, ());
     }
 
     /// Add a dependency between modules with additional information
-    pub fn add_module_dependency_with_info(&mut self, from: ModuleId, to: ModuleId, info: ()) {
+    pub(crate) fn add_module_dependency_with_info(
+        &mut self,
+        from: ModuleId,
+        to: ModuleId,
+        info: (),
+    ) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
@@ -448,6 +470,7 @@ impl CriboGraph {
     }
 
     /// Get topologically sorted modules (uses petgraph)
+    #[allow(unreachable_pub)]
     pub fn topological_sort(&self) -> Result<Vec<ModuleId>> {
         toposort(&self.graph, None)
             .map(|nodes| nodes.into_iter().map(|n| self.graph[n]).collect())
@@ -455,12 +478,12 @@ impl CriboGraph {
     }
 
     /// Check if the graph has cycles
-    pub fn has_cycles(&self) -> bool {
+    pub(crate) fn has_cycles(&self) -> bool {
         is_cyclic_directed(&self.graph)
     }
 
     /// Get all modules that a given module depends on
-    pub fn get_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
+    pub(crate) fn get_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
         if let Some(&node_idx) = self.node_indices.get(&module_id) {
             // Since edges go from dependency to dependent, incoming edges are dependencies
             self.graph
@@ -475,7 +498,7 @@ impl CriboGraph {
     /// Find all strongly connected components (circular dependencies) using Tarjan's algorithm
     /// This is more efficient than Kosaraju for our use case and provides components in
     /// reverse topological order
-    pub fn find_strongly_connected_components(&self) -> Vec<Vec<ModuleId>> {
+    pub(crate) fn find_strongly_connected_components(&self) -> Vec<Vec<ModuleId>> {
         // Use petgraph's implementation for correctness and maintainability
         let components = tarjan_scc(&self.graph);
 
@@ -493,7 +516,7 @@ impl CriboGraph {
     }
 }
 
-impl Default for CriboGraph {
+impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
     }
@@ -506,16 +529,16 @@ mod tests {
 
     #[test]
     fn test_basic_module_graph() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         let utils_id = graph.add_module(
             ModuleId::new(0),
-            "utils".to_string(),
+            "utils".to_owned(),
             &PathBuf::from("utils.py"),
         );
         let main_id = graph.add_module(
             ModuleId::new(1),
-            "main".to_string(),
+            "main".to_owned(),
             &PathBuf::from("main.py"),
         );
 
@@ -530,22 +553,22 @@ mod tests {
 
     #[test]
     fn test_circular_dependency_detection() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         // Create a three-module circular dependency: A -> B -> C -> A
         let module_a = graph.add_module(
             ModuleId::new(0),
-            "module_a".to_string(),
+            "module_a".to_owned(),
             &PathBuf::from("module_a.py"),
         );
         let module_b = graph.add_module(
             ModuleId::new(1),
-            "module_b".to_string(),
+            "module_b".to_owned(),
             &PathBuf::from("module_b.py"),
         );
         let module_c = graph.add_module(
             ModuleId::new(2),
-            "module_c".to_string(),
+            "module_c".to_owned(),
             &PathBuf::from("module_c.py"),
         );
 
@@ -562,23 +585,23 @@ mod tests {
         assert_eq!(sccs[0].len(), 3);
 
         // Analyze circular dependencies using the analyzer
-        let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(&graph);
+        let analysis = crate::analyzers::dependency_analyzer::analyze_circular_dependencies(&graph);
         assert!(!analysis.resolvable_cycles.is_empty());
     }
 
     #[test]
     fn test_circular_dependency_classification() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         // Create a circular dependency with "constants" in the name
         let constants_a = graph.add_module(
             ModuleId::new(0),
-            "constants_a".to_string(),
+            "constants_a".to_owned(),
             &PathBuf::from("constants_a.py"),
         );
         let constants_b = graph.add_module(
             ModuleId::new(1),
-            "constants_b".to_string(),
+            "constants_b".to_owned(),
             &PathBuf::from("constants_b.py"),
         );
 
@@ -586,12 +609,12 @@ mod tests {
         if let Some(module_a) = graph.modules.get_mut(&constants_a) {
             module_a.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["CONFIG".to_string()],
+                    targets: vec!["CONFIG".to_owned()],
                 },
-                var_decls: ["CONFIG".into()].into_iter().collect(),
+                var_decls: std::iter::once("CONFIG".into()).collect(),
                 read_vars: FxIndexSet::default(),
                 eventual_read_vars: FxIndexSet::default(),
-                write_vars: ["CONFIG".into()].into_iter().collect(),
+                write_vars: std::iter::once("CONFIG".into()).collect(),
                 eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
@@ -606,12 +629,12 @@ mod tests {
         if let Some(module_b) = graph.modules.get_mut(&constants_b) {
             module_b.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["SETTINGS".to_string()],
+                    targets: vec!["SETTINGS".to_owned()],
                 },
-                var_decls: ["SETTINGS".into()].into_iter().collect(),
+                var_decls: std::iter::once("SETTINGS".into()).collect(),
                 read_vars: FxIndexSet::default(),
                 eventual_read_vars: FxIndexSet::default(),
-                write_vars: ["SETTINGS".into()].into_iter().collect(),
+                write_vars: std::iter::once("SETTINGS".into()).collect(),
                 eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
@@ -627,7 +650,7 @@ mod tests {
         graph.add_module_dependency(constants_b, constants_a);
 
         // Now we need to use the analyzer
-        let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(&graph);
+        let analysis = crate::analyzers::dependency_analyzer::analyze_circular_dependencies(&graph);
         assert_eq!(analysis.unresolvable_cycles.len(), 1);
 
         assert_eq!(
@@ -647,11 +670,11 @@ mod tests {
 
     #[test]
     fn test_file_based_deduplication() {
-        let mut graph = CriboGraph::new();
+        let mut graph = DependencyGraph::new();
 
         // Add a module with a canonical path
         let path = PathBuf::from("src/utils.py");
-        let utils_id = graph.add_module(ModuleId::new(0), "utils".to_string(), &path);
+        let utils_id = graph.add_module(ModuleId::new(0), "utils".to_owned(), &path);
 
         // Add some items to the utils module
         let utils_module = graph
@@ -662,7 +685,7 @@ mod tests {
             item_type: ItemType::FunctionDef {
                 name: "helper".into(),
             },
-            var_decls: ["helper".into()].into_iter().collect(),
+            var_decls: std::iter::once("helper".into()).collect(),
             read_vars: FxIndexSet::default(),
             eventual_read_vars: FxIndexSet::default(),
             write_vars: FxIndexSet::default(),
@@ -670,7 +693,7 @@ mod tests {
             has_side_effects: false,
             imported_names: FxIndexSet::default(),
             reexported_names: FxIndexSet::default(),
-            defined_symbols: ["helper".into()].into_iter().collect(),
+            defined_symbols: std::iter::once("helper".into()).collect(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
             containing_scope: None,
@@ -678,7 +701,7 @@ mod tests {
 
         // Add the same file with a different import name
         // This should return the SAME ModuleId due to file-based deduplication
-        let alt_utils_id = graph.add_module(ModuleId::new(1), "src.utils".to_string(), &path);
+        let alt_utils_id = graph.add_module(ModuleId::new(1), "src.utils".to_owned(), &path);
 
         // Verify that both names map to the same ModuleId (file-based deduplication)
         assert_eq!(utils_id, alt_utils_id, "Same file should get same ModuleId");
@@ -709,7 +732,7 @@ mod tests {
                 item_type: ItemType::FunctionDef {
                     name: "new_helper".into(),
                 },
-                var_decls: ["new_helper".into()].into_iter().collect(),
+                var_decls: std::iter::once("new_helper".into()).collect(),
                 read_vars: FxIndexSet::default(),
                 eventual_read_vars: FxIndexSet::default(),
                 write_vars: FxIndexSet::default(),
@@ -717,7 +740,7 @@ mod tests {
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
                 reexported_names: FxIndexSet::default(),
-                defined_symbols: ["new_helper".into()].into_iter().collect(),
+                defined_symbols: std::iter::once("new_helper".into()).collect(),
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses: FxIndexMap::default(),
                 containing_scope: None,
