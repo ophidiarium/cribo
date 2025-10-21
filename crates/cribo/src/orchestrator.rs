@@ -244,7 +244,7 @@ impl BundleOrchestrator {
 
                     // Perform semantic analysis
                     self.conflict_resolver
-                        .analyze_module(module_id, &cached.ast, module_path);
+                        .analyze_module(module_id, &cached.ast, &canonical_path);
 
                     // Add to module registry
                     let module_info = ModuleInfo {
@@ -293,7 +293,7 @@ impl BundleOrchestrator {
 
             // Semantic analysis on raw AST
             self.conflict_resolver
-                .analyze_module(module_id, &ast, module_path);
+                .analyze_module(module_id, &ast, &canonical_path);
 
             // Add to module registry
             let module_info = ModuleInfo {
