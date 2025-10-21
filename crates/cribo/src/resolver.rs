@@ -1430,11 +1430,13 @@ impl ModuleResolver {
     /// Register a module - entry gets 0, others get sequential IDs
     pub fn register_module(&self, name: &str, path: &Path) -> ModuleId {
         let canonical = self.canonicalize_path(path.to_path_buf());
-        let (id, is_package) = {
+        let id = {
             let mut registry = self.registry.lock().expect("Module registry lock poisoned");
-            let id = registry.register(name.to_owned(), &canonical);
-            let is_package = registry.get_metadata(id).is_some_and(|m| m.is_package);
-            (id, is_package)
+            registry.register(name.to_owned(), &canonical)
+        };
+        let is_package = {
+            let registry = self.registry.lock().expect("Module registry lock poisoned");
+            registry.get_metadata(id).is_some_and(|m| m.is_package)
         };
 
         if id.is_entry() {
