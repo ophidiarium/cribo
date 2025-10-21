@@ -7,7 +7,8 @@
         "CLICOLOR_FORCE": "1",
         "NEXTEST_COLOR": "1",
         "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
-        "GH_PAGER": "cat"
+        "GH_PAGER": "cat",
+        "MAX_THINKING_TOKENS": "32000"
     },
     "permissions": {
         "allow": [
@@ -63,5 +64,6 @@
             }
         ]
     },
-    "enableAllProjectMcpServers": true
+    "enableAllProjectMcpServers": true,
+    "model": "sonnet[1m]"
 }
