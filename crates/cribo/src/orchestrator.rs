@@ -345,11 +345,13 @@ impl BundleOrchestrator {
                 .filter_map(|id| resolver.get_module_name(*id))
                 .collect();
 
-            writeln!(error_msg, "Cycle {}: {}", i + 1, module_names.join(" → ")).unwrap();
-            writeln!(error_msg, "  Type: {:?}", cycle.cycle_type).unwrap();
+            writeln!(error_msg, "Cycle {}: {}", i + 1, module_names.join(" → "))
+                .expect("Writing to String never fails");
+            writeln!(error_msg, "  Type: {:?}", cycle.cycle_type)
+                .expect("Writing to String never fails");
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                writeln!(error_msg, "  Reason: {reason}").unwrap();
+                writeln!(error_msg, "  Reason: {reason}").expect("Writing to String never fails");
             }
             error_msg.push('\n');
         }
