@@ -518,23 +518,22 @@ impl ProcessingPhase {
         log::debug!("[processing] Populating namespace for inlined module: {module_name}");
 
         let namespace_var = sanitize_module_name_for_identifier(module_name);
-        let mut population_ctx =
-            crate::code_generator::namespace_manager::NamespacePopulationContext {
-                bundled_modules: &bundler.bundled_modules,
-                inlined_modules: &bundler.inlined_modules,
-                module_exports: &bundler.module_exports,
-                tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
-                modules_with_accessed_all: &bundler.modules_with_accessed_all,
-                wrapper_modules: &bundler.wrapper_modules,
-                module_asts: &bundler.module_asts,
-                modules_with_explicit_all: &bundler.modules_with_explicit_all,
-                module_init_functions: &bundler.module_init_functions,
-                resolver: bundler.resolver,
-            };
+        let population_ctx = crate::code_generator::namespace_manager::NamespacePopulationContext {
+            bundled_modules: &bundler.bundled_modules,
+            inlined_modules: &bundler.inlined_modules,
+            module_exports: &bundler.module_exports,
+            tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+            modules_with_accessed_all: &bundler.modules_with_accessed_all,
+            wrapper_modules: &bundler.wrapper_modules,
+            module_asts: &bundler.module_asts,
+            modules_with_explicit_all: &bundler.modules_with_explicit_all,
+            module_init_functions: &bundler.module_init_functions,
+            resolver: bundler.resolver,
+        };
 
         let population_stmts =
             crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                &mut population_ctx,
+                &population_ctx,
                 &namespace_var,
                 module_id,
                 symbol_renames,

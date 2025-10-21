@@ -1220,10 +1220,10 @@ fn populate_all_namespace_levels_for(
                 "Cannot track namespace assignments for '{partial_module}' in import transformer \
                  due to immutability"
             );
-            let mut ctx = create_namespace_population_context(bundler);
+            let ctx = create_namespace_population_context(bundler);
             let new_stmts =
                 crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                    &mut ctx,
+                    &ctx,
                     &partial_module,
                     partial_module_id,
                     symbol_renames,
@@ -1403,9 +1403,9 @@ fn rewrite_import_with_renames(
                                      import transformer due to immutability"
                                 );
                                 // For now, we'll create the statements without tracking duplicates
-                                let mut ctx = create_namespace_population_context(bundler);
+                                let ctx = create_namespace_population_context(bundler);
                                 let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                                    &mut ctx,
+                                    &ctx,
                                     target_name.as_str(),
                                     module_id,
                                     symbol_renames,
@@ -1479,9 +1479,9 @@ fn rewrite_import_with_renames(
                          transformer due to immutability"
                     );
                     // For now, we'll create the statements without tracking duplicates
-                    let mut ctx = create_namespace_population_context(bundler);
+                    let ctx = create_namespace_population_context(bundler);
                     let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                        &mut ctx,
+                        &ctx,
                         target_name.as_str(),
                         module_id,
                         symbol_renames,
