@@ -3275,7 +3275,7 @@ impl Bundler<'_> {
                     params.imported_name,
                     self.resolver
                         .get_module_name(source_module_id)
-                        .unwrap_or("unknown".to_owned())
+                        .unwrap_or_else(|| "unknown".to_owned())
                 );
                 return expressions::name(renamed, ExprContext::Load);
             }
@@ -3286,7 +3286,7 @@ impl Bundler<'_> {
                 params.imported_name,
                 self.resolver
                     .get_module_name(source_module_id)
-                    .unwrap_or("unknown".to_owned())
+                    .unwrap_or_else(|| "unknown".to_owned())
             );
             return expressions::name(params.imported_name, ExprContext::Load);
         }
