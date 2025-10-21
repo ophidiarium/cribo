@@ -1148,7 +1148,11 @@ impl<'a> TreeShaker<'a> {
 
     /// Helper method to check if an item is an __all__ assignment
     fn is_all_assignment(item: &ItemData) -> bool {
-        matches!(&item.item_type, ItemType::Assignment { targets, .. } if targets.contains(&"__all__".to_owned()))
+        matches!(
+            &item.item_type,
+            ItemType::Assignment { targets, .. }
+                if targets.iter().any(|t| t == "__all__")
+        )
     }
 
     /// Check if a module uses the dynamic __all__ access pattern
