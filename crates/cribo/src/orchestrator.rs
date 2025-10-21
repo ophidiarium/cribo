@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write,
     fs,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -344,11 +345,11 @@ impl BundleOrchestrator {
                 .filter_map(|id| resolver.get_module_name(*id))
                 .collect();
 
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, module_names.join(" → ")));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+            writeln!(error_msg, "Cycle {}: {}", i + 1, module_names.join(" → ")).unwrap();
+            writeln!(error_msg, "  Type: {:?}", cycle.cycle_type).unwrap();
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                error_msg.push_str(&format!("  Reason: {reason}\n"));
+                writeln!(error_msg, "  Reason: {reason}").unwrap();
             }
             error_msg.push('\n');
         }
