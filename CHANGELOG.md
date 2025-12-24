@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/ophidiarium/cribo/compare/v0.8.0...v0.8.1) (2025-12-24)
+
+
+### Bug Fixes
+
+* keep PyPI attestations ([6e6b77b](https://github.com/ophidiarium/cribo/commit/6e6b77bf1c91495aff0522e94d9257342eb343ef))
+* repack aarch64 wheel before PyPI ([5921b80](https://github.com/ophidiarium/cribo/commit/5921b803d96a7ef9507273d5e58de946b8e79293))
+
 ## [0.8.0](https://github.com/ophidiarium/cribo/compare/v0.7.0...v0.8.0) (2025-12-24)
 
 
