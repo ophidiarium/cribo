@@ -5,7 +5,7 @@
  * Publishes both the base package and all platform-specific packages
  */
 
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -21,6 +21,31 @@ function execCommand(command, options = {}) {
     console.error(`Command failed: ${command}`);
     throw error;
   }
+}
+
+function execCommandWithOutput(command, options = {}) {
+  console.log(`Running: ${command}`);
+  const result = spawnSync(command, {
+    shell: true,
+    encoding: 'utf8',
+    ...options
+  });
+
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+
+  if (result.status !== 0) {
+    const error = new Error(`Command failed: ${command}`);
+    error.stdout = result.stdout;
+    error.stderr = result.stderr;
+    throw error;
+  }
+
+  return result.stdout;
 }
 
 function updatePackageVersion(packagePath, version) {
@@ -65,11 +90,16 @@ function publishPackage(packagePath, tag = 'latest', dryRun = false, enableProve
   }
 
   try {
-    execCommand(publishCmd.join(' '));
+    execCommandWithOutput(publishCmd.join(' '));
     console.log(`✅ Successfully published ${packageName}`);
     return true;
   } catch (error) {
-    if (error.message.includes('cannot publish over the previously published versions')) {
+    const output = [
+      error.message || '',
+      error.stdout || '',
+      error.stderr || ''
+    ].join('\n');
+    if (/previously published versions/i.test(output)) {
       console.log(`⚠️  Version ${packageJson.version} of ${packageName} already exists, skipping...`);
       return true;
     }
