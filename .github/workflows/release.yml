@@ -166,9 +166,9 @@ jobs:
           INPUT_VERSION="${{ github.event.inputs.version }}"
           RELEASE_TYPE="${{ github.event.inputs.release_type || 'manual' }}"
 
+          regex="^[0-9]+\.[0-9]+\.[0-9]+(\.(dev[0-9]+)|a[0-9]+|b[0-9]+|rc[0-9]+|[-][a-zA-Z0-9\.-]+)?$"
           if [[ -n "$INPUT_VERSION" ]]; then
             # Validate provided version format (accept both SemVer and PEP 440 formats)
-            regex="^[0-9]+\.[0-9]+\.[0-9]+(\.(dev[0-9]+)|a[0-9]+|b[0-9]+|rc[0-9]+|[-][a-zA-Z0-9\.-]+)?$"
             if ! [[ $INPUT_VERSION =~ $regex ]]; then
               echo "::error::Invalid version format: $INPUT_VERSION."
               echo "::error::Expected semver (1.2.3, 1.2.3-beta.1) or PEP 440 (1.2.3.dev1, 1.2.3a1) format"
@@ -187,10 +187,24 @@ jobs:
                 MANUAL_VERSION="0.0.0-alpha${{ github.run_number }}"
                 ;;
               *)
-                MANUAL_VERSION="0.0.0-dev${{ github.run_number }}"
+                if [[ -f version.txt ]]; then
+                  MANUAL_VERSION="$(tr -d '\r\n' < version.txt)"
+                  if [[ -z "$MANUAL_VERSION" ]]; then
+                    echo "::error::version.txt is empty; unable to infer manual release version."
+                    exit 1
+                  fi
+                  if ! [[ $MANUAL_VERSION =~ $regex ]]; then
+                    echo "::error::Invalid version format in version.txt: $MANUAL_VERSION."
+                    echo "::error::Expected semver (1.2.3, 1.2.3-beta.1) or PEP 440 (1.2.3.dev1, 1.2.3a1) format"
+                    exit 1
+                  fi
+                  echo "Using version.txt for manual release: ${MANUAL_VERSION}"
+                else
+                  MANUAL_VERSION="0.0.0-dev${{ github.run_number }}"
+                  echo "version.txt not found; generated auto version: ${MANUAL_VERSION}"
+                fi
                 ;;
             esac
-            echo "Generated SemVer compliant auto version: ${MANUAL_VERSION}"
           fi
 
           echo "VERSION=${MANUAL_VERSION}" >> $GITHUB_OUTPUT
@@ -258,16 +272,10 @@ jobs:
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
         shell: bash
         run: |
-          # Check if version.txt already exists (from release-please)
-          if [[ -f "version.txt" ]]; then
-            UPDATED_VERSION=$(cat version.txt)
-            echo "Using existing version.txt from release-please: ${UPDATED_VERSION}"
-          else
-            # Fallback: extract from Cargo.toml (for manual releases) using taplo
-            UPDATED_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
-            echo "${UPDATED_VERSION}" > version.txt
-            echo "Created version.txt from Cargo.toml: ${UPDATED_VERSION}"
-          fi
+          # Always sync version.txt with the version used for the build.
+          UPDATED_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
+          echo "${UPDATED_VERSION}" > version.txt
+          echo "Wrote version.txt from Cargo.toml: ${UPDATED_VERSION}"
 
           # Create a JSON file with metadata for easier parsing if needed
           cat > version-metadata.json << EOF
