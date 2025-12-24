@@ -745,25 +745,41 @@ jobs:
             echo "---"
           done
 
-      - name: Repack aarch64 manylinux wheel for TestPyPI
+      - name: Repack or skip aarch64 manylinux wheel for TestPyPI
         run: |
           python - <<'PY'
           from pathlib import Path
           import zipfile
           import shutil
 
+          def delete_related(path: Path) -> None:
+            for suffix in ("", ".publish.attestation", ".attestation"):
+              candidate = Path(f"{path}{suffix}")
+              if candidate.exists():
+                candidate.unlink()
+
           wheels = sorted(Path("dist").glob("*manylinux*aarch64*.whl"))
           if not wheels:
             print("No manylinux aarch64 wheel found to repack.")
           for wheel in wheels:
             tmp = wheel.with_suffix(wheel.suffix + ".tmp")
-            with zipfile.ZipFile(wheel, "r") as src, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
-              for info in src.infolist():
-                data = src.read(info.filename)
-                info.compress_type = zipfile.ZIP_DEFLATED
-                dst.writestr(info, data)
-            shutil.move(tmp, wheel)
-            print(f"Repacked {wheel}")
+            try:
+              with zipfile.ZipFile(wheel, "r") as src:
+                bad = src.testzip()
+                if bad:
+                  raise RuntimeError(f"corrupt member: {bad}")
+                with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+                  for info in src.infolist():
+                    data = src.read(info.filename)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    dst.writestr(info, data)
+              shutil.move(tmp, wheel)
+              print(f"Repacked {wheel}")
+            except Exception as exc:
+              if tmp.exists():
+                tmp.unlink()
+              print(f"Skipping {wheel}: {exc}")
+              delete_related(wheel)
           PY
 
       - name: Publish distribution 📦 to TestPyPI
@@ -820,25 +836,41 @@ jobs:
             cat version-metadata.json
           fi
 
-      - name: Repack aarch64 manylinux wheel for PyPI
+      - name: Repack or skip aarch64 manylinux wheel for PyPI
         run: |
           python - <<'PY'
           from pathlib import Path
           import zipfile
           import shutil
 
+          def delete_related(path: Path) -> None:
+            for suffix in ("", ".publish.attestation", ".attestation"):
+              candidate = Path(f"{path}{suffix}")
+              if candidate.exists():
+                candidate.unlink()
+
           wheels = sorted(Path("dist").glob("*manylinux*aarch64*.whl"))
           if not wheels:
             print("No manylinux aarch64 wheel found to repack.")
           for wheel in wheels:
             tmp = wheel.with_suffix(wheel.suffix + ".tmp")
-            with zipfile.ZipFile(wheel, "r") as src, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
-              for info in src.infolist():
-                data = src.read(info.filename)
-                info.compress_type = zipfile.ZIP_DEFLATED
-                dst.writestr(info, data)
-            shutil.move(tmp, wheel)
-            print(f"Repacked {wheel}")
+            try:
+              with zipfile.ZipFile(wheel, "r") as src:
+                bad = src.testzip()
+                if bad:
+                  raise RuntimeError(f"corrupt member: {bad}")
+                with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+                  for info in src.infolist():
+                    data = src.read(info.filename)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    dst.writestr(info, data)
+              shutil.move(tmp, wheel)
+              print(f"Repacked {wheel}")
+            except Exception as exc:
+              if tmp.exists():
+                tmp.unlink()
+              print(f"Skipping {wheel}: {exc}")
+              delete_related(wheel)
           PY
 
       - name: Publish distribution 📦 to PyPI
