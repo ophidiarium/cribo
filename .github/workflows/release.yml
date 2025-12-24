@@ -236,8 +236,12 @@ jobs:
                   continue
               if in_section and stripped.startswith("["):
                   break
-              if in_section and re.match(r"^\\s*version\\s*=", line):
-                  lines[index] = re.sub(r'^(\\s*version\\s*=\\s*")[^"]*(".*)$', rf'\\1{version}\\2', line)
+              if in_section and re.match(r"^\s*version\s*=", line):
+                  lines[index] = re.sub(
+                      r'^(\s*version\s*=\s*")[^"]*(".*)$',
+                      rf'\g<1>{version}\g<2>',
+                      line,
+                  )
                   updated = True
                   break
           if not updated:
