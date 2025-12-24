@@ -226,7 +226,7 @@ jobs:
           version = os.environ["VERSION"]
           path = Path("Cargo.toml")
           text = path.read_text()
-          lines = text.splitlines()
+          lines = text.splitlines(keepends=True)
           in_section = False
           updated = False
           for index, line in enumerate(lines):
@@ -246,7 +246,7 @@ jobs:
                   break
           if not updated:
               raise SystemExit("::error::Failed to locate workspace.package.version in Cargo.toml")
-          path.write_text("\\n".join(lines) + "\\n")
+          path.write_text("".join(lines))
           PY
 
           # Verify the update was successful using taplo
