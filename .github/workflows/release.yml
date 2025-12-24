@@ -80,10 +80,12 @@ jobs:
           submodules: recursive
 
       - name: Set up Rust toolchain
+        shell: bash
         run: |
           rustup toolchain install "${RUSTUP_TOOLCHAIN}" --profile minimal
           rustup target add ${{ matrix.platform.rust_target }} --toolchain "${RUSTUP_TOOLCHAIN}"
           rustup show
+          echo "CARGO_BUILD_TARGET=${{ matrix.platform.rust_target }}" >> "$GITHUB_ENV"
 
       - name: Install musl toolchain
         if: startsWith(matrix.platform.os, 'ubuntu') && contains(matrix.platform.rust_target, 'musl')
@@ -214,11 +216,22 @@ jobs:
           echo "Current version in Cargo.toml: ${CURRENT_VERSION}"
           echo "New version to set: ${VERSION}"
 
-          # Update version in workspace.package section using taplo
-          if ! taplo set -f Cargo.toml 'workspace.package.version' "${VERSION}"; then
-            echo "::error::Failed to update version in Cargo.toml"
-            exit 1
-          fi
+          # Update version in workspace.package section
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          path = Path("Cargo.toml")
+          text = path.read_text()
+          pattern = r"(\\[workspace\\.package\\][\\s\\S]*?^\\s*version\\s*=\\s*\")([^\"]+)(\")"
+          match = re.search(pattern, text, flags=re.MULTILINE)
+          if not match:
+              raise SystemExit("::error::Failed to locate workspace.package.version in Cargo.toml")
+          updated = text[: match.start(2)] + version + text[match.end(2) :]
+          path.write_text(updated)
+          PY
 
           # Verify the update was successful using taplo
           if [[ "$(taplo get -f Cargo.toml 'workspace.package.version')" != "${VERSION}" ]]; then
