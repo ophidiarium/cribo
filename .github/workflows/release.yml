@@ -807,6 +807,27 @@ jobs:
         run: |
           find dist -type f \( -name "*.publish.attestation" -o -name "*.attestation" \) -print -delete
 
+      - name: Repack aarch64 manylinux wheel for PyPI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          import shutil
+
+          wheels = sorted(Path("dist").glob("*manylinux*aarch64*.whl"))
+          if not wheels:
+            print("No manylinux aarch64 wheel found to repack.")
+          for wheel in wheels:
+            tmp = wheel.with_suffix(wheel.suffix + ".tmp")
+            with zipfile.ZipFile(wheel, "r") as src, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+              for info in src.infolist():
+                data = src.read(info.filename)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                dst.writestr(info, data)
+            shutil.move(tmp, wheel)
+            print(f"Repacked {wheel}")
+          PY
+
       - name: Publish distribution 📦 to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
