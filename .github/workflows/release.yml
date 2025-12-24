@@ -225,8 +225,8 @@ jobs:
           version = os.environ["VERSION"]
           path = Path("Cargo.toml")
           text = path.read_text()
-          pattern = r"(\\[workspace\\.package\\][\\s\\S]*?^\\s*version\\s*=\\s*\")([^\"]+)(\")"
-          match = re.search(pattern, text, flags=re.MULTILINE)
+          pattern = r"(\[workspace\.package\][\s\S]*?^\s*version\s*=\s*\")([^\"]+)(\")"
+          match = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
           if not match:
               raise SystemExit("::error::Failed to locate workspace.package.version in Cargo.toml")
           updated = text[: match.start(2)] + version + text[match.end(2) :]
