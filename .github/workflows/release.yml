@@ -93,30 +93,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-          target="${{ matrix.platform.rust_target }}"
-          target_underscore="${target//-/_}"
-          target_upper="${target_underscore^^}"
-          case "$target" in
-            aarch64-unknown-linux-musl)
-              linker="aarch64-linux-musl-gcc"
-              ;;
-            x86_64-unknown-linux-musl)
-              linker="x86_64-linux-musl-gcc"
-              ;;
-            *)
-              linker="musl-gcc"
-              ;;
-          esac
-          if ! command -v "$linker" >/dev/null 2>&1; then
-            if command -v musl-gcc >/dev/null 2>&1; then
-              linker="musl-gcc"
-            else
-              echo "::error::No musl linker found for $target"
-              exit 1
-            fi
-          fi
-          echo "CC_${target_underscore}=${linker}" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_${target_upper}_LINKER=${linker}" >> "$GITHUB_ENV"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -334,6 +310,17 @@ jobs:
 
           RUST_TARGET="${{ matrix.platform.rust_target }}"
           echo "Building for Rust target: ${RUST_TARGET}"
+
+          if [[ "$RUST_TARGET" == *"musl"* ]]; then
+            if ! command -v musl-gcc >/dev/null 2>&1; then
+              echo "::error::musl-gcc not found on runner"
+              exit 1
+            fi
+            target_underscore="${RUST_TARGET//-/_}"
+            target_upper="${target_underscore^^}"
+            export "CC_${target_underscore}=musl-gcc"
+            export "CARGO_TARGET_${target_upper}_LINKER=musl-gcc"
+          fi
 
           # Determine binary name based on platform
           BINARY_NAME="cribo"
