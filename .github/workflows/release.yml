@@ -210,6 +210,7 @@ jobs:
           else
             VERSION="${{ steps.manual_version.outputs.VERSION }}"
           fi
+          export VERSION
 
           # Get current version for comparison (use taplo)
           CURRENT_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
