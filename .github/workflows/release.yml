@@ -214,8 +214,8 @@ jobs:
           echo "Current version in Cargo.toml: ${CURRENT_VERSION}"
           echo "New version to set: ${VERSION}"
 
-          # Update version in workspace.package section
-          if ! sed -i'.bak' "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*.*\"/version = \"${VERSION}\"/" Cargo.toml; then
+          # Update version in workspace.package section using taplo
+          if ! taplo set -f Cargo.toml 'workspace.package.version' "${VERSION}"; then
             echo "::error::Failed to update version in Cargo.toml"
             exit 1
           fi
