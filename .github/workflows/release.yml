@@ -745,10 +745,6 @@ jobs:
             echo "---"
           done
 
-      - name: Remove provenance attestations from dist
-        run: |
-          find dist -type f \( -name "*.publish.attestation" -o -name "*.attestation" \) -print -delete
-
       - name: Publish distribution 📦 to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -802,10 +798,6 @@ jobs:
             echo "Version metadata:"
             cat version-metadata.json
           fi
-
-      - name: Remove provenance attestations from dist
-        run: |
-          find dist -type f \( -name "*.publish.attestation" -o -name "*.attestation" \) -print -delete
 
       - name: Repack aarch64 manylinux wheel for PyPI
         run: |
