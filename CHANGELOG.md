@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/ophidiarium/cribo/compare/v0.8.1...v0.8.2) (2025-12-30)
+
+
+### Bug Fixes
+
+* repack aarch64 wheel before TestPyPI ([33e9e04](https://github.com/ophidiarium/cribo/commit/33e9e04f08431cbec20a79367c9d687c772bfcc1))
+* skip corrupt aarch64 manylinux wheel ([3535ab4](https://github.com/ophidiarium/cribo/commit/3535ab47f6d9cac795672a7777c81c5f608f0b9d))
+
 ## [0.8.1](https://github.com/ophidiarium/cribo/compare/v0.8.0...v0.8.1) (2025-12-24)
 
 
