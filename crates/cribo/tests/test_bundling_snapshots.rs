@@ -150,13 +150,13 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
         let location = message.ruff_start_location();
         let rule_name = message.name();
         let violation_info = location.map_or_else(
-            || format!("{} - {}", rule_name, message.body()),
+            || format!("{} - {}", rule_name, message.primary_message()),
             |loc| {
                 format!(
                     "Line {}: {} - {}",
                     loc.line.get(),
                     rule_name,
-                    message.body()
+                    message.primary_message()
                 )
             },
         );
