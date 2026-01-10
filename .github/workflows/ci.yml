@@ -79,18 +79,32 @@ jobs:
         run: uv run --with maturin -- maturin develop --release
 
       - name: Smoke test CLI
-        # Use venv directly instead of 'uv run' because uv run re-syncs and overwrites
-        # the maturin develop installation with a source-only version (without the binary)
+        # Use venv python/cribo directly instead of 'uv run' because uv run re-syncs
+        # and overwrites the maturin develop installation with a source-only version.
+        # The setup-uv action with activate-environment adds venv to PATH.
+        shell: bash
         run: |
-          .venv/bin/python -m cribo --help
-          .venv/bin/cribo --version
+          # Cross-platform venv paths: Linux/macOS use bin/, Windows uses Scripts/
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            VENV_BIN=".venv/Scripts"
+          else
+            VENV_BIN=".venv/bin"
+          fi
+          "$VENV_BIN/python" -m cribo --help
+          "$VENV_BIN/cribo" --version
 
       - name: E2E bundle test
         env:
           ENTRY_FILE: crates/cribo/tests/fixtures/simple_project/main.py
           OUTPUT_FILE: bundle-test/out.py
-        # Use venv directly instead of 'uv run' (see Smoke test CLI comment)
+        shell: bash
         run: |
+          # Cross-platform venv paths (see Smoke test CLI comment)
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            VENV_BIN=".venv/Scripts"
+          else
+            VENV_BIN=".venv/bin"
+          fi
           mkdir bundle-test
-          .venv/bin/python -m cribo --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
-          .venv/bin/python "${{ env.OUTPUT_FILE }}"
+          "$VENV_BIN/python" -m cribo --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
+          "$VENV_BIN/python" "${{ env.OUTPUT_FILE }}"
