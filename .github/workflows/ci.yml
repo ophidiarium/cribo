@@ -79,15 +79,18 @@ jobs:
         run: uv run --with maturin -- maturin develop --release
 
       - name: Smoke test CLI
+        # Use venv directly instead of 'uv run' because uv run re-syncs and overwrites
+        # the maturin develop installation with a source-only version (without the binary)
         run: |
-          uv run python -m cribo --help
-          uv run cribo --version
+          .venv/bin/python -m cribo --help
+          .venv/bin/cribo --version
 
       - name: E2E bundle test
         env:
           ENTRY_FILE: crates/cribo/tests/fixtures/simple_project/main.py
           OUTPUT_FILE: bundle-test/out.py
+        # Use venv directly instead of 'uv run' (see Smoke test CLI comment)
         run: |
           mkdir bundle-test
-          uv run python -m cribo --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
-          uv run python "${{ env.OUTPUT_FILE }}"
+          .venv/bin/python -m cribo --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
+          .venv/bin/python "${{ env.OUTPUT_FILE }}"
