@@ -76,7 +76,11 @@ jobs:
         run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Install Cribo (development)
-        run: uv run --with maturin -- maturin develop --release
+        # Note: Using build + install instead of develop due to maturin 1.11+ regression with bin bindings
+        # https://github.com/PyO3/maturin/issues/2909 (editable installs don't install binaries correctly)
+        run: |
+          uv run --with maturin -- maturin build --release --out target/tmp
+          uv pip install --force-reinstall target/tmp/*.whl
 
       - name: Smoke test CLI
         # Use venv python/cribo directly instead of 'uv run' because uv run re-syncs
