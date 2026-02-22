@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/ophidiarium/cribo/compare/v0.8.2...v0.8.3) (2026-02-22)
+
+
+### Bug Fixes
+
+* remove bin from platform specific npm packages ([1aa8c90](https://github.com/ophidiarium/cribo/commit/1aa8c90119cd5bebc8550ff339efc9631f32711e))
+
 ## [0.8.2](https://github.com/ophidiarium/cribo/compare/v0.8.1...v0.8.2) (2025-12-30)
 
 
