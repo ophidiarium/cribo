@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           submodules: recursive
 
@@ -30,7 +30,7 @@ jobs:
         run: rustup show
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -41,7 +41,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
           activate-environment: true
@@ -161,7 +161,7 @@ jobs:
           fi
 
       - name: Install Bencher CLI
-        uses: bencherdev/bencher@main
+        uses: bencherdev/bencher@595a6d60abd1c71b1dfb7bbdd52be7bc63b0f8c3 # main
 
       - name: Run ecosystem benchmarks with Bencher
         id: bench
@@ -317,7 +317,7 @@ jobs:
 
       - name: Post PR comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');
@@ -357,7 +357,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ecosystem-test-results
           retention-days: 14
