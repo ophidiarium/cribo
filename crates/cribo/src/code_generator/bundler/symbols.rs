@@ -548,10 +548,7 @@ impl Bundler<'_> {
         module_id: ModuleId,
         module_exports_map: &FxIndexMap<ModuleId, Option<Vec<String>>>,
     ) -> bool {
-        // First check tree-shaking decisions if tree-shaking is enabled
         let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_id, symbol_name);
-
-        // Check if module has explicit __all__
         let has_explicit_all = self.modules_with_explicit_all.contains(&module_id);
 
         // If module has explicit __all__ and symbol is not in it, don't inline it
@@ -572,25 +569,19 @@ impl Bundler<'_> {
             return true;
         }
 
-        // Special case: Check if this symbol is imported by a wrapper module
+        // From here, kept_by_tree_shaking is false.
+
         // Wrapper modules need runtime access to symbols even if tree-shaking removed them
         if self.is_symbol_imported_by_wrapper(module_id, symbol_name) {
             return true;
         }
 
-        // Symbol was removed by tree-shaking, but we may still need to keep it if:
-        // 1. It's in an explicit __all__ (re-exported but not used internally)
-        // 2. It's imported by other modules
-        // 3. Tree-shaking is disabled and it's in the export list
-
-        // Check if module has explicit __all__ and symbol is listed there
-        if self.modules_with_explicit_all.contains(&module_id) {
+        // Symbol in explicit __all__ should be kept (re-exported but not used internally)
+        if has_explicit_all {
             let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
             if let Some(export_list) = exports
                 && export_list.contains(&symbol_name.to_owned())
             {
-                // Symbol is in explicit __all__, keep it even if tree-shaking removed it
-                // This handles the case where a symbol is re-exported but not used internally
                 return true;
             }
         }
@@ -604,65 +595,32 @@ impl Bundler<'_> {
                 return true;
             }
         }
-        if !kept_by_tree_shaking {
-            let module_name = self
-                .resolver
-                .get_module_name(module_id)
-                .unwrap_or_else(|| "<unknown>".to_owned());
 
-            // Fallback: keep symbols that are explicitly imported by other modules.
-            if let Some(module_asts) = &self.module_asts
-                && ImportAnalyzer::is_symbol_imported_by_other_modules(
-                    module_asts,
-                    module_id,
-                    symbol_name,
-                    Some(&self.module_exports),
-                    self.resolver,
-                )
-            {
-                log::debug!(
-                    "Keeping symbol '{symbol_name}' from module '{module_name}' because it is \
-                     imported by other modules"
-                );
-                return true;
-            }
+        // Fallback: keep symbols explicitly imported by other modules
+        let module_name = self
+            .resolver
+            .get_module_name(module_id)
+            .unwrap_or_else(|| "<unknown>".to_owned());
 
-            log::trace!(
-                "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
+        if let Some(module_asts) = &self.module_asts
+            && ImportAnalyzer::is_symbol_imported_by_other_modules(
+                module_asts,
+                module_id,
+                symbol_name,
+                Some(&self.module_exports),
+                self.resolver,
+            )
+        {
+            log::debug!(
+                "Keeping symbol '{symbol_name}' from module '{module_name}' because it is \
+                 imported by other modules"
             );
-            return false;
+            return true;
         }
 
-        // If tree-shaking kept the symbol, check if it's in the export list
-        let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
-        if let Some(export_list) = exports {
-            // Module has exports (either explicit __all__ or extracted symbols)
-            // Check if the symbol is in the export list
-            if export_list.contains(&symbol_name.to_owned()) {
-                return true;
-            }
-
-            // Special case for circular modules: If tree-shaking kept a private symbol
-            // (starts with underscore but not dunder) in a circular module,
-            // it means it's explicitly imported by another module and should be included
-            // even if it's not in the regular export list
-            if self.is_module_in_circular_deps(module_id)
-                && symbol_name.starts_with('_')
-                && !symbol_name.starts_with("__")
-            {
-                let module_name = self
-                    .resolver
-                    .get_module_name(module_id)
-                    .unwrap_or_else(|| "<unknown>".to_owned());
-                log::debug!(
-                    "Including private symbol '{symbol_name}' from circular module \
-                     '{module_name}' because it's kept by tree-shaking"
-                );
-                return true;
-            }
-        }
-
-        // No match found - either no exports or symbol not in export list
+        log::trace!(
+            "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
+        );
         false
     }
 
