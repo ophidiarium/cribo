@@ -139,6 +139,7 @@ pub(crate) fn expr(expr: Expr) -> Stmt {
 pub(crate) fn import(names: Vec<Alias>) -> Stmt {
     Stmt::Import(StmtImport {
         names,
+        is_lazy: false,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::NONE,
     })
@@ -162,6 +163,7 @@ pub(crate) fn import_aliased(module_name: &str, alias_name: &str) -> Stmt {
     Stmt::Import(StmtImport {
         node_index: AtomicNodeIndex::NONE,
         names: vec![super::other::alias(module_name, Some(alias_name))],
+        is_lazy: false,
         range: TextRange::default(),
     })
 }
@@ -190,6 +192,7 @@ pub(crate) fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -
         module: module.map(|s| Identifier::new(s, TextRange::default())),
         names,
         level,
+        is_lazy: false,
         range: TextRange::default(),
         node_index: AtomicNodeIndex::NONE,
     })
