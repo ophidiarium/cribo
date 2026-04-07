@@ -458,11 +458,46 @@ impl Bundler<'_> {
             false
         };
 
-        // For function bodies, we need special handling:
-        // - Global statements must be renamed to match module-level renames
-        // - But other references should NOT be renamed (Python resolves at runtime)
-        // Note: This functionality was removed as stdlib normalization now happens in the
-        // orchestrator
+        // Rewrite definition-time expressions that may reference renamed symbols.
+        // The function BODY is NOT rewritten — Python resolves those at call time.
+        if !entry_module_renames.is_empty() {
+            // Decorators
+            for dec in &mut func_def.decorator_list {
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut dec.expression,
+                    entry_module_renames,
+                );
+            }
+            // Default parameter values and annotations
+            for param in func_def
+                .parameters
+                .args
+                .iter_mut()
+                .chain(func_def.parameters.posonlyargs.iter_mut())
+                .chain(func_def.parameters.kwonlyargs.iter_mut())
+            {
+                if let Some(ref mut default) = param.default {
+                    expression_handlers::rewrite_aliases_in_expr(default, entry_module_renames);
+                }
+                if let Some(ref mut ann) = param.parameter.annotation {
+                    expression_handlers::rewrite_aliases_in_expr(ann, entry_module_renames);
+                }
+            }
+            if let Some(ref mut vararg) = func_def.parameters.vararg
+                && let Some(ref mut ann) = vararg.annotation
+            {
+                expression_handlers::rewrite_aliases_in_expr(ann, entry_module_renames);
+            }
+            if let Some(ref mut kwarg) = func_def.parameters.kwarg
+                && let Some(ref mut ann) = kwarg.annotation
+            {
+                expression_handlers::rewrite_aliases_in_expr(ann, entry_module_renames);
+            }
+            // Return type annotation
+            if let Some(ref mut returns) = func_def.returns {
+                expression_handlers::rewrite_aliases_in_expr(returns, entry_module_renames);
+            }
+        }
 
         if needs_reassignment {
             Some((func_name.clone(), entry_module_renames[&func_name].clone()))

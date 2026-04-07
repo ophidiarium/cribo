@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/ast_rewriting_entry_func_def_renames/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "[entry.tagged] decorated:hello\nentry_mode:world\ncustom:world\nSchema(kind='entry')\nSchema(kind='entry')",
+    stderr: "",
+}
