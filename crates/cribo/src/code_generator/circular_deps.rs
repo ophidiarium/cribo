@@ -176,6 +176,48 @@ fn top_level_symbol_name(stmt: &Stmt) -> Option<String> {
     }
 }
 
+/// Collect definition-time references from a function definition:
+/// decorators, parameter defaults, parameter annotations, return annotation.
+/// Does NOT descend into the function body (resolved at call time).
+fn collect_function_def_time_refs(
+    f: &ruff_python_ast::StmtFunctionDef,
+    refs: &mut FxIndexSet<String>,
+) {
+    // Decorators
+    for dec in &f.decorator_list {
+        collect_names_from_expr(&dec.expression, refs);
+    }
+    // Default parameter values and annotations
+    for param in f
+        .parameters
+        .args
+        .iter()
+        .chain(&f.parameters.posonlyargs)
+        .chain(&f.parameters.kwonlyargs)
+    {
+        if let Some(default) = &param.default {
+            collect_names_from_expr(default, refs);
+        }
+        if let Some(ann) = &param.parameter.annotation {
+            collect_names_from_expr(ann, refs);
+        }
+    }
+    if let Some(vararg) = &f.parameters.vararg {
+        if let Some(ann) = &vararg.annotation {
+            collect_names_from_expr(ann, refs);
+        }
+    }
+    if let Some(kwarg) = &f.parameters.kwarg {
+        if let Some(ann) = &kwarg.annotation {
+            collect_names_from_expr(ann, refs);
+        }
+    }
+    // Return annotation
+    if let Some(ann) = &f.returns {
+        collect_names_from_expr(ann, refs);
+    }
+}
+
 /// Collect name references from module-level expressions of a statement.
 ///
 /// Only collects references evaluated at definition time:
@@ -186,38 +228,7 @@ fn top_level_symbol_name(stmt: &Stmt) -> Option<String> {
 fn collect_module_level_refs(stmt: &Stmt, refs: &mut FxIndexSet<String>) {
     match stmt {
         Stmt::FunctionDef(f) => {
-            // Decorators are evaluated at definition time
-            for dec in &f.decorator_list {
-                collect_names_from_expr(&dec.expression, refs);
-            }
-            // Default parameter values are evaluated at definition time
-            for param in f
-                .parameters
-                .args
-                .iter()
-                .chain(&f.parameters.posonlyargs)
-                .chain(&f.parameters.kwonlyargs)
-            {
-                if let Some(default) = &param.default {
-                    collect_names_from_expr(default, refs);
-                }
-            }
-            if let Some(default) = &f.parameters.vararg {
-                if let Some(ann) = &default.annotation {
-                    collect_names_from_expr(ann, refs);
-                }
-            }
-            if let Some(default) = &f.parameters.kwarg {
-                if let Some(ann) = &default.annotation {
-                    collect_names_from_expr(ann, refs);
-                }
-            }
-            // Return annotation
-            if let Some(ann) = &f.returns {
-                collect_names_from_expr(ann, refs);
-            }
-            // NOTE: function body is NOT module-level — references there are
-            // resolved at call time, not definition time.
+            collect_function_def_time_refs(f, refs);
         }
         Stmt::ClassDef(c) => {
             // Decorators
@@ -234,11 +245,13 @@ fn collect_module_level_refs(stmt: &Stmt, refs: &mut FxIndexSet<String>) {
                     collect_names_from_expr(&kw.value, refs);
                 }
             }
-            // Class body executes at definition time, but skip nested function bodies
+            // Class body executes at definition time
             for body_stmt in &c.body {
                 match body_stmt {
-                    Stmt::FunctionDef(_) => {
-                        // Method bodies are deferred — skip
+                    Stmt::FunctionDef(method) => {
+                        // Method BODIES are deferred, but decorators, defaults,
+                        // and annotations are evaluated at class definition time.
+                        collect_function_def_time_refs(method, refs);
                     }
                     Stmt::Assign(a) => {
                         collect_names_from_expr(&a.value, refs);
