@@ -657,11 +657,28 @@ impl Bundler<'_> {
         target_name: &str,
         module_name: &str,
     ) -> Stmt {
-        // Simply assign the module reference: target_name = module_name
-        statements::simple_assign(
-            target_name,
-            expressions::name(module_name, ExprContext::Load),
-        )
+        // Build the RHS: wrapper modules use sanitized identifiers (e.g. pkg_sub),
+        // dotted non-wrapper modules use attribute chains (a.b), simple names as-is.
+        let value_expr = if self.has_synthetic_name(module_name) {
+            let module_var = sanitize_module_name_for_identifier(module_name);
+            expressions::name(&module_var, ExprContext::Load)
+        } else if module_name.contains('.') {
+            let parts: Vec<&str> = module_name.split('.').collect();
+            expressions::dotted_name(&parts, ExprContext::Load)
+        } else {
+            expressions::name(module_name, ExprContext::Load)
+        };
+
+        // Build the LHS: dotted targets need a proper attribute chain.
+        if target_name.contains('.') {
+            let target_parts: Vec<&str> = target_name.split('.').collect();
+            statements::assign(
+                vec![expressions::dotted_name(&target_parts, ExprContext::Store)],
+                value_expr,
+            )
+        } else {
+            statements::simple_assign(target_name, value_expr)
+        }
     }
 
     /// Helper method to create dotted module expression with initialization if needed
