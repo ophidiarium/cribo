@@ -762,6 +762,18 @@ impl<'a> Bundler<'a> {
         // Store for re-export resolution (modules already use ModuleId)
         self.module_asts = Some(modules.clone());
 
+        // Populate symbol dependency graph for circular modules so that
+        // reorder_statements_for_circular_module can topologically sort symbols
+        for module_id in &self.circular_modules {
+            if let Some((ast, _, _)) = modules.get(module_id) {
+                let module_name = self
+                    .resolver
+                    .get_module_name(*module_id)
+                    .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+                self.symbol_dep_graph.populate_from_ast(&module_name, ast);
+            }
+        }
+
         // Track bundled modules
         for module_id in modules.keys() {
             self.bundled_modules.insert(*module_id);
