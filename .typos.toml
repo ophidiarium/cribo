@@ -9,6 +9,7 @@ extend-exclude = ["**/fixtures/**/*", "**/snapshots/**/*"]
 BA       = "BA"      # acronym for "Bad Allowed", used in testing.
 Numer    = "Numer"   # Library name 'NumerBlox' in "Who's Using Ruff?"
 "arange" = "arange"  # e.g. `numpy.arange`
+certifi  = "certifi" # Python package name (SSL certificate bundle)
 hel      = "hel"
 jod      = "jod"     # e.g., `jod-thread`
 ned      = "ned"
