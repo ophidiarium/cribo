@@ -35,11 +35,24 @@ impl Bundler<'_> {
         });
 
         let fallback = || {
+            let mut pkg = module_name.to_owned();
+            // For a level-N relative import, go up N levels from the current module's path
+            for _ in 0..level {
+                if let Some(pos) = pkg.rfind('.') {
+                    pkg.truncate(pos);
+                } else {
+                    pkg.clear();
+                    break;
+                }
+            }
+
             let clean = from_module.trim_start_matches('.');
-            if clean.is_empty() {
-                module_name.to_owned()
+            if pkg.is_empty() {
+                clean.to_owned()
+            } else if clean.is_empty() {
+                pkg
             } else {
-                format!("{module_name}.{clean}")
+                format!("{pkg}.{clean}")
             }
         };
 
