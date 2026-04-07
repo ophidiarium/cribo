@@ -628,8 +628,179 @@ impl Bundler<'_> {
                     );
                 }
             }
+            Stmt::AugAssign(aug_assign) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut aug_assign.target,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut aug_assign.value,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut ann_assign.target,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut ann_assign.annotation,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                if let Some(value) = &mut ann_assign.value {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        value,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Stmt::ClassDef(class_def) => {
+                // Transform decorators and base classes
+                for dec in &mut class_def.decorator_list {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        &mut dec.expression,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+                if let Some(args) = &mut class_def.arguments {
+                    for base in &mut args.args {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            base,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                    for kw in &mut args.keywords {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            &mut kw.value,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+                // Recurse into class body (class scope executes at definition time)
+                for stmt in &mut class_def.body {
+                    self.transform_stmt_for_module_vars_with_locals(
+                        stmt,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &mut with_stmt.items {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        &mut item.context_expr,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                    if let Some(var) = &mut item.optional_vars {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            var,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+                for stmt in &mut with_stmt.body {
+                    self.transform_stmt_for_module_vars_with_locals(
+                        stmt,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Stmt::Match(match_stmt) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut match_stmt.subject,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                for case in &mut match_stmt.cases {
+                    if let Some(guard) = &mut case.guard {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            guard,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                    for stmt in &mut case.body {
+                        self.transform_stmt_for_module_vars_with_locals(
+                            stmt,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+            }
+            Stmt::Assert(assert_stmt) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut assert_stmt.test,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                if let Some(msg) = &mut assert_stmt.msg {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        msg,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Stmt::Delete(delete_stmt) => {
+                for target in &mut delete_stmt.targets {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        target,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Stmt::Raise(raise_stmt) => {
+                if let Some(exc) = &mut raise_stmt.exc {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        exc,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+                if let Some(cause) = &mut raise_stmt.cause {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        cause,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
             _ => {
-                // Handle other statement types as needed
+                // Remaining: Import, ImportFrom, Pass, Break, Continue, Global, Nonlocal,
+                // TypeAlias, IpyEscapeCommand — none contain name expressions to rewrite
             }
         }
     }
