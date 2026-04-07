@@ -214,6 +214,10 @@ impl Bundler<'_> {
                         // context
                         if in_conditional_context {
                             for alias in &import_from.names {
+                                // Skip wildcard imports — can't create module.* = *
+                                if alias.name.as_str() == "*" {
+                                    continue;
+                                }
                                 let local_name =
                                     alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
