@@ -1073,10 +1073,17 @@ impl Bundler<'_> {
                         value: expressions::string_literal(&parent_path),
                         range: TextRange::default(),
                     }];
-                    result_stmts.push(statements::simple_assign(
-                        &parent_path,
-                        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-                    ));
+                    let ns_expr =
+                        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords);
+                    let path_parts: Vec<&str> = parent_path.split('.').collect();
+                    if path_parts.len() == 1 {
+                        result_stmts.push(statements::simple_assign(&parent_path, ns_expr));
+                    } else {
+                        // For dotted paths, construct a proper attribute chain target
+                        // e.g. "a.b" → Attribute(Name("a"), "b") instead of Name("a.b")
+                        let target_expr = expressions::dotted_name(&path_parts, ExprContext::Store);
+                        result_stmts.push(statements::assign(vec![target_expr], ns_expr));
+                    }
                 }
             }
         }
@@ -1085,12 +1092,17 @@ impl Bundler<'_> {
     /// Check if a namespace module was already created
     fn is_namespace_already_created(&self, parent_path: &str, result_stmts: &[Stmt]) -> bool {
         result_stmts.iter().any(|stmt| {
-            if let Stmt::Assign(assign) = stmt
-                && let Some(Expr::Name(name)) = assign.targets.first()
-            {
-                return name.id.as_str() == parent_path;
+            let Stmt::Assign(assign) = stmt else {
+                return false;
+            };
+            match assign.targets.first() {
+                Some(Expr::Name(name)) => name.id.as_str() == parent_path,
+                Some(Expr::Attribute(attr)) => {
+                    crate::code_generator::expression_handlers::extract_attribute_path(attr)
+                        == parent_path
+                }
+                _ => false,
             }
-            false
         })
     }
 
