@@ -1059,106 +1059,71 @@ impl Bundler<'_> {
                 // Lambda body is deferred — skip (like function bodies)
             }
             Expr::ListComp(comp) => {
+                let comp_locals = Self::comprehension_local_vars(&comp.generators, local_vars);
                 Self::transform_expr_for_module_vars_with_locals(
                     &mut comp.elt,
                     module_level_vars,
-                    local_vars,
+                    &comp_locals,
                     module_var_name,
                 );
-                for generator in &mut comp.generators {
-                    Self::transform_expr_for_module_vars_with_locals(
-                        &mut generator.iter,
-                        module_level_vars,
-                        local_vars,
-                        module_var_name,
-                    );
-                    for if_clause in &mut generator.ifs {
-                        Self::transform_expr_for_module_vars_with_locals(
-                            if_clause,
-                            module_level_vars,
-                            local_vars,
-                            module_var_name,
-                        );
-                    }
-                }
+                Self::transform_comprehension_generators(
+                    &mut comp.generators,
+                    module_level_vars,
+                    &comp_locals,
+                    module_var_name,
+                );
             }
             Expr::SetComp(comp) => {
+                let comp_locals = Self::comprehension_local_vars(&comp.generators, local_vars);
                 Self::transform_expr_for_module_vars_with_locals(
                     &mut comp.elt,
                     module_level_vars,
-                    local_vars,
+                    &comp_locals,
                     module_var_name,
                 );
-                for generator in &mut comp.generators {
-                    Self::transform_expr_for_module_vars_with_locals(
-                        &mut generator.iter,
-                        module_level_vars,
-                        local_vars,
-                        module_var_name,
-                    );
-                    for if_clause in &mut generator.ifs {
-                        Self::transform_expr_for_module_vars_with_locals(
-                            if_clause,
-                            module_level_vars,
-                            local_vars,
-                            module_var_name,
-                        );
-                    }
-                }
+                Self::transform_comprehension_generators(
+                    &mut comp.generators,
+                    module_level_vars,
+                    &comp_locals,
+                    module_var_name,
+                );
             }
             Expr::DictComp(comp) => {
+                let comp_locals = Self::comprehension_local_vars(&comp.generators, local_vars);
                 Self::transform_expr_for_module_vars_with_locals(
                     &mut comp.key,
                     module_level_vars,
-                    local_vars,
+                    &comp_locals,
                     module_var_name,
                 );
                 Self::transform_expr_for_module_vars_with_locals(
                     &mut comp.value,
                     module_level_vars,
-                    local_vars,
+                    &comp_locals,
                     module_var_name,
                 );
-                for generator in &mut comp.generators {
-                    Self::transform_expr_for_module_vars_with_locals(
-                        &mut generator.iter,
-                        module_level_vars,
-                        local_vars,
-                        module_var_name,
-                    );
-                    for if_clause in &mut generator.ifs {
-                        Self::transform_expr_for_module_vars_with_locals(
-                            if_clause,
-                            module_level_vars,
-                            local_vars,
-                            module_var_name,
-                        );
-                    }
-                }
+                Self::transform_comprehension_generators(
+                    &mut comp.generators,
+                    module_level_vars,
+                    &comp_locals,
+                    module_var_name,
+                );
             }
             Expr::Generator(generator_expr) => {
+                let comp_locals =
+                    Self::comprehension_local_vars(&generator_expr.generators, local_vars);
                 Self::transform_expr_for_module_vars_with_locals(
                     &mut generator_expr.elt,
                     module_level_vars,
-                    local_vars,
+                    &comp_locals,
                     module_var_name,
                 );
-                for generator in &mut generator_expr.generators {
-                    Self::transform_expr_for_module_vars_with_locals(
-                        &mut generator.iter,
-                        module_level_vars,
-                        local_vars,
-                        module_var_name,
-                    );
-                    for if_clause in &mut generator.ifs {
-                        Self::transform_expr_for_module_vars_with_locals(
-                            if_clause,
-                            module_level_vars,
-                            local_vars,
-                            module_var_name,
-                        );
-                    }
-                }
+                Self::transform_comprehension_generators(
+                    &mut generator_expr.generators,
+                    module_level_vars,
+                    &comp_locals,
+                    module_var_name,
+                );
             }
             Expr::FString(fstring) => {
                 for part in &mut fstring.value {
@@ -1188,6 +1153,46 @@ impl Bundler<'_> {
                 // Remaining: literals (NumberLiteral, StringLiteral, BytesLiteral,
                 // BooleanLiteral, NoneLiteral, EllipsisLiteral), Slice, IpyEscapeCommand
                 // — none contain rewritable name references
+            }
+        }
+    }
+
+    /// Collect names bound by comprehension generator targets and merge with existing locals.
+    /// In Python, comprehension targets shadow outer scope names (PEP 289/572).
+    fn comprehension_local_vars(
+        generators: &[ruff_python_ast::Comprehension],
+        existing_locals: &FxIndexSet<String>,
+    ) -> FxIndexSet<String> {
+        let mut locals = existing_locals.clone();
+        for g in generators {
+            for name in crate::visitors::utils::collect_names_from_assignment_target(&g.target) {
+                locals.insert(name.to_owned());
+            }
+        }
+        locals
+    }
+
+    /// Transform comprehension generators (iter + ifs), using the extended local scope.
+    fn transform_comprehension_generators(
+        generators: &mut [ruff_python_ast::Comprehension],
+        module_level_vars: &FxIndexSet<String>,
+        comp_locals: &FxIndexSet<String>,
+        module_var_name: &str,
+    ) {
+        for generator in generators.iter_mut() {
+            Self::transform_expr_for_module_vars_with_locals(
+                &mut generator.iter,
+                module_level_vars,
+                comp_locals,
+                module_var_name,
+            );
+            for if_clause in &mut generator.ifs {
+                Self::transform_expr_for_module_vars_with_locals(
+                    if_clause,
+                    module_level_vars,
+                    comp_locals,
+                    module_var_name,
+                );
             }
         }
     }

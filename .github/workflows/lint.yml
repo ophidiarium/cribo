@@ -5,7 +5,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - '**/*.rs'
+      - "**/*.rs"
 
 permissions:
   pull-requests: write
@@ -17,7 +17,7 @@ name: Code Quality Checks
 
 # Make sure CI fails on all warnings, including Clippy lints
 env:
-  RUSTFLAGS: '-Dwarnings'
+  RUSTFLAGS: "-Dwarnings"
   CARGO_TERM_COLOR: always
   CLICOLOR: 1
 
@@ -55,10 +55,10 @@ jobs:
         uses: crate-ci/typos@02ea592e44b3a53c302f697cddca7641cd051c3d # v1
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+        uses: SonarSource/sonarqube-scan-action@v7
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          RUSTFLAGS: ''
+          RUSTFLAGS: ""
 
       # Install rust-code-analysis
       - name: Install rust-code-analysis
