@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0 # Fetch all history for tags
           submodules: recursive
@@ -95,7 +95,7 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
@@ -114,21 +114,21 @@ jobs:
       #   run: echo "VCTargetsPath=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\ARM64" >> $GITHUB_ENV
 
       - name: 'Install cargo insta'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2
         with:
           tool: cargo-insta
       - name: 'Install cargo nextest'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2
         with:
           tool: cargo-nextest
 
       - name: Install taplo
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2
         with:
           tool: taplo
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
           activate-environment: true
@@ -295,7 +295,7 @@ jobs:
         run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
         with:
           command: build
           args: --release --out dist
@@ -374,7 +374,7 @@ jobs:
           done
 
       - name: Store the distribution packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           # Improved artifact naming following maturin CI patterns
           name: wheels-${{ matrix.platform.target }}-${{ github.run_id }}
@@ -529,14 +529,14 @@ jobs:
           cat "cli-archives/${ARCHIVE_NAME}.sha256"
 
       - name: Store CLI archive and checksum
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cli-archive-${{ matrix.platform.target }}-${{ github.run_id }}
           path: cli-archives/
           retention-days: 7
 
       - name: Store npm binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           # Consistent naming with platform target
           name: npm-binary-${{ matrix.platform.target }}-${{ github.run_id }}
@@ -545,7 +545,7 @@ jobs:
 
       - name: Upload version info
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: version-info-${{ github.run_id }}
           path: |
@@ -556,7 +556,7 @@ jobs:
       # Build source distribution (sdist) - only on one platform to avoid duplicates
       - name: Build sdist
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: PyO3/maturin-action@v1 # v1.49.3
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
         with:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           command: sdist
@@ -564,7 +564,7 @@ jobs:
 
       - name: Store source distribution
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheels-sdist-${{ github.run_id }}
           path: dist/
@@ -572,7 +572,7 @@ jobs:
 
       # Generate SLSA Build Provenance - only on one platform for built artifacts
       - name: Generate artifact attestation 🛂
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
             dist/*
@@ -589,12 +589,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0 # Fetch all history for tags
 
       - name: Download version info
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./
@@ -646,7 +646,7 @@ jobs:
           find target/npm-binaries -type f | sort
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -679,12 +679,12 @@ jobs:
 
       # Generate SLSA Build Provenance for npm packages
       - name: Generate npm packages attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: npm-dist/**/*
 
       - name: Store npm packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: npm-packages-${{ github.run_id }}
           path: npm-dist/
@@ -702,14 +702,14 @@ jobs:
 
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: wheels-*-${{ github.run_id }}
           path: dist/
           merge-multiple: true
 
       - name: Download version info
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./
@@ -783,7 +783,7 @@ jobs:
           PY
 
       - name: Publish distribution 📦 to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           verbose: true
@@ -805,14 +805,14 @@ jobs:
 
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: wheels-*-${{ github.run_id }}
           path: dist/
           merge-multiple: true
 
       - name: Download version info
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./
@@ -874,7 +874,7 @@ jobs:
           PY
 
       - name: Publish distribution 📦 to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
         with:
           verbose: true
           print-hash: true
@@ -896,12 +896,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           submodules: recursive
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -910,13 +910,13 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Download npm packages
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: npm-packages-${{ github.run_id }}
           path: npm-dist/
 
       - name: Download version info
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: version-info-${{ github.run_id }}
           path: ./

@@ -15,13 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Install Rust
         run: rustup show
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -31,7 +31,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Cache cargo target
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-target-bench-${{ hashFiles('**/Cargo.lock') }}
@@ -40,7 +40,7 @@ jobs:
             ${{ runner.os }}-cargo-target-
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
           activate-environment: true
@@ -50,7 +50,7 @@ jobs:
         run: uv sync --all-groups
 
       - name: Install Bencher CLI
-        uses: bencherdev/bencher@main
+        uses: bencherdev/bencher@595a6d60abd1c71b1dfb7bbdd52be7bc63b0f8c3 # main
 
       - name: Track base branch benchmarks with Bencher
         run: |
@@ -72,7 +72,7 @@ jobs:
       # Upload benchmark artifacts for debugging
       - name: Upload benchmark results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: base-benchmark-results-${{ github.sha }}
           path: |
