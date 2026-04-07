@@ -431,8 +431,11 @@ impl<'a> Bundler<'a> {
                         "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
                     );
                 } else {
-                    // Don't add non-renamed symbols to the rename map
-                    // They'll be handled differently in namespace population
+                    // Symbols defined in this module don't need identity mappings —
+                    // namespace_manager resolves them via semantic_exports.
+                    // (In contrast, __all__ re-exports DO need identity mappings below
+                    // because they're the only signal that these foreign symbols should
+                    // be included in namespace population.)
                     log::debug!(
                         "Module '{module_name}': symbol '{symbol}' has no rename, skipping rename \
                          map"
@@ -479,7 +482,9 @@ impl<'a> Bundler<'a> {
                                 continue;
                             }
 
-                            // This is a re-exported symbol - use the original name
+                            // Identity mapping: the re-exported symbol keeps its original name,
+                            // but MUST appear in the rename map so that namespace_manager
+                            // recognises it as inlined (it checks `renames.contains_key`).
                             module_renames.insert(export.clone(), export.clone());
                             log::debug!(
                                 "Module '{module_name}': adding re-exported symbol '{export}' \
