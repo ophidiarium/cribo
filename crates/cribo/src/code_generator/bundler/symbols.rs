@@ -179,12 +179,10 @@ impl Bundler<'_> {
         {
             // Module defines __all__, check if symbol is listed there
             if exports.iter().any(|s| s == symbol_name) {
-                // Symbol is in __all__. For re-exported symbols, check if the symbol exists
-                // anywhere in the bundle.
-                let should_export = self
-                    .kept_symbols_global
-                    .as_ref()
-                    .is_none_or(|kept| kept.contains(symbol_name));
+                // Symbol is in __all__. Check per-module tree-shaking to avoid false
+                // positives from identically-named symbols in other modules.
+                let should_export = module_id
+                    .is_some_and(|id| self.is_symbol_kept_by_tree_shaking(id, symbol_name));
 
                 if should_export {
                     log::debug!(

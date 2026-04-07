@@ -94,9 +94,6 @@ pub(crate) struct Bundler<'a> {
     /// Set of (`accessing_module_id`, `accessed_alias`) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
     pub(crate) modules_with_accessed_all: FxIndexSet<(ModuleId, String)>,
-    /// Global cache of all kept symbols for O(1) lookup
-    /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
-    pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
     /// Reference to the symbol conflict resolver for detecting and resolving name conflicts
     /// This is set during bundling and provides access to symbol renames and conflict information
     pub(crate) conflict_resolver:
@@ -352,7 +349,6 @@ impl<'a> Bundler<'a> {
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
             modules_with_accessed_all: FxIndexSet::default(),
-            kept_symbols_global: None,
             conflict_resolver: None,
             emitted_wrapper_inits: FxIndexSet::default(),
         }
@@ -555,26 +551,6 @@ impl<'a> Bundler<'a> {
                     .as_ref()
                     .map_or(0, indexmap::IndexMap::len)
             );
-
-            // Populate global cache of all kept symbols for O(1) lookup
-            if let Some(ref kept_by_module) = self.tree_shaking_keep_symbols {
-                // Pre-reserve capacity to avoid re-allocations
-                let estimated_capacity: usize =
-                    kept_by_module.values().map(indexmap::IndexSet::len).sum();
-                let mut all_kept = FxIndexSet::default();
-                all_kept.reserve(estimated_capacity);
-
-                for symbols in kept_by_module.values() {
-                    // Strings are already owned; clone to populate the global set
-                    all_kept.extend(symbols.iter().cloned());
-                }
-                // Do not include extra symbols here; __all__ handling occurs elsewhere
-                log::debug!(
-                    "Populated global kept symbols cache with {} unique symbols",
-                    all_kept.len()
-                );
-                self.kept_symbols_global = Some(all_kept);
-            }
         }
 
         // Extract modules that access __all__ from the pre-computed graph data
