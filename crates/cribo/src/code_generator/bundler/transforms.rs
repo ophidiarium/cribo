@@ -1213,39 +1213,42 @@ impl Bundler<'_> {
         params: &TransformFunctionParams<'_>,
     ) {
         let mut new_body = Vec::new();
+        let old_body = std::mem::take(&mut func_def.body);
 
-        for body_stmt in &mut func_def.body {
-            if let Stmt::Global(global_stmt) = body_stmt {
+        for mut body_stmt in old_body {
+            if let Stmt::Global(ref mut global_stmt) = body_stmt {
                 // Rewrite global statement to use lifted names
                 for name in &mut global_stmt.names {
                     if let Some(lifted_name) = params.lifted_names.get(name.as_str()) {
                         *name = other::identifier(lifted_name);
                     }
                 }
-                new_body.push(body_stmt.clone());
+                new_body.push(body_stmt);
             } else {
                 // Transform other statements recursively with function context
                 self.transform_stmt_for_lifted_globals(
-                    body_stmt,
+                    &mut body_stmt,
                     params.lifted_names,
                     params.global_info,
                     Some(params.function_globals),
                     params.module_name,
                 );
-                new_body.push(body_stmt.clone());
 
-                // After transforming, check if we need to add synchronization
+                // Collect sync stmts separately to avoid borrow conflict
+                // (add_global_sync_if_needed reads &body_stmt while appending)
+                let mut sync_stmts = Vec::new();
                 self.add_global_sync_if_needed(
-                    body_stmt,
+                    &body_stmt,
                     params.function_globals,
                     params.lifted_names,
-                    &mut new_body,
+                    &mut sync_stmts,
                     params.module_name,
                 );
+                new_body.push(body_stmt);
+                new_body.extend(sync_stmts);
             }
         }
 
-        // Replace function body with new body
         func_def.body = new_body;
     }
 
