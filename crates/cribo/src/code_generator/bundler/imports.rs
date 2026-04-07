@@ -1054,7 +1054,17 @@ impl Bundler<'_> {
         stmts
     }
 
-    /// Create parent namespaces for dotted imports
+    /// Create parent namespaces for dotted imports.
+    ///
+    /// NOTE: This method takes `&self` because the entire import transformer
+    /// pipeline passes `&Bundler` (through `RecursiveImportTransformerParams` →
+    /// `TransformerState` → `rewrite_import_with_renames`). Inline-created
+    /// namespaces cannot be tracked in `self.created_namespaces` due to the
+    /// immutable borrow; instead, `is_namespace_already_created` checks
+    /// `result_stmts` to prevent duplicates within the same statement batch.
+    /// Cross-batch duplicates are prevented by the primary `created_namespaces`
+    /// check, which covers all namespaces registered through
+    /// `create_namespace_chain_for_module` (the main creation path).
     pub(in crate::code_generator) fn create_parent_namespaces(
         &self,
         parts: &[&str],
@@ -1079,10 +1089,9 @@ impl Bundler<'_> {
                     || self.is_namespace_already_created(&parent_path, result_stmts);
 
                 if !already_created {
-                    // This parent namespace wasn't registered during initial discovery
-                    // This can happen for intermediate namespaces in deeply nested imports
-                    // We need to create it inline since we can't register it now (immutable
-                    // context)
+                    // Unregistered parent namespace — can happen for intermediate
+                    // namespaces in deeply nested imports. Created inline; duplicate
+                    // prevention relies on is_namespace_already_created (see method doc).
                     log::debug!(
                         "Creating unregistered parent namespace '{parent_path}' inline during \
                          import transformation"
