@@ -555,7 +555,7 @@ impl Bundler<'_> {
         // even if tree-shaking kept it (it might be referenced but shouldn't be accessible)
         if has_explicit_all
             && let Some(Some(export_list)) = module_exports_map.get(&module_id)
-            && !export_list.contains(&symbol_name.to_owned())
+            && !export_list.iter().any(|e| e == symbol_name)
         {
             log::debug!(
                 "Not inlining symbol '{symbol_name}' from module with explicit __all__ - not in \
@@ -580,7 +580,7 @@ impl Bundler<'_> {
         if has_explicit_all {
             let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
             if let Some(export_list) = exports
-                && export_list.contains(&symbol_name.to_owned())
+                && export_list.iter().any(|e| e == symbol_name)
             {
                 return true;
             }
@@ -590,7 +590,7 @@ impl Bundler<'_> {
         if self.tree_shaking_keep_symbols.is_none() {
             let exports = module_exports_map.get(&module_id).and_then(|e| e.as_ref());
             if let Some(export_list) = exports
-                && export_list.contains(&symbol_name.to_owned())
+                && export_list.iter().any(|e| e == symbol_name)
             {
                 return true;
             }

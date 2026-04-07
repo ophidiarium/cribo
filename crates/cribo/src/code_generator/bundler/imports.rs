@@ -407,7 +407,7 @@ impl Bundler<'_> {
             self.module_exports
                 .get(&module_id)
                 .and_then(|e| e.as_ref())
-                .is_some_and(|exports| exports.contains(&symbol_name.to_owned()))
+                .is_some_and(|exports| exports.iter().any(|e| e == symbol_name))
         } else {
             // Fallback to semantic exports when __all__ is not defined
             self.semantic_exports
