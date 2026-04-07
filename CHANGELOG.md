@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.3](https://github.com/ophidiarium/cribo/compare/v0.8.2...v0.8.3) (2026-04-07)
+
+
+### Bug Fixes
+
+* add certifi to typos allow list ([#456](https://github.com/ophidiarium/cribo/issues/456)) ([9f425ea](https://github.com/ophidiarium/cribo/commit/9f425ea7b07ba9280efb438e9191062697bff8f7))
+* **ci:** work around maturin 1.11+ bin bindings regression ([#453](https://github.com/ophidiarium/cribo/issues/453)) ([349ad62](https://github.com/ophidiarium/cribo/commit/349ad6290f06e8f3bb066bbfb485cb74dfe8e5de))
+* **deps:** update env_logger to 0.11.10 to deduplicate anstream ([#454](https://github.com/ophidiarium/cribo/issues/454)) ([9ef981c](https://github.com/ophidiarium/cribo/commit/9ef981c48b524a817cb1f03cdc8b1c08056cbfea))
+* remove bin from platform specific npm packages ([1aa8c90](https://github.com/ophidiarium/cribo/commit/1aa8c90119cd5bebc8550ff339efc9631f32711e))
+
 ## [0.8.2](https://github.com/ophidiarium/cribo/compare/v0.8.1...v0.8.2) (2025-12-30)
 
 
