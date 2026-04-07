@@ -690,27 +690,22 @@ impl<'a> Bundler<'a> {
             log::debug!("Circular modules: {:?}", self.circular_modules);
         }
 
-        // Convert modules to the format expected by functions
-        let modules_with_paths: Vec<(ModuleId, ModModule, PathBuf, String)> = params
-            .modules
-            .iter()
-            .map(|(id, ast, hash)| {
-                let path = params.resolver.get_module_path(*id).unwrap_or_else(|| {
-                    let name = params
-                        .resolver
-                        .get_module_name(*id)
-                        .unwrap_or_else(|| format!("module_{}", id.as_u32()));
-                    PathBuf::from(&name)
-                });
-                (*id, ast.clone(), path, hash.clone())
-            })
-            .collect();
-
-        // Convert to IndexMap first for efficient lookups
+        // Build IndexMap directly from params.modules (AST clone is required since
+        // params.modules is a borrowed slice, but we skip the intermediate Vec).
         let mut modules_map: FxIndexMap<ModuleId, (ModModule, PathBuf, String)> =
-            FxIndexMap::default();
-        for (module_id, ast, path, hash) in modules_with_paths {
-            modules_map.insert(module_id, (ast, path, hash));
+            FxIndexMap::with_capacity_and_hasher(
+                params.modules.len(),
+                std::hash::BuildHasherDefault::default(),
+            );
+        for (id, ast, hash) in params.modules {
+            let path = params.resolver.get_module_path(*id).unwrap_or_else(|| {
+                let name = params
+                    .resolver
+                    .get_module_name(*id)
+                    .unwrap_or_else(|| format!("module_{}", id.as_u32()));
+                PathBuf::from(&name)
+            });
+            modules_map.insert(*id, (ast.clone(), path, hash.clone()));
         }
 
         // Trim unused imports from all modules
