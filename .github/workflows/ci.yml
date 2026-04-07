@@ -78,6 +78,7 @@ jobs:
       - name: Install Cribo (development)
         # Note: Using build + install instead of develop due to maturin 1.11+ regression with bin bindings
         # https://github.com/PyO3/maturin/issues/2909 (editable installs don't install binaries correctly)
+        shell: bash
         run: |
           uv run --with maturin -- maturin build --release --out target/tmp
           uv pip install --force-reinstall target/tmp/*.whl
