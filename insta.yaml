@@ -1,0 +1,7 @@
+# Insta snapshot testing configuration
+# https://insta.rs/docs/cli/
+
+test:
+  # Disable nextest for doctests to avoid deprecation warning
+  # https://github.com/mitsuhiko/insta/issues/803
+  disable_nextest_doctest: true
