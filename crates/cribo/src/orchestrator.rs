@@ -1880,7 +1880,11 @@ impl BundleOrchestrator {
                 let mut hasher = Sha256::new();
                 hasher.update(source.as_bytes());
                 let hash = hasher.finalize();
-                let content_hash = hash.iter().map(|b| format!("{b:02x}")).collect::<String>();
+                let content_hash = hash.iter().fold(String::new(), |mut output, b| {
+                    use std::fmt::Write;
+                    let _ = write!(output, "{b:02x}");
+                    output
+                });
 
                 module_asts.push((*module_id, ast.clone(), content_hash));
             }
