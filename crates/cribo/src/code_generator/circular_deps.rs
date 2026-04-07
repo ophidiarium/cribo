@@ -360,8 +360,25 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
                 }
             }
         }
+        Expr::FString(fstring) => {
+            for element in fstring.value.elements() {
+                if let ruff_python_ast::InterpolatedStringElement::Interpolation(interp) = element {
+                    collect_names_from_expr(&interp.expression, refs);
+                    if let Some(spec) = &interp.format_spec {
+                        for spec_element in &spec.elements {
+                            if let ruff_python_ast::InterpolatedStringElement::Interpolation(
+                                nested,
+                            ) = spec_element
+                            {
+                                collect_names_from_expr(&nested.expression, refs);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         _ => {
-            // Literals, f-strings, etc. — no name references
+            // Literals, etc. — no name references
         }
     }
 }
