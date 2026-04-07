@@ -1081,7 +1081,7 @@ impl Bundler<'_> {
                 Self::transform_comprehension_generators(
                     &mut comp.generators,
                     module_level_vars,
-                    &comp_locals,
+                    local_vars,
                     module_var_name,
                 );
             }
@@ -1096,7 +1096,7 @@ impl Bundler<'_> {
                 Self::transform_comprehension_generators(
                     &mut comp.generators,
                     module_level_vars,
-                    &comp_locals,
+                    local_vars,
                     module_var_name,
                 );
             }
@@ -1117,7 +1117,7 @@ impl Bundler<'_> {
                 Self::transform_comprehension_generators(
                     &mut comp.generators,
                     module_level_vars,
-                    &comp_locals,
+                    local_vars,
                     module_var_name,
                 );
             }
@@ -1133,7 +1133,7 @@ impl Bundler<'_> {
                 Self::transform_comprehension_generators(
                     &mut generator_expr.generators,
                     module_level_vars,
-                    &comp_locals,
+                    local_vars,
                     module_var_name,
                 );
             }
@@ -1184,25 +1184,39 @@ impl Bundler<'_> {
         locals
     }
 
-    /// Transform comprehension generators (iter + ifs), using the extended local scope.
+    /// Transform comprehension generators with incremental scoping per Python semantics.
+    ///
+    /// In Python, each generator's `iter` is evaluated before that generator's target is
+    /// bound. The first generator's `iter` uses the enclosing scope (no comp targets),
+    /// subsequent generators' `iter` see only preceding targets. Each generator's `ifs`
+    /// see the current target plus all preceding ones.
     fn transform_comprehension_generators(
         generators: &mut [ruff_python_ast::Comprehension],
         module_level_vars: &FxIndexSet<String>,
-        comp_locals: &FxIndexSet<String>,
+        local_vars: &FxIndexSet<String>,
         module_var_name: &str,
     ) {
+        let mut accumulated_locals = local_vars.clone();
         for generator in generators.iter_mut() {
+            // Transform iter with only preceding targets (not current)
             Self::transform_expr_for_module_vars_with_locals(
                 &mut generator.iter,
                 module_level_vars,
-                comp_locals,
+                &accumulated_locals,
                 module_var_name,
             );
+            // Add current generator's target names before processing ifs
+            for name in
+                crate::visitors::utils::collect_names_from_assignment_target(&generator.target)
+            {
+                accumulated_locals.insert(name.to_owned());
+            }
+            // Transform ifs with current + preceding targets
             for if_clause in &mut generator.ifs {
                 Self::transform_expr_for_module_vars_with_locals(
                     if_clause,
                     module_level_vars,
-                    comp_locals,
+                    &accumulated_locals,
                     module_var_name,
                 );
             }
