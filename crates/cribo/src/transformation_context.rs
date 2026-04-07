@@ -45,8 +45,9 @@ impl TransformationContext {
     }
 
     /// Advance the counter directly to `index`, skipping all intermediate values.
+    /// Uses `fetch_max` to enforce monotonicity — the counter never moves backwards.
     pub(crate) fn skip_to_index(&self, index: u32) {
-        self.next_index.store(index, Ordering::Relaxed);
+        self.next_index.fetch_max(index, Ordering::Relaxed);
     }
 
     /// Create a new node with a fresh index
