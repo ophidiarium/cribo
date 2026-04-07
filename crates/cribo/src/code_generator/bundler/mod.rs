@@ -756,9 +756,7 @@ impl<'a> Bundler<'a> {
         // Start new node indices after all module ranges
         self.transformation_context = TransformationContext::new();
         let starting_index = module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE;
-        for _ in 0..starting_index {
-            self.transformation_context.next_node_index();
-        }
+        self.transformation_context.skip_to_index(starting_index);
         log::debug!(
             "Transformation context initialized. Module count: {module_id_counter}, Total nodes: \
              {total_nodes}, New nodes start at: {starting_index}"

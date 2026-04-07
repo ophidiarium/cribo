@@ -44,6 +44,11 @@ impl TransformationContext {
         self.next_index.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Advance the counter directly to `index`, skipping all intermediate values.
+    pub(crate) fn skip_to_index(&self, index: u32) {
+        self.next_index.store(index, Ordering::Relaxed);
+    }
+
     /// Create a new node with a fresh index
     pub(crate) fn create_node_index(&self) -> AtomicNodeIndex {
         let index = self.next_node_index();
