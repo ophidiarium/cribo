@@ -91,11 +91,9 @@ impl GlobalAnalyzer {
     /// Helper to collect variable names from assignment targets
     fn collect_from_target(&mut self, target: &Expr) {
         match target {
-            Expr::Name(name) => {
-                if self.is_module_level() {
-                    self.module_level_vars.insert(name.id.to_string());
-                    self.liftable_vars.insert(name.id.to_string());
-                }
+            Expr::Name(name) if self.is_module_level() => {
+                self.module_level_vars.insert(name.id.to_string());
+                self.liftable_vars.insert(name.id.to_string());
             }
             Expr::Tuple(tuple) => {
                 for elt in &tuple.elts {

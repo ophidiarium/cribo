@@ -366,8 +366,8 @@ impl ModuleResolver {
             virtualenv_packages_cache: RefCell::new(None),
             entry_dir: None,
             python_version: 38, // Default to Python 3.8
-            pythonpath_override: pythonpath_override.map(ToString::to_string),
-            virtualenv_override: virtualenv_override.map(ToString::to_string),
+            pythonpath_override: pythonpath_override.map(str::to_owned),
+            virtualenv_override: virtualenv_override.map(str::to_owned),
         }
     }
 
@@ -1311,7 +1311,7 @@ impl ModuleResolver {
                     cleaned
                         .split('.')
                         .filter(|s| !s.is_empty())
-                        .map(ToString::to_string),
+                        .map(str::to_owned),
                 );
             }
         }

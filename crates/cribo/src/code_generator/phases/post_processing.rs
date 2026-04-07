@@ -73,7 +73,7 @@ impl PostProcessingPhase {
 
         let entry_pkg = bundler
             .entry_package_name()
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .or_else(|| bundler.infer_entry_root_package())
             .unwrap_or_else(|| bundler.entry_module_name.clone());
 

@@ -322,10 +322,10 @@ impl ImportRewriter {
                         indices_to_remove.insert(idx);
                     }
                 }
-                Stmt::ImportFrom(import_from) => {
-                    if self.matches_any_movable_import(import_from, movable_imports) {
-                        indices_to_remove.insert(idx);
-                    }
+                Stmt::ImportFrom(import_from)
+                    if self.matches_any_movable_import(import_from, movable_imports) =>
+                {
+                    indices_to_remove.insert(idx);
                 }
                 _ => {}
             }

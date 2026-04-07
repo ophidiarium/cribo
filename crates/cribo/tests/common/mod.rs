@@ -55,8 +55,7 @@ pub(crate) fn get_python_executable() -> PathBuf {
         if Command::new(cmd)
             .arg("--version")
             .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
+            .is_ok_and(|output| output.status.success())
         {
             return PathBuf::from(*cmd);
         }

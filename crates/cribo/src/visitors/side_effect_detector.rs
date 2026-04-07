@@ -381,11 +381,9 @@ impl<'a> Visitor<'a> for SideEffectDetector {
         if self.in_expression_context {
             match expr {
                 // Names might be imported and have side effects
-                Expr::Name(name) => {
-                    if self.imported_names.contains(name.id.as_str()) {
-                        self.has_side_effects = true;
-                        return;
-                    }
+                Expr::Name(name) if self.imported_names.contains(name.id.as_str()) => {
+                    self.has_side_effects = true;
+                    return;
                 }
 
                 // These expressions have side effects
@@ -397,11 +395,9 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
                 // Subscript expressions can have side effects (e.g., __getitem__ can have side
                 // effects)
-                Expr::Subscript(_) => {
-                    if !self.in_annotation_context {
-                        self.has_side_effects = true;
-                        return;
-                    }
+                Expr::Subscript(_) if !self.in_annotation_context => {
+                    self.has_side_effects = true;
+                    return;
                 }
 
                 // Attribute access is only a side effect if the base object might have side effects

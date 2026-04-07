@@ -1518,13 +1518,9 @@ impl<'a> GraphBuilder<'a> {
                     parts.push(name.id.to_string());
                     true
                 }
-                Expr::Attribute(attr) => {
-                    if build_dotted_name(&attr.value, parts) {
-                        parts.push(attr.attr.to_string());
-                        true
-                    } else {
-                        false
-                    }
+                Expr::Attribute(attr) if build_dotted_name(&attr.value, parts) => {
+                    parts.push(attr.attr.to_string());
+                    true
                 }
                 _ => false,
             }

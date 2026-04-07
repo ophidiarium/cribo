@@ -308,13 +308,11 @@ impl EntryModulePhase {
         if assign.targets.len() == 1 {
             match &assign.targets[0] {
                 Expr::Name(_) => Bundler::is_duplicate_name_assignment(assign, final_body),
-                Expr::Attribute(_) => {
-                    if Bundler::is_duplicate_module_init_attr_assignment(assign, final_body) {
-                        log::debug!("Found duplicate module init in final_body");
-                        true
-                    } else {
-                        false
-                    }
+                Expr::Attribute(_)
+                    if Bundler::is_duplicate_module_init_attr_assignment(assign, final_body) =>
+                {
+                    log::debug!("Found duplicate module init in final_body");
+                    true
                 }
                 _ => false,
             }
@@ -343,7 +341,7 @@ impl EntryModulePhase {
         let package_name = if crate::util::is_init_module(module_name) {
             module_name
                 .strip_suffix(&format!(".{}", crate::python::constants::INIT_STEM))
-                .map(ToString::to_string)
+                .map(str::to_owned)
                 .or_else(|| bundler.infer_entry_root_package())
                 .unwrap_or_else(|| module_name.to_owned())
         } else {

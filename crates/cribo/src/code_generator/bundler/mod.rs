@@ -284,11 +284,7 @@ impl<'a> Bundler<'a> {
 
         // If the entry module name already includes a dot, use its root component
         if self.entry_module_name.contains('.') {
-            return self
-                .entry_module_name
-                .split('.')
-                .next()
-                .map(ToString::to_string);
+            return self.entry_module_name.split('.').next().map(str::to_owned);
         }
 
         // Fallback discovery: scan known modules for a dotted name and return its root component
