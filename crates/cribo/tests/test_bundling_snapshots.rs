@@ -130,7 +130,10 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
     };
 
     let path = Path::new("<bundled>.py");
-    let source_kind = SourceKind::Python(bundled_code.to_owned());
+    let source_kind = SourceKind::Python {
+        code: bundled_code.to_owned(),
+        is_stub: false,
+    };
 
     let result = lint_only(
         path,
