@@ -929,8 +929,265 @@ impl Bundler<'_> {
                     module_var_name,
                 );
             }
+            Expr::BoolOp(bool_op) => {
+                for val in &mut bool_op.values {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        val,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Expr::Compare(compare) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut compare.left,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                for comp in &mut compare.comparators {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        comp,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Expr::UnaryOp(unary_op) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut unary_op.operand,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
+            Expr::If(if_expr) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut if_expr.test,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut if_expr.body,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut if_expr.orelse,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
+            Expr::Tuple(tuple) => {
+                for elt in &mut tuple.elts {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        elt,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Expr::Set(set) => {
+                for elt in &mut set.elts {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        elt,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Expr::Starred(starred) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut starred.value,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
+            Expr::Await(await_expr) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut await_expr.value,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
+            Expr::Yield(yield_expr) => {
+                if let Some(value) = &mut yield_expr.value {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        value,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
+            }
+            Expr::YieldFrom(yield_from) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut yield_from.value,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
+            Expr::Lambda(lambda) => {
+                // Lambda defaults are evaluated at definition time
+                if let Some(params) = &mut lambda.parameters {
+                    for param in params
+                        .args
+                        .iter_mut()
+                        .chain(params.posonlyargs.iter_mut())
+                        .chain(params.kwonlyargs.iter_mut())
+                    {
+                        if let Some(default) = &mut param.default {
+                            Self::transform_expr_for_module_vars_with_locals(
+                                default,
+                                module_level_vars,
+                                local_vars,
+                                module_var_name,
+                            );
+                        }
+                    }
+                }
+                // Lambda body is deferred — skip (like function bodies)
+            }
+            Expr::ListComp(comp) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut comp.elt,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                for generator in &mut comp.generators {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        &mut generator.iter,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                    for if_clause in &mut generator.ifs {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            if_clause,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+            }
+            Expr::SetComp(comp) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut comp.elt,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                for generator in &mut comp.generators {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        &mut generator.iter,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                    for if_clause in &mut generator.ifs {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            if_clause,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+            }
+            Expr::DictComp(comp) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut comp.key,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut comp.value,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                for generator in &mut comp.generators {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        &mut generator.iter,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                    for if_clause in &mut generator.ifs {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            if_clause,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+            }
+            Expr::Generator(generator_expr) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut generator_expr.elt,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+                for generator in &mut generator_expr.generators {
+                    Self::transform_expr_for_module_vars_with_locals(
+                        &mut generator.iter,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                    for if_clause in &mut generator.ifs {
+                        Self::transform_expr_for_module_vars_with_locals(
+                            if_clause,
+                            module_level_vars,
+                            local_vars,
+                            module_var_name,
+                        );
+                    }
+                }
+            }
+            Expr::FString(fstring) => {
+                for part in &mut fstring.value {
+                    if let ruff_python_ast::FStringPart::FString(f) = part {
+                        for elem in &mut *f.elements {
+                            if let Some(interp) = elem.as_interpolation_mut() {
+                                Self::transform_expr_for_module_vars_with_locals(
+                                    &mut interp.expression,
+                                    module_level_vars,
+                                    local_vars,
+                                    module_var_name,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Expr::Named(named) => {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut named.value,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
+            }
             _ => {
-                // Handle other expression types as needed
+                // Remaining: literals (NumberLiteral, StringLiteral, BytesLiteral,
+                // BooleanLiteral, NoneLiteral, EllipsisLiteral), Slice, IpyEscapeCommand
+                // — none contain rewritable name references
             }
         }
     }
@@ -965,12 +1222,12 @@ impl Bundler<'_> {
         module_name: Option<&str>,
     ) {
         match stmt {
-            Stmt::FunctionDef(func_def) => {
+            Stmt::FunctionDef(func_def)
                 // Check if this function uses globals
                 if global_info
                     .functions_using_globals
                     .contains(&func_def.name.to_string())
-                {
+                => {
                     // Collect globals declared in this function
                     let function_globals =
                         crate::visitors::VariableCollector::collect_function_globals(
@@ -986,7 +1243,6 @@ impl Bundler<'_> {
                     };
                     self.transform_function_body_for_lifted_globals(func_def, &params);
                 }
-            }
             Stmt::Assign(assign) => {
                 // Transform assignments to use lifted names if they're in a function with global
                 // declarations
