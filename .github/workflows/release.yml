@@ -114,16 +114,16 @@ jobs:
       #   run: echo "VCTargetsPath=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\ARM64" >> $GITHUB_ENV
 
       - name: 'Install cargo insta'
-        uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2
+        uses: taiki-e/install-action@8002e0e61dfa209f5a4071401b4662c95b4e2ead # v2
         with:
           tool: cargo-insta
       - name: 'Install cargo nextest'
-        uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2
+        uses: taiki-e/install-action@8002e0e61dfa209f5a4071401b4662c95b4e2ead # v2
         with:
           tool: cargo-nextest
 
       - name: Install taplo
-        uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2
+        uses: taiki-e/install-action@8002e0e61dfa209f5a4071401b4662c95b4e2ead # v2
         with:
           tool: taplo
 
