@@ -501,26 +501,41 @@ impl<'a> Bundler<'a> {
         let mut import_sources = FxIndexMap::default();
 
         for stmt in statements {
-            if let Stmt::ImportFrom(import_from) = stmt
-                && let Some(module) = &import_from.module
-            {
-                let source_module = module.as_str();
+            let Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
 
-                // Only track imports from first-party modules that were inlined
-                if self.get_module_id(source_module).is_some_and(|id| {
-                    self.inlined_modules.contains(&id) || self.bundled_modules.contains(&id)
-                }) {
-                    for alias in &import_from.names {
-                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            // Resolve the source module, handling relative imports
+            let source_module = if import_from.level > 0 {
+                let from_mod = import_from
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str);
+                self.resolve_from_import_target(
+                    module_name,
+                    from_mod.unwrap_or(""),
+                    import_from.level,
+                )
+            } else {
+                let Some(module) = &import_from.module else {
+                    continue;
+                };
+                module.as_str().to_owned()
+            };
 
-                        // Map the local name to its source module
-                        import_sources.insert(local_name.to_owned(), source_module.to_owned());
+            // Only track imports from first-party modules that were inlined
+            if self.get_module_id(&source_module).is_some_and(|id| {
+                self.inlined_modules.contains(&id) || self.bundled_modules.contains(&id)
+            }) {
+                for alias in &import_from.names {
+                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                        log::debug!(
-                            "Module '{module_name}': Symbol '{local_name}' imported from \
-                             '{source_module}'"
-                        );
-                    }
+                    import_sources.insert(local_name.to_owned(), source_module.clone());
+
+                    log::debug!(
+                        "Module '{module_name}': Symbol '{local_name}' imported from \
+                         '{source_module}'"
+                    );
                 }
             }
         }
