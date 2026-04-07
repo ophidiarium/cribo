@@ -570,6 +570,14 @@ impl Bundler<'_> {
                         module_var_name,
                     );
                 }
+                for stmt in &mut for_stmt.orelse {
+                    self.transform_stmt_for_module_vars_with_locals(
+                        stmt,
+                        module_level_vars,
+                        local_vars,
+                        module_var_name,
+                    );
+                }
             }
             Stmt::While(while_stmt) => {
                 Self::transform_expr_for_module_vars_with_locals(
@@ -1336,6 +1344,15 @@ impl Bundler<'_> {
                         module_name,
                     );
                 }
+                for stmt in &mut while_stmt.orelse {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                        module_name,
+                    );
+                }
             }
             Stmt::For(for_stmt) => {
                 expression_handlers::transform_expr_for_lifted_globals(
@@ -1353,6 +1370,15 @@ impl Bundler<'_> {
                     current_function_globals,
                 );
                 for stmt in &mut for_stmt.body {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                        module_name,
+                    );
+                }
+                for stmt in &mut for_stmt.orelse {
                     self.transform_stmt_for_lifted_globals(
                         stmt,
                         lifted_names,
