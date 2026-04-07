@@ -584,6 +584,13 @@ impl Bundler<'_> {
         let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_id, symbol_name);
         let has_explicit_all = self.modules_with_explicit_all.contains(&module_id);
 
+        // Wrapper modules need runtime access to imported symbols regardless of __all__.
+        // Check this BEFORE __all__ exclusion to avoid discarding symbols that wrapper
+        // init code relies on at runtime.
+        if self.is_symbol_imported_by_wrapper(module_id, symbol_name) {
+            return true;
+        }
+
         // If module has explicit __all__ and symbol is not in it, don't inline it
         // even if tree-shaking kept it (it might be referenced but shouldn't be accessible)
         if has_explicit_all
@@ -603,11 +610,6 @@ impl Bundler<'_> {
         }
 
         // From here, kept_by_tree_shaking is false.
-
-        // Wrapper modules need runtime access to symbols even if tree-shaking removed them
-        if self.is_symbol_imported_by_wrapper(module_id, symbol_name) {
-            return true;
-        }
 
         // Symbol in explicit __all__ should be kept (re-exported but not used internally)
         if has_explicit_all {

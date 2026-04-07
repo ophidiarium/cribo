@@ -31,6 +31,7 @@ _cribo = _Cribo()
 yaml_pkg_loader = _cribo.types.SimpleNamespace(__name__='yaml_pkg.loader')
 yaml_pkg = _cribo.types.SimpleNamespace(__name__='yaml_pkg', __initializing__=False, __initialized__=False, __path__=[])
 yaml_pkg.loader = yaml_pkg_loader
+__all__ = ["BaseLoader", "Loader", "FullLoader"]
 class BaseLoader:
     """Base loader class"""
 
@@ -60,6 +61,7 @@ yaml_pkg_loader.Loader = Loader
 yaml_pkg_loader.FullLoader = FullLoader
 yaml_pkg_dumper = _cribo.types.SimpleNamespace(__name__='yaml_pkg.dumper')
 yaml_pkg.dumper = yaml_pkg_dumper
+__all___yaml_pkg_dumper = ["Dumper"]
 class Dumper:
     """Dumper class for YAML output"""
 
