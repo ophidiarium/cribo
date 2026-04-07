@@ -103,5 +103,6 @@
         "**/npm"
     ],
     "python.analysis.enablePytestSupport": true,
-    "bedrock.promptCaching.enabled": false
+    "bedrock.promptCaching.enabled": false,
+    "terminal.integrated.shellIntegration.timeout": 3
 }

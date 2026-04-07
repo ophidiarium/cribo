@@ -73,3 +73,4 @@ mise.local.toml
 +rustc-ice-*.txt
 
 *.bak
+python/cribo-*.data/scripts/cribo
