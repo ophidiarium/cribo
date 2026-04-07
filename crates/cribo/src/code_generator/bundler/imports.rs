@@ -77,48 +77,43 @@ impl Bundler<'_> {
             .is_some_and(|id| self.inlined_modules.contains(&id))
     }
 
-    /// Helper: collect wrapper-needed-by-inlined from a single `ImportFrom` statement
-    pub(crate) fn collect_wrapper_needed_from_importfrom_for_inlinable(
+    /// Resolve `from . import X` aliases to wrapper module IDs.
+    fn resolve_relative_import_wrapper_aliases(
         &self,
-        module_id: ModuleId,
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
         wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
-        needed: &mut FxIndexSet<ModuleId>,
-    ) {
-        // Handle "from . import X" pattern
-        if import_from.level > 0 && import_from.module.is_none() {
-            for alias in &import_from.names {
-                let imported_name = alias.name.as_str();
-                let parent_module = self.resolver.resolve_relative_to_absolute_module_name(
-                    import_from.level,
-                    None,
-                    module_path,
-                );
-                let Some(parent) = parent_module else {
-                    continue;
-                };
-                let potential_module = format!("{parent}.{imported_name}");
-                if let Some(potential_module_id) = self.get_module_id(&potential_module)
-                    && wrapper_modules_saved
-                        .iter()
-                        .any(|(id, _, _, _)| *id == potential_module_id)
-                {
-                    needed.insert(potential_module_id);
-                    let module_name_str = self
-                        .resolver
-                        .get_module_name(module_id)
-                        .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
-                    log::debug!(
-                        "Inlined module '{module_name_str}' imports wrapper module \
-                         '{potential_module}' via 'from . import'"
-                    );
-                }
+    ) -> Vec<ModuleId> {
+        let mut found = Vec::new();
+        if import_from.level == 0 || import_from.module.is_some() {
+            return found;
+        }
+        let Some(parent) = self.resolver.resolve_relative_to_absolute_module_name(
+            import_from.level,
+            None,
+            module_path,
+        ) else {
+            return found;
+        };
+        for alias in &import_from.names {
+            let potential = format!("{parent}.{}", alias.name.as_str());
+            if let Some(pid) = self.get_module_id(&potential)
+                && wrapper_modules_saved.iter().any(|(id, _, _, _)| *id == pid)
+            {
+                found.push(pid);
             }
         }
+        found
+    }
 
-        // Resolve other relative/absolute imports
-        let resolved_module = if import_from.level > 0 {
+    /// Resolve an import statement to a wrapper module ID (if the target is a wrapper).
+    fn resolve_import_to_wrapper_module(
+        &self,
+        import_from: &StmtImportFrom,
+        module_path: &std::path::Path,
+        wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
+    ) -> Option<ModuleId> {
+        let resolved = if import_from.level > 0 {
             self.resolver.resolve_relative_to_absolute_module_name(
                 import_from.level,
                 import_from
@@ -130,20 +125,46 @@ impl Bundler<'_> {
         } else {
             import_from.module.as_ref().map(|m| m.as_str().to_owned())
         };
+        resolved.and_then(|r| {
+            self.get_module_id(&r)
+                .filter(|rid| wrapper_modules_saved.iter().any(|(id, _, _, _)| id == rid))
+        })
+    }
 
-        if let Some(ref resolved) = resolved_module
-            && let Some(resolved_id) = self.get_module_id(resolved)
-            && wrapper_modules_saved
-                .iter()
-                .any(|(id, _, _, _)| *id == resolved_id)
+    /// Helper: collect wrapper-needed-by-inlined from a single `ImportFrom` statement
+    pub(crate) fn collect_wrapper_needed_from_importfrom_for_inlinable(
+        &self,
+        module_id: ModuleId,
+        import_from: &StmtImportFrom,
+        module_path: &std::path::Path,
+        wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
+        needed: &mut FxIndexSet<ModuleId>,
+    ) {
+        let module_name_str = || {
+            self.resolver
+                .get_module_name(module_id)
+                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()))
+        };
+
+        for wrapper_id in self.resolve_relative_import_wrapper_aliases(
+            import_from,
+            module_path,
+            wrapper_modules_saved,
+        ) {
+            needed.insert(wrapper_id);
+            log::debug!(
+                "Inlined module '{}' imports wrapper module via 'from . import'",
+                module_name_str()
+            );
+        }
+
+        if let Some(resolved_id) =
+            self.resolve_import_to_wrapper_module(import_from, module_path, wrapper_modules_saved)
         {
             needed.insert(resolved_id);
-            let module_name_str = self
-                .resolver
-                .get_module_name(module_id)
-                .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
             log::debug!(
-                "Inlined module '{module_name_str}' imports from wrapper module '{resolved}'"
+                "Inlined module '{}' imports from wrapper module",
+                module_name_str()
             );
         }
     }
@@ -157,49 +178,16 @@ impl Bundler<'_> {
         wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
         deps: &mut FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
     ) {
-        // Handle from . import X
-        if import_from.level > 0 && import_from.module.is_none() {
-            for alias in &import_from.names {
-                let imported_name = alias.name.as_str();
-                let parent_module = self.resolver.resolve_relative_to_absolute_module_name(
-                    import_from.level,
-                    None,
-                    module_path,
-                );
-                let Some(parent) = parent_module else {
-                    continue;
-                };
-                let potential_module = format!("{parent}.{imported_name}");
-                if let Some(potential_module_id) = self.get_module_id(&potential_module)
-                    && wrapper_modules_saved
-                        .iter()
-                        .any(|(id, _, _, _)| *id == potential_module_id)
-                {
-                    deps.entry(module_id)
-                        .or_default()
-                        .insert(potential_module_id);
-                }
-            }
+        for wrapper_id in self.resolve_relative_import_wrapper_aliases(
+            import_from,
+            module_path,
+            wrapper_modules_saved,
+        ) {
+            deps.entry(module_id).or_default().insert(wrapper_id);
         }
 
-        // Handle other imports
-        let resolved_module = if import_from.level > 0 {
-            self.resolver.resolve_relative_to_absolute_module_name(
-                import_from.level,
-                import_from
-                    .module
-                    .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str),
-                module_path,
-            )
-        } else {
-            import_from.module.as_ref().map(|m| m.as_str().to_owned())
-        };
-        if let Some(ref resolved) = resolved_module
-            && let Some(resolved_id) = self.get_module_id(resolved)
-            && wrapper_modules_saved
-                .iter()
-                .any(|(id, _, _, _)| *id == resolved_id)
+        if let Some(resolved_id) =
+            self.resolve_import_to_wrapper_module(import_from, module_path, wrapper_modules_saved)
         {
             deps.entry(module_id).or_default().insert(resolved_id);
         }
