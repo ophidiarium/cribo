@@ -172,8 +172,9 @@ fn top_level_symbol_name(stmt: &Stmt) -> Option<String> {
             }
             None
         }
-        Stmt::AnnAssign(a) => {
-            // Annotated assignment: `name: Type = expr`
+        Stmt::AnnAssign(a) if a.value.is_some() => {
+            // Annotated assignment with value: `name: Type = expr` binds `name`.
+            // Annotation-only (`name: Type`) does NOT bind at runtime.
             if let Expr::Name(name) = a.target.as_ref() {
                 return Some(name.id.to_string());
             }
