@@ -1148,6 +1148,19 @@ impl Bundler<'_> {
                                     local_vars,
                                     module_var_name,
                                 );
+                                // Format spec can contain expressions: f"{value:{width}}"
+                                if let Some(spec) = &mut interp.format_spec {
+                                    for spec_elem in &mut *spec.elements {
+                                        if let Some(nested) = spec_elem.as_interpolation_mut() {
+                                            Self::transform_expr_for_module_vars_with_locals(
+                                                &mut nested.expression,
+                                                module_level_vars,
+                                                local_vars,
+                                                module_var_name,
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
