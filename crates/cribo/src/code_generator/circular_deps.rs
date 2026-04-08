@@ -172,6 +172,13 @@ fn top_level_symbol_name(stmt: &Stmt) -> Option<String> {
             }
             None
         }
+        Stmt::AnnAssign(a) => {
+            // Annotated assignment: `name: Type = expr`
+            if let Expr::Name(name) = a.target.as_ref() {
+                return Some(name.id.to_string());
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -256,6 +263,12 @@ fn collect_module_level_refs(stmt: &Stmt, refs: &mut FxIndexSet<String>) {
                     Stmt::Assign(a) => {
                         collect_names_from_expr(&a.value, refs);
                     }
+                    Stmt::AnnAssign(a) => {
+                        collect_names_from_expr(&a.annotation, refs);
+                        if let Some(value) = &a.value {
+                            collect_names_from_expr(value, refs);
+                        }
+                    }
                     Stmt::Expr(e) => {
                         collect_names_from_expr(&e.value, refs);
                     }
@@ -265,6 +278,12 @@ fn collect_module_level_refs(stmt: &Stmt, refs: &mut FxIndexSet<String>) {
         }
         Stmt::Assign(a) => {
             collect_names_from_expr(&a.value, refs);
+        }
+        Stmt::AnnAssign(a) => {
+            collect_names_from_expr(&a.annotation, refs);
+            if let Some(value) = &a.value {
+                collect_names_from_expr(value, refs);
+            }
         }
         Stmt::AugAssign(a) => {
             collect_names_from_expr(&a.value, refs);
