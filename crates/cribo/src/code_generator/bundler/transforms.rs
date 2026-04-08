@@ -1139,7 +1139,25 @@ impl Bundler<'_> {
             }
             Expr::Lambda(lambda) => {
                 // Lambda defaults are evaluated at definition time
+                // Lambda body references module-level vars at call time — rewrite needed
+                let mut lambda_locals = local_vars.clone();
                 if let Some(params) = &mut lambda.parameters {
+                    // Collect lambda parameter names as locals
+                    for param in params
+                        .args
+                        .iter()
+                        .chain(params.posonlyargs.iter())
+                        .chain(params.kwonlyargs.iter())
+                    {
+                        lambda_locals.insert(param.parameter.name.to_string());
+                    }
+                    if let Some(vararg) = &params.vararg {
+                        lambda_locals.insert(vararg.name.to_string());
+                    }
+                    if let Some(kwarg) = &params.kwarg {
+                        lambda_locals.insert(kwarg.name.to_string());
+                    }
+                    // Transform defaults (definition-time)
                     for param in params
                         .args
                         .iter_mut()
@@ -1156,7 +1174,13 @@ impl Bundler<'_> {
                         }
                     }
                 }
-                // Lambda body is deferred — skip (like function bodies)
+                // Transform lambda body with parameters as locals
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut lambda.body,
+                    module_level_vars,
+                    &lambda_locals,
+                    module_var_name,
+                );
             }
             Expr::ListComp(comp) => {
                 let comp_locals = Self::comprehension_local_vars(&comp.generators, local_vars);
