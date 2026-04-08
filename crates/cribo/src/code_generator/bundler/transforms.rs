@@ -268,11 +268,12 @@ impl Bundler<'_> {
                     // context
                     if in_conditional_context {
                         for alias in &import_stmt.names {
-                            let imported_name = alias.name.as_str();
-                            let local_name = alias
-                                .asname
-                                .as_ref()
-                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+                            // For dotted imports like `import pkg.sub`, Python only
+                            // binds the first component (`pkg`), not the full path.
+                            let local_name = alias.asname.as_ref().map_or_else(
+                                || alias.name.as_str().split('.').next().unwrap_or(""),
+                                ruff_python_ast::Identifier::as_str,
+                            );
 
                             // For conditional imports, always add module attributes for non-private
                             // symbols regardless of __all__
