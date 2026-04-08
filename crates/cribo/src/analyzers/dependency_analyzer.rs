@@ -107,16 +107,12 @@ fn classify_cycle_type(
         return CircularDependencyType::ClassLevel;
     }
 
-    // Fall back to name-based heuristics for cases the AST analysis can't determine.
-    // The "constants"/"config" heuristic is kept unconditionally: modules with these names
-    // often define cross-referencing constants that create temporal paradoxes, even if they
-    // also contain helper functions.
-    // The "class"/"_class" heuristic is removed: if AST found classes, we'd have returned
-    // ClassLevel above; if it found none, classifying based on a name is incorrect.
-    for module_name in &module_names {
-        if module_name.contains("constants") || module_name.contains("config") {
-            return CircularDependencyType::ModuleConstants;
-        }
+    // Cross-cycle module-level reads: bidirectional temporal paradox detected via AST.
+    // Two or more modules import from each other and consume those imports in module-level
+    // assignments (e.g., A_VALUE = B_VALUE + 1 / B_VALUE = A_VALUE * 2). Neither module
+    // can initialize first.
+    if analysis_result.has_cross_cycle_module_level_reads {
+        return CircularDependencyType::ModuleConstants;
     }
 
     // Default classification based on remaining heuristics
@@ -144,6 +140,9 @@ struct CycleAnalysisResult {
     has_module_level_imports: bool,
     /// Whether imports are only used within functions
     imports_used_in_functions_only: bool,
+    /// Whether 2+ modules in the cycle have module-level assignments that read
+    /// names imported from other cycle members (bidirectional temporal paradox)
+    has_cross_cycle_module_level_reads: bool,
 }
 
 /// Analyze modules in a cycle to determine their characteristics
@@ -152,13 +151,23 @@ fn analyze_cycle_modules(
     graph: &DependencyGraph,
     module_ids: &[crate::resolver::ModuleId],
 ) -> CycleAnalysisResult {
+    // Collect cycle member names for cross-cycle detection
+    let cycle_member_names: crate::types::FxIndexSet<String> = module_ids
+        .iter()
+        .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
+        .collect();
+
     let mut has_only_constants = true;
     let mut has_class_definitions = false;
     let mut has_module_level_imports = false;
     let mut imports_used_in_functions_only = true;
+    let mut modules_with_cross_cycle_reads = 0_u32;
 
     for id in module_ids {
         if let Some(module) = graph.get_module(*id) {
+            // Collect names imported from OTHER cycle members (absolute imports only)
+            let mut cross_cycle_imported_names = crate::types::FxIndexSet::<String>::default();
+
             for item in module.items.values() {
                 match &item.item_type {
                     ItemType::FunctionDef { .. } => {
@@ -168,24 +177,29 @@ fn analyze_cycle_modules(
                         has_only_constants = false;
                         has_class_definitions = true;
                     }
-                    ItemType::Import { .. } | ItemType::FromImport { .. } => {
-                        // Since we can't determine scope from ItemData directly,
-                        // check if this import is only referenced within function definitions
-                        // This is a heuristic: if an import has no direct module-level usage,
-                        // it's likely a function-scoped import
-                        let import_vars = &item.var_decls;
+                    ItemType::FromImport {
+                        module: from_module,
+                        names,
+                        level,
+                        ..
+                    } => {
+                        // Track names imported from cycle members (for cross-cycle detection)
+                        if *level == 0 && cycle_member_names.contains(from_module) {
+                            for (name, alias) in names {
+                                let local_name = alias.as_ref().unwrap_or(name);
+                                cross_cycle_imported_names.insert(local_name.clone());
+                            }
+                        }
 
-                        // Check if any of the imported names are used at module level
+                        // Existing: check if import is used at module level
+                        let import_vars = &item.var_decls;
                         let used_at_module_level = module.items.values().any(|other_item| {
-                            // Skip function and class definitions when checking usage
                             if matches!(
                                 other_item.item_type,
                                 ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
                             ) {
                                 return false;
                             }
-
-                            // Check if this item uses any of the imported variables
                             import_vars
                                 .iter()
                                 .any(|import_var| other_item.read_vars.contains(import_var))
@@ -195,15 +209,51 @@ fn analyze_cycle_modules(
                             has_module_level_imports = true;
                             imports_used_in_functions_only = false;
                         }
-                        // If not used at module level, the import is likely function-scoped
+                    }
+                    ItemType::Import { .. } => {
+                        // `import X` — check if used at module level (same as FromImport)
+                        let import_vars = &item.var_decls;
+                        let used_at_module_level = module.items.values().any(|other_item| {
+                            if matches!(
+                                other_item.item_type,
+                                ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
+                            ) {
+                                return false;
+                            }
+                            import_vars
+                                .iter()
+                                .any(|import_var| other_item.read_vars.contains(import_var))
+                        });
+
+                        if used_at_module_level {
+                            has_module_level_imports = true;
+                            imports_used_in_functions_only = false;
+                        }
                     }
                     ItemType::Assignment { .. } => {
-                        // Assignments (CONFIG = 42, etc.) are constant-like definitions.
-                        // They don't introduce functions or classes, so they don't change
-                        // the has_only_constants determination. Side effects on assignments
-                        // are tracked separately via item.has_side_effects.
+                        // Assignments are constant-like; don't clear has_only_constants.
                     }
                     _ => {}
+                }
+            }
+
+            // Check if any module-level item reads a name imported from a cycle member.
+            // This detects temporal paradoxes: `from cycle_member import X` + `Y = X + 1`
+            if !cross_cycle_imported_names.is_empty() {
+                let has_module_level_read = module.items.values().any(|item| {
+                    // Only check non-function/class/import items (module-level statements)
+                    !matches!(
+                        item.item_type,
+                        ItemType::FunctionDef { .. }
+                            | ItemType::ClassDef { .. }
+                            | ItemType::Import { .. }
+                            | ItemType::FromImport { .. }
+                    ) && cross_cycle_imported_names
+                        .iter()
+                        .any(|name| item.read_vars.contains(name))
+                });
+                if has_module_level_read {
+                    modules_with_cross_cycle_reads += 1;
                 }
             }
         }
@@ -214,6 +264,8 @@ fn analyze_cycle_modules(
         has_class_definitions,
         has_module_level_imports,
         imports_used_in_functions_only,
+        // Bidirectional temporal paradox: 2+ modules read cross-cycle imports at module level
+        has_cross_cycle_module_level_reads: modules_with_cross_cycle_reads >= 2,
     }
 }
 
