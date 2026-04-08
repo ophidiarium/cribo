@@ -29,7 +29,7 @@ pub(crate) fn analyze_circular_dependencies(graph: &DependencyGraph) -> Circular
         // Non-empty by construction (scc.len() > 1 above)
 
         let cycle_type = classify_cycle_type(graph, &module_ids);
-        let suggested_resolution = suggest_resolution_for_cycle(&cycle_type, &module_ids);
+        let suggested_resolution = suggest_resolution_for_cycle(&cycle_type);
 
         let group = CircularDependencyGroup {
             modules: module_ids,
@@ -107,13 +107,15 @@ fn classify_cycle_type(
         return CircularDependencyType::ClassLevel;
     }
 
-    // Fall back to name-based heuristics if AST analysis is inconclusive
+    // Fall back to name-based heuristics for cases the AST analysis can't determine.
+    // The "constants"/"config" heuristic is kept unconditionally: modules with these names
+    // often define cross-referencing constants that create temporal paradoxes, even if they
+    // also contain helper functions.
+    // The "class"/"_class" heuristic is removed: if AST found classes, we'd have returned
+    // ClassLevel above; if it found none, classifying based on a name is incorrect.
     for module_name in &module_names {
         if module_name.contains("constants") || module_name.contains("config") {
             return CircularDependencyType::ModuleConstants;
-        }
-        if module_name.contains("class") || module_name.ends_with("_class") {
-            return CircularDependencyType::ClassLevel;
         }
     }
 
@@ -196,8 +198,10 @@ fn analyze_cycle_modules(
                         // If not used at module level, the import is likely function-scoped
                     }
                     ItemType::Assignment { .. } => {
-                        // Not all assignments are constants
-                        has_only_constants = false;
+                        // Assignments (CONFIG = 42, etc.) are constant-like definitions.
+                        // They don't introduce functions or classes, so they don't change
+                        // the has_only_constants determination. Side effects on assignments
+                        // are tracked separately via item.has_side_effects.
                     }
                     _ => {}
                 }
@@ -249,18 +253,13 @@ fn is_parent_child_package_cycle(module_names: &[String]) -> bool {
 }
 
 /// Suggest resolution strategy for a cycle
-fn suggest_resolution_for_cycle(
-    cycle_type: &CircularDependencyType,
-    _module_ids: &[crate::resolver::ModuleId],
-) -> ResolutionStrategy {
+fn suggest_resolution_for_cycle(cycle_type: &CircularDependencyType) -> ResolutionStrategy {
     match cycle_type {
-        CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport,
-        CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport,
         CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
             reason: "Module-level constants create temporal paradox - consider moving to a shared \
                      configuration module"
                 .into(),
         },
-        CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit,
+        _ => ResolutionStrategy::Resolvable,
     }
 }
