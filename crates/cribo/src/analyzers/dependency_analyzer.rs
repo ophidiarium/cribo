@@ -167,8 +167,16 @@ fn analyze_cycle_modules(
                         level,
                         ..
                     } => {
-                        // Track names imported from cycle members (for cross-cycle detection)
-                        if *level == 0 && cycle_member_names.contains(from_module) {
+                        // Track names imported from cycle members (for cross-cycle detection).
+                        // Handle both absolute (level == 0) and relative (level > 0) imports.
+                        let resolved_source = if *level == 0 {
+                            from_module.clone()
+                        } else {
+                            // Resolve relative import: strip `level` trailing components from
+                            // the current module name and append the relative target.
+                            resolve_relative_import(&module.module_name, *level, from_module)
+                        };
+                        if cycle_member_names.contains(&resolved_source) {
                             for (name, alias) in names {
                                 let local_name = alias.as_ref().unwrap_or(name);
                                 cross_cycle_imported_names.insert(local_name.clone());
@@ -194,8 +202,20 @@ fn analyze_cycle_modules(
                             imports_used_in_functions_only = false;
                         }
                     }
-                    ItemType::Import { .. } => {
-                        // `import X` — check if used at module level (same as FromImport)
+                    ItemType::Import {
+                        module: import_module,
+                        alias,
+                    } => {
+                        // Track `import X` / `import X as Y` from cycle members.
+                        // The local name (alias or module) becomes an attribute namespace;
+                        // module-level reads of that name (e.g., `Z = X.value`) are tracked
+                        // in read_vars via the local alias.
+                        if cycle_member_names.contains(import_module) {
+                            let local_name = alias.as_ref().unwrap_or(import_module);
+                            cross_cycle_imported_names.insert(local_name.clone());
+                        }
+
+                        // Check if used at module level
                         let import_vars = &item.var_decls;
                         let used_at_module_level = module.items.values().any(|other_item| {
                             if matches!(
@@ -271,6 +291,24 @@ fn all_modules_empty_or_imports_only(
         }
     }
     true
+}
+
+/// Resolve a relative import to an absolute module name.
+///
+/// Given `current_module = "pkg.sub.mod"`, `level = 1`, `target = "sibling"`,
+/// returns `"pkg.sub.sibling"`. For `level = 2`, returns `"pkg.sibling"`.
+fn resolve_relative_import(current_module: &str, level: u32, target: &str) -> String {
+    let parts: Vec<&str> = current_module.split('.').collect();
+    // level dots strip that many trailing components from the current module path
+    let keep = parts.len().saturating_sub(level as usize);
+    let base: Vec<&str> = parts[..keep].to_vec();
+    if target.is_empty() {
+        base.join(".")
+    } else if base.is_empty() {
+        target.to_owned()
+    } else {
+        format!("{}.{target}", base.join("."))
+    }
 }
 
 /// Check if modules form a parent-child package relationship
