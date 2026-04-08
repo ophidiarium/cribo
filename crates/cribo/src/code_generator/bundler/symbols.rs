@@ -733,10 +733,20 @@ impl Bundler<'_> {
         for stmt in statements {
             match &stmt {
                 Stmt::FunctionDef(func_def) => {
-                    symbol_to_stmt.insert(func_def.name.to_string(), stmt);
+                    let name = func_def.name.to_string();
+                    if symbol_to_stmt.contains_key(&name) {
+                        other_stmts.push(stmt);
+                    } else {
+                        symbol_to_stmt.insert(name, stmt);
+                    }
                 }
                 Stmt::ClassDef(class_def) => {
-                    symbol_to_stmt.insert(class_def.name.to_string(), stmt);
+                    let name = class_def.name.to_string();
+                    if symbol_to_stmt.contains_key(&name) {
+                        other_stmts.push(stmt);
+                    } else {
+                        symbol_to_stmt.insert(name, stmt);
+                    }
                 }
                 Stmt::Assign(assign) => {
                     if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
