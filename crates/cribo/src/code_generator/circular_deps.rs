@@ -352,13 +352,16 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
         }
         Expr::Lambda(lambda) => {
             // Lambda body is evaluated lazily, but defaults are not
-            for param in lambda
-                .parameters
-                .as_ref()
-                .map_or([].as_slice(), |p| p.args.as_slice())
-            {
-                if let Some(default) = &param.default {
-                    collect_names_from_expr(default, refs);
+            if let Some(params) = &lambda.parameters {
+                for param in params
+                    .args
+                    .iter()
+                    .chain(&params.posonlyargs)
+                    .chain(&params.kwonlyargs)
+                {
+                    if let Some(default) = &param.default {
+                        collect_names_from_expr(default, refs);
+                    }
                 }
             }
         }
@@ -513,13 +516,16 @@ impl<'a> Visitor<'a> for ClassBodyRefCollector<'_> {
             }
             Expr::Lambda(lambda) => {
                 // Lambda body is deferred, but defaults are definition-time
-                for param in lambda
-                    .parameters
-                    .as_ref()
-                    .map_or([].as_slice(), |p| p.args.as_slice())
-                {
-                    if let Some(default) = &param.default {
-                        collect_names_from_expr(default, self.refs);
+                if let Some(params) = &lambda.parameters {
+                    for param in params
+                        .args
+                        .iter()
+                        .chain(&params.posonlyargs)
+                        .chain(&params.kwonlyargs)
+                    {
+                        if let Some(default) = &param.default {
+                            collect_names_from_expr(default, self.refs);
+                        }
                     }
                 }
             }
