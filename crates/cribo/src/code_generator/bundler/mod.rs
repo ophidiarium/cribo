@@ -769,6 +769,11 @@ impl<'a> Bundler<'a> {
 
     /// Populate symbol dependency graph for circular modules so that
     /// `reorder_statements_for_circular_module` can topologically sort symbols.
+    ///
+    /// NOTE: This data is currently unused at runtime — see the reachability
+    /// comment on `reorder_statements_for_circular_module` in `symbols.rs`.
+    /// The graph is populated proactively so the infrastructure is ready when
+    /// the classifier is refined to allow inlining certain circular modules.
     fn populate_symbol_dep_graph(
         &mut self,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,

@@ -397,21 +397,24 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
             }
         }
         Expr::ListComp(comp) => {
-            collect_names_from_expr(&comp.elt, refs);
-            collect_names_from_comprehensions(&comp.generators, refs);
+            collect_names_from_comprehension_scoped(&comp.generators, &[&comp.elt], refs);
         }
         Expr::SetComp(comp) => {
-            collect_names_from_expr(&comp.elt, refs);
-            collect_names_from_comprehensions(&comp.generators, refs);
+            collect_names_from_comprehension_scoped(&comp.generators, &[&comp.elt], refs);
         }
         Expr::DictComp(comp) => {
-            collect_names_from_expr(&comp.key, refs);
-            collect_names_from_expr(&comp.value, refs);
-            collect_names_from_comprehensions(&comp.generators, refs);
+            collect_names_from_comprehension_scoped(
+                &comp.generators,
+                &[&comp.key, &comp.value],
+                refs,
+            );
         }
         Expr::Generator(generator_expr) => {
-            collect_names_from_expr(&generator_expr.elt, refs);
-            collect_names_from_comprehensions(&generator_expr.generators, refs);
+            collect_names_from_comprehension_scoped(
+                &generator_expr.generators,
+                &[&generator_expr.elt],
+                refs,
+            );
         }
         _ => {
             // Literals, etc. — no name references
@@ -419,16 +422,45 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
     }
 }
 
-/// Collect name references from comprehension generators (iter + ifs).
-/// Generator targets are local bindings and are intentionally skipped.
-fn collect_names_from_comprehensions(
+/// Collect name references from a comprehension with proper target scoping.
+///
+/// Generator `iter` expressions reference the outer scope (collected directly).
+/// `elt`/`key`/`value` and `ifs` are in the comprehension scope — names bound
+/// by generator targets are excluded to avoid false dependency edges.
+fn collect_names_from_comprehension_scoped(
     generators: &[ruff_python_ast::Comprehension],
+    body_exprs: &[&Expr],
     refs: &mut FxIndexSet<String>,
 ) {
+    // Collect all target-bound names (comprehension-local bindings)
+    let mut target_names = FxIndexSet::default();
+    for generator in generators {
+        for name in crate::visitors::utils::collect_names_from_assignment_target(&generator.target)
+        {
+            target_names.insert(name.to_owned());
+        }
+    }
+
+    // Generator iters reference the outer scope — collect directly
     for generator in generators {
         collect_names_from_expr(&generator.iter, refs);
+    }
+
+    // Collect from body expressions and ifs into a temp set, then exclude targets
+    let mut inner_refs = FxIndexSet::default();
+    for body_expr in body_exprs {
+        collect_names_from_expr(body_expr, &mut inner_refs);
+    }
+    for generator in generators {
         for if_clause in &generator.ifs {
-            collect_names_from_expr(if_clause, refs);
+            collect_names_from_expr(if_clause, &mut inner_refs);
+        }
+    }
+
+    // Add only names that aren't comprehension-local
+    for name in inner_refs {
+        if !target_names.contains(&name) {
+            refs.insert(name);
         }
     }
 }

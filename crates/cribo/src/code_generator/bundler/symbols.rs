@@ -670,6 +670,26 @@ impl Bundler<'_> {
     }
 
     /// Reorder statements in a module based on symbol dependencies for circular modules
+    /// Reorder statements within a circular module based on symbol dependency order.
+    ///
+    /// # Current reachability (as of the bundler split refactor)
+    ///
+    /// This function is called from two sites:
+    /// 1. **`inliner.rs`** — for inlined circular modules. However, the module classifier
+    ///    (`module_classifier.rs:217`) forces ALL circular modules into wrapper mode
+    ///    (`needs_wrapping_for_circular`), so no circular module is ever inlined. This call site is
+    ///    currently unreachable.
+    /// 2. **`entry_module.rs`** — for the entry module when it's part of a circular dependency.
+    ///    However, this function returns early for entry modules (see `is_entry_module` check
+    ///    below), so the reordering logic is never executed for this case either.
+    ///
+    /// As a result, `get_module_symbols_ordered()` and the `SymbolDependencyGraph` data
+    /// populated by `populate_from_ast()` are effectively unused at runtime. The code is
+    /// retained because:
+    /// - It is architecturally correct and will become reachable if the classifier is refined to
+    ///   allow inlining certain circular modules (e.g., function-level cycles).
+    /// - The `populate_from_ast` + topological sort logic has been reviewed and improved during
+    ///   this refactor (`AnnAssign`, comprehension scoping, f-string support).
     pub(crate) fn reorder_statements_for_circular_module(
         &self,
         module_name: &str,
