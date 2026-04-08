@@ -333,8 +333,96 @@ impl Bundler<'_> {
                         }
                     }
                 }
+                Stmt::For(for_stmt) => {
+                    let processed_body = self.process_body_recursive_impl(
+                        for_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                        true,
+                    );
+                    let processed_orelse = self.process_body_recursive_impl(
+                        for_stmt.orelse.clone(),
+                        module_name,
+                        module_scope_symbols,
+                        true,
+                    );
+                    result.push(Stmt::For(ruff_python_ast::StmtFor {
+                        node_index: for_stmt.node_index.clone(),
+                        target: for_stmt.target.clone(),
+                        iter: for_stmt.iter.clone(),
+                        body: processed_body,
+                        orelse: processed_orelse,
+                        is_async: for_stmt.is_async,
+                        range: for_stmt.range,
+                    }));
+                }
+                Stmt::While(while_stmt) => {
+                    let processed_body = self.process_body_recursive_impl(
+                        while_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                        true,
+                    );
+                    let processed_orelse = self.process_body_recursive_impl(
+                        while_stmt.orelse.clone(),
+                        module_name,
+                        module_scope_symbols,
+                        true,
+                    );
+                    result.push(Stmt::While(ruff_python_ast::StmtWhile {
+                        node_index: while_stmt.node_index.clone(),
+                        test: while_stmt.test.clone(),
+                        body: processed_body,
+                        orelse: processed_orelse,
+                        range: while_stmt.range,
+                    }));
+                }
+                Stmt::With(with_stmt) => {
+                    let processed_body = self.process_body_recursive_impl(
+                        with_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                        true,
+                    );
+                    result.push(Stmt::With(ruff_python_ast::StmtWith {
+                        node_index: with_stmt.node_index.clone(),
+                        items: with_stmt.items.clone(),
+                        body: processed_body,
+                        is_async: with_stmt.is_async,
+                        range: with_stmt.range,
+                    }));
+                }
+                Stmt::Match(match_stmt) => {
+                    let processed_cases = match_stmt
+                        .cases
+                        .iter()
+                        .map(|case| {
+                            let processed_body = self.process_body_recursive_impl(
+                                case.body.clone(),
+                                module_name,
+                                module_scope_symbols,
+                                true,
+                            );
+                            ruff_python_ast::MatchCase {
+                                node_index: case.node_index.clone(),
+                                pattern: case.pattern.clone(),
+                                guard: case.guard.clone(),
+                                body: processed_body,
+                                range: case.range,
+                            }
+                        })
+                        .collect();
+                    result.push(Stmt::Match(ruff_python_ast::StmtMatch {
+                        node_index: match_stmt.node_index.clone(),
+                        subject: match_stmt.subject.clone(),
+                        cases: processed_cases,
+                        range: match_stmt.range,
+                    }));
+                }
                 _ => {
-                    // For other statements, just add them as-is
+                    // For other statements (FunctionDef, ClassDef, Pass, Break, etc.),
+                    // add as-is — they don't contain nested imports/assignments that
+                    // need module export syncing
                     result.push(stmt.clone());
                 }
             }
