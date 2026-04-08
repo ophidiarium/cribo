@@ -818,19 +818,7 @@ impl<'a> Bundler<'a> {
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         entry_module_name: &str,
     ) -> FxIndexSet<String> {
-        // Convert to old format temporarily for ImportAnalyzer
-        let modules_with_names: Vec<(String, ModModule, PathBuf, String)> = modules
-            .iter()
-            .map(|(id, (ast, path, hash))| {
-                let name = self
-                    .resolver
-                    .get_module_name(*id)
-                    .expect("Module name must exist for ModuleId");
-                (name, ast.clone(), path.clone(), hash.clone())
-            })
-            .collect();
-        // Use ImportAnalyzer to find directly imported modules
-        ImportAnalyzer::find_directly_imported_modules(&modules_with_names, entry_module_name)
+        ImportAnalyzer::find_directly_imported_modules(modules, self.resolver, entry_module_name)
     }
 
     /// Find modules that are imported as namespaces
@@ -838,33 +826,8 @@ impl<'a> Bundler<'a> {
         &mut self,
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
     ) {
-        // Convert to old format temporarily for ImportAnalyzer
-        let modules_with_names: Vec<(String, ModModule, PathBuf, String)> = modules
-            .iter()
-            .map(|(id, (ast, path, hash))| {
-                let name = self
-                    .resolver
-                    .get_module_name(*id)
-                    .expect("Module name must exist for ModuleId");
-                (name, ast.clone(), path.clone(), hash.clone())
-            })
-            .collect();
-
-        // Use ImportAnalyzer to find namespace imported modules
-        let string_based = ImportAnalyzer::find_namespace_imported_modules(&modules_with_names);
-
-        // Convert String-based map to ModuleId-based
-        self.namespace_imported_modules = string_based
-            .into_iter()
-            .filter_map(|(module_name, imports)| {
-                let module_id = self.get_module_id(&module_name)?;
-                let import_ids: FxIndexSet<ModuleId> = imports
-                    .into_iter()
-                    .filter_map(|import_name| self.get_module_id(&import_name))
-                    .collect();
-                Some((module_id, import_ids))
-            })
-            .collect();
+        self.namespace_imported_modules =
+            ImportAnalyzer::find_namespace_imported_modules(modules, self.resolver);
 
         log::debug!(
             "Found {} namespace imported modules: {:?}",
