@@ -32,7 +32,6 @@ impl ImportAnalyzer {
     pub(crate) fn find_directly_imported_modules(
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         resolver: &ModuleResolver,
-        _entry_module_name: &str,
     ) -> FxIndexSet<String> {
         let mut directly_imported = FxIndexSet::default();
 
@@ -966,8 +965,7 @@ def other_func():
             ("module_c", ast2, PathBuf::from("module_c.py"), "hash4"),
         ]);
 
-        let directly_imported =
-            ImportAnalyzer::find_directly_imported_modules(&modules, &resolver, "test_module");
+        let directly_imported = ImportAnalyzer::find_directly_imported_modules(&modules, &resolver);
 
         assert_eq!(directly_imported.len(), 3);
         assert!(directly_imported.contains("module_a"));
@@ -1060,8 +1058,7 @@ match x:
             ),
         ]);
 
-        let directly_imported =
-            ImportAnalyzer::find_directly_imported_modules(&modules, &resolver, "test_module");
+        let directly_imported = ImportAnalyzer::find_directly_imported_modules(&modules, &resolver);
 
         // All imports should be found
         assert_eq!(directly_imported.len(), 8);

@@ -806,7 +806,7 @@ impl<'a> Bundler<'a> {
 
         // Check which modules are imported directly (e.g., import module_name)
         let directly_imported_modules =
-            self.find_directly_imported_modules(modules, &self.entry_module_name);
+            ImportAnalyzer::find_directly_imported_modules(modules, self.resolver);
         log::debug!("Directly imported modules: {directly_imported_modules:?}");
 
         // Find modules that are imported as namespaces (e.g., from models import base)
@@ -833,15 +833,6 @@ impl<'a> Bundler<'a> {
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
     pub(crate) fn get_rewritten_stdlib_path(module_name: &str) -> String {
         format!("{}.{module_name}", crate::ast_builder::CRIBO_PREFIX)
-    }
-
-    /// Find modules that are imported directly
-    pub(super) fn find_directly_imported_modules(
-        &self,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
-        entry_module_name: &str,
-    ) -> FxIndexSet<String> {
-        ImportAnalyzer::find_directly_imported_modules(modules, self.resolver, entry_module_name)
     }
 
     /// Find modules that are imported as namespaces
