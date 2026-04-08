@@ -298,6 +298,17 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
             collect_names_from_expr(&sub.value, refs);
             collect_names_from_expr(&sub.slice, refs);
         }
+        Expr::Slice(slice) => {
+            if let Some(lower) = &slice.lower {
+                collect_names_from_expr(lower, refs);
+            }
+            if let Some(upper) = &slice.upper {
+                collect_names_from_expr(upper, refs);
+            }
+            if let Some(step) = &slice.step {
+                collect_names_from_expr(step, refs);
+            }
+        }
         Expr::BinOp(op) => {
             collect_names_from_expr(&op.left, refs);
             collect_names_from_expr(&op.right, refs);
