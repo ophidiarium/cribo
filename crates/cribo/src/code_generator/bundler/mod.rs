@@ -785,9 +785,8 @@ impl<'a> Bundler<'a> {
             // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove
             // "yaml" as they're the same file (yaml/__init__.py)
             if self.entry_is_package_init_or_main
-                && let Some(entry_pkg) = self.entry_package_name()
+                && let Some(entry_pkg) = self.infer_entry_root_package()
             {
-                let entry_pkg = entry_pkg.to_owned(); // Convert to owned string to avoid borrow issues
                 // Remove the specific entry package from circular modules
                 if self
                     .get_module_id(&entry_pkg)
