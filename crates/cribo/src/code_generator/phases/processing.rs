@@ -7,7 +7,10 @@
 //! - Two-phase emission for circular dependencies
 //! - Inlinable and wrapper module handling
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use ruff_python_ast::Stmt;
 
@@ -51,7 +54,7 @@ impl ProcessingPhase {
         bundler: &mut Bundler<'_>,
         params: &BundleParams<'_>,
         classification: &ClassificationResult,
-        modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ruff_python_ast::ModModule>, PathBuf, String)>,
         symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         global_symbols: &mut FxIndexSet<String>,
     ) -> (Vec<Stmt>, FxIndexSet<ModuleId>) {
@@ -123,7 +126,9 @@ impl ProcessingPhase {
                 wrapper_set.contains(module_id)
             );
 
-            let (ast, path, _hash) = modules.get(module_id).expect("Module should exist").clone();
+            let (arc_ast, path, _hash) =
+                modules.get(module_id).expect("Module should exist").clone();
+            let ast = Arc::unwrap_or_clone(arc_ast);
 
             if inlinable_set.contains(module_id) {
                 Self::process_inlinable_module(
@@ -166,7 +171,7 @@ impl ProcessingPhase {
     fn analyze_wrapper_dependencies(
         bundler: &Bundler<'_>,
         classification: &ClassificationResult,
-        _modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
+        _modules: &FxIndexMap<ModuleId, (Arc<ruff_python_ast::ModModule>, PathBuf, String)>,
     ) {
         // Check if any wrapper participates in circular dependencies
         let has_circular_wrapped_modules = classification
@@ -293,7 +298,7 @@ impl ProcessingPhase {
         bundler: &mut Bundler<'_>,
         group_idx: usize,
         circular_ctx: &CircularGroupContext,
-        modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ruff_python_ast::ModModule>, PathBuf, String)>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         python_version: u8,
         all_inlined_stmts: &mut Vec<Stmt>,
@@ -382,7 +387,8 @@ impl ProcessingPhase {
 
         // Phase B: Define init functions
         for (mid, mname) in &members {
-            let (ast, path, _hash) = modules.get(mid).expect("cycle member must exist").clone();
+            let (arc_ast, path, _hash) = modules.get(mid).expect("cycle member must exist").clone();
+            let ast = Arc::unwrap_or_clone(arc_ast);
 
             let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
             let is_in_circular = circular_ctx.member_to_group.contains_key(mid);
@@ -553,7 +559,7 @@ impl ProcessingPhase {
         path: &Path,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         python_version: u8,
-        modules: &FxIndexMap<ModuleId, (ruff_python_ast::ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ruff_python_ast::ModModule>, PathBuf, String)>,
         all_inlined_stmts: &mut Vec<Stmt>,
     ) {
         use crate::{

@@ -4,7 +4,7 @@ mod imports;
 mod symbols;
 mod transforms;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use ruff_python_ast::{AtomicNodeIndex, Expr, ModModule, Stmt, StmtAssign, StmtImportFrom};
 
@@ -71,7 +71,7 @@ pub(crate) struct Bundler<'a> {
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
-    pub(crate) module_asts: Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
+    pub(crate) module_asts: Option<FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>>,
     /// Track all namespaces that need to be created before module initialization
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
@@ -644,7 +644,7 @@ impl<'a> Bundler<'a> {
     /// Collect symbol renames from semantic analysis
     pub(crate) fn collect_symbol_renames(
         &mut self,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
         semantic_ctx: &SemanticContext<'_>,
     ) -> FxIndexMap<ModuleId, FxIndexMap<String, String>> {
         let mut symbol_renames = FxIndexMap::default();
@@ -661,10 +661,15 @@ impl<'a> Bundler<'a> {
     pub(crate) fn prepare_modules(
         &mut self,
         params: &BundleParams<'a>,
-    ) -> FxIndexMap<ModuleId, (ModModule, PathBuf, String)> {
+    ) -> FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)> {
         self.identify_circular_modules(params.circular_dep_analysis);
-        let mut modules = self.build_and_trim_modules(params);
-        self.index_module_asts(&mut modules);
+        let mut modules_owned = self.build_and_trim_modules(params);
+        self.index_module_asts(&mut modules_owned);
+        // Convert to Arc map — cheap reference-count bumps, no AST data is copied
+        let modules: FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)> = modules_owned
+            .into_iter()
+            .map(|(id, (ast, path, hash))| (id, (Arc::new(ast), path, hash)))
+            .collect();
         self.module_asts = Some(modules.clone());
         self.populate_symbol_dep_graph(&modules);
         self.track_module_relationships(&modules, params);
@@ -780,7 +785,7 @@ impl<'a> Bundler<'a> {
     /// the classifier is refined to allow inlining certain circular modules.
     fn populate_symbol_dep_graph(
         &mut self,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
     ) {
         for module_id in &self.circular_modules {
             if let Some((ast, _, _)) = modules.get(module_id) {
@@ -796,7 +801,7 @@ impl<'a> Bundler<'a> {
     /// Track bundled modules, find import relationships, and clean up circular module entries.
     fn track_module_relationships(
         &mut self,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
         params: &BundleParams<'a>,
     ) {
         for module_id in modules.keys() {
@@ -844,7 +849,7 @@ impl<'a> Bundler<'a> {
     /// Find modules that are imported as namespaces
     pub(crate) fn find_namespace_imported_modules(
         &mut self,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
     ) {
         self.namespace_imported_modules =
             ImportAnalyzer::find_namespace_imported_modules(modules, self.resolver);

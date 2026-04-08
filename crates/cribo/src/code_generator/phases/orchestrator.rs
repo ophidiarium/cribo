@@ -4,6 +4,8 @@
 //! The `PhaseOrchestrator` coordinates the execution of individual bundling phases
 //! and manages data flow between them.
 
+use std::sync::Arc;
+
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_text_size::TextRange;
 
@@ -82,7 +84,7 @@ impl PhaseOrchestrator {
         log::debug!("[Orchestrator] Phase 5: Global Symbol Collection");
         let modules_vec: Vec<(ModuleId, &ModModule, &std::path::Path, &str)> = modules
             .iter()
-            .map(|(id, (ast, path, hash))| (*id, ast, path.as_path(), hash.as_str()))
+            .map(|(id, (ast, path, hash))| (*id, &**ast, path.as_path(), hash.as_str()))
             .collect();
         let mut global_symbols = SymbolAnalyzer::collect_global_symbols(&modules_vec);
 
@@ -138,7 +140,7 @@ impl PhaseOrchestrator {
     /// Handle entry module symbol renaming to avoid namespace collisions
     fn handle_entry_symbol_renaming(
         bundler: &Bundler<'_>,
-        modules: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, std::path::PathBuf, String)>,
         symbol_renames: &mut FxIndexMap<ModuleId, FxIndexMap<String, String>>,
     ) {
         use ruff_python_ast::Stmt;

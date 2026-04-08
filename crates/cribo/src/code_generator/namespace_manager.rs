@@ -3,7 +3,7 @@
 //! This module provides functions for creating and managing Python namespace objects
 //! that simulate module structures in bundled code.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use log::{debug, warn};
 use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImportFrom};
@@ -47,7 +47,7 @@ pub(crate) struct NamespacePopulationContext<'a> {
     pub modules_with_accessed_all: &'a FxIndexSet<(ModuleId, String)>,
     pub wrapper_modules: &'a FxIndexSet<ModuleId>,
     pub modules_with_explicit_all: &'a FxIndexSet<ModuleId>,
-    pub module_asts: &'a Option<FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
+    pub module_asts: &'a Option<FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>>,
     pub module_init_functions: &'a FxIndexMap<ModuleId, String>,
     pub resolver: &'a crate::resolver::ModuleResolver,
 }
@@ -902,7 +902,7 @@ fn find_symbol_source_module(
 /// Heuristic: detect dynamic __all__ usage pattern in any module that wildcard-imports from
 /// `target_module` and uses `setattr` (e.g., httpx-like pattern).
 fn any_module_wildcard_imports_and_uses_setattr(
-    module_asts: Option<&FxIndexMap<ModuleId, (ModModule, PathBuf, String)>>,
+    module_asts: Option<&FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>>,
     resolver: &crate::resolver::ModuleResolver,
     target_module: &str,
     current_module_id: ModuleId,

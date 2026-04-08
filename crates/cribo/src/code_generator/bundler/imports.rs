@@ -1,6 +1,6 @@
 //! Import routing, resolution, wrapper module initialization, and namespace creation.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprContext, Keyword, ModModule, Stmt, StmtImportFrom,
@@ -82,7 +82,7 @@ impl Bundler<'_> {
         &self,
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
-        wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
+        wrapper_modules_saved: &[(ModuleId, Arc<ModModule>, PathBuf, String)],
     ) -> Vec<ModuleId> {
         let mut found = Vec::new();
         if import_from.level == 0 || import_from.module.is_some() {
@@ -111,7 +111,7 @@ impl Bundler<'_> {
         &self,
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
-        wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
+        wrapper_modules_saved: &[(ModuleId, Arc<ModModule>, PathBuf, String)],
     ) -> Option<ModuleId> {
         let resolved = if import_from.level > 0 {
             self.resolver.resolve_relative_to_absolute_module_name(
@@ -137,7 +137,7 @@ impl Bundler<'_> {
         module_id: ModuleId,
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
-        wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
+        wrapper_modules_saved: &[(ModuleId, Arc<ModModule>, PathBuf, String)],
         needed: &mut FxIndexSet<ModuleId>,
     ) {
         let module_name_str = || {
@@ -175,7 +175,7 @@ impl Bundler<'_> {
         module_id: ModuleId,
         import_from: &StmtImportFrom,
         module_path: &std::path::Path,
-        wrapper_modules_saved: &[(ModuleId, ModModule, PathBuf, String)],
+        wrapper_modules_saved: &[(ModuleId, Arc<ModModule>, PathBuf, String)],
         deps: &mut FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
     ) {
         for wrapper_id in self.resolve_relative_import_wrapper_aliases(

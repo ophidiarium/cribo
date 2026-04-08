@@ -1,6 +1,6 @@
 //! Utilities for finding the source module of imported symbols.
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
 
@@ -26,7 +26,7 @@ use crate::{
 /// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper
 ///   module
 pub(crate) fn find_symbol_source_from_wrapper_module(
-    module_asts: &FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
+    module_asts: &FxIndexMap<ModuleId, (Arc<ModModule>, std::path::PathBuf, String)>,
     resolver: &ModuleResolver,
     wrapper_modules: &FxIndexSet<ModuleId>,
     module_name: &str,

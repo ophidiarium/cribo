@@ -6,6 +6,8 @@
 //! - Child module exposure at module level
 //! - Namespace attachment for package __init__.py
 
+use std::sync::Arc;
+
 use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
@@ -50,12 +52,13 @@ impl EntryModulePhase {
         &self,
         bundler: &Bundler<'_>,
         params: &BundleParams<'_>,
-        modules: &mut FxIndexMap<ModuleId, (ModModule, std::path::PathBuf, String)>,
+        modules: &mut FxIndexMap<ModuleId, (Arc<ModModule>, std::path::PathBuf, String)>,
         symbol_renames: &FxIndexMap<ModuleId, FxIndexMap<String, String>>,
         final_body: &[Stmt],
     ) -> Option<EntryModuleProcessingResult> {
         // Extract entry module
-        let (mut ast, _module_path, _) = modules.shift_remove(&ModuleId::ENTRY)?;
+        let (arc_ast, _module_path, _) = modules.shift_remove(&ModuleId::ENTRY)?;
+        let mut ast = Arc::unwrap_or_clone(arc_ast);
 
         let module_name = bundler
             .resolver
