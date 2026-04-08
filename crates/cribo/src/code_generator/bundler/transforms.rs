@@ -1451,6 +1451,31 @@ impl Bundler<'_> {
                     current_function_globals,
                 );
             }
+            Stmt::AnnAssign(ann_assign) => {
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
+                    &mut ann_assign.target,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
+                    &mut ann_assign.annotation,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                if let Some(value) = &mut ann_assign.value {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        value,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+            }
             Stmt::Try(try_stmt) => {
                 // Transform try block body
                 for stmt in &mut try_stmt.body {
@@ -1512,8 +1537,116 @@ impl Bundler<'_> {
                     );
                 }
             }
+            Stmt::With(with_stmt) => {
+                for item in &mut with_stmt.items {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        &mut item.context_expr,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                    if let Some(var) = &mut item.optional_vars {
+                        expression_handlers::transform_expr_for_lifted_globals(
+                            self,
+                            var,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
+                    }
+                }
+                for stmt in &mut with_stmt.body {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                        module_name,
+                    );
+                }
+            }
+            Stmt::Match(match_stmt) => {
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
+                    &mut match_stmt.subject,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                for case in &mut match_stmt.cases {
+                    if let Some(guard) = &mut case.guard {
+                        expression_handlers::transform_expr_for_lifted_globals(
+                            self,
+                            guard,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
+                    }
+                    for stmt in &mut case.body {
+                        self.transform_stmt_for_lifted_globals(
+                            stmt,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                            module_name,
+                        );
+                    }
+                }
+            }
+            Stmt::Assert(assert_stmt) => {
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
+                    &mut assert_stmt.test,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                if let Some(msg) = &mut assert_stmt.msg {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        msg,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+            }
+            Stmt::Delete(delete_stmt) => {
+                for target in &mut delete_stmt.targets {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        target,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+            }
+            Stmt::Raise(raise_stmt) => {
+                if let Some(exc) = &mut raise_stmt.exc {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        exc,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+                if let Some(cause) = &mut raise_stmt.cause {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        cause,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+            }
             _ => {
-                // Other statement types handled as needed
+                // Remaining: Import, ImportFrom, Pass, Break, Continue, Global, Nonlocal,
+                // TypeAlias, IpyEscapeCommand — none contain name expressions to rewrite
             }
         }
     }
