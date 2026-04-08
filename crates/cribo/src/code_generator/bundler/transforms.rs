@@ -1258,33 +1258,12 @@ impl Bundler<'_> {
                 );
             }
             Expr::FString(fstring) => {
-                for part in &mut fstring.value {
-                    if let ruff_python_ast::FStringPart::FString(f) = part {
-                        for elem in &mut *f.elements {
-                            if let Some(interp) = elem.as_interpolation_mut() {
-                                Self::transform_expr_for_module_vars_with_locals(
-                                    &mut interp.expression,
-                                    module_level_vars,
-                                    local_vars,
-                                    module_var_name,
-                                );
-                                // Format spec can contain expressions: f"{value:{width}}"
-                                if let Some(spec) = &mut interp.format_spec {
-                                    for spec_elem in &mut *spec.elements {
-                                        if let Some(nested) = spec_elem.as_interpolation_mut() {
-                                            Self::transform_expr_for_module_vars_with_locals(
-                                                &mut nested.expression,
-                                                module_level_vars,
-                                                local_vars,
-                                                module_var_name,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                Self::transform_fstring_for_module_vars(
+                    fstring,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
             }
             Expr::Named(named) => {
                 Self::transform_expr_for_module_vars_with_locals(
@@ -1298,6 +1277,48 @@ impl Bundler<'_> {
                 // Remaining: literals (NumberLiteral, StringLiteral, BytesLiteral,
                 // BooleanLiteral, NoneLiteral, EllipsisLiteral), Slice, IpyEscapeCommand
                 // — none contain rewritable name references
+            }
+        }
+    }
+
+    /// Transform f-string interpolation expressions for module-level variable rewrites.
+    fn transform_fstring_for_module_vars(
+        fstring: &mut ruff_python_ast::ExprFString,
+        module_level_vars: &FxIndexSet<String>,
+        local_vars: &FxIndexSet<String>,
+        module_var_name: &str,
+    ) {
+        let interpolations = fstring
+            .value
+            .iter_mut()
+            .filter_map(|part| match part {
+                ruff_python_ast::FStringPart::FString(f) => Some(&mut *f.elements),
+                ruff_python_ast::FStringPart::Literal(_) => None,
+            })
+            .flatten()
+            .filter_map(|elem| elem.as_interpolation_mut());
+
+        for interp in interpolations {
+            Self::transform_expr_for_module_vars_with_locals(
+                &mut interp.expression,
+                module_level_vars,
+                local_vars,
+                module_var_name,
+            );
+            let Some(spec) = &mut interp.format_spec else {
+                continue;
+            };
+            for nested in spec
+                .elements
+                .iter_mut()
+                .filter_map(|e| e.as_interpolation_mut())
+            {
+                Self::transform_expr_for_module_vars_with_locals(
+                    &mut nested.expression,
+                    module_level_vars,
+                    local_vars,
+                    module_var_name,
+                );
             }
         }
     }
