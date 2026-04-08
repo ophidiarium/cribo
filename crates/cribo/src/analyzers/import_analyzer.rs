@@ -432,38 +432,49 @@ impl ImportAnalyzer {
     ) {
         match stmt {
             Stmt::ImportFrom(import_from) => {
-                if let Some(module_name) = &import_from.module {
-                    let module_str = module_name.to_string();
-                    debug!(
-                        "Checking ImportFrom: from {module_str} import ... in module \
-                         {importing_module}"
-                    );
+                let module_str = if import_from.level == 0 {
+                    // Absolute import: use module name directly
+                    let Some(module_name) = &import_from.module else {
+                        // `from import x` without a module — skip
+                        return;
+                    };
+                    module_name.to_string()
+                } else {
+                    // Relative import: resolve against importing module
+                    crate::resolver::resolve_relative_import_from_name(
+                        import_from.level,
+                        import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                        importing_module,
+                    )
+                };
+                debug!(
+                    "Checking ImportFrom: from {module_str} import ... in module \
+                     {importing_module}"
+                );
 
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.to_string();
+                for alias in &import_from.names {
+                    let imported_name = alias.name.to_string();
 
-                        // Check if this imports a module (namespace import)
-                        let full_module_path = format!("{module_str}.{imported_name}");
+                    // Check if this imports a module (namespace import)
+                    let full_module_path = format!("{module_str}.{imported_name}");
 
-                        // Check if this is importing a module we're bundling
-                        let is_namespace_import = module_names.contains(full_module_path.as_str());
+                    // Check if this is importing a module we're bundling
+                    let is_namespace_import = module_names.contains(full_module_path.as_str());
 
-                        if is_namespace_import {
-                            // Find the actual module ID that matched
-                            if let Some(actual_module_id) = Self::find_matching_module_id_namespace(
-                                name_to_id,
-                                &full_module_path,
-                            ) {
-                                debug!(
-                                    "  Found namespace import: from {module_name} import \
-                                     {imported_name} -> {full_module_path} in module \
-                                     {importing_module}"
-                                );
-                                namespace_imported_modules
-                                    .entry(actual_module_id)
-                                    .or_default()
-                                    .insert(importing_module_id);
-                            }
+                    if is_namespace_import {
+                        // Find the actual module ID that matched
+                        if let Some(actual_module_id) =
+                            Self::find_matching_module_id_namespace(name_to_id, &full_module_path)
+                        {
+                            debug!(
+                                "  Found namespace import: from {module_str} import \
+                                 {imported_name} -> {full_module_path} in module \
+                                 {importing_module}"
+                            );
+                            namespace_imported_modules
+                                .entry(actual_module_id)
+                                .or_default()
+                                .insert(importing_module_id);
                         }
                     }
                 }

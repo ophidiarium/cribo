@@ -54,9 +54,6 @@ def _cribo_init___cribo_9a2a8c_mypkg(self):
     self.__initializing__ = True
     global mypkg_console
     """Package with modules including one named 'abc' (same as stdlib)."""
-    abc = mypkg.abc
-    self.abc = abc
-    self.abc = abc
     mypkg_console = _cribo_init___cribo_6558da_mypkg_console(mypkg_console)
     console = mypkg.console
     self.console = console
@@ -86,8 +83,7 @@ def _cribo_init___cribo_6558da_mypkg_console(self):
     ctypes = _cribo.ctypes
     self.ctypes = ctypes
     self.ctypes = ctypes
-    local_abc = mypkg.abc
-    self.local_abc = local_abc
+    local_abc = mypkg_abc
     self.local_abc = local_abc
 
     def test_function():

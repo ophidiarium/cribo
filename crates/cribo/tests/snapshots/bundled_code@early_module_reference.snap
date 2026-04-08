@@ -69,6 +69,8 @@ def _cribo_init___cribo_b0d212_mypkg(self):
     mypkg_api = _cribo_init___cribo_d2a83c_mypkg_api(mypkg_api)
     api = mypkg.api
     self.api = api
+    sessions = mypkg_sessions
+    self.sessions = sessions
     self.__initialized__ = True
     self.__initializing__ = False
     return self
@@ -80,8 +82,7 @@ def _cribo_init___cribo_d2a83c_mypkg_api(self):
         return self
     self.__initializing__ = True
     """API module that references sessions module early.\n\nThis reproduces the issue where a module-level variable references\nanother module before it's fully initialized.\n"""
-    sessions = mypkg.sessions
-    self.sessions = sessions
+    sessions = mypkg_sessions
     self.sessions = sessions
     session_ref = sessions
     self.session_ref = session_ref
