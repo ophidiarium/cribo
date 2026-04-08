@@ -1,4 +1,4 @@
-use ruff_python_ast::{Expr, ModModule, Stmt};
+use ruff_python_ast::{Expr, ModModule, Stmt, visitor::Visitor};
 
 use crate::types::{FxIndexMap, FxIndexSet};
 
@@ -252,29 +252,11 @@ fn collect_module_level_refs(stmt: &Stmt, refs: &mut FxIndexSet<String>) {
                     collect_names_from_expr(&kw.value, refs);
                 }
             }
-            // Class body executes at definition time
-            for body_stmt in &c.body {
-                match body_stmt {
-                    Stmt::FunctionDef(method) => {
-                        // Method BODIES are deferred, but decorators, defaults,
-                        // and annotations are evaluated at class definition time.
-                        collect_function_def_time_refs(method, refs);
-                    }
-                    Stmt::Assign(a) => {
-                        collect_names_from_expr(&a.value, refs);
-                    }
-                    Stmt::AnnAssign(a) => {
-                        collect_names_from_expr(&a.annotation, refs);
-                        if let Some(value) = &a.value {
-                            collect_names_from_expr(value, refs);
-                        }
-                    }
-                    Stmt::Expr(e) => {
-                        collect_names_from_expr(&e.value, refs);
-                    }
-                    _ => {}
-                }
-            }
+            // Class body executes at definition time — collect all references
+            // using a visitor that skips function bodies (deferred) but traverses
+            // control-flow statements (if/for/while/try/with/match) automatically.
+            let mut collector = ClassBodyRefCollector { refs };
+            collector.visit_body(&c.body);
         }
         Stmt::Assign(a) => {
             collect_names_from_expr(&a.value, refs);
@@ -461,6 +443,75 @@ fn collect_names_from_comprehension_scoped(
     for name in inner_refs {
         if !target_names.contains(&name) {
             refs.insert(name);
+        }
+    }
+}
+
+/// Visitor that collects name references from a class body at definition time.
+///
+/// Traverses all control-flow statements (`if`/`for`/`while`/`try`/`with`/`match`)
+/// automatically via `walk_stmt`, but skips `FunctionDef` bodies (they're deferred
+/// to call time) — only visiting decorators, defaults, and annotations.
+struct ClassBodyRefCollector<'a> {
+    refs: &'a mut FxIndexSet<String>,
+}
+
+impl<'a> Visitor<'a> for ClassBodyRefCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        match stmt {
+            Stmt::FunctionDef(method) => {
+                // Method bodies are deferred — only collect definition-time parts
+                collect_function_def_time_refs(method, self.refs);
+            }
+            _ => {
+                // For all other statements (assignments, control-flow, nested classes),
+                // use default traversal which recurses into all branches automatically
+                ruff_python_ast::visitor::walk_stmt(self, stmt);
+            }
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        match expr {
+            Expr::Name(name) => {
+                self.refs.insert(name.id.to_string());
+            }
+            // Comprehensions need scoped collection to avoid target leakage
+            Expr::ListComp(comp) => {
+                collect_names_from_comprehension_scoped(&comp.generators, &[&comp.elt], self.refs);
+            }
+            Expr::SetComp(comp) => {
+                collect_names_from_comprehension_scoped(&comp.generators, &[&comp.elt], self.refs);
+            }
+            Expr::DictComp(comp) => {
+                collect_names_from_comprehension_scoped(
+                    &comp.generators,
+                    &[&comp.key, &comp.value],
+                    self.refs,
+                );
+            }
+            Expr::Generator(generator_expr) => {
+                collect_names_from_comprehension_scoped(
+                    &generator_expr.generators,
+                    &[&generator_expr.elt],
+                    self.refs,
+                );
+            }
+            Expr::Lambda(lambda) => {
+                // Lambda body is deferred, but defaults are definition-time
+                for param in lambda
+                    .parameters
+                    .as_ref()
+                    .map_or([].as_slice(), |p| p.args.as_slice())
+                {
+                    if let Some(default) = &param.default {
+                        collect_names_from_expr(default, self.refs);
+                    }
+                }
+            }
+            _ => {
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
         }
     }
 }
