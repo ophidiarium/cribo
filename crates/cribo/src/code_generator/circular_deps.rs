@@ -377,8 +377,39 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
                 }
             }
         }
+        Expr::ListComp(comp) => {
+            collect_names_from_expr(&comp.elt, refs);
+            collect_names_from_comprehensions(&comp.generators, refs);
+        }
+        Expr::SetComp(comp) => {
+            collect_names_from_expr(&comp.elt, refs);
+            collect_names_from_comprehensions(&comp.generators, refs);
+        }
+        Expr::DictComp(comp) => {
+            collect_names_from_expr(&comp.key, refs);
+            collect_names_from_expr(&comp.value, refs);
+            collect_names_from_comprehensions(&comp.generators, refs);
+        }
+        Expr::Generator(generator_expr) => {
+            collect_names_from_expr(&generator_expr.elt, refs);
+            collect_names_from_comprehensions(&generator_expr.generators, refs);
+        }
         _ => {
             // Literals, etc. — no name references
+        }
+    }
+}
+
+/// Collect name references from comprehension generators (iter + ifs).
+/// Generator targets are local bindings and are intentionally skipped.
+fn collect_names_from_comprehensions(
+    generators: &[ruff_python_ast::Comprehension],
+    refs: &mut FxIndexSet<String>,
+) {
+    for generator in generators {
+        collect_names_from_expr(&generator.iter, refs);
+        for if_clause in &generator.ifs {
+            collect_names_from_expr(if_clause, refs);
         }
     }
 }
