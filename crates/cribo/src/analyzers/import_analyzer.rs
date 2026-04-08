@@ -66,7 +66,7 @@ impl ImportAnalyzer {
 
     /// Find modules that are imported as namespaces (e.g., `from pkg import module`)
     ///
-    /// Returns a map from module name to the set of module names that import it as a namespace.
+    /// Returns a map from each imported `ModuleId` to the set of `ModuleId`s that import it.
     pub(crate) fn find_namespace_imported_modules(
         modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
         resolver: &ModuleResolver,
