@@ -519,13 +519,37 @@ impl Bundler<'_> {
             false
         };
 
-        // Apply renames to class body - classes don't create new scopes for globals
-        // Apply renames to the entire class (including base classes and body)
-        // We need to create a temporary Stmt to pass to rewrite_aliases_in_stmt
-        let mut temp_stmt = Stmt::ClassDef(class_def.clone());
-        expression_handlers::rewrite_aliases_in_stmt(&mut temp_stmt, entry_module_renames);
-        if let Stmt::ClassDef(updated_class) = temp_stmt {
-            *class_def = updated_class;
+        // Apply renames to the entire class including method bodies.
+        //
+        // Unlike standalone functions (where bodies are skipped because Python resolves
+        // names at call time via the local/global scope chain), class method bodies
+        // must be rewritten because `global` statements reference module-level names
+        // by identity. If a module-level variable is renamed (e.g., `connection` →
+        // `connection_1`), any `global connection` inside a method must become
+        // `global connection_1` to reference the correct variable at bundle scope.
+        if !entry_module_renames.is_empty() {
+            // Decorators
+            for dec in &mut class_def.decorator_list {
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut dec.expression,
+                    entry_module_renames,
+                );
+            }
+            // Base classes, keyword arguments, and body (including methods)
+            if let Some(arguments) = &mut class_def.arguments {
+                for base in &mut arguments.args {
+                    expression_handlers::rewrite_aliases_in_expr(base, entry_module_renames);
+                }
+                for keyword in &mut arguments.keywords {
+                    expression_handlers::rewrite_aliases_in_expr(
+                        &mut keyword.value,
+                        entry_module_renames,
+                    );
+                }
+            }
+            for stmt in &mut class_def.body {
+                expression_handlers::rewrite_aliases_in_stmt(stmt, entry_module_renames);
+            }
         }
 
         if needs_reassignment {
