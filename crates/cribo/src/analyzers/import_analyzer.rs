@@ -120,20 +120,13 @@ impl ImportAnalyzer {
         namespace_imported_modules
     }
 
-    /// Find matching module ID for namespace imports
+    /// Find matching module ID for namespace imports.
+    /// The caller guarantees `full_module_path` exists in the name set.
     fn find_matching_module_id_namespace(
         name_to_id: &FxIndexMap<&str, ModuleId>,
         full_module_path: &str,
     ) -> Option<ModuleId> {
-        // Direct match first
-        if let Some(&id) = name_to_id.get(full_module_path) {
-            return Some(id);
-        }
-        // Suffix match: name ends with ".{full_module_path}"
-        let suffix = format!(".{full_module_path}");
-        name_to_id
-            .iter()
-            .find_map(|(name, &id)| name.ends_with(&suffix).then_some(id))
+        name_to_id.get(full_module_path).copied()
     }
 
     /// Find unused imports in a specific module
@@ -443,7 +436,10 @@ impl ImportAnalyzer {
                     // Relative import: resolve against importing module
                     crate::resolver::resolve_relative_import_from_name(
                         import_from.level,
-                        import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                        import_from
+                            .module
+                            .as_ref()
+                            .map(ruff_python_ast::Identifier::as_str),
                         importing_module,
                     )
                 };
