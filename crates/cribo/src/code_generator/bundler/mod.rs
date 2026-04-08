@@ -631,7 +631,7 @@ impl<'a> Bundler<'a> {
 
         // Store entry path for relative path calculation
         if let Some(entry_path) = params.resolver.get_module_path(ModuleId::ENTRY) {
-            self.entry_path = Some(entry_path.to_string_lossy().to_string());
+            self.entry_path = Some(entry_path.to_string_lossy().into_owned());
         }
     }
 
