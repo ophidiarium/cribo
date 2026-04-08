@@ -1253,19 +1253,16 @@ impl Bundler<'_> {
         module_name: Option<&str>,
     ) {
         match stmt {
-            Stmt::FunctionDef(func_def)
-                // Check if this function uses globals
+            Stmt::FunctionDef(func_def) => {
                 if global_info
                     .functions_using_globals
                     .contains(&func_def.name.to_string())
-                => {
-                    // Collect globals declared in this function
+                {
+                    // This function directly uses globals — rewrite its body
                     let function_globals =
                         crate::visitors::VariableCollector::collect_function_globals(
                             &func_def.body,
                         );
-
-                    // Transform the function body
                     let params = TransformFunctionParams {
                         lifted_names,
                         global_info,
@@ -1273,7 +1270,19 @@ impl Bundler<'_> {
                         module_name,
                     };
                     self.transform_function_body_for_lifted_globals(func_def, &params);
+                } else {
+                    // Still descend into the body to find nested functions that use globals
+                    for stmt in &mut func_def.body {
+                        self.transform_stmt_for_lifted_globals(
+                            stmt,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                            module_name,
+                        );
+                    }
                 }
+            }
             Stmt::Assign(assign) => {
                 // Transform assignments to use lifted names if they're in a function with global
                 // declarations
