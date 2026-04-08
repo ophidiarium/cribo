@@ -561,10 +561,17 @@ impl Bundler<'_> {
     ) {
         match stmt {
             Stmt::FunctionDef(nested_func) => {
-                // Recursively transform nested functions
+                // Recursively transform nested functions.
+                // Exclude enclosing locals from module_level_vars so that closure-bound
+                // variables (e.g., `x` defined in outer function) are NOT rewritten to
+                // `module.x` in the nested function.
+                let mut filtered_module_vars = module_level_vars.clone();
+                for local in local_vars {
+                    filtered_module_vars.swap_remove(local);
+                }
                 self.transform_nested_function_for_module_vars(
                     nested_func,
-                    module_level_vars,
+                    &filtered_module_vars,
                     module_var_name,
                 );
             }
