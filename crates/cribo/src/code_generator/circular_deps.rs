@@ -402,6 +402,10 @@ fn collect_names_from_expr(expr: &Expr, refs: &mut FxIndexSet<String>) {
                 refs,
             );
         }
+        Expr::Named(named) => {
+            // Walrus operator: target := value — the value is evaluated
+            collect_names_from_expr(&named.value, refs);
+        }
         _ => {
             // Literals, etc. — no name references
         }
