@@ -29,7 +29,7 @@ pub(crate) fn analyze_circular_dependencies(graph: &DependencyGraph) -> Circular
         // Non-empty by construction (scc.len() > 1 above)
 
         let cycle_type = classify_cycle_type(graph, &module_ids);
-        let suggested_resolution = suggest_resolution_for_cycle(&cycle_type, &module_ids);
+        let suggested_resolution = suggest_resolution_for_cycle(&cycle_type);
 
         let group = CircularDependencyGroup {
             modules: module_ids,
@@ -86,14 +86,12 @@ fn classify_cycle_type(
     // Perform AST analysis on the modules in the cycle
     let analysis_result = analyze_cycle_modules(graph, module_ids);
 
-    // Use AST analysis results for classification
-    if analysis_result.has_only_constants
-        && !module_names
-            .iter()
-            .any(|name| crate::util::is_init_module(name))
-    {
-        // Modules that only contain constants create unresolvable cycles
-        // Exception: __init__.py files often only have imports/exports which is normal
+    // Cross-cycle module-level reads: bidirectional temporal paradox detected via AST.
+    // Two or more modules import from each other and consume those imports in module-level
+    // assignments (e.g., A_VALUE = B_VALUE + 1 / B_VALUE = A_VALUE * 2). Neither module
+    // can initialize first. This takes precedence over class heuristics because a temporal
+    // paradox is unresolvable regardless of whether classes are also present.
+    if analysis_result.has_cross_cycle_module_level_reads {
         return CircularDependencyType::ModuleConstants;
     }
 
@@ -105,16 +103,6 @@ fn classify_cycle_type(
         }
         // Otherwise, it's a true class-level cycle
         return CircularDependencyType::ClassLevel;
-    }
-
-    // Fall back to name-based heuristics if AST analysis is inconclusive
-    for module_name in &module_names {
-        if module_name.contains("constants") || module_name.contains("config") {
-            return CircularDependencyType::ModuleConstants;
-        }
-        if module_name.contains("class") || module_name.ends_with("_class") {
-            return CircularDependencyType::ClassLevel;
-        }
     }
 
     // Default classification based on remaining heuristics
@@ -134,14 +122,15 @@ fn classify_cycle_type(
 /// Result of analyzing modules in a circular dependency cycle
 #[derive(Debug)]
 struct CycleAnalysisResult {
-    /// Whether the modules contain only constants (no functions or classes)
-    has_only_constants: bool,
     /// Whether any module contains class definitions
     has_class_definitions: bool,
     /// Whether there are module-level imports
     has_module_level_imports: bool,
     /// Whether imports are only used within functions
     imports_used_in_functions_only: bool,
+    /// Whether 2+ modules in the cycle have module-level assignments that read
+    /// names imported from other cycle members (bidirectional temporal paradox)
+    has_cross_cycle_module_level_reads: bool,
 }
 
 /// Analyze modules in a cycle to determine their characteristics
@@ -150,40 +139,59 @@ fn analyze_cycle_modules(
     graph: &DependencyGraph,
     module_ids: &[crate::resolver::ModuleId],
 ) -> CycleAnalysisResult {
-    let mut has_only_constants = true;
+    // Collect cycle member names for cross-cycle detection
+    let cycle_member_names: crate::types::FxIndexSet<String> = module_ids
+        .iter()
+        .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
+        .collect();
+
     let mut has_class_definitions = false;
     let mut has_module_level_imports = false;
     let mut imports_used_in_functions_only = true;
+    let mut modules_with_cross_cycle_reads = 0_u32;
 
     for id in module_ids {
         if let Some(module) = graph.get_module(*id) {
+            // Collect names imported from OTHER cycle members (absolute imports only)
+            let mut cross_cycle_imported_names = crate::types::FxIndexSet::<String>::default();
+
             for item in module.items.values() {
                 match &item.item_type {
-                    ItemType::FunctionDef { .. } => {
-                        has_only_constants = false;
-                    }
+                    ItemType::FunctionDef { .. } => {}
                     ItemType::ClassDef { .. } => {
-                        has_only_constants = false;
                         has_class_definitions = true;
                     }
-                    ItemType::Import { .. } | ItemType::FromImport { .. } => {
-                        // Since we can't determine scope from ItemData directly,
-                        // check if this import is only referenced within function definitions
-                        // This is a heuristic: if an import has no direct module-level usage,
-                        // it's likely a function-scoped import
-                        let import_vars = &item.var_decls;
+                    ItemType::FromImport {
+                        module: from_module,
+                        names,
+                        level,
+                        ..
+                    } => {
+                        // Track names imported from cycle members (for cross-cycle detection).
+                        // Handle both absolute (level == 0) and relative (level > 0) imports.
+                        let resolved_source = if *level == 0 {
+                            from_module.clone()
+                        } else {
+                            // Resolve relative import: strip `level` trailing components from
+                            // the current module name and append the relative target.
+                            resolve_relative_import(&module.module_name, *level, from_module)
+                        };
+                        if cycle_member_names.contains(&resolved_source) {
+                            for (name, alias) in names {
+                                let local_name = alias.as_ref().unwrap_or(name);
+                                cross_cycle_imported_names.insert(local_name.clone());
+                            }
+                        }
 
-                        // Check if any of the imported names are used at module level
+                        // Existing: check if import is used at module level
+                        let import_vars = &item.var_decls;
                         let used_at_module_level = module.items.values().any(|other_item| {
-                            // Skip function and class definitions when checking usage
                             if matches!(
                                 other_item.item_type,
                                 ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
                             ) {
                                 return false;
                             }
-
-                            // Check if this item uses any of the imported variables
                             import_vars
                                 .iter()
                                 .any(|import_var| other_item.read_vars.contains(import_var))
@@ -193,23 +201,72 @@ fn analyze_cycle_modules(
                             has_module_level_imports = true;
                             imports_used_in_functions_only = false;
                         }
-                        // If not used at module level, the import is likely function-scoped
                     }
-                    ItemType::Assignment { .. } => {
-                        // Not all assignments are constants
-                        has_only_constants = false;
+                    ItemType::Import {
+                        module: import_module,
+                        alias,
+                    } => {
+                        // Track `import X` / `import X as Y` from cycle members.
+                        // The local name (alias or module) becomes an attribute namespace;
+                        // module-level reads of that name (e.g., `Z = X.value`) are tracked
+                        // in read_vars via the local alias.
+                        if cycle_member_names.contains(import_module) {
+                            let local_name = alias.as_ref().unwrap_or(import_module);
+                            cross_cycle_imported_names.insert(local_name.clone());
+                        }
+
+                        // Check if used at module level
+                        let import_vars = &item.var_decls;
+                        let used_at_module_level = module.items.values().any(|other_item| {
+                            if matches!(
+                                other_item.item_type,
+                                ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
+                            ) {
+                                return false;
+                            }
+                            import_vars
+                                .iter()
+                                .any(|import_var| other_item.read_vars.contains(import_var))
+                        });
+
+                        if used_at_module_level {
+                            has_module_level_imports = true;
+                            imports_used_in_functions_only = false;
+                        }
                     }
+                    ItemType::Assignment { .. } => {}
                     _ => {}
+                }
+            }
+
+            // Check if any module-level item reads a name imported from a cycle member.
+            // This detects temporal paradoxes: `from cycle_member import X` + `Y = X + 1`
+            if !cross_cycle_imported_names.is_empty() {
+                let has_module_level_read = module.items.values().any(|item| {
+                    // Only check non-function/class/import items (module-level statements)
+                    !matches!(
+                        item.item_type,
+                        ItemType::FunctionDef { .. }
+                            | ItemType::ClassDef { .. }
+                            | ItemType::Import { .. }
+                            | ItemType::FromImport { .. }
+                    ) && cross_cycle_imported_names
+                        .iter()
+                        .any(|name| item.read_vars.contains(name))
+                });
+                if has_module_level_read {
+                    modules_with_cross_cycle_reads += 1;
                 }
             }
         }
     }
 
     CycleAnalysisResult {
-        has_only_constants,
         has_class_definitions,
         has_module_level_imports,
         imports_used_in_functions_only,
+        // Bidirectional temporal paradox: 2+ modules read cross-cycle imports at module level
+        has_cross_cycle_module_level_reads: modules_with_cross_cycle_reads >= 2,
     }
 }
 
@@ -236,6 +293,24 @@ fn all_modules_empty_or_imports_only(
     true
 }
 
+/// Resolve a relative import to an absolute module name.
+///
+/// Given `current_module = "pkg.sub.mod"`, `level = 1`, `target = "sibling"`,
+/// returns `"pkg.sub.sibling"`. For `level = 2`, returns `"pkg.sibling"`.
+fn resolve_relative_import(current_module: &str, level: u32, target: &str) -> String {
+    let parts: Vec<&str> = current_module.split('.').collect();
+    // level dots strip that many trailing components from the current module path
+    let keep = parts.len().saturating_sub(level as usize);
+    let base: Vec<&str> = parts[..keep].to_vec();
+    if target.is_empty() {
+        base.join(".")
+    } else if base.is_empty() {
+        target.to_owned()
+    } else {
+        format!("{}.{target}", base.join("."))
+    }
+}
+
 /// Check if modules form a parent-child package relationship
 fn is_parent_child_package_cycle(module_names: &[String]) -> bool {
     for parent in module_names {
@@ -249,18 +324,13 @@ fn is_parent_child_package_cycle(module_names: &[String]) -> bool {
 }
 
 /// Suggest resolution strategy for a cycle
-fn suggest_resolution_for_cycle(
-    cycle_type: &CircularDependencyType,
-    _module_ids: &[crate::resolver::ModuleId],
-) -> ResolutionStrategy {
+fn suggest_resolution_for_cycle(cycle_type: &CircularDependencyType) -> ResolutionStrategy {
     match cycle_type {
-        CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport,
-        CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport,
         CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
             reason: "Module-level constants create temporal paradox - consider moving to a shared \
                      configuration module"
                 .into(),
         },
-        CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit,
+        _ => ResolutionStrategy::Resolvable,
     }
 }

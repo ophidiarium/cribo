@@ -13,14 +13,10 @@ use crate::{
 pub(crate) struct TreeShaker<'a> {
     /// Centralized module resolver for import resolution
     resolver: &'a ModuleResolver,
-    /// Module items from semantic analysis (reused from `DependencyGraph`)
-    module_items: FxIndexMap<ModuleId, Vec<ItemData>>,
+    /// Borrowed reference to the dependency graph (avoids cloning all items)
+    graph: &'a DependencyGraph,
     /// Final set of symbols to keep (`module_id`, `symbol_name`)
     used_symbols: FxIndexSet<(ModuleId, String)>,
-    /// Map from module ID to module name (for display/logging)
-    module_names: FxIndexMap<ModuleId, String>,
-    /// Map from module name to module ID (for handling entry point and imports)
-    module_name_to_id: FxIndexMap<String, ModuleId>,
 }
 
 impl<'a> TreeShaker<'a> {
@@ -45,48 +41,29 @@ impl<'a> TreeShaker<'a> {
         }
         // Fallback to name-based resolution
         let current_name = self
-            .module_names
+            .graph
+            .modules
             .get(&current_module_id)
-            .map_or("", String::as_str);
+            .map_or("", |m| m.module_name.as_str());
         self.resolver
             .resolve_relative_import_from_package_name(level, name_opt, current_name)
     }
 
     /// Create a tree shaker from an existing `DependencyGraph`
-    pub(crate) fn from_graph(graph: &DependencyGraph, resolver: &'a ModuleResolver) -> Self {
-        let mut module_items = FxIndexMap::default();
-        let mut module_names = FxIndexMap::default();
-
-        // Extract module items from the graph
-        for (module_id, module_dep_graph) in &graph.modules {
-            let module_name = module_dep_graph.module_name.clone();
-            module_names.insert(*module_id, module_name.clone());
-
-            // Collect all items for this module
-            let items: Vec<ItemData> = module_dep_graph.items.values().cloned().collect();
-
-            module_items.insert(*module_id, items);
-        }
-
-        // Clone the module_name -> ModuleId mapping from the graph
-        // This includes all aliases (e.g., symlinks) that map to the same ModuleId
-        let module_name_to_id = graph.module_names.clone();
-
+    pub(crate) fn from_graph(graph: &'a DependencyGraph, resolver: &'a ModuleResolver) -> Self {
         Self {
             resolver,
-            module_items,
+            graph,
             used_symbols: FxIndexSet::default(),
-            module_names,
-            module_name_to_id,
         }
     }
 
     /// Helper to get module display name for logging
     fn get_module_display_name(&self, module_id: ModuleId) -> String {
-        self.module_names
-            .get(&module_id)
-            .cloned()
-            .unwrap_or_else(|| format!("<unknown module {module_id}>"))
+        self.graph.modules.get(&module_id).map_or_else(
+            || format!("<unknown module {module_id}>"),
+            |m| m.module_name.clone(),
+        )
     }
 
     /// Analyze which symbols should be kept based on entry point
@@ -94,7 +71,7 @@ impl<'a> TreeShaker<'a> {
         info!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // Verify that the entry module is registered with the expected ID
-        let entry_id = self.module_name_to_id.get(entry_module).copied();
+        let entry_id = self.graph.module_names.get(entry_module).copied();
         if entry_id != Some(ModuleId::ENTRY) {
             warn!("Entry module '{entry_module}' not registered as ModuleId::ENTRY");
             if entry_id.is_none() {
@@ -114,8 +91,8 @@ impl<'a> TreeShaker<'a> {
 
     /// Check if a symbol is defined in a specific module
     fn is_defined_in_module(&self, module_id: ModuleId, symbol: &str) -> bool {
-        if let Some(items) = self.module_items.get(&module_id) {
-            for item in items {
+        if let Some(module_dep) = self.graph.modules.get(&module_id) {
+            for item in module_dep.items.values() {
                 if item.defined_symbols.contains(symbol) {
                     return true;
                 }
@@ -126,8 +103,8 @@ impl<'a> TreeShaker<'a> {
 
     /// Find which module defines a symbol
     fn find_defining_module(&self, symbol: &str) -> Option<ModuleId> {
-        for (&module_id, items) in &self.module_items {
-            for item in items {
+        for (&module_id, module_dep) in &self.graph.modules {
+            for item in module_dep.items.values() {
                 if item.defined_symbols.contains(symbol) {
                     return Some(module_id);
                 }
@@ -155,8 +132,8 @@ impl<'a> TreeShaker<'a> {
         current_module_id: ModuleId,
         alias: &str,
     ) -> Option<(ModuleId, String)> {
-        if let Some(items) = self.module_items.get(&current_module_id) {
-            for item in items {
+        if let Some(module_dep) = self.graph.modules.get(&current_module_id) {
+            for item in module_dep.items.values() {
                 if let ItemType::FromImport {
                     module,
                     names,
@@ -170,11 +147,11 @@ impl<'a> TreeShaker<'a> {
                         let local_name = alias_opt.as_ref().unwrap_or(original_name);
                         if local_name == alias {
                             let resolved_module_name = if *level > 0 {
-                                let current_name = self
-                                    .module_names
-                                    .get(&current_module_id)
-                                    .cloned()
-                                    .unwrap_or_else(|| format!("{current_module_id:?}"));
+                                let current_name =
+                                    self.graph.modules.get(&current_module_id).map_or_else(
+                                        || format!("{current_module_id:?}"),
+                                        |m| m.module_name.clone(),
+                                    );
                                 debug!(
                                     "Resolving relative import: module='{module}', level={level}, \
                                      current_module='{current_name}'"
@@ -191,7 +168,7 @@ impl<'a> TreeShaker<'a> {
                             };
 
                             if let Some(&resolved_id) =
-                                self.module_name_to_id.get(&resolved_module_name)
+                                self.graph.module_names.get(&resolved_module_name)
                             {
                                 return Some((resolved_id, original_name.clone()));
                             }
@@ -206,10 +183,10 @@ impl<'a> TreeShaker<'a> {
                             module.clone()
                         };
                         if let Some(&resolved_id) =
-                            self.module_name_to_id.get(&resolved_module_name)
-                            && let Some(target_items) = self.module_items.get(&resolved_id)
+                            self.graph.module_names.get(&resolved_module_name)
+                            && let Some(target_dep) = self.graph.modules.get(&resolved_id)
                         {
-                            let in_all = target_items.iter().any(|it| {
+                            let in_all = target_dep.items.values().any(|it| {
                                 Self::is_all_assignment(it) && it.eventual_read_vars.contains(alias)
                             });
                             if in_all {
@@ -229,8 +206,8 @@ impl<'a> TreeShaker<'a> {
         current_module_id: ModuleId,
         alias: &str,
     ) -> Option<ModuleId> {
-        if let Some(items) = self.module_items.get(&current_module_id) {
-            for item in items {
+        if let Some(module_dep) = self.graph.modules.get(&current_module_id) {
+            for item in module_dep.items.values() {
                 if let ItemType::Import {
                     module,
                     alias: Some(alias_name),
@@ -240,7 +217,7 @@ impl<'a> TreeShaker<'a> {
                     if alias_name == alias {
                         // Found the import with matching alias
                         // Convert module name to ModuleId
-                        if let Some(&module_id) = self.module_name_to_id.get(module) {
+                        if let Some(&module_id) = self.graph.module_names.get(module) {
                             return Some(module_id);
                         }
                     }
@@ -256,8 +233,8 @@ impl<'a> TreeShaker<'a> {
         current_module_id: ModuleId,
         alias: &str,
     ) -> Option<ModuleId> {
-        if let Some(items) = self.module_items.get(&current_module_id) {
-            for item in items {
+        if let Some(module_dep) = self.graph.modules.get(&current_module_id) {
+            for item in module_dep.items.values() {
                 if let ItemType::FromImport {
                     module,
                     names,
@@ -284,7 +261,7 @@ impl<'a> TreeShaker<'a> {
                             let potential_full_module =
                                 format!("{resolved_module}.{original_name}");
                             if let Some(&module_id) =
-                                self.module_name_to_id.get(&potential_full_module)
+                                self.graph.module_names.get(&potential_full_module)
                             {
                                 // This is importing a module
                                 return Some(module_id);
@@ -305,10 +282,12 @@ impl<'a> TreeShaker<'a> {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        if let Some(items) = self.module_items.get(&module_id) {
-            let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
-            debug!("Seeding side effects for reachable module: {module_name}");
-            for item in items {
+        if let Some(module_dep) = self.graph.modules.get(&module_id) {
+            debug!(
+                "Seeding side effects for reachable module: {}",
+                module_dep.module_name
+            );
+            for item in module_dep.items.values() {
                 match item.item_type {
                     ItemType::Expression | ItemType::Assignment { .. } => {
                         self.add_vars_to_worklist(
@@ -340,10 +319,10 @@ impl<'a> TreeShaker<'a> {
 
         // First pass: find all direct module imports across all modules
         // Also detect dynamic access patterns that require keeping all __all__ symbols
-        for (&module_id, items) in &self.module_items {
-            let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
+        for (&module_id, module_dep) in &self.graph.modules {
+            let module_name = module_dep.module_name.as_str();
             // Check if this module uses dynamic access pattern (locals()/vars() with __all__)
-            let uses_dynamic_access = self.module_uses_dynamic_all_access(items);
+            let uses_dynamic_access = self.module_uses_dynamic_all_access(module_id);
 
             if uses_dynamic_access {
                 debug!(
@@ -354,13 +333,13 @@ impl<'a> TreeShaker<'a> {
                 self.mark_all_symbols_from_module_all_as_used(module_id, &mut worklist);
             }
 
-            for item in items {
+            for item in module_dep.items.values() {
                 match &item.item_type {
                     // Check for direct module imports (import module_name)
                     ItemType::Import { module, .. } => {
                         let module_display = self.get_module_display_name(module_id);
                         debug!("Found direct import of module {module} in {module_display}");
-                        if let Some(&imported_module_id) = self.module_name_to_id.get(module) {
+                        if let Some(&imported_module_id) = self.graph.module_names.get(module) {
                             // If this imported module has side effects, seed them
                             if self.module_has_side_effects(imported_module_id) {
                                 self.seed_side_effects_for_module(
@@ -399,7 +378,7 @@ impl<'a> TreeShaker<'a> {
                         // This handles cases like: from .utils.config import some_function
                         // where .utils.config has side effects that need to run
                         if let Some(&from_module_id) =
-                            self.module_name_to_id.get(&resolved_from_module)
+                            self.graph.module_names.get(&resolved_from_module)
                             && self.module_has_side_effects(from_module_id)
                         {
                             self.seed_side_effects_for_module(from_module_id, &mut worklist);
@@ -411,24 +390,22 @@ impl<'a> TreeShaker<'a> {
                             // defined) or all non-private symbols as
                             // potentially used
                             if let Some(&target_module_id) =
-                                self.module_name_to_id.get(&resolved_from_module)
-                                && let Some(target_items) = self.module_items.get(&target_module_id)
+                                self.graph.module_names.get(&resolved_from_module)
+                                && let Some(target_dep) = self.graph.modules.get(&target_module_id)
                             {
                                 // Check if the module has __all__ defined
                                 let has_explicit_all =
-                                    target_items.iter().any(Self::is_all_assignment);
+                                    target_dep.items.values().any(Self::is_all_assignment);
 
                                 if has_explicit_all {
                                     // Mark only symbols in __all__ for star imports
                                     self.mark_all_defined_symbols_as_used(
-                                        target_items,
                                         target_module_id,
                                         &mut worklist,
                                     );
                                 } else {
                                     // No __all__ defined, mark all non-private symbols
                                     self.mark_non_private_symbols_as_used(
-                                        target_items,
                                         target_module_id,
                                         &mut worklist,
                                     );
@@ -441,7 +418,7 @@ impl<'a> TreeShaker<'a> {
                                 let potential_module = format!("{resolved_from_module}.{name}");
                                 // Check if this module exists
                                 if let Some(&submodule_id) =
-                                    self.module_name_to_id.get(&potential_module)
+                                    self.graph.module_names.get(&potential_module)
                                     && self.module_has_side_effects(submodule_id)
                                 {
                                     let module_display = self.get_module_display_name(module_id);
@@ -461,8 +438,8 @@ impl<'a> TreeShaker<'a> {
         }
 
         // Start with all symbols referenced by the entry module
-        if let Some(items) = self.module_items.get(&entry_id) {
-            for item in items {
+        if let Some(entry_dep) = self.graph.modules.get(&entry_id) {
+            for item in entry_dep.items.values() {
                 // Mark classes and functions defined in the entry module as used
                 // This ensures that classes/functions defined in the entry module
                 // (even inside try blocks) are kept along with their dependencies
@@ -525,7 +502,7 @@ impl<'a> TreeShaker<'a> {
         symbol: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(items) = self.module_items.get(&module_id) else {
+        let Some(module_dep) = self.graph.modules.get(&module_id) else {
             return;
         };
 
@@ -534,14 +511,15 @@ impl<'a> TreeShaker<'a> {
 
         // First check if this symbol is actually defined in this module
         // (not just imported/re-exported)
-        let symbol_is_defined_here = items
-            .iter()
+        let symbol_is_defined_here = module_dep
+            .items
+            .values()
             .any(|item| item.defined_symbols.contains(symbol));
 
         // Only check for re-exports if the symbol is not defined here
         if !symbol_is_defined_here {
             // Check if this symbol is imported from another module (re-export)
-            for item in items {
+            for item in module_dep.items.values() {
                 if let ItemType::FromImport {
                     module: from_module,
                     names,
@@ -561,7 +539,7 @@ impl<'a> TreeShaker<'a> {
                             };
 
                             if let Some(&resolved_module_id) =
-                                self.module_name_to_id.get(&resolved_module_name)
+                                self.graph.module_names.get(&resolved_module_name)
                             {
                                 debug!(
                                     "Symbol {symbol} is re-exported from \
@@ -584,12 +562,12 @@ impl<'a> TreeShaker<'a> {
                         };
 
                         if let Some(&resolved_module_id) =
-                            self.module_name_to_id.get(&resolved_module_name)
-                            && let Some(target_items) = self.module_items.get(&resolved_module_id)
+                            self.graph.module_names.get(&resolved_module_name)
+                            && let Some(target_dep) = self.graph.modules.get(&resolved_module_id)
                         {
                             // If the target module explicitly exports this symbol in __all__, use
                             // it
-                            let is_in_all = target_items.iter().any(|it| {
+                            let is_in_all = target_dep.items.values().any(|it| {
                                 Self::is_all_assignment(it)
                                     && it.eventual_read_vars.contains(symbol)
                             });
@@ -608,7 +586,7 @@ impl<'a> TreeShaker<'a> {
             }
         }
 
-        for item in items {
+        for item in module_dep.items.values() {
             if !item.defined_symbols.contains(symbol) {
                 continue;
             }
@@ -647,11 +625,11 @@ impl<'a> TreeShaker<'a> {
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(items) = self.module_items.get(&module_id) else {
+        let Some(module_dep) = self.graph.modules.get(&module_id) else {
             return;
         };
 
-        for item in items {
+        for item in module_dep.items.values() {
             // Skip items not in the target scope
             let Some(ref containing_scope) = item.containing_scope else {
                 continue;
@@ -713,11 +691,11 @@ impl<'a> TreeShaker<'a> {
         module_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(module_items) = self.module_items.get(&imported_module_id) else {
+        let Some(module_dep) = self.graph.modules.get(&imported_module_id) else {
             return;
         };
 
-        for item in module_items {
+        for item in module_dep.items.values() {
             if !matches!(
                 &item.item_type,
                 ItemType::ClassDef { .. } | ItemType::FunctionDef { .. }
@@ -753,7 +731,7 @@ impl<'a> TreeShaker<'a> {
         }
 
         // If this imported module has side effects, seed them
-        let Some(&imported_module_id) = self.module_name_to_id.get(imported_module) else {
+        let Some(&imported_module_id) = self.graph.module_names.get(imported_module) else {
             return;
         };
 
@@ -768,19 +746,19 @@ impl<'a> TreeShaker<'a> {
         resolved_module_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(&resolved_module_id) = self.module_name_to_id.get(resolved_module_name) else {
+        let Some(&resolved_module_id) = self.graph.module_names.get(resolved_module_name) else {
             return;
         };
 
-        let Some(target_items) = self.module_items.get(&resolved_module_id) else {
+        let Some(target_dep) = self.graph.modules.get(&resolved_module_id) else {
             return;
         };
 
-        let has_explicit_all = target_items.iter().any(Self::is_all_assignment);
+        let has_explicit_all = target_dep.items.values().any(Self::is_all_assignment);
         if has_explicit_all {
-            self.mark_all_defined_symbols_as_used(target_items, resolved_module_id, worklist);
+            self.mark_all_defined_symbols_as_used(resolved_module_id, worklist);
         } else {
-            self.mark_non_private_symbols_as_used(target_items, resolved_module_id, worklist);
+            self.mark_non_private_symbols_as_used(resolved_module_id, worklist);
         }
     }
 
@@ -792,7 +770,7 @@ impl<'a> TreeShaker<'a> {
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(&resolved_module_id) = self.module_name_to_id.get(resolved_module_name) else {
+        let Some(&resolved_module_id) = self.graph.module_names.get(resolved_module_name) else {
             return;
         };
 
@@ -814,7 +792,7 @@ impl<'a> TreeShaker<'a> {
         potential_module: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(&submodule_id) = self.module_name_to_id.get(potential_module) else {
+        let Some(&submodule_id) = self.graph.module_names.get(potential_module) else {
             return;
         };
 
@@ -930,7 +908,7 @@ impl<'a> TreeShaker<'a> {
     /// Get symbols that survive tree-shaking for a module
     pub(crate) fn get_used_symbols_for_module(&self, module_name: &str) -> FxIndexSet<String> {
         // Get the ModuleId for this module name
-        if let Some(&module_id) = self.module_name_to_id.get(module_name) {
+        if let Some(&module_id) = self.graph.module_names.get(module_name) {
             self.used_symbols
                 .iter()
                 .filter(|(id, _)| *id == module_id)
@@ -944,7 +922,7 @@ impl<'a> TreeShaker<'a> {
     /// Check if a symbol is used after tree-shaking
     pub(crate) fn is_symbol_used(&self, module_name: &str, symbol_name: &str) -> bool {
         // Get the ModuleId for this module name
-        if let Some(&module_id) = self.module_name_to_id.get(module_name) {
+        if let Some(&module_id) = self.graph.module_names.get(module_name) {
             self.used_symbols
                 .contains(&(module_id, symbol_name.to_owned()))
         } else {
@@ -956,16 +934,19 @@ impl<'a> TreeShaker<'a> {
 
     /// Check if a module has side effects that prevent tree-shaking
     pub(crate) fn module_has_side_effects(&self, module_id: ModuleId) -> bool {
-        self.module_items.get(&module_id).is_some_and(|items| {
-            // Check if any top-level item has side effects
-            items.iter().any(|item| {
-                item.has_side_effects
-                    && !matches!(
-                        item.item_type,
-                        ItemType::Import { .. } | ItemType::FromImport { .. }
-                    )
+        self.graph
+            .modules
+            .get(&module_id)
+            .is_some_and(|module_dep| {
+                // Check if any top-level item has side effects
+                module_dep.items.values().any(|item| {
+                    item.has_side_effects
+                        && !matches!(
+                            item.item_type,
+                            ItemType::Import { .. } | ItemType::FromImport { .. }
+                        )
+                })
             })
-        })
     }
 
     /// Helper method to add variables to the worklist, resolving imports and finding definitions
@@ -1001,7 +982,11 @@ impl<'a> TreeShaker<'a> {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
+        let module_name = self
+            .graph
+            .modules
+            .get(&module_id)
+            .map_or("", |m| m.module_name.as_str());
         for (base_var, accessed_attrs) in attribute_accesses {
             // 1) Module alias via `import x.y as z`
             if let Some(source_module_id) = self.resolve_module_import_alias(module_id, base_var) {
@@ -1038,7 +1023,7 @@ impl<'a> TreeShaker<'a> {
                     worklist.push_back((source_module_id, attr.clone()));
                 }
             // 4) Direct module reference like `import greetings`
-            } else if let Some(&base_module_id) = self.module_name_to_id.get(base_var) {
+            } else if let Some(&base_module_id) = self.graph.module_names.get(base_var) {
                 for attr in accessed_attrs {
                     debug!(
                         "Found direct module attribute access in {module_name}: {base_var}.{attr}"
@@ -1061,8 +1046,9 @@ impl<'a> TreeShaker<'a> {
         context: &str,
     ) {
         let is_namespace = self
+            .graph
             .module_names
-            .values()
+            .keys()
             .any(|name| name.starts_with(&format!("{base_var}.")));
 
         if !is_namespace {
@@ -1089,13 +1075,14 @@ impl<'a> TreeShaker<'a> {
 
     /// Find which submodule defines an attribute
     fn find_attribute_in_submodules(&self, base_var: &str, attr: &str) -> Option<ModuleId> {
-        for (&module_id, module_name) in &self.module_names {
-            if module_name.starts_with(&format!("{base_var}."))
-                && let Some(items) = self.module_items.get(&module_id)
-            {
-                for item in items {
-                    if item.defined_symbols.contains(attr) {
-                        return Some(module_id);
+        let prefix = format!("{base_var}.");
+        for (name, &module_id) in &self.graph.module_names {
+            if name.starts_with(&prefix) {
+                if let Some(module_dep) = self.graph.modules.get(&module_id) {
+                    for item in module_dep.items.values() {
+                        if item.defined_symbols.contains(attr) {
+                            return Some(module_id);
+                        }
                     }
                 }
             }
@@ -1106,20 +1093,24 @@ impl<'a> TreeShaker<'a> {
     /// Mark symbols defined in __all__ as used for star imports
     fn mark_all_defined_symbols_as_used(
         &self,
-        target_items: &[ItemData],
         resolved_from_module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
         let resolved_from_module = self
-            .module_names
+            .graph
+            .modules
             .get(&resolved_from_module_id)
-            .map_or("", String::as_str);
-        for item in target_items {
-            if Self::is_all_assignment(item) {
-                // Mark all symbols listed in __all__
-                for symbol in &item.eventual_read_vars {
-                    debug!("Marking {symbol} from star import of {resolved_from_module} as used");
-                    worklist.push_back((resolved_from_module_id, symbol.clone()));
+            .map_or("", |m| m.module_name.as_str());
+        if let Some(module_dep) = self.graph.modules.get(&resolved_from_module_id) {
+            for item in module_dep.items.values() {
+                if Self::is_all_assignment(item) {
+                    // Mark all symbols listed in __all__
+                    for symbol in &item.eventual_read_vars {
+                        debug!(
+                            "Marking {symbol} from star import of {resolved_from_module} as used"
+                        );
+                        worklist.push_back((resolved_from_module_id, symbol.clone()));
+                    }
                 }
             }
         }
@@ -1128,19 +1119,23 @@ impl<'a> TreeShaker<'a> {
     /// Mark all non-private symbols as used when no __all__ is defined
     fn mark_non_private_symbols_as_used(
         &self,
-        target_items: &[ItemData],
         resolved_from_module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
         let resolved_from_module = self
-            .module_names
+            .graph
+            .modules
             .get(&resolved_from_module_id)
-            .map_or("", String::as_str);
-        for item in target_items {
-            for symbol in &item.defined_symbols {
-                if !symbol.starts_with('_') {
-                    debug!("Marking {symbol} from star import of {resolved_from_module} as used");
-                    worklist.push_back((resolved_from_module_id, symbol.clone()));
+            .map_or("", |m| m.module_name.as_str());
+        if let Some(module_dep) = self.graph.modules.get(&resolved_from_module_id) {
+            for item in module_dep.items.values() {
+                for symbol in &item.defined_symbols {
+                    if !symbol.starts_with('_') {
+                        debug!(
+                            "Marking {symbol} from star import of {resolved_from_module} as used"
+                        );
+                        worklist.push_back((resolved_from_module_id, symbol.clone()));
+                    }
                 }
             }
         }
@@ -1157,10 +1152,13 @@ impl<'a> TreeShaker<'a> {
 
     /// Check if a module uses the dynamic __all__ access pattern
     /// This pattern involves using `locals()` or `globals()` with a loop over __all__ and setattr
-    fn module_uses_dynamic_all_access(&self, items: &[ItemData]) -> bool {
-        // Check if the module has __all__ defined
-        let has_all = items.iter().any(Self::is_all_assignment);
+    fn module_uses_dynamic_all_access(&self, module_id: ModuleId) -> bool {
+        let Some(module_dep) = self.graph.modules.get(&module_id) else {
+            return false;
+        };
 
+        // Check if the module has __all__ defined
+        let has_all = module_dep.items.values().any(Self::is_all_assignment);
         if !has_all {
             return false;
         }
@@ -1172,7 +1170,7 @@ impl<'a> TreeShaker<'a> {
         let mut uses_locals_or_globals = false;
         let mut reads_all = false;
 
-        for item in items {
+        for item in module_dep.items.values() {
             if !uses_setattr {
                 uses_setattr = item.read_vars.contains("setattr")
                     || item.eventual_read_vars.contains("setattr");
@@ -1204,9 +1202,13 @@ impl<'a> TreeShaker<'a> {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let module_name = self.module_names.get(&module_id).map_or("", String::as_str);
-        if let Some(items) = self.module_items.get(&module_id) {
-            for item in items {
+        let module_name = self
+            .graph
+            .modules
+            .get(&module_id)
+            .map_or("", |m| m.module_name.as_str());
+        if let Some(module_dep) = self.graph.modules.get(&module_id) {
+            for item in module_dep.items.values() {
                 if Self::is_all_assignment(item) {
                     // Mark all symbols listed in __all__ (stored in eventual_read_vars)
                     for symbol in &item.eventual_read_vars {

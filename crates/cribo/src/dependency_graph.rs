@@ -17,6 +17,7 @@ use anyhow::{Result, anyhow};
 use petgraph::{
     algo::{is_cyclic_directed, tarjan_scc, toposort},
     graph::{DiGraph, NodeIndex},
+    visit::{DfsPostOrder, EdgeRef},
 };
 
 use crate::{
@@ -25,10 +26,8 @@ use crate::{
 };
 
 /// Unique identifier for an item within a module
-/// Note: Made `pub` because it's exposed through `ModuleDepGraph::items` (pub field)
-#[allow(unreachable_pub)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ItemId(u32);
+pub(crate) struct ItemId(u32);
 
 impl ItemId {
     pub(crate) const fn new(id: u32) -> Self {
@@ -37,10 +36,8 @@ impl ItemId {
 }
 
 /// Type of Python item (function, class, import, etc.)
-/// Note: Made `pub` because it's exposed through `ItemData::item_type` (pub field)
-#[allow(unreachable_pub)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ItemType {
+pub(crate) enum ItemType {
     /// Function definition
     FunctionDef { name: String },
     /// Class definition
@@ -80,10 +77,8 @@ impl ItemType {
 }
 
 /// Variable state tracking
-/// Note: Made `pub` because it's exposed through `ModuleDepGraph::var_states` (pub field)
-#[allow(unreachable_pub)]
 #[derive(Debug, Clone)]
-pub struct VarState {
+pub(crate) struct VarState {
     /// Items that write to this variable
     pub writers: Vec<ItemId>,
     /// Items that read this variable
@@ -91,10 +86,8 @@ pub struct VarState {
 }
 
 /// Data about a Python item (statement/definition)
-/// Note: Made `pub` because it's exposed through `ModuleDepGraph::items` (pub field)
-#[allow(unreachable_pub)]
 #[derive(Debug, Clone)]
-pub struct ItemData {
+pub(crate) struct ItemData {
     /// Type of this item
     pub item_type: ItemType,
     /// Variables declared by this item
@@ -125,11 +118,8 @@ pub struct ItemData {
 }
 
 /// Fine-grained dependency graph for a single module
-/// Module-level dependency graph
-/// Note: Made `pub` because it's exposed through `DependencyGraph::modules` (pub field)
-#[allow(unreachable_pub)]
 #[derive(Debug)]
-pub struct ModuleDepGraph {
+pub(crate) struct ModuleDepGraph {
     /// Module identifier
     pub module_id: ModuleId,
     /// Module name (e.g., "utils.helpers")
@@ -281,16 +271,18 @@ impl ModuleDepGraph {
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
 ///
-/// Note: Made `pub` for benchmark access via lib.rs (benchmarks are part of public API surface)
+/// Note: `pub` for benchmark access via `lib.rs` (`pub mod dependency_graph`).
+/// The `unreachable_pub` suppression is needed because the bin target doesn't see
+/// external consumers (benchmarks).
 #[allow(unreachable_pub)]
 #[derive(Debug)]
 pub struct DependencyGraph {
     /// All modules in the graph
-    pub modules: FxIndexMap<ModuleId, ModuleDepGraph>,
+    pub(crate) modules: FxIndexMap<ModuleId, ModuleDepGraph>,
     /// Module name to ID mapping
-    pub module_names: FxIndexMap<String, ModuleId>,
+    pub(crate) module_names: FxIndexMap<String, ModuleId>,
     /// Module path to ID mapping
-    pub module_paths: FxIndexMap<PathBuf, ModuleId>,
+    pub(crate) module_paths: FxIndexMap<PathBuf, ModuleId>,
     /// Petgraph for efficient algorithms (inspired by Mako)
     graph: DiGraph<ModuleId, ()>,
     /// Node index mapping
@@ -445,16 +437,6 @@ impl DependencyGraph {
     /// Add a dependency between modules (from depends on to)
     #[allow(unreachable_pub)]
     pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
-        self.add_module_dependency_with_info(from, to, ());
-    }
-
-    /// Add a dependency between modules with additional information
-    pub(crate) fn add_module_dependency_with_info(
-        &mut self,
-        from: ModuleId,
-        to: ModuleId,
-        info: (),
-    ) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
@@ -464,7 +446,7 @@ impl DependencyGraph {
 
             // Check if edge already exists to avoid duplicates
             if !self.graph.contains_edge(to_idx, from_idx) {
-                self.graph.add_edge(to_idx, from_idx, info);
+                self.graph.add_edge(to_idx, from_idx, ());
             }
         }
     }
@@ -513,6 +495,132 @@ impl DependencyGraph {
             })
             .map(|component| component.into_iter().map(|idx| self.graph[idx]).collect())
             .collect()
+    }
+
+    /// Topological sort that handles cycles via SCC condensation.
+    ///
+    /// For acyclic graphs, this degenerates to a standard topological sort.
+    /// For cyclic graphs, it:
+    /// 1. Computes SCCs using Tarjan's algorithm on the internal petgraph
+    /// 2. Builds a condensation DAG of components
+    /// 3. Topologically sorts the condensation DAG
+    /// 4. Within each multi-node SCC, uses DFS post-order for dependency-first ordering
+    ///
+    /// Determinism is ensured by ranking modules by their insertion order (`FxIndexMap`
+    /// preserves insertion order, and `ModuleId` values increase monotonically).
+    pub(crate) fn topological_sort_with_cycles(&self) -> Vec<ModuleId> {
+        // Compute SCCs directly on the internal petgraph (no reconstruction needed)
+        let sccs = tarjan_scc(&self.graph);
+
+        // Map each NodeIndex to its SCC index
+        let mut node_to_scc: FxIndexMap<NodeIndex, usize> = FxIndexMap::default();
+        for (i, comp) in sccs.iter().enumerate() {
+            for &n in comp {
+                node_to_scc.insert(n, i);
+            }
+        }
+
+        // Deterministic rank: position of each ModuleId in self.modules (insertion order).
+        // This is equivalent to the orchestrator's `all_module_ids.iter().enumerate()` rank.
+        let rank: FxIndexMap<ModuleId, usize> = self
+            .modules
+            .keys()
+            .enumerate()
+            .map(|(i, &mid)| (mid, i))
+            .collect();
+
+        // Build condensation DAG of SCC components
+        let mut comp_graph: DiGraph<usize, ()> = DiGraph::new();
+        let mut comp_node_map: FxIndexMap<usize, NodeIndex> = FxIndexMap::default();
+
+        // Insert components in deterministic order by minimal member rank
+        let mut comp_indices: Vec<usize> = (0..sccs.len()).collect();
+        comp_indices.sort_by_key(|&cid| {
+            sccs[cid]
+                .iter()
+                .map(|&nx| rank.get(&self.graph[nx]).copied().unwrap_or(usize::MAX))
+                .min()
+                .unwrap_or(usize::MAX)
+        });
+        for cid in comp_indices.iter().copied() {
+            comp_node_map.insert(cid, comp_graph.add_node(cid));
+        }
+
+        // Add edges between components (dependency → dependent)
+        for edge in self.graph.edge_references() {
+            let u = edge.source();
+            let v = edge.target();
+            let cu = node_to_scc[&u];
+            let cv = node_to_scc[&v];
+            if cu != cv {
+                let from = comp_node_map[&cu];
+                let to = comp_node_map[&cv];
+                if !comp_graph.contains_edge(from, to) {
+                    comp_graph.add_edge(from, to, ());
+                }
+            }
+        }
+
+        // Topologically order the condensation DAG
+        let comp_order = toposort(&comp_graph, None).map_or(comp_indices, |nodes| {
+            nodes.into_iter().map(|n| comp_graph[n]).collect::<Vec<_>>()
+        });
+
+        // Emit modules: singleton SCCs directly; multi-node SCCs with stable DFS post-order
+        let mut visited = FxIndexSet::default();
+        let mut result = Vec::with_capacity(self.modules.len());
+        for cid in comp_order {
+            let comp_nodes = &sccs[cid];
+            if comp_nodes.len() == 1 {
+                let mid = self.graph[comp_nodes[0]];
+                if visited.insert(mid) {
+                    result.push(mid);
+                }
+                continue;
+            }
+
+            // Build a mini-subgraph containing only nodes in this SCC
+            let mut mini: DiGraph<ModuleId, ()> = DiGraph::new();
+            let mut mini_map: FxIndexMap<NodeIndex, NodeIndex> = FxIndexMap::default();
+
+            // Add nodes sorted by rank for determinism
+            let mut comp_sorted = comp_nodes.clone();
+            comp_sorted.sort_by_key(|&nx| rank.get(&self.graph[nx]).copied().unwrap_or(usize::MAX));
+            for &nx in &comp_sorted {
+                let mid = self.graph[nx];
+                let idx = mini.add_node(mid);
+                mini_map.insert(nx, idx);
+            }
+
+            // Add edges among component nodes with reversed orientation:
+            // dependent → dependency, so DfsPostOrder emits dependencies first
+            for &nx in &comp_sorted {
+                let from_idx = mini_map[&nx];
+                for edge in self.graph.edges(nx) {
+                    let tgt = edge.target();
+                    if let Some(&to_idx) = mini_map.get(&tgt)
+                        && !mini.contains_edge(to_idx, from_idx)
+                    {
+                        mini.add_edge(to_idx, from_idx, ());
+                    }
+                }
+            }
+
+            // DFS post-order traversal ensures dependency-first ordering within the SCC
+            for &nx in &comp_sorted {
+                if let Some(&start) = mini_map.get(&nx) {
+                    let mut dfs = DfsPostOrder::new(&mini, start);
+                    while let Some(nid) = dfs.next(&mini) {
+                        let mid = mini[nid];
+                        if visited.insert(mid) {
+                            result.push(mid);
+                        }
+                    }
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -590,31 +698,54 @@ mod tests {
     }
 
     #[test]
-    fn test_circular_dependency_classification() {
+    fn test_cross_cycle_module_level_reads_classified_as_unresolvable() {
+        // Simulate: constants_a.py: `from constants_b import B_VALUE; A_VALUE = B_VALUE + 1`
+        //           constants_b.py: `from constants_a import A_VALUE; B_VALUE = A_VALUE * 2`
+        // Both modules read a cross-cycle import at module level → temporal paradox.
         let mut graph = DependencyGraph::new();
 
-        // Create a circular dependency with "constants" in the name
-        let constants_a = graph.add_module(
+        let mod_a = graph.add_module(
             ModuleId::new(0),
-            "constants_a".to_owned(),
-            &PathBuf::from("constants_a.py"),
+            "mod_a".to_owned(),
+            &PathBuf::from("mod_a.py"),
         );
-        let constants_b = graph.add_module(
+        let mod_b = graph.add_module(
             ModuleId::new(1),
-            "constants_b".to_owned(),
-            &PathBuf::from("constants_b.py"),
+            "mod_b".to_owned(),
+            &PathBuf::from("mod_b.py"),
         );
 
-        // Add some constant assignments to make these actual constant modules
-        if let Some(module_a) = graph.modules.get_mut(&constants_a) {
+        // mod_a: from mod_b import B_VALUE
+        if let Some(module_a) = graph.modules.get_mut(&mod_a) {
+            module_a.add_item(ItemData {
+                item_type: ItemType::FromImport {
+                    module: "mod_b".to_owned(),
+                    names: vec![("B_VALUE".to_owned(), None)],
+                    level: 0,
+                    is_star: false,
+                },
+                var_decls: std::iter::once("B_VALUE".into()).collect(),
+                read_vars: FxIndexSet::default(),
+                eventual_read_vars: FxIndexSet::default(),
+                write_vars: FxIndexSet::default(),
+                eventual_write_vars: FxIndexSet::default(),
+                has_side_effects: false,
+                imported_names: std::iter::once("B_VALUE".into()).collect(),
+                reexported_names: FxIndexSet::default(),
+                defined_symbols: FxIndexSet::default(),
+                symbol_dependencies: FxIndexMap::default(),
+                attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
+            });
+            // mod_a: A_VALUE = B_VALUE + 1  (reads B_VALUE at module level)
             module_a.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["CONFIG".to_owned()],
+                    targets: vec!["A_VALUE".to_owned()],
                 },
-                var_decls: std::iter::once("CONFIG".into()).collect(),
-                read_vars: FxIndexSet::default(),
+                var_decls: std::iter::once("A_VALUE".into()).collect(),
+                read_vars: std::iter::once("B_VALUE".into()).collect(),
                 eventual_read_vars: FxIndexSet::default(),
-                write_vars: std::iter::once("CONFIG".into()).collect(),
+                write_vars: std::iter::once("A_VALUE".into()).collect(),
                 eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
@@ -626,15 +757,37 @@ mod tests {
             });
         }
 
-        if let Some(module_b) = graph.modules.get_mut(&constants_b) {
+        // mod_b: from mod_a import A_VALUE
+        if let Some(module_b) = graph.modules.get_mut(&mod_b) {
+            module_b.add_item(ItemData {
+                item_type: ItemType::FromImport {
+                    module: "mod_a".to_owned(),
+                    names: vec![("A_VALUE".to_owned(), None)],
+                    level: 0,
+                    is_star: false,
+                },
+                var_decls: std::iter::once("A_VALUE".into()).collect(),
+                read_vars: FxIndexSet::default(),
+                eventual_read_vars: FxIndexSet::default(),
+                write_vars: FxIndexSet::default(),
+                eventual_write_vars: FxIndexSet::default(),
+                has_side_effects: false,
+                imported_names: std::iter::once("A_VALUE".into()).collect(),
+                reexported_names: FxIndexSet::default(),
+                defined_symbols: FxIndexSet::default(),
+                symbol_dependencies: FxIndexMap::default(),
+                attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
+            });
+            // mod_b: B_VALUE = A_VALUE * 2  (reads A_VALUE at module level)
             module_b.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["SETTINGS".to_owned()],
+                    targets: vec!["B_VALUE".to_owned()],
                 },
-                var_decls: std::iter::once("SETTINGS".into()).collect(),
-                read_vars: FxIndexSet::default(),
+                var_decls: std::iter::once("B_VALUE".into()).collect(),
+                read_vars: std::iter::once("A_VALUE".into()).collect(),
                 eventual_read_vars: FxIndexSet::default(),
-                write_vars: std::iter::once("SETTINGS".into()).collect(),
+                write_vars: std::iter::once("B_VALUE".into()).collect(),
                 eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
@@ -646,10 +799,9 @@ mod tests {
             });
         }
 
-        graph.add_module_dependency(constants_a, constants_b);
-        graph.add_module_dependency(constants_b, constants_a);
+        graph.add_module_dependency(mod_a, mod_b);
+        graph.add_module_dependency(mod_b, mod_a);
 
-        // Now we need to use the analyzer
         let analysis = crate::analyzers::dependency_analyzer::analyze_circular_dependencies(&graph);
         assert_eq!(analysis.unresolvable_cycles.len(), 1);
 
@@ -658,13 +810,12 @@ mod tests {
             CircularDependencyType::ModuleConstants
         );
 
-        // Check resolution strategy
         if let ResolutionStrategy::Unresolvable { reason } =
             &analysis.unresolvable_cycles[0].suggested_resolution
         {
             assert!(reason.contains("temporal paradox"));
         } else {
-            panic!("Expected unresolvable strategy for constants cycle");
+            panic!("Expected unresolvable strategy for cross-cycle module-level reads");
         }
     }
 

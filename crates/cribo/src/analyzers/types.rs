@@ -136,9 +136,10 @@ pub(crate) enum CircularDependencyType {
 /// Resolution strategy for circular dependencies
 #[derive(Debug, Clone)]
 pub(crate) enum ResolutionStrategy {
-    LazyImport,
-    FunctionScopedImport,
-    ModuleSplit,
+    /// Cycle can be resolved through code transformations (lazy import, function-scoped import,
+    /// etc.)
+    Resolvable,
+    /// Cycle cannot be resolved
     Unresolvable { reason: String },
 }
 
