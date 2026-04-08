@@ -106,9 +106,25 @@ impl Bundler<'_> {
                     expression_handlers::rewrite_aliases_in_stmt(stmt, entry_module_renames);
 
                     // Check if this is an assignment that was renamed
-                    if let Stmt::Assign(assign) = &stmt {
-                        pending_reassignment =
-                            self.check_renamed_assignment(assign, entry_module_renames);
+                    match &stmt {
+                        Stmt::Assign(assign) => {
+                            pending_reassignment =
+                                self.check_renamed_assignment(assign, entry_module_renames);
+                        }
+                        Stmt::AnnAssign(ann_assign) => {
+                            // Annotated assignment: `name: Type = expr`
+                            if let Expr::Name(name_expr) = ann_assign.target.as_ref() {
+                                let assigned_name = name_expr.id.as_str();
+                                for (original, renamed) in entry_module_renames {
+                                    if assigned_name == renamed {
+                                        pending_reassignment =
+                                            Some((original.clone(), renamed.clone()));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
