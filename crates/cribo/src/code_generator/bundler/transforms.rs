@@ -1644,8 +1644,16 @@ impl Bundler<'_> {
                     );
                 }
             }
+            Stmt::Global(global_stmt) => {
+                // Rewrite global names to use lifted identifiers
+                for name in &mut global_stmt.names {
+                    if let Some(lifted_name) = lifted_names.get(name.as_str()) {
+                        *name = other::identifier(lifted_name);
+                    }
+                }
+            }
             _ => {
-                // Remaining: Import, ImportFrom, Pass, Break, Continue, Global, Nonlocal,
+                // Remaining: Import, ImportFrom, Pass, Break, Continue, Nonlocal,
                 // TypeAlias, IpyEscapeCommand — none contain name expressions to rewrite
             }
         }
