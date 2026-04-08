@@ -1047,9 +1047,9 @@ impl<'a> TreeShaker<'a> {
     ) {
         let is_namespace = self
             .graph
-            .modules
-            .values()
-            .any(|m| m.module_name.starts_with(&format!("{base_var}.")));
+            .module_names
+            .keys()
+            .any(|name| name.starts_with(&format!("{base_var}.")));
 
         if !is_namespace {
             debug!("Unknown base variable for attribute access in {context}: {base_var}");
@@ -1075,11 +1075,14 @@ impl<'a> TreeShaker<'a> {
 
     /// Find which submodule defines an attribute
     fn find_attribute_in_submodules(&self, base_var: &str, attr: &str) -> Option<ModuleId> {
-        for (&module_id, module_dep) in &self.graph.modules {
-            if module_dep.module_name.starts_with(&format!("{base_var}.")) {
-                for item in module_dep.items.values() {
-                    if item.defined_symbols.contains(attr) {
-                        return Some(module_id);
+        let prefix = format!("{base_var}.");
+        for (name, &module_id) in &self.graph.module_names {
+            if name.starts_with(&prefix) {
+                if let Some(module_dep) = self.graph.modules.get(&module_id) {
+                    for item in module_dep.items.values() {
+                        if item.defined_symbols.contains(attr) {
+                            return Some(module_id);
+                        }
                     }
                 }
             }
