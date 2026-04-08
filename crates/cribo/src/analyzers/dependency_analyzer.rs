@@ -86,7 +86,15 @@ fn classify_cycle_type(
     // Perform AST analysis on the modules in the cycle
     let analysis_result = analyze_cycle_modules(graph, module_ids);
 
-    // Use AST analysis results for classification
+    // Cross-cycle module-level reads: bidirectional temporal paradox detected via AST.
+    // Two or more modules import from each other and consume those imports in module-level
+    // assignments (e.g., A_VALUE = B_VALUE + 1 / B_VALUE = A_VALUE * 2). Neither module
+    // can initialize first. This takes precedence over class heuristics because a temporal
+    // paradox is unresolvable regardless of whether classes are also present.
+    if analysis_result.has_cross_cycle_module_level_reads {
+        return CircularDependencyType::ModuleConstants;
+    }
+
     if analysis_result.has_class_definitions {
         // Check if the circular imports are used for inheritance
         // If all imports in the cycle are only used in functions, it's still FunctionLevel
@@ -95,14 +103,6 @@ fn classify_cycle_type(
         }
         // Otherwise, it's a true class-level cycle
         return CircularDependencyType::ClassLevel;
-    }
-
-    // Cross-cycle module-level reads: bidirectional temporal paradox detected via AST.
-    // Two or more modules import from each other and consume those imports in module-level
-    // assignments (e.g., A_VALUE = B_VALUE + 1 / B_VALUE = A_VALUE * 2). Neither module
-    // can initialize first.
-    if analysis_result.has_cross_cycle_module_level_reads {
-        return CircularDependencyType::ModuleConstants;
     }
 
     // Default classification based on remaining heuristics
