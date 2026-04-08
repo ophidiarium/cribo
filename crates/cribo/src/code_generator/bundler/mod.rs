@@ -656,27 +656,47 @@ impl<'a> Bundler<'a> {
         &mut self,
         params: &BundleParams<'a>,
     ) -> FxIndexMap<ModuleId, (ModModule, PathBuf, String)> {
-        // Identify all modules that are part of circular dependencies FIRST
-        // This must be done before trimming imports
-        if let Some(analysis) = params.circular_dep_analysis {
-            log::debug!("CircularDependencyAnalysis received:");
-            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
-            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
-            for group in &analysis.resolvable_cycles {
-                for &module_id in &group.modules {
-                    self.circular_modules.insert(module_id);
-                    self.all_circular_modules.insert(module_id);
-                }
-            }
-            for group in &analysis.unresolvable_cycles {
-                for &module_id in &group.modules {
-                    self.circular_modules.insert(module_id);
-                    self.all_circular_modules.insert(module_id);
-                }
-            }
-            log::debug!("Circular modules: {:?}", self.circular_modules);
-        }
+        self.identify_circular_modules(params.circular_dep_analysis);
+        let mut modules = self.build_and_trim_modules(params);
+        self.index_module_asts(&mut modules);
+        self.module_asts = Some(modules.clone());
+        self.populate_symbol_dep_graph(&modules);
+        self.track_module_relationships(&modules, params);
+        modules
+    }
 
+    /// Identify all modules that are part of circular dependencies.
+    /// Must be done before trimming imports.
+    fn identify_circular_modules(
+        &mut self,
+        circular_dep_analysis: Option<&crate::analyzers::types::CircularDependencyAnalysis>,
+    ) {
+        let Some(analysis) = circular_dep_analysis else {
+            return;
+        };
+        log::debug!("CircularDependencyAnalysis received:");
+        log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
+        log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
+        for group in &analysis.resolvable_cycles {
+            for &module_id in &group.modules {
+                self.circular_modules.insert(module_id);
+                self.all_circular_modules.insert(module_id);
+            }
+        }
+        for group in &analysis.unresolvable_cycles {
+            for &module_id in &group.modules {
+                self.circular_modules.insert(module_id);
+                self.all_circular_modules.insert(module_id);
+            }
+        }
+        log::debug!("Circular modules: {:?}", self.circular_modules);
+    }
+
+    /// Build the module map from params and trim unused imports.
+    fn build_and_trim_modules(
+        &self,
+        params: &BundleParams<'a>,
+    ) -> FxIndexMap<ModuleId, (ModModule, PathBuf, String)> {
         // Build IndexMap directly from params.modules (AST clone is required since
         // params.modules is a borrowed slice, but we skip the intermediate Vec).
         let mut modules_map: FxIndexMap<ModuleId, (ModModule, PathBuf, String)> =
@@ -698,23 +718,26 @@ impl<'a> Bundler<'a> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
-        let mut modules = import_deduplicator::trim_unused_imports_from_modules(
+        import_deduplicator::trim_unused_imports_from_modules(
             &modules_map,
             params.graph,
             params.tree_shaker,
             params.python_version,
             &self.circular_modules,
-        );
+        )
+    }
 
-        // Index all module ASTs to assign node indices and initialize transformation context
+    /// Index all module ASTs to assign node indices and initialize transformation context.
+    fn index_module_asts(
+        &mut self,
+        modules: &mut FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+    ) {
         log::debug!("Indexing {} modules", modules.len());
         let mut total_nodes = 0_u32;
         let mut module_id_counter = 0_u32;
-
-        // Create a mapping from module ID to counter for debugging
         let mut module_id_map = FxIndexMap::default();
 
-        for (module_id, (ast, _, _content_hash)) in &mut modules {
+        for (module_id, (ast, _, _content_hash)) in modules.iter_mut() {
             let indexed = crate::ast_indexer::index_module_with_id(ast, module_id_counter);
             let node_count = indexed.node_count;
             let module_name = self
@@ -734,8 +757,7 @@ impl<'a> Bundler<'a> {
             module_id_counter += 1;
         }
 
-        // Initialize transformation context
-        // Start new node indices after all module ranges
+        // Initialize transformation context — start new node indices after all module ranges
         self.transformation_context = TransformationContext::new();
         let starting_index = module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE;
         self.transformation_context.skip_to_index(starting_index);
@@ -743,12 +765,14 @@ impl<'a> Bundler<'a> {
             "Transformation context initialized. Module count: {module_id_counter}, Total nodes: \
              {total_nodes}, New nodes start at: {starting_index}"
         );
+    }
 
-        // Store for re-export resolution (modules already use ModuleId)
-        self.module_asts = Some(modules.clone());
-
-        // Populate symbol dependency graph for circular modules so that
-        // reorder_statements_for_circular_module can topologically sort symbols
+    /// Populate symbol dependency graph for circular modules so that
+    /// `reorder_statements_for_circular_module` can topologically sort symbols.
+    fn populate_symbol_dep_graph(
+        &mut self,
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+    ) {
         for module_id in &self.circular_modules {
             if let Some((ast, _, _)) = modules.get(module_id) {
                 let module_name = self
@@ -758,8 +782,14 @@ impl<'a> Bundler<'a> {
                 self.symbol_dep_graph.populate_from_ast(&module_name, ast);
             }
         }
+    }
 
-        // Track bundled modules
+    /// Track bundled modules, find import relationships, and clean up circular module entries.
+    fn track_module_relationships(
+        &mut self,
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        params: &BundleParams<'a>,
+    ) {
         for module_id in modules.keys() {
             self.bundled_modules.insert(*module_id);
             let module_name = self
@@ -771,39 +801,28 @@ impl<'a> Bundler<'a> {
 
         // Check which modules are imported directly (e.g., import module_name)
         let directly_imported_modules =
-            self.find_directly_imported_modules(&modules, &self.entry_module_name);
+            self.find_directly_imported_modules(modules, &self.entry_module_name);
         log::debug!("Directly imported modules: {directly_imported_modules:?}");
 
         // Find modules that are imported as namespaces (e.g., from models import base)
-        // The modules vector already contains all modules including the entry module
-        self.find_namespace_imported_modules(&modules);
+        self.find_namespace_imported_modules(modules);
 
-        // Note: Circular dependencies have already been identified at the beginning of
-        // prepare_modules to ensure imports are properly handled before tree-shaking
-        if params.circular_dep_analysis.is_some() {
-            // If entry module is __init__.py, also remove the entry package from circular modules
-            // For example, if entry is "yaml.__init__" and "yaml" is in circular modules, remove
-            // "yaml" as they're the same file (yaml/__init__.py)
-            if self.entry_is_package_init_or_main
-                && let Some(entry_pkg) = self.infer_entry_root_package()
+        // If entry module is __init__.py, remove the entry package from circular modules
+        // (e.g., "yaml.__init__" and "yaml" are the same file yaml/__init__.py)
+        if params.circular_dep_analysis.is_some()
+            && self.entry_is_package_init_or_main
+            && let Some(entry_pkg) = self.infer_entry_root_package()
+        {
+            if let Some(id) = self.get_module_id(&entry_pkg)
+                && self.circular_modules.contains(&id)
             {
-                // Remove the specific entry package from circular modules
-                if self
-                    .get_module_id(&entry_pkg)
-                    .is_some_and(|id| self.circular_modules.contains(&id))
-                {
-                    log::debug!(
-                        "Removing package '{entry_pkg}' from circular modules as it's the same as \
-                         entry module '__init__.py'"
-                    );
-                    if let Some(id) = self.get_module_id(&entry_pkg) {
-                        self.circular_modules.swap_remove(&id);
-                    }
-                }
+                log::debug!(
+                    "Removing package '{entry_pkg}' from circular modules as it's the same as \
+                     entry module '__init__.py'"
+                );
+                self.circular_modules.swap_remove(&id);
             }
         }
-
-        modules
     }
 
     /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
