@@ -175,6 +175,9 @@ impl<'a> Bundler<'a> {
 
     /// Helper: check duplicate name assignment exists in final body
     pub(crate) fn is_duplicate_name_assignment(assign: &StmtAssign, final_body: &[Stmt]) -> bool {
+        if assign.targets.len() != 1 {
+            return false;
+        }
         let Expr::Name(target) = &assign.targets[0] else {
             return false;
         };
@@ -199,6 +202,9 @@ impl<'a> Bundler<'a> {
         assign: &StmtAssign,
         final_body: &[Stmt],
     ) -> bool {
+        if assign.targets.len() != 1 {
+            return false;
+        }
         let Expr::Attribute(target_attr) = &assign.targets[0] else {
             return false;
         };
