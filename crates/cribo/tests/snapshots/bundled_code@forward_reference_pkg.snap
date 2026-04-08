@@ -49,8 +49,7 @@ def _cribo_init___cribo_f70f3a_pkg(self):
     self.__initializing__ = True
     global pkg_core
     """Package that triggers forward reference."""
-    compat = pkg.compat
-    self.compat = compat
+    compat = pkg_compat
     self.compat = compat
     pkg_core = _cribo_init___cribo_1a829c_pkg_core(pkg_core)
     core = pkg.core

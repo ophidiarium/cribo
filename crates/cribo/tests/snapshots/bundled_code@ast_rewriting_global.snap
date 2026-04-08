@@ -145,9 +145,9 @@ def _cribo_init___cribo_c75306_module_mixed_patterns(self):
             _cribo_module_mixed_patterns_counter += 1
 
         def increment():
-            global counter
-            counter += 1
-            return counter
+            global _cribo_module_mixed_patterns_counter
+            _cribo_module_mixed_patterns_counter += 1
+            return _cribo_module_mixed_patterns_counter
         global_keys = [k for k in self.__dict__ if not k.startswith("_")]
         return {"original": original, "after_loop": _cribo_module_mixed_patterns_counter, "increment_func": increment, "global_count": len(global_keys)}
     self.complex_global_usage = complex_global_usage

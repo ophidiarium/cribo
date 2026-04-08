@@ -1887,27 +1887,28 @@ pub(crate) fn transform_expr_for_builtin_shadowing(
     builtin_locals: &FxIndexSet<String>,
 ) {
     match expr {
-        Expr::Name(name) if name.ctx == ExprContext::Load => {
+        Expr::Name(name)
+            if name.ctx == ExprContext::Load
             // If this name refers to a built-in that will be shadowed by a local assignment,
             // transform it to use __builtins__.name
-            if builtin_locals.contains(name.id.as_str()) {
-                debug!(
-                    "Transforming built-in reference '{}' to avoid UnboundLocalError",
-                    name.id
-                );
-                // Use builtins module which is more reliable than __builtins__
-                // Generate: __import__('builtins').name
-                let import_call = ast_builder::expressions::call(
-                    ast_builder::expressions::name("__import__", ExprContext::Load),
-                    vec![ast_builder::expressions::string_literal("builtins")],
-                    vec![],
-                );
-                *expr = ast_builder::expressions::attribute(
-                    import_call,
-                    name.id.as_str(),
-                    ExprContext::Load,
-                );
-            }
+            && builtin_locals.contains(name.id.as_str()) =>
+        {
+            debug!(
+                "Transforming built-in reference '{}' to avoid UnboundLocalError",
+                name.id
+            );
+            // Use builtins module which is more reliable than __builtins__
+            // Generate: __import__('builtins').name
+            let import_call = ast_builder::expressions::call(
+                ast_builder::expressions::name("__import__", ExprContext::Load),
+                vec![ast_builder::expressions::string_literal("builtins")],
+                vec![],
+            );
+            *expr = ast_builder::expressions::attribute(
+                import_call,
+                name.id.as_str(),
+                ExprContext::Load,
+            );
         }
         // Recursively handle other expressions
         Expr::Call(call) => {

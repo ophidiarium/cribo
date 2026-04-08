@@ -32,6 +32,7 @@ pkg__types = _cribo.types.SimpleNamespace(__name__='pkg._types', __doc__='Types 
 pkg = _cribo.types.SimpleNamespace(__name__='pkg', __initializing__=False, __initialized__=False, __path__=[])
 pkg._types = pkg__types
 """Types module with stream classes."""
+__all__ = ["AsyncStream", "SyncStream"]
 class AsyncStream:
     """Async stream implementation."""
 
@@ -77,6 +78,8 @@ def _cribo_init___cribo_1fb248_pkg(self):
     self.SyncStream = pkg__types.SyncStream
     global pkg__client, pkg__main
     """Package that sets __module__ on all exported items, like httpx does."""
+    AsyncStream = pkg__types.AsyncStream
+    SyncStream = pkg__types.SyncStream
     pkg__client = _cribo_init___cribo_7e63ae_pkg__client(pkg__client)
     Client = pkg__client.Client
     self.Client = Client

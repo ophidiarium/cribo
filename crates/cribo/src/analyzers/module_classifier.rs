@@ -54,7 +54,7 @@ impl<'a> ModuleClassifier<'a> {
             .or_else(|| {
                 entry_module_name.strip_suffix(&format!(".{}", crate::python::constants::MAIN_STEM))
             })
-            .map(ToString::to_string)
+            .map(str::to_owned)
     }
 
     /// Classify modules into inlinable and wrapper modules

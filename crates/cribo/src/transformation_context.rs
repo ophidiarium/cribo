@@ -44,6 +44,12 @@ impl TransformationContext {
         self.next_index.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Advance the counter directly to `index`, skipping all intermediate values.
+    /// Uses `fetch_max` to enforce monotonicity — the counter never moves backwards.
+    pub(crate) fn skip_to_index(&self, index: u32) {
+        self.next_index.fetch_max(index, Ordering::Relaxed);
+    }
+
     /// Create a new node with a fresh index
     pub(crate) fn create_node_index(&self) -> AtomicNodeIndex {
         let index = self.next_node_index();

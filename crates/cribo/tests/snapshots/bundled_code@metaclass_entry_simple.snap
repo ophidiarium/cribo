@@ -53,6 +53,9 @@ loader.BaseLoader = BaseLoader
 loader.Loader = Loader
 loader.FullLoader = FullLoader
 """\nTest case where entry file has metaclasses and wildcard imports.\nThis reproduces the PyYAML issue.\n"""
+BaseLoader = loader.BaseLoader
+Loader = loader.Loader
+FullLoader = loader.FullLoader
 class YAMLObjectMetaclass(type):
     """The metaclass for YAMLObject."""
 

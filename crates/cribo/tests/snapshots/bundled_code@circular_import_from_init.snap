@@ -58,7 +58,7 @@ def _cribo_init___cribo_951ad9_rich_jupyter(self):
     if getattr(self, '__initializing__', False):
         return self
     self.__initializing__ = True
-    console = rich.console
+    console = rich_console
     self.console = console
     self.__initialized__ = True
     self.__initializing__ = False

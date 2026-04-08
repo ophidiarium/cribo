@@ -11,6 +11,7 @@ use ruff_python_ast::{Expr, ModModule, Stmt, StmtImportFrom};
 use crate::{
     analyzers::types::UnusedImportInfo,
     dependency_graph::{ItemData, ItemId},
+    resolver::{ModuleId, ModuleResolver},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -29,26 +30,29 @@ struct ImportUsageContext<'a> {
 impl ImportAnalyzer {
     /// Find modules that are imported directly (e.g., `import module`)
     pub(crate) fn find_directly_imported_modules(
-        modules: &[(String, ModModule, PathBuf, String)],
-        _entry_module_name: &str,
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        resolver: &ModuleResolver,
     ) -> FxIndexSet<String> {
         let mut directly_imported = FxIndexSet::default();
 
         // Pre-compute module names for O(1) lookup performance
-        let module_names: FxIndexSet<&str> = modules
-            .iter()
-            .map(|(name, _, _, _)| name.as_str())
+        let module_names: FxIndexSet<String> = modules
+            .keys()
+            .filter_map(|id| resolver.get_module_name(*id))
             .collect();
+        let module_name_refs: FxIndexSet<&str> = module_names.iter().map(String::as_str).collect();
 
         // Check all modules for direct imports (both module-level and function-scoped)
-        for (module_name, ast, _, _) in modules {
+        for (id, (ast, _, _)) in modules {
+            let Some(module_name) = resolver.get_module_name(*id) else {
+                continue;
+            };
             debug!("Checking module '{module_name}' for direct imports");
 
-            // Check the module body
             Self::collect_direct_imports_recursive(
                 &ast.body,
-                module_name,
-                &module_names,
+                &module_name,
+                &module_name_refs,
                 &mut directly_imported,
             );
         }
@@ -61,10 +65,13 @@ impl ImportAnalyzer {
     }
 
     /// Find modules that are imported as namespaces (e.g., `from pkg import module`)
+    ///
+    /// Returns a map from each imported `ModuleId` to the set of `ModuleId`s that import it.
     pub(crate) fn find_namespace_imported_modules(
-        modules: &[(String, ModModule, PathBuf, String)],
-    ) -> FxIndexMap<String, FxIndexSet<String>> {
-        let mut namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>> =
+        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        resolver: &ModuleResolver,
+    ) -> FxIndexMap<ModuleId, FxIndexSet<ModuleId>> {
+        let mut namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>> =
             FxIndexMap::default();
 
         debug!(
@@ -73,19 +80,31 @@ impl ImportAnalyzer {
         );
 
         // Pre-compute module names for O(1) lookup performance
-        let module_names: FxIndexSet<&str> = modules
+        let module_names: FxIndexMap<ModuleId, String> = modules
+            .keys()
+            .filter_map(|id| resolver.get_module_name(*id).map(|name| (*id, name)))
+            .collect();
+        let module_name_refs: FxIndexSet<&str> =
+            module_names.values().map(String::as_str).collect();
+
+        // Build reverse lookup from name to ModuleId
+        let name_to_id: FxIndexMap<&str, ModuleId> = module_names
             .iter()
-            .map(|(name, _, _, _)| name.as_str())
+            .map(|(id, name)| (name.as_str(), *id))
             .collect();
 
         // Check all modules for namespace imports
-        for (importing_module, ast, _, _) in modules {
+        for (id, (ast, _, _)) in modules {
+            let Some(importing_module) = module_names.get(id) else {
+                continue;
+            };
             debug!("Checking module '{importing_module}' for namespace imports");
             for stmt in &ast.body {
                 Self::collect_namespace_imports(
                     stmt,
-                    modules,
-                    &module_names,
+                    &module_name_refs,
+                    &name_to_id,
+                    *id,
                     importing_module,
                     &mut namespace_imported_modules,
                 );
@@ -101,22 +120,13 @@ impl ImportAnalyzer {
         namespace_imported_modules
     }
 
-    /// Find matching module name for namespace imports
-    pub(crate) fn find_matching_module_name_namespace(
-        modules: &[(String, ModModule, PathBuf, String)],
+    /// Find matching module ID for namespace imports.
+    /// The caller guarantees `full_module_path` exists in the name set.
+    fn find_matching_module_id_namespace(
+        name_to_id: &FxIndexMap<&str, ModuleId>,
         full_module_path: &str,
-    ) -> String {
-        // Find the actual module name that matched
-        modules
-            .iter()
-            .find_map(|(name, _, _, _)| {
-                if name == full_module_path || name.ends_with(&format!(".{full_module_path}")) {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| full_module_path.to_owned())
+    ) -> Option<ModuleId> {
+        name_to_id.get(full_module_path).copied()
     }
 
     /// Find unused imports in a specific module
@@ -407,45 +417,60 @@ impl ImportAnalyzer {
     /// Collect namespace imports from a statement
     fn collect_namespace_imports(
         stmt: &Stmt,
-        modules: &[(String, ModModule, PathBuf, String)],
         module_names: &FxIndexSet<&str>,
+        name_to_id: &FxIndexMap<&str, ModuleId>,
+        importing_module_id: ModuleId,
         importing_module: &str,
-        namespace_imported_modules: &mut FxIndexMap<String, FxIndexSet<String>>,
+        namespace_imported_modules: &mut FxIndexMap<ModuleId, FxIndexSet<ModuleId>>,
     ) {
         match stmt {
             Stmt::ImportFrom(import_from) => {
-                if let Some(module_name) = &import_from.module {
-                    let module_str = module_name.to_string();
-                    debug!(
-                        "Checking ImportFrom: from {module_str} import ... in module \
-                         {importing_module}"
-                    );
+                let module_str = if import_from.level == 0 {
+                    // Absolute import: use module name directly
+                    let Some(module_name) = &import_from.module else {
+                        // `from import x` without a module — skip
+                        return;
+                    };
+                    module_name.to_string()
+                } else {
+                    // Relative import: resolve against importing module
+                    crate::resolver::resolve_relative_import_from_name(
+                        import_from.level,
+                        import_from
+                            .module
+                            .as_ref()
+                            .map(ruff_python_ast::Identifier::as_str),
+                        importing_module,
+                    )
+                };
+                debug!(
+                    "Checking ImportFrom: from {module_str} import ... in module \
+                     {importing_module}"
+                );
 
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.to_string();
+                for alias in &import_from.names {
+                    let imported_name = alias.name.to_string();
 
-                        // Check if this imports a module (namespace import)
-                        let full_module_path = format!("{module_str}.{imported_name}");
+                    // Check if this imports a module (namespace import)
+                    let full_module_path = format!("{module_str}.{imported_name}");
 
-                        // Check if this is importing a module we're bundling
-                        let is_namespace_import = module_names.contains(full_module_path.as_str());
+                    // Check if this is importing a module we're bundling
+                    let is_namespace_import = module_names.contains(full_module_path.as_str());
 
-                        if is_namespace_import {
-                            // Find the actual module name that matched
-                            let actual_module_name = Self::find_matching_module_name_namespace(
-                                modules,
-                                &full_module_path,
-                            );
-
+                    if is_namespace_import {
+                        // Find the actual module ID that matched
+                        if let Some(actual_module_id) =
+                            Self::find_matching_module_id_namespace(name_to_id, &full_module_path)
+                        {
                             debug!(
-                                "  Found namespace import: from {module_name} import \
-                                 {imported_name} -> {full_module_path} (actual: \
-                                 {actual_module_name}) in module {importing_module}"
+                                "  Found namespace import: from {module_str} import \
+                                 {imported_name} -> {full_module_path} in module \
+                                 {importing_module}"
                             );
                             namespace_imported_modules
-                                .entry(actual_module_name)
+                                .entry(actual_module_id)
                                 .or_default()
-                                .insert(importing_module.to_owned());
+                                .insert(importing_module_id);
                         }
                     }
                 }
@@ -455,8 +480,9 @@ impl ImportAnalyzer {
                 for stmt in &func_def.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -466,8 +492,9 @@ impl ImportAnalyzer {
                 for stmt in &class_def.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -479,8 +506,9 @@ impl ImportAnalyzer {
                 for stmt in &if_stmt.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -490,8 +518,9 @@ impl ImportAnalyzer {
                     for stmt in &clause.body {
                         Self::collect_namespace_imports(
                             stmt,
-                            modules,
                             module_names,
+                            name_to_id,
+                            importing_module_id,
                             importing_module,
                             namespace_imported_modules,
                         );
@@ -502,8 +531,9 @@ impl ImportAnalyzer {
                 for stmt in &while_stmt.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -512,8 +542,9 @@ impl ImportAnalyzer {
                 for stmt in &while_stmt.orelse {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -523,8 +554,9 @@ impl ImportAnalyzer {
                 for stmt in &for_stmt.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -533,8 +565,9 @@ impl ImportAnalyzer {
                 for stmt in &for_stmt.orelse {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -545,8 +578,9 @@ impl ImportAnalyzer {
                 for stmt in &try_stmt.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -557,8 +591,9 @@ impl ImportAnalyzer {
                     for stmt in &except_handler.body {
                         Self::collect_namespace_imports(
                             stmt,
-                            modules,
                             module_names,
+                            name_to_id,
+                            importing_module_id,
                             importing_module,
                             namespace_imported_modules,
                         );
@@ -568,8 +603,9 @@ impl ImportAnalyzer {
                 for stmt in &try_stmt.orelse {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -578,8 +614,9 @@ impl ImportAnalyzer {
                 for stmt in &try_stmt.finalbody {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -589,8 +626,9 @@ impl ImportAnalyzer {
                 for stmt in &with_stmt.body {
                     Self::collect_namespace_imports(
                         stmt,
-                        modules,
                         module_names,
+                        name_to_id,
+                        importing_module_id,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -601,8 +639,9 @@ impl ImportAnalyzer {
                     for stmt in &case.body {
                         Self::collect_namespace_imports(
                             stmt,
-                            modules,
                             module_names,
+                            name_to_id,
+                            importing_module_id,
                             importing_module,
                             namespace_imported_modules,
                         );
@@ -618,11 +657,11 @@ impl ImportAnalyzer {
     /// This function is used to determine if private symbols (e.g., starting with underscore)
     /// should still be exported because they're imported by other modules.
     pub(crate) fn is_symbol_imported_by_other_modules(
-        module_asts: &FxIndexMap<crate::resolver::ModuleId, (ModModule, PathBuf, String)>,
-        module_id: crate::resolver::ModuleId,
+        module_asts: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        module_id: ModuleId,
         symbol_name: &str,
-        module_exports: Option<&FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>>,
-        resolver: &crate::resolver::ModuleResolver,
+        module_exports: Option<&FxIndexMap<ModuleId, Option<Vec<String>>>>,
+        resolver: &ModuleResolver,
     ) -> bool {
         let module_name = resolver
             .get_module_name(module_id)
@@ -633,6 +672,25 @@ impl ImportAnalyzer {
             module_name,
             module_asts.len()
         );
+
+        // Precompute the string-based export map once (instead of per-module in the loop)
+        let module_exports_strings: FxIndexMap<String, Option<Vec<String>>> = module_exports
+            .map(|exports| {
+                exports
+                    .iter()
+                    .filter_map(|(id, export_list)| {
+                        resolver
+                            .get_module_name(*id)
+                            .map(|name| (name, export_list.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let exports_ref = if module_exports_strings.is_empty() {
+            None
+        } else {
+            Some(&module_exports_strings)
+        };
 
         // Look through all modules to see if any import this symbol
         for (other_module_id, (ast, _, _)) in module_asts {
@@ -646,13 +704,12 @@ impl ImportAnalyzer {
                 .unwrap_or_else(|| format!("module#{other_module_id}"));
 
             // Check import statements in the module
-            if Self::module_imports_symbol_with_ids(
+            if Self::module_imports_symbol(
                 ast,
-                *other_module_id,
-                module_id,
+                &other_module_name,
+                &module_name,
                 symbol_name,
-                module_exports,
-                resolver,
+                exports_ref,
             ) {
                 debug!(
                     "Symbol '{symbol_name}' from module '{module_name}' is imported by module \
@@ -669,47 +726,16 @@ impl ImportAnalyzer {
         false
     }
 
-    /// Check if a module imports a specific symbol from another module (using `ModuleIds`)
-    fn module_imports_symbol_with_ids(
+    /// Check if a module imports a specific symbol from another module
+    fn module_imports_symbol(
         ast: &ModModule,
-        importing_module_id: crate::resolver::ModuleId,
-        target_module_id: crate::resolver::ModuleId,
+        importing_module: &str,
+        target_module: &str,
         symbol_name: &str,
-        module_exports: Option<&FxIndexMap<crate::resolver::ModuleId, Option<Vec<String>>>>,
-        resolver: &crate::resolver::ModuleResolver,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
-        // Convert to strings for now - we'll need to update SymbolImportVisitor later
-        let importing_module = resolver
-            .get_module_name(importing_module_id)
-            .unwrap_or_else(|| format!("module#{importing_module_id}"));
-        let target_module = resolver
-            .get_module_name(target_module_id)
-            .unwrap_or_else(|| format!("module#{target_module_id}"));
-
-        // Convert module_exports to String-based for the visitor
-        let module_exports_strings: FxIndexMap<String, Option<Vec<String>>> = module_exports
-            .map(|exports| {
-                exports
-                    .iter()
-                    .filter_map(|(id, export_list)| {
-                        resolver
-                            .get_module_name(*id)
-                            .map(|name| (name, export_list.clone()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut visitor = SymbolImportVisitor::new(
-            &importing_module,
-            &target_module,
-            symbol_name,
-            if module_exports_strings.is_empty() {
-                None
-            } else {
-                Some(&module_exports_strings)
-            },
-        );
+        let mut visitor =
+            SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
         ruff_python_ast::visitor::walk_body(&mut visitor, &ast.body);
         visitor.found
     }
@@ -889,6 +915,27 @@ mod tests {
 
     use super::*;
 
+    /// Helper to build a `ModuleResolver` and `FxIndexMap<ModuleId, (ModModule, PathBuf, String)>`
+    /// from a list of `(name, ast, path, hash)` tuples — the same data the old tests used.
+    fn build_test_modules(
+        entries: Vec<(&str, ModModule, PathBuf, &str)>,
+    ) -> (
+        ModuleResolver,
+        FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+    ) {
+        let config = crate::config::Config {
+            src: vec![PathBuf::from(".")],
+            ..Default::default()
+        };
+        let resolver = ModuleResolver::new(config);
+        let mut modules = FxIndexMap::default();
+        for (name, ast, path, hash) in entries {
+            let id = resolver.register_module(name, &path);
+            modules.insert(id, (ast, path, hash.to_owned()));
+        }
+        (resolver, modules)
+    }
+
     #[test]
     fn test_find_directly_imported_modules() {
         let code1 = r"
@@ -908,35 +955,24 @@ def other_func():
         let parsed2 = parse_module(code2).expect("Test code should parse successfully");
         let ast2 = parsed2.into_syntax();
 
-        let modules = vec![
+        let (resolver, modules) = build_test_modules(vec![
+            ("test_module", ast1, PathBuf::from("test.py"), "hash1"),
             (
-                "test_module".to_owned(),
-                ast1,
-                PathBuf::from("test.py"),
-                "hash1".to_owned(),
-            ),
-            (
-                "module_a".to_owned(),
+                "module_a",
                 ast2.clone(),
                 PathBuf::from("module_a.py"),
-                "hash2".to_owned(),
+                "hash2",
             ),
             (
-                "module_b".to_owned(),
+                "module_b",
                 ast2.clone(),
                 PathBuf::from("module_b.py"),
-                "hash3".to_owned(),
+                "hash3",
             ),
-            (
-                "module_c".to_owned(),
-                ast2,
-                PathBuf::from("module_c.py"),
-                "hash4".to_owned(),
-            ),
-        ];
+            ("module_c", ast2, PathBuf::from("module_c.py"), "hash4"),
+        ]);
 
-        let directly_imported =
-            ImportAnalyzer::find_directly_imported_modules(&modules, "test_module");
+        let directly_imported = ImportAnalyzer::find_directly_imported_modules(&modules, &resolver);
 
         assert_eq!(directly_imported.len(), 3);
         assert!(directly_imported.contains("module_a"));
@@ -977,65 +1013,59 @@ match x:
             .expect("Dummy module should parse")
             .into_syntax();
 
-        let modules = vec![
+        let (resolver, modules) = build_test_modules(vec![
+            ("test_module", ast, PathBuf::from("test.py"), "hash1"),
             (
-                "test_module".to_owned(),
-                ast,
-                PathBuf::from("test.py"),
-                "hash1".to_owned(),
-            ),
-            (
-                "module_in_try".to_owned(),
+                "module_in_try",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_try.py"),
-                "hash2".to_owned(),
+                "hash2",
             ),
             (
-                "module_in_except".to_owned(),
+                "module_in_except",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_except.py"),
-                "hash3".to_owned(),
+                "hash3",
             ),
             (
-                "module_in_else".to_owned(),
+                "module_in_else",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_else.py"),
-                "hash4".to_owned(),
+                "hash4",
             ),
             (
-                "module_in_finally".to_owned(),
+                "module_in_finally",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_finally.py"),
-                "hash5".to_owned(),
+                "hash5",
             ),
             (
-                "module_in_for".to_owned(),
+                "module_in_for",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_for.py"),
-                "hash6".to_owned(),
+                "hash6",
             ),
             (
-                "module_in_while".to_owned(),
+                "module_in_while",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_while.py"),
-                "hash7".to_owned(),
+                "hash7",
             ),
             (
-                "module_in_with".to_owned(),
+                "module_in_with",
                 dummy_ast.clone(),
                 PathBuf::from("module_in_with.py"),
-                "hash8".to_owned(),
+                "hash8",
             ),
             (
-                "module_in_match".to_owned(),
+                "module_in_match",
                 dummy_ast,
                 PathBuf::from("module_in_match.py"),
-                "hash9".to_owned(),
+                "hash9",
             ),
-        ];
+        ]);
 
-        let directly_imported =
-            ImportAnalyzer::find_directly_imported_modules(&modules, "test_module");
+        let directly_imported = ImportAnalyzer::find_directly_imported_modules(&modules, &resolver);
 
         // All imports should be found
         assert_eq!(directly_imported.len(), 8);
@@ -1062,41 +1092,51 @@ from pkg.sub import module_b
         let parsed2 = parse_module(code2).expect("Test code should parse successfully");
         let ast2 = parsed2.into_syntax();
 
-        let modules = vec![
+        let (resolver, modules) = build_test_modules(vec![
+            ("test_module", ast1, PathBuf::from("test.py"), "hash1"),
             (
-                "test_module".to_owned(),
-                ast1,
-                PathBuf::from("test.py"),
-                "hash1".to_owned(),
-            ),
-            (
-                "pkg.module_a".to_owned(),
+                "pkg.module_a",
                 ast2.clone(),
                 PathBuf::from("pkg/module_a.py"),
-                "hash2".to_owned(),
+                "hash2",
             ),
             (
-                "pkg.sub.module_b".to_owned(),
+                "pkg.sub.module_b",
                 ast2,
                 PathBuf::from("pkg/sub/module_b.py"),
-                "hash3".to_owned(),
+                "hash3",
             ),
-        ];
+        ]);
 
-        let namespace_imported = ImportAnalyzer::find_namespace_imported_modules(&modules);
+        let namespace_imported =
+            ImportAnalyzer::find_namespace_imported_modules(&modules, &resolver);
+
+        // Look up ModuleIds for assertion
+        let pkg_module_a_id = modules
+            .keys()
+            .find(|id| resolver.get_module_name(**id).as_deref() == Some("pkg.module_a"))
+            .expect("pkg.module_a should exist");
+        let pkg_sub_module_b_id = modules
+            .keys()
+            .find(|id| resolver.get_module_name(**id).as_deref() == Some("pkg.sub.module_b"))
+            .expect("pkg.sub.module_b should exist");
+        let test_module_id = modules
+            .keys()
+            .find(|id| resolver.get_module_name(**id).as_deref() == Some("test_module"))
+            .expect("test_module should exist");
 
         assert_eq!(namespace_imported.len(), 2);
         assert!(
             namespace_imported
-                .get("pkg.module_a")
+                .get(pkg_module_a_id)
                 .expect("pkg.module_a should be in namespace_imported")
-                .contains("test_module")
+                .contains(test_module_id)
         );
         assert!(
             namespace_imported
-                .get("pkg.sub.module_b")
+                .get(pkg_sub_module_b_id)
                 .expect("pkg.sub.module_b should be in namespace_imported")
-                .contains("test_module")
+                .contains(test_module_id)
         );
     }
 

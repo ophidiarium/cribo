@@ -92,9 +92,9 @@ def _cribo_init___cribo_f96d2c_config(self):
 
     def get_log_level():
         """Get log level from config - used by logger module"""
-        if _config is None:
+        if self._config is None:
             return "INFO"
-        return "DEBUG" if _config.debug_mode else "INFO"
+        return "DEBUG" if self._config.debug_mode else "INFO"
     self.get_log_level = get_log_level
     self.__initialized__ = True
     self.__initializing__ = False

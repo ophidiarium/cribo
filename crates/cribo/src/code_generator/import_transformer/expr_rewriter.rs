@@ -60,8 +60,7 @@ impl ExpressionRewriter {
                                 Expr::Name(n) if n.id.as_str() == root
                             ) && inner.attr.as_str() == rel_first;
                             if is_base {
-                                inner.value =
-                                    Box::new(expressions::name(SELF_PARAM, ExprContext::Load));
+                                *inner.value = expressions::name(SELF_PARAM, ExprContext::Load);
                                 return;
                             }
                             cursor = inner;

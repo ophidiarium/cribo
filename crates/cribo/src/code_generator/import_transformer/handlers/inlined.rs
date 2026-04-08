@@ -175,6 +175,10 @@ impl InlinedHandler {
                 .get(&source_module_id)
                 .and_then(|exports| exports.as_ref());
 
+            let module_var =
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    &module_name,
+                );
             for symbol_name in &module_exports {
                 // Skip private symbols unless explicitly in __all__
                 if symbol_name.starts_with('_')
@@ -203,15 +207,22 @@ impl InlinedHandler {
                     },
                 );
 
-                // For wildcard imports, we always need to create assignments for renamed symbols
-                // For non-renamed symbols, we only skip assignment if they're actually available
-                // in the current scope (i.e., they are in the module_exports list which respects
-                // __all__)
                 if renamed_symbol == *symbol_name {
-                    // Symbol wasn't renamed - it's already accessible in scope for symbols
-                    // that are in module_exports (which respects __all__)
+                    // Symbol wasn't renamed — read from the inlined module's namespace.
+                    // This explicit assignment is needed inside wrapper init functions
+                    // where a conditional branch (try/except) may assign the same name,
+                    // making Python treat it as local throughout the function.
+                    result_stmts.push(statements::simple_assign(
+                        symbol_name,
+                        expressions::attribute(
+                            expressions::name(&module_var, ExprContext::Load),
+                            symbol_name.as_str(),
+                            ExprContext::Load,
+                        ),
+                    ));
                     log::debug!(
-                        "Symbol '{symbol_name}' is accessible directly from inlined module"
+                        "Created wildcard import binding: {symbol_name} = \
+                         {module_var}.{symbol_name}"
                     );
                 } else {
                     // Symbol was renamed, create an alias assignment

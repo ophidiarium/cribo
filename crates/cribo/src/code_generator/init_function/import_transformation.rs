@@ -104,34 +104,31 @@ impl ImportTransformationPhase {
             .collect();
         unique_imports.sort();
 
-        // Filter out tree-shaken symbols
+        // Filter out tree-shaken symbols — check per-module data directly
         if let Some(ref tree_shaking_keep) = bundler.tree_shaking_keep_symbols {
-            // Use the pre-computed global set of kept symbols for efficient lookup.
-            if let Some(ref all_kept_symbols) = bundler.kept_symbols_global {
-                unique_imports.retain(|symbol| {
-                    if all_kept_symbols.contains(symbol) {
-                        if log::log_enabled!(log::Level::Debug) {
-                            // This find is only executed when debug logging is enabled.
-                            let module_name = tree_shaking_keep
-                                .iter()
-                                .find(|(_, symbols)| symbols.contains(symbol))
-                                .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
-                                .unwrap_or_else(|| "unknown".to_owned());
-                            debug!(
-                                "Symbol '{symbol}' kept by tree-shaking from module \
-                                 '{module_name}'"
-                            );
-                        }
-                        true
-                    } else {
+            unique_imports.retain(|symbol| {
+                let kept = tree_shaking_keep
+                    .values()
+                    .any(|symbols| symbols.contains(symbol));
+                if kept {
+                    if log::log_enabled!(log::Level::Debug) {
+                        let module_name = tree_shaking_keep
+                            .iter()
+                            .find(|(_, symbols)| symbols.contains(symbol))
+                            .and_then(|(id, _)| bundler.resolver.get_module_name(*id))
+                            .unwrap_or_else(|| "unknown".to_owned());
                         debug!(
-                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global \
-                             declaration"
+                            "Symbol '{symbol}' kept by tree-shaking from module '{module_name}'"
                         );
-                        false
                     }
-                });
-            }
+                } else {
+                    debug!(
+                        "Symbol '{symbol}' was removed by tree-shaking, excluding from global \
+                         declaration"
+                    );
+                }
+                kept
+            });
         }
 
         if !unique_imports.is_empty() {

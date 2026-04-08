@@ -140,6 +140,9 @@ clash_module_b.SharedClass = SharedClass_1
 clash_module_b.SHARED_CONSTANT = SHARED_CONSTANT_1
 clash_module_b.unique_b_function = unique_b_function
 """Main module demonstrating various wildcard import patterns."""
+safe_function = explicit_all.safe_function
+SafeClass = explicit_all.SafeClass
+SAFE_CONSTANT = explicit_all.SAFE_CONSTANT
 with_side_effects = _cribo_init___cribo_9a9871_with_side_effects(with_side_effects)
 EFFECT_CONSTANT = with_side_effects.EFFECT_CONSTANT
 EffectClass = with_side_effects.EffectClass
@@ -149,9 +152,11 @@ registered_function = with_side_effects.registered_function
 shared_function = shared_function_2
 SharedClass = SharedClass_2
 SHARED_CONSTANT = SHARED_CONSTANT_2
+unique_a_function = clash_module_a.unique_a_function
 shared_function = shared_function_1
 SharedClass = SharedClass_1
 SHARED_CONSTANT = SHARED_CONSTANT_1
+unique_b_function = clash_module_b.unique_b_function
 def main():
     """Test all imported symbols."""
     results = []
