@@ -735,7 +735,6 @@ impl<'a> Bundler<'a> {
         log::debug!("Indexing {} modules", modules.len());
         let mut total_nodes = 0_u32;
         let mut module_id_counter = 0_u32;
-        let mut module_id_map = FxIndexMap::default();
 
         for (module_id, (ast, _, _content_hash)) in modules.iter_mut() {
             let indexed = crate::ast_indexer::index_module_with_id(ast, module_id_counter);
@@ -752,7 +751,6 @@ impl<'a> Bundler<'a> {
                 module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE,
                 module_id_counter * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
             );
-            module_id_map.insert(*module_id, module_id_counter);
             total_nodes += node_count;
             module_id_counter += 1;
         }
