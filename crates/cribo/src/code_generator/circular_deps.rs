@@ -414,34 +414,47 @@ fn collect_names_from_comprehension_scoped(
     body_exprs: &[&Expr],
     refs: &mut FxIndexSet<String>,
 ) {
-    // Collect all target-bound names (comprehension-local bindings)
-    let mut target_names = FxIndexSet::default();
+    // Build targets incrementally per Python scoping rules:
+    // - Each generator's iter is evaluated before its target is bound
+    // - Each generator's ifs see its own target + all preceding targets
+    // - Body expressions see all targets
+    let mut visible_targets = FxIndexSet::default();
+
     for generator in generators {
+        // iter references the outer scope (preceding targets masked, current not yet bound)
+        let mut iter_refs = FxIndexSet::default();
+        collect_names_from_expr(&generator.iter, &mut iter_refs);
+        for name in iter_refs {
+            if !visible_targets.contains(&name) {
+                refs.insert(name);
+            }
+        }
+
+        // Bind current generator's target before processing ifs
         for name in crate::visitors::utils::collect_names_from_assignment_target(&generator.target)
         {
-            target_names.insert(name.to_owned());
+            visible_targets.insert(name.to_owned());
         }
-    }
 
-    // Generator iters reference the outer scope — collect directly
-    for generator in generators {
-        collect_names_from_expr(&generator.iter, refs);
-    }
-
-    // Collect from body expressions and ifs into a temp set, then exclude targets
-    let mut inner_refs = FxIndexSet::default();
-    for body_expr in body_exprs {
-        collect_names_from_expr(body_expr, &mut inner_refs);
-    }
-    for generator in generators {
+        // ifs see current + all preceding targets
+        let mut if_refs = FxIndexSet::default();
         for if_clause in &generator.ifs {
-            collect_names_from_expr(if_clause, &mut inner_refs);
+            collect_names_from_expr(if_clause, &mut if_refs);
+        }
+        for name in if_refs {
+            if !visible_targets.contains(&name) {
+                refs.insert(name);
+            }
         }
     }
 
-    // Add only names that aren't comprehension-local
-    for name in inner_refs {
-        if !target_names.contains(&name) {
+    // Body expressions (elt/key/value) see all targets
+    let mut body_refs = FxIndexSet::default();
+    for body_expr in body_exprs {
+        collect_names_from_expr(body_expr, &mut body_refs);
+    }
+    for name in body_refs {
+        if !visible_targets.contains(&name) {
             refs.insert(name);
         }
     }
