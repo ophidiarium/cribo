@@ -667,6 +667,25 @@ impl ImportAnalyzer {
             module_asts.len()
         );
 
+        // Precompute the string-based export map once (instead of per-module in the loop)
+        let module_exports_strings: FxIndexMap<String, Option<Vec<String>>> = module_exports
+            .map(|exports| {
+                exports
+                    .iter()
+                    .filter_map(|(id, export_list)| {
+                        resolver
+                            .get_module_name(*id)
+                            .map(|name| (name, export_list.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let exports_ref = if module_exports_strings.is_empty() {
+            None
+        } else {
+            Some(&module_exports_strings)
+        };
+
         // Look through all modules to see if any import this symbol
         for (other_module_id, (ast, _, _)) in module_asts {
             // Skip the module itself
@@ -679,13 +698,12 @@ impl ImportAnalyzer {
                 .unwrap_or_else(|| format!("module#{other_module_id}"));
 
             // Check import statements in the module
-            if Self::module_imports_symbol_with_ids(
+            if Self::module_imports_symbol(
                 ast,
-                *other_module_id,
-                module_id,
+                &other_module_name,
+                &module_name,
                 symbol_name,
-                module_exports,
-                resolver,
+                exports_ref,
             ) {
                 debug!(
                     "Symbol '{symbol_name}' from module '{module_name}' is imported by module \
@@ -702,47 +720,16 @@ impl ImportAnalyzer {
         false
     }
 
-    /// Check if a module imports a specific symbol from another module (using `ModuleIds`)
-    fn module_imports_symbol_with_ids(
+    /// Check if a module imports a specific symbol from another module
+    fn module_imports_symbol(
         ast: &ModModule,
-        importing_module_id: ModuleId,
-        target_module_id: ModuleId,
+        importing_module: &str,
+        target_module: &str,
         symbol_name: &str,
-        module_exports: Option<&FxIndexMap<ModuleId, Option<Vec<String>>>>,
-        resolver: &ModuleResolver,
+        module_exports: Option<&FxIndexMap<String, Option<Vec<String>>>>,
     ) -> bool {
-        // Convert to strings for now - we'll need to update SymbolImportVisitor later
-        let importing_module = resolver
-            .get_module_name(importing_module_id)
-            .unwrap_or_else(|| format!("module#{importing_module_id}"));
-        let target_module = resolver
-            .get_module_name(target_module_id)
-            .unwrap_or_else(|| format!("module#{target_module_id}"));
-
-        // Convert module_exports to String-based for the visitor
-        let module_exports_strings: FxIndexMap<String, Option<Vec<String>>> = module_exports
-            .map(|exports| {
-                exports
-                    .iter()
-                    .filter_map(|(id, export_list)| {
-                        resolver
-                            .get_module_name(*id)
-                            .map(|name| (name, export_list.clone()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut visitor = SymbolImportVisitor::new(
-            &importing_module,
-            &target_module,
-            symbol_name,
-            if module_exports_strings.is_empty() {
-                None
-            } else {
-                Some(&module_exports_strings)
-            },
-        );
+        let mut visitor =
+            SymbolImportVisitor::new(importing_module, target_module, symbol_name, module_exports);
         ruff_python_ast::visitor::walk_body(&mut visitor, &ast.body);
         visitor.found
     }
