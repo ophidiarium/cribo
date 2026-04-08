@@ -1423,7 +1423,38 @@ impl Bundler<'_> {
                 }
             }
             Stmt::ClassDef(class_def) => {
-                // Transform methods in the class that use globals
+                // Decorators are evaluated at definition time
+                for dec in &mut class_def.decorator_list {
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
+                        &mut dec.expression,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+                // Base classes and keyword arguments (e.g., metaclass=...)
+                if let Some(arguments) = &mut class_def.arguments {
+                    for base in &mut arguments.args {
+                        expression_handlers::transform_expr_for_lifted_globals(
+                            self,
+                            base,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
+                    }
+                    for keyword in &mut arguments.keywords {
+                        expression_handlers::transform_expr_for_lifted_globals(
+                            self,
+                            &mut keyword.value,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
+                    }
+                }
+                // Class body (methods and class-level statements)
                 for stmt in &mut class_def.body {
                     self.transform_stmt_for_lifted_globals(
                         stmt,
