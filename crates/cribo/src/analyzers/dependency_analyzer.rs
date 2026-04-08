@@ -87,16 +87,6 @@ fn classify_cycle_type(
     let analysis_result = analyze_cycle_modules(graph, module_ids);
 
     // Use AST analysis results for classification
-    if analysis_result.has_only_constants
-        && !module_names
-            .iter()
-            .any(|name| crate::util::is_init_module(name))
-    {
-        // Modules that only contain constants create unresolvable cycles
-        // Exception: __init__.py files often only have imports/exports which is normal
-        return CircularDependencyType::ModuleConstants;
-    }
-
     if analysis_result.has_class_definitions {
         // Check if the circular imports are used for inheritance
         // If all imports in the cycle are only used in functions, it's still FunctionLevel
@@ -132,8 +122,6 @@ fn classify_cycle_type(
 /// Result of analyzing modules in a circular dependency cycle
 #[derive(Debug)]
 struct CycleAnalysisResult {
-    /// Whether the modules contain only constants (no functions or classes)
-    has_only_constants: bool,
     /// Whether any module contains class definitions
     has_class_definitions: bool,
     /// Whether there are module-level imports
@@ -157,7 +145,6 @@ fn analyze_cycle_modules(
         .filter_map(|id| graph.modules.get(id).map(|m| m.module_name.clone()))
         .collect();
 
-    let mut has_only_constants = true;
     let mut has_class_definitions = false;
     let mut has_module_level_imports = false;
     let mut imports_used_in_functions_only = true;
@@ -170,11 +157,8 @@ fn analyze_cycle_modules(
 
             for item in module.items.values() {
                 match &item.item_type {
-                    ItemType::FunctionDef { .. } => {
-                        has_only_constants = false;
-                    }
+                    ItemType::FunctionDef { .. } => {}
                     ItemType::ClassDef { .. } => {
-                        has_only_constants = false;
                         has_class_definitions = true;
                     }
                     ItemType::FromImport {
@@ -230,9 +214,7 @@ fn analyze_cycle_modules(
                             imports_used_in_functions_only = false;
                         }
                     }
-                    ItemType::Assignment { .. } => {
-                        // Assignments are constant-like; don't clear has_only_constants.
-                    }
+                    ItemType::Assignment { .. } => {}
                     _ => {}
                 }
             }
@@ -260,7 +242,6 @@ fn analyze_cycle_modules(
     }
 
     CycleAnalysisResult {
-        has_only_constants,
         has_class_definitions,
         has_module_level_imports,
         imports_used_in_functions_only,

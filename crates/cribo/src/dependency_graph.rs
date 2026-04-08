@@ -698,31 +698,54 @@ mod tests {
     }
 
     #[test]
-    fn test_circular_dependency_classification() {
+    fn test_cross_cycle_module_level_reads_classified_as_unresolvable() {
+        // Simulate: constants_a.py: `from constants_b import B_VALUE; A_VALUE = B_VALUE + 1`
+        //           constants_b.py: `from constants_a import A_VALUE; B_VALUE = A_VALUE * 2`
+        // Both modules read a cross-cycle import at module level → temporal paradox.
         let mut graph = DependencyGraph::new();
 
-        // Create a circular dependency with "constants" in the name
-        let constants_a = graph.add_module(
+        let mod_a = graph.add_module(
             ModuleId::new(0),
-            "constants_a".to_owned(),
-            &PathBuf::from("constants_a.py"),
+            "mod_a".to_owned(),
+            &PathBuf::from("mod_a.py"),
         );
-        let constants_b = graph.add_module(
+        let mod_b = graph.add_module(
             ModuleId::new(1),
-            "constants_b".to_owned(),
-            &PathBuf::from("constants_b.py"),
+            "mod_b".to_owned(),
+            &PathBuf::from("mod_b.py"),
         );
 
-        // Add some constant assignments to make these actual constant modules
-        if let Some(module_a) = graph.modules.get_mut(&constants_a) {
+        // mod_a: from mod_b import B_VALUE
+        if let Some(module_a) = graph.modules.get_mut(&mod_a) {
+            module_a.add_item(ItemData {
+                item_type: ItemType::FromImport {
+                    module: "mod_b".to_owned(),
+                    names: vec![("B_VALUE".to_owned(), None)],
+                    level: 0,
+                    is_star: false,
+                },
+                var_decls: std::iter::once("B_VALUE".into()).collect(),
+                read_vars: FxIndexSet::default(),
+                eventual_read_vars: FxIndexSet::default(),
+                write_vars: FxIndexSet::default(),
+                eventual_write_vars: FxIndexSet::default(),
+                has_side_effects: false,
+                imported_names: std::iter::once("B_VALUE".into()).collect(),
+                reexported_names: FxIndexSet::default(),
+                defined_symbols: FxIndexSet::default(),
+                symbol_dependencies: FxIndexMap::default(),
+                attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
+            });
+            // mod_a: A_VALUE = B_VALUE + 1  (reads B_VALUE at module level)
             module_a.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["CONFIG".to_owned()],
+                    targets: vec!["A_VALUE".to_owned()],
                 },
-                var_decls: std::iter::once("CONFIG".into()).collect(),
-                read_vars: FxIndexSet::default(),
+                var_decls: std::iter::once("A_VALUE".into()).collect(),
+                read_vars: std::iter::once("B_VALUE".into()).collect(),
                 eventual_read_vars: FxIndexSet::default(),
-                write_vars: std::iter::once("CONFIG".into()).collect(),
+                write_vars: std::iter::once("A_VALUE".into()).collect(),
                 eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
@@ -734,15 +757,37 @@ mod tests {
             });
         }
 
-        if let Some(module_b) = graph.modules.get_mut(&constants_b) {
+        // mod_b: from mod_a import A_VALUE
+        if let Some(module_b) = graph.modules.get_mut(&mod_b) {
+            module_b.add_item(ItemData {
+                item_type: ItemType::FromImport {
+                    module: "mod_a".to_owned(),
+                    names: vec![("A_VALUE".to_owned(), None)],
+                    level: 0,
+                    is_star: false,
+                },
+                var_decls: std::iter::once("A_VALUE".into()).collect(),
+                read_vars: FxIndexSet::default(),
+                eventual_read_vars: FxIndexSet::default(),
+                write_vars: FxIndexSet::default(),
+                eventual_write_vars: FxIndexSet::default(),
+                has_side_effects: false,
+                imported_names: std::iter::once("A_VALUE".into()).collect(),
+                reexported_names: FxIndexSet::default(),
+                defined_symbols: FxIndexSet::default(),
+                symbol_dependencies: FxIndexMap::default(),
+                attribute_accesses: FxIndexMap::default(),
+                containing_scope: None,
+            });
+            // mod_b: B_VALUE = A_VALUE * 2  (reads A_VALUE at module level)
             module_b.add_item(ItemData {
                 item_type: ItemType::Assignment {
-                    targets: vec!["SETTINGS".to_owned()],
+                    targets: vec!["B_VALUE".to_owned()],
                 },
-                var_decls: std::iter::once("SETTINGS".into()).collect(),
-                read_vars: FxIndexSet::default(),
+                var_decls: std::iter::once("B_VALUE".into()).collect(),
+                read_vars: std::iter::once("A_VALUE".into()).collect(),
                 eventual_read_vars: FxIndexSet::default(),
-                write_vars: std::iter::once("SETTINGS".into()).collect(),
+                write_vars: std::iter::once("B_VALUE".into()).collect(),
                 eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: false,
                 imported_names: FxIndexSet::default(),
@@ -754,10 +799,9 @@ mod tests {
             });
         }
 
-        graph.add_module_dependency(constants_a, constants_b);
-        graph.add_module_dependency(constants_b, constants_a);
+        graph.add_module_dependency(mod_a, mod_b);
+        graph.add_module_dependency(mod_b, mod_a);
 
-        // Now we need to use the analyzer
         let analysis = crate::analyzers::dependency_analyzer::analyze_circular_dependencies(&graph);
         assert_eq!(analysis.unresolvable_cycles.len(), 1);
 
@@ -766,13 +810,12 @@ mod tests {
             CircularDependencyType::ModuleConstants
         );
 
-        // Check resolution strategy
         if let ResolutionStrategy::Unresolvable { reason } =
             &analysis.unresolvable_cycles[0].suggested_resolution
         {
             assert!(reason.contains("temporal paradox"));
         } else {
-            panic!("Expected unresolvable strategy for constants cycle");
+            panic!("Expected unresolvable strategy for cross-cycle module-level reads");
         }
     }
 
