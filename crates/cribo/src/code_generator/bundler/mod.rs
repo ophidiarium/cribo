@@ -802,10 +802,12 @@ impl<'a> Bundler<'a> {
             log::debug!("Tracking bundled module: '{module_name}' (ID: {module_id:?})");
         }
 
-        // Check which modules are imported directly (e.g., import module_name)
-        let directly_imported_modules =
-            ImportAnalyzer::find_directly_imported_modules(modules, self.resolver);
-        log::debug!("Directly imported modules: {directly_imported_modules:?}");
+        // Check which modules are imported directly (only for debug logging)
+        if log::log_enabled!(log::Level::Debug) {
+            let directly_imported_modules =
+                ImportAnalyzer::find_directly_imported_modules(modules, self.resolver);
+            log::debug!("Directly imported modules: {directly_imported_modules:?}");
+        }
 
         // Find modules that are imported as namespaces (e.g., from models import base)
         self.find_namespace_imported_modules(modules);
