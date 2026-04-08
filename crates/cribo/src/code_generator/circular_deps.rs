@@ -473,7 +473,7 @@ impl<'a> Visitor<'a> for ClassBodyRefCollector<'_> {
 
     fn visit_expr(&mut self, expr: &'a Expr) {
         match expr {
-            Expr::Name(name) => {
+            Expr::Name(name) if name.ctx.is_load() => {
                 self.refs.insert(name.id.to_string());
             }
             // Comprehensions need scoped collection to avoid target leakage
