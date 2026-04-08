@@ -175,6 +175,10 @@ impl InlinedHandler {
                 .get(&source_module_id)
                 .and_then(|exports| exports.as_ref());
 
+            let module_var =
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    &module_name,
+                );
             for symbol_name in &module_exports {
                 // Skip private symbols unless explicitly in __all__
                 if symbol_name.starts_with('_')
@@ -208,10 +212,6 @@ impl InlinedHandler {
                     // This explicit assignment is needed inside wrapper init functions
                     // where a conditional branch (try/except) may assign the same name,
                     // making Python treat it as local throughout the function.
-                    let module_var =
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            &module_name,
-                        );
                     result_stmts.push(statements::simple_assign(
                         symbol_name,
                         expressions::attribute(
