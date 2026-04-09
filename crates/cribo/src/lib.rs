@@ -24,6 +24,7 @@ pub(crate) mod dirs;
 pub(crate) mod graph_builder;
 pub(crate) mod import_alias_tracker;
 pub(crate) mod import_rewriter;
+pub(crate) mod module_facts;
 pub(crate) mod python;
 pub(crate) mod side_effects;
 pub(crate) mod symbol_conflict_resolver;

@@ -85,6 +85,26 @@ pub(crate) struct VarState {
     pub readers: Vec<ItemId>,
 }
 
+/// Indexed named import binding within a module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NamedImportBinding {
+    /// Imported module path, possibly relative for unresolved imports.
+    pub module: String,
+    /// Original imported name from that module.
+    pub original_name: String,
+    /// Relative import level.
+    pub level: u32,
+}
+
+/// Indexed wildcard import binding within a module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WildcardImportBinding {
+    /// Imported module path, possibly relative for unresolved imports.
+    pub module: String,
+    /// Relative import level.
+    pub level: u32,
+}
+
 /// Data about a Python item (statement/definition)
 #[derive(Debug, Clone)]
 pub(crate) struct ItemData {
@@ -130,6 +150,20 @@ pub(crate) struct ModuleDepGraph {
     pub side_effect_items: Vec<ItemId>,
     /// Variable state tracking
     pub var_states: FxIndexMap<String, VarState>,
+    /// Indexed named import bindings keyed by the local name they introduce.
+    named_import_bindings: FxIndexMap<String, Vec<NamedImportBinding>>,
+    /// Indexed regular import aliases keyed by the local alias.
+    module_import_aliases: FxIndexMap<String, Vec<String>>,
+    /// Indexed wildcard imports in insertion order.
+    wildcard_imports: Vec<WildcardImportBinding>,
+    /// All symbols defined by items in this module.
+    defined_symbol_names: FxIndexSet<String>,
+    /// All non-private symbols defined by items in this module.
+    non_private_defined_symbol_names: FxIndexSet<String>,
+    /// Explicit names exported through `__all__`.
+    explicit_all_names: FxIndexSet<String>,
+    /// Whether the module defines `__all__`, even if it is empty.
+    has_explicit_all: bool,
     /// Next item ID to allocate
     next_item_id: u32,
 }
@@ -143,6 +177,13 @@ impl ModuleDepGraph {
             items: FxIndexMap::default(),
             side_effect_items: Vec::new(),
             var_states: FxIndexMap::default(),
+            named_import_bindings: FxIndexMap::default(),
+            module_import_aliases: FxIndexMap::default(),
+            wildcard_imports: Vec::new(),
+            defined_symbol_names: FxIndexSet::default(),
+            non_private_defined_symbol_names: FxIndexSet::default(),
+            explicit_all_names: FxIndexSet::default(),
+            has_explicit_all: false,
             next_item_id: 0,
         }
     }
@@ -191,8 +232,65 @@ impl ModuleDepGraph {
             self.side_effect_items.push(id);
         }
 
+        self.index_item(&data);
         self.items.insert(id, data);
         id
+    }
+
+    fn index_item(&mut self, data: &ItemData) {
+        match &data.item_type {
+            ItemType::Import {
+                module,
+                alias: Some(alias_name),
+            } => {
+                self.module_import_aliases
+                    .entry(alias_name.clone())
+                    .or_default()
+                    .push(module.clone());
+            }
+            ItemType::FromImport {
+                module,
+                names,
+                level,
+                is_star,
+            } => {
+                if *is_star {
+                    self.wildcard_imports.push(WildcardImportBinding {
+                        module: module.clone(),
+                        level: *level,
+                    });
+                } else {
+                    for (original_name, alias_opt) in names {
+                        let local_name = alias_opt.as_deref().unwrap_or(original_name);
+                        self.named_import_bindings
+                            .entry(local_name.to_owned())
+                            .or_default()
+                            .push(NamedImportBinding {
+                                module: module.clone(),
+                                original_name: original_name.clone(),
+                                level: *level,
+                            });
+                    }
+                }
+            }
+            ItemType::Assignment { targets }
+                if targets.iter().any(|target| target == "__all__") =>
+            {
+                self.has_explicit_all = true;
+                self.explicit_all_names
+                    .extend(data.eventual_read_vars.iter().cloned());
+            }
+            _ => {}
+        }
+
+        self.defined_symbol_names
+            .extend(data.defined_symbols.iter().cloned());
+        self.non_private_defined_symbol_names.extend(
+            data.defined_symbols
+                .iter()
+                .filter(|symbol| !symbol.starts_with('_'))
+                .cloned(),
+        );
     }
 
     /// Get all import items in the module with their IDs
@@ -209,21 +307,51 @@ impl ModuleDepGraph {
             .collect()
     }
 
+    /// Get all named import bindings that introduce the given local name.
+    pub(crate) fn named_import_bindings_for(
+        &self,
+        local_name: &str,
+    ) -> Option<&[NamedImportBinding]> {
+        self.named_import_bindings
+            .get(local_name)
+            .map(Vec::as_slice)
+    }
+
+    /// Get all regular import aliases that bind the given local name.
+    pub(crate) fn module_import_aliases_for(&self, local_name: &str) -> Option<&[String]> {
+        self.module_import_aliases
+            .get(local_name)
+            .map(Vec::as_slice)
+    }
+
+    /// Get wildcard imports in insertion order.
+    pub(crate) fn wildcard_imports(&self) -> &[WildcardImportBinding] {
+        &self.wildcard_imports
+    }
+
+    /// Check whether a symbol is defined anywhere in this module.
+    pub(crate) fn defines_symbol(&self, symbol: &str) -> bool {
+        self.defined_symbol_names.contains(symbol)
+    }
+
+    /// Get the explicit `__all__` names for this module.
+    pub(crate) const fn explicit_all_names(&self) -> &FxIndexSet<String> {
+        &self.explicit_all_names
+    }
+
+    /// Check whether this module defines `__all__`.
+    pub(crate) const fn has_explicit_all(&self) -> bool {
+        self.has_explicit_all
+    }
+
+    /// Get all non-private symbols defined by this module.
+    pub(crate) const fn non_private_defined_symbol_names(&self) -> &FxIndexSet<String> {
+        &self.non_private_defined_symbol_names
+    }
+
     /// Check if a name is in __all__ export
     pub(crate) fn is_in_all_export(&self, name: &str) -> bool {
-        // Look for __all__ assignments
-        for item_data in self.items.values() {
-            if let ItemType::Assignment { targets, .. } = &item_data.item_type
-                && targets.contains(&"__all__".to_owned())
-            {
-                // Check if the name is in the eventual_read_vars (where __all__ names are
-                // stored)
-                if item_data.eventual_read_vars.contains(name) {
-                    return true;
-                }
-            }
-        }
-        false
+        self.explicit_all_names.contains(name)
     }
 
     /// Check if a symbol uses a specific import

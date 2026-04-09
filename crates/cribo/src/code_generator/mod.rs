@@ -7,7 +7,6 @@
 //! - Preserves Python semantics while avoiding forward reference issues
 
 pub(crate) mod bundler;
-pub(crate) mod circular_deps;
 pub(crate) mod context;
 pub(crate) mod docstring_extractor;
 pub(crate) mod expression_handlers;

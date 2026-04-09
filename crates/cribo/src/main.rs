@@ -17,6 +17,7 @@ mod dirs;
 mod graph_builder;
 mod import_alias_tracker;
 mod import_rewriter;
+mod module_facts;
 mod orchestrator;
 mod python;
 mod resolver;

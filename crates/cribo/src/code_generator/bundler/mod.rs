@@ -11,7 +11,6 @@ use ruff_python_ast::{AtomicNodeIndex, Expr, ModModule, Stmt, StmtAssign, StmtIm
 use crate::{
     analyzers::ImportAnalyzer,
     code_generator::{
-        circular_deps::SymbolDependencyGraph,
         context::{BundleParams, SemanticContext},
         expression_handlers, import_deduplicator,
         module_registry::is_init_function,
@@ -67,9 +66,6 @@ pub(crate) struct Bundler<'a> {
     pub(crate) circular_modules: FxIndexSet<ModuleId>,
     /// All modules that are part of circular dependencies (unpruned, for accurate checks)
     all_circular_modules: FxIndexSet<ModuleId>,
-    /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
-    /// Symbol dependency graph for circular modules
-    pub(crate) symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports (paths/hashes available via resolver)
     pub(crate) module_asts: Option<FxIndexMap<ModuleId, Arc<ModModule>>>,
     /// Track all namespaces that need to be created before module initialization
@@ -345,7 +341,6 @@ impl<'a> Bundler<'a> {
             resolver,
             circular_modules: FxIndexSet::default(),
             all_circular_modules: FxIndexSet::default(),
-            symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             created_namespaces: FxIndexSet::default(),
             parent_child_assignments_made: FxIndexSet::default(),
@@ -677,7 +672,6 @@ impl<'a> Bundler<'a> {
                 .map(|(id, (ast, _, _))| (*id, Arc::clone(ast)))
                 .collect(),
         );
-        self.populate_symbol_dep_graph(&modules);
         self.track_module_relationships(&modules, params);
         modules
     }
@@ -780,28 +774,6 @@ impl<'a> Bundler<'a> {
             "Transformation context initialized. Module count: {module_id_counter}, Total nodes: \
              {total_nodes}, New nodes start at: {starting_index}"
         );
-    }
-
-    /// Populate symbol dependency graph for circular modules so that
-    /// `reorder_statements_for_circular_module` can topologically sort symbols.
-    ///
-    /// NOTE: This data is currently unused at runtime — see the reachability
-    /// comment on `reorder_statements_for_circular_module` in `symbols.rs`.
-    /// The graph is populated proactively so the infrastructure is ready when
-    /// the classifier is refined to allow inlining certain circular modules.
-    fn populate_symbol_dep_graph(
-        &mut self,
-        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
-    ) {
-        for module_id in &self.circular_modules {
-            if let Some((ast, _, _)) = modules.get(module_id) {
-                let module_name = self
-                    .resolver
-                    .get_module_name(*module_id)
-                    .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
-                self.symbol_dep_graph.populate_from_ast(&module_name, ast);
-            }
-        }
     }
 
     /// Track bundled modules, find import relationships, and clean up circular module entries.

@@ -709,32 +709,16 @@ impl Bundler<'_> {
         format!("{base_name}_{module_suffix}")
     }
 
-    /// Reorder statements in a module based on symbol dependencies for circular modules
-    /// Reorder statements within a circular module based on symbol dependency order.
+    /// Preserve statement order for circular modules.
     ///
-    /// # Current reachability (as of the bundler split refactor)
-    ///
-    /// This function is called from two sites:
-    /// 1. **`inliner.rs`** — for inlined circular modules. However, the module classifier
-    ///    (`module_classifier.rs:217`) forces ALL circular modules into wrapper mode
-    ///    (`needs_wrapping_for_circular`), so no circular module is ever inlined. This call site is
-    ///    currently unreachable.
-    /// 2. **`entry_module.rs`** — for the entry module when it's part of a circular dependency.
-    ///    However, this function returns early for entry modules (see `is_entry_module` check
-    ///    below), so the reordering logic is never executed for this case either.
-    ///
-    /// As a result, `get_module_symbols_ordered()` and the `SymbolDependencyGraph` data
-    /// populated by `populate_from_ast()` are effectively unused at runtime. The code is
-    /// retained because:
-    /// - It is architecturally correct and will become reachable if the classifier is refined to
-    ///   allow inlining certain circular modules (e.g., function-level cycles).
-    /// - The `populate_from_ast` + topological sort logic has been reviewed and improved during
-    ///   this refactor (`AnnAssign`, comprehension scoping, f-string support).
+    /// The legacy symbol-level reordering graph was removed because the current bundling
+    /// architecture never relies on it at runtime: circular modules are wrapped rather than
+    /// inlined, and the entry-module path preserves original order.
     pub(crate) fn reorder_statements_for_circular_module(
         &self,
         module_name: &str,
         statements: Vec<Stmt>,
-        python_version: u8,
+        _python_version: u8,
     ) -> Vec<Stmt> {
         log::debug!(
             "reorder_statements_for_circular_module called for module: '{}' (entry_module_name: \
@@ -765,108 +749,14 @@ impl Bundler<'_> {
                 self.entry_module_name,
                 self.entry_is_package_init_or_main
             );
-            return statements;
+        } else {
+            log::debug!(
+                "Preserving statement order for circular module '{module_name}'; \
+                 symbol-level reordering is disabled"
+            );
         }
 
-        log::debug!("Proceeding with statement reordering for module: '{module_name}'");
-
-        // Get the ordered symbols for this module from the dependency graph
-        let ordered_symbols = self
-            .symbol_dep_graph
-            .get_module_symbols_ordered(module_name);
-
-        if ordered_symbols.is_empty() {
-            // No ordering information, return statements as-is
-            return statements;
-        }
-
-        log::debug!(
-            "Reordering statements for circular module '{module_name}' based on symbol order: \
-             {ordered_symbols:?}"
-        );
-
-        // Create a map from symbol name to statement
-        let mut symbol_to_stmt: FxIndexMap<String, Stmt> = FxIndexMap::default();
-        let mut other_stmts = Vec::new();
-        let mut imports = Vec::new();
-
-        for stmt in statements {
-            match &stmt {
-                Stmt::FunctionDef(func_def) => {
-                    let name = func_def.name.to_string();
-                    if symbol_to_stmt.contains_key(&name) {
-                        other_stmts.push(stmt);
-                    } else {
-                        symbol_to_stmt.insert(name, stmt);
-                    }
-                }
-                Stmt::ClassDef(class_def) => {
-                    let name = class_def.name.to_string();
-                    if symbol_to_stmt.contains_key(&name) {
-                        other_stmts.push(stmt);
-                    } else {
-                        symbol_to_stmt.insert(name, stmt);
-                    }
-                }
-                Stmt::Assign(assign) => {
-                    if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
-                        // Skip self-referential assignments - they'll be handled later
-                        if expression_handlers::is_self_referential_assignment(
-                            assign,
-                            python_version,
-                        ) {
-                            log::debug!(
-                                "Skipping self-referential assignment '{name}' in circular module \
-                                 reordering"
-                            );
-                            other_stmts.push(stmt);
-                        } else if symbol_to_stmt.contains_key(&name) {
-                            // If we already have a function/class with this name, keep the
-                            // function/class and treat the assignment
-                            // as a regular statement
-                            log::debug!(
-                                "Assignment '{name}' conflicts with existing function/class, \
-                                 keeping function/class"
-                            );
-                            other_stmts.push(stmt);
-                        } else {
-                            symbol_to_stmt.insert(name, stmt);
-                        }
-                    } else {
-                        other_stmts.push(stmt);
-                    }
-                }
-                Stmt::Import(_) | Stmt::ImportFrom(_) => {
-                    // Keep imports at the beginning
-                    imports.push(stmt);
-                }
-                _ => {
-                    // Other statements maintain their relative order
-                    other_stmts.push(stmt);
-                }
-            }
-        }
-
-        // Build the reordered statement list
-        let mut reordered = Vec::new();
-
-        // First, add all imports
-        reordered.extend(imports);
-
-        // Then add symbols in the specified order
-        for symbol in &ordered_symbols {
-            if let Some(stmt) = symbol_to_stmt.shift_remove(symbol) {
-                reordered.push(stmt);
-            }
-        }
-
-        // Add any remaining symbols that weren't in the ordered list
-        reordered.extend(symbol_to_stmt.into_values());
-
-        // Finally, add other statements
-        reordered.extend(other_stmts);
-
-        reordered
+        statements
     }
 
     /// Resolve import aliases in a statement
@@ -958,5 +848,61 @@ impl Bundler<'_> {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_ast::Expr;
+
+    use super::*;
+    use crate::{config::Config, resolver::ModuleResolver};
+
+    fn parse_assignment_statements(source: &str) -> Vec<Stmt> {
+        ruff_python_parser::parse_module(source)
+            .expect("test module should parse")
+            .into_syntax()
+            .body
+    }
+
+    fn assignment_targets(statements: &[Stmt]) -> Vec<String> {
+        statements
+            .iter()
+            .map(|stmt| match stmt {
+                Stmt::Assign(assign) => match assign.targets.as_slice() {
+                    [Expr::Name(name)] => name.id.to_string(),
+                    _ => panic!("expected simple assignment target"),
+                },
+                _ => panic!("expected assignment statement"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_reorder_statements_for_circular_module_preserves_entry_order() {
+        let resolver = ModuleResolver::new(Config::default());
+        let mut bundler = Bundler::new(None, &resolver);
+        bundler.entry_module_name = "entry_module".to_owned();
+
+        let statements = parse_assignment_statements("first = 1\nsecond = 2\nthird = 3\n");
+        let original_order = assignment_targets(&statements);
+        let reordered =
+            bundler.reorder_statements_for_circular_module("entry_module", statements, 11);
+
+        assert_eq!(assignment_targets(&reordered), original_order);
+    }
+
+    #[test]
+    fn test_reorder_statements_for_circular_module_preserves_non_entry_order() {
+        let resolver = ModuleResolver::new(Config::default());
+        let mut bundler = Bundler::new(None, &resolver);
+        bundler.entry_module_name = "entry_module".to_owned();
+
+        let statements = parse_assignment_statements("first = 1\nsecond = 2\nthird = 3\n");
+        let original_order = assignment_targets(&statements);
+        let reordered =
+            bundler.reorder_statements_for_circular_module("other_module", statements, 11);
+
+        assert_eq!(assignment_targets(&reordered), original_order);
     }
 }
