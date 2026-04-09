@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.4](https://github.com/ophidiarium/cribo/compare/v0.8.3...v0.8.4) (2026-04-09)
+
+
+### Bug Fixes
+
+* split bundler.rs into directory module ([#461](https://github.com/ophidiarium/cribo/issues/461)) ([5d7c6e1](https://github.com/ophidiarium/cribo/commit/5d7c6e163e2653a407a68eea0945c7af3e596bf8))
+
+
+### Performance Improvements
+
+* use `Arc<ModModule>` in module AST maps to avoid cloning all ASTs in `prepare_modules` ([#465](https://github.com/ophidiarium/cribo/issues/465)) ([ce6b414](https://github.com/ophidiarium/cribo/commit/ce6b41421b8daa44f848a9faf632589bd7e9430f))
+
 ## [0.8.3](https://github.com/ophidiarium/cribo/compare/v0.8.2...v0.8.3) (2026-04-07)
 
 
