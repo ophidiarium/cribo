@@ -91,23 +91,17 @@ impl<'a> TreeShaker<'a> {
 
     /// Check if a symbol is defined in a specific module
     fn is_defined_in_module(&self, module_id: ModuleId, symbol: &str) -> bool {
-        if let Some(module_dep) = self.graph.modules.get(&module_id) {
-            for item in module_dep.items.values() {
-                if item.defined_symbols.contains(symbol) {
-                    return true;
-                }
-            }
-        }
-        false
+        self.graph
+            .modules
+            .get(&module_id)
+            .is_some_and(|module_dep| module_dep.defines_symbol(symbol))
     }
 
     /// Find which module defines a symbol
     fn find_defining_module(&self, symbol: &str) -> Option<ModuleId> {
         for (&module_id, module_dep) in &self.graph.modules {
-            for item in module_dep.items.values() {
-                if item.defined_symbols.contains(symbol) {
-                    return Some(module_id);
-                }
+            if module_dep.defines_symbol(symbol) {
+                return Some(module_id);
             }
         }
         None
@@ -133,67 +127,49 @@ impl<'a> TreeShaker<'a> {
         alias: &str,
     ) -> Option<(ModuleId, String)> {
         if let Some(module_dep) = self.graph.modules.get(&current_module_id) {
-            for item in module_dep.items.values() {
-                if let ItemType::FromImport {
-                    module,
-                    names,
-                    level,
-                    is_star,
-                    ..
-                } = &item.item_type
+            if let Some(bindings) = module_dep.named_import_bindings_for(alias) {
+                for binding in bindings {
+                    let resolved_module_name = if binding.level > 0 {
+                        let current_name = self.graph.modules.get(&current_module_id).map_or_else(
+                            || format!("{current_module_id:?}"),
+                            |m| m.module_name.clone(),
+                        );
+                        debug!(
+                            "Resolving relative import: module='{}', level={}, current_module='{}'",
+                            binding.module, binding.level, current_name
+                        );
+                        let result = self.resolve_relative_with_context(
+                            current_module_id,
+                            binding.level,
+                            &binding.module,
+                        );
+                        debug!("Resolved to: '{result}'");
+                        result
+                    } else {
+                        binding.module.clone()
+                    };
+
+                    if let Some(&resolved_id) = self.graph.module_names.get(&resolved_module_name) {
+                        return Some((resolved_id, binding.original_name.clone()));
+                    }
+                }
+            }
+
+            for wildcard_import in module_dep.wildcard_imports() {
+                let resolved_module_name = if wildcard_import.level > 0 {
+                    self.resolve_relative_with_context(
+                        current_module_id,
+                        wildcard_import.level,
+                        &wildcard_import.module,
+                    )
+                } else {
+                    wildcard_import.module.clone()
+                };
+                if let Some(&resolved_id) = self.graph.module_names.get(&resolved_module_name)
+                    && let Some(target_dep) = self.graph.modules.get(&resolved_id)
+                    && target_dep.is_in_all_export(alias)
                 {
-                    // 1) Check explicit alias mapping
-                    for (original_name, alias_opt) in names {
-                        let local_name = alias_opt.as_ref().unwrap_or(original_name);
-                        if local_name == alias {
-                            let resolved_module_name = if *level > 0 {
-                                let current_name =
-                                    self.graph.modules.get(&current_module_id).map_or_else(
-                                        || format!("{current_module_id:?}"),
-                                        |m| m.module_name.clone(),
-                                    );
-                                debug!(
-                                    "Resolving relative import: module='{module}', level={level}, \
-                                     current_module='{current_name}'"
-                                );
-                                let result = self.resolve_relative_with_context(
-                                    current_module_id,
-                                    *level,
-                                    module,
-                                );
-                                debug!("Resolved to: '{result}'");
-                                result
-                            } else {
-                                module.clone()
-                            };
-
-                            if let Some(&resolved_id) =
-                                self.graph.module_names.get(&resolved_module_name)
-                            {
-                                return Some((resolved_id, original_name.clone()));
-                            }
-                        }
-                    }
-
-                    // 2) Support wildcard re-exports (from module import *)
-                    if *is_star {
-                        let resolved_module_name = if *level > 0 {
-                            self.resolve_relative_with_context(current_module_id, *level, module)
-                        } else {
-                            module.clone()
-                        };
-                        if let Some(&resolved_id) =
-                            self.graph.module_names.get(&resolved_module_name)
-                            && let Some(target_dep) = self.graph.modules.get(&resolved_id)
-                        {
-                            let in_all = target_dep.items.values().any(|it| {
-                                Self::is_all_assignment(it) && it.eventual_read_vars.contains(alias)
-                            });
-                            if in_all {
-                                return Some((resolved_id, alias.to_owned()));
-                            }
-                        }
-                    }
+                    return Some((resolved_id, alias.to_owned()));
                 }
             }
         }
@@ -207,19 +183,10 @@ impl<'a> TreeShaker<'a> {
         alias: &str,
     ) -> Option<ModuleId> {
         if let Some(module_dep) = self.graph.modules.get(&current_module_id) {
-            for item in module_dep.items.values() {
-                if let ItemType::Import {
-                    module,
-                    alias: Some(alias_name),
-                } = &item.item_type
-                {
-                    // Check if this import has an alias that matches
-                    if alias_name == alias {
-                        // Found the import with matching alias
-                        // Convert module name to ModuleId
-                        if let Some(&module_id) = self.graph.module_names.get(module) {
-                            return Some(module_id);
-                        }
+            if let Some(targets) = module_dep.module_import_aliases_for(alias) {
+                for target in targets {
+                    if let Some(&module_id) = self.graph.module_names.get(target) {
+                        return Some(module_id);
                     }
                 }
             }
@@ -234,39 +201,22 @@ impl<'a> TreeShaker<'a> {
         alias: &str,
     ) -> Option<ModuleId> {
         if let Some(module_dep) = self.graph.modules.get(&current_module_id) {
-            for item in module_dep.items.values() {
-                if let ItemType::FromImport {
-                    module,
-                    names,
-                    level,
-                    ..
-                } = &item.item_type
-                {
-                    // Check if this import defines the alias
-                    for (original_name, alias_opt) in names {
-                        let local_name = alias_opt.as_ref().unwrap_or(original_name);
-                        if local_name == alias {
-                            // Resolve relative imports to absolute module names
-                            let resolved_module = if *level > 0 {
-                                self.resolve_relative_with_context(
-                                    current_module_id,
-                                    *level,
-                                    module,
-                                )
-                            } else {
-                                module.clone()
-                            };
+            if let Some(bindings) = module_dep.named_import_bindings_for(alias) {
+                for binding in bindings {
+                    let resolved_module = if binding.level > 0 {
+                        self.resolve_relative_with_context(
+                            current_module_id,
+                            binding.level,
+                            &binding.module,
+                        )
+                    } else {
+                        binding.module.clone()
+                    };
 
-                            // Check if we're importing a submodule
-                            let potential_full_module =
-                                format!("{resolved_module}.{original_name}");
-                            if let Some(&module_id) =
-                                self.graph.module_names.get(&potential_full_module)
-                            {
-                                // This is importing a module
-                                return Some(module_id);
-                            }
-                        }
+                    let potential_full_module =
+                        format!("{resolved_module}.{}", binding.original_name);
+                    if let Some(&module_id) = self.graph.module_names.get(&potential_full_module) {
+                        return Some(module_id);
                     }
                 }
             }
@@ -393,11 +343,7 @@ impl<'a> TreeShaker<'a> {
                                 self.graph.module_names.get(&resolved_from_module)
                                 && let Some(target_dep) = self.graph.modules.get(&target_module_id)
                             {
-                                // Check if the module has __all__ defined
-                                let has_explicit_all =
-                                    target_dep.items.values().any(Self::is_all_assignment);
-
-                                if has_explicit_all {
+                                if target_dep.has_explicit_all() {
                                     // Mark only symbols in __all__ for star imports
                                     self.mark_all_defined_symbols_as_used(
                                         target_module_id,
@@ -511,77 +457,58 @@ impl<'a> TreeShaker<'a> {
 
         // First check if this symbol is actually defined in this module
         // (not just imported/re-exported)
-        let symbol_is_defined_here = module_dep
-            .items
-            .values()
-            .any(|item| item.defined_symbols.contains(symbol));
+        let symbol_is_defined_here = module_dep.defines_symbol(symbol);
 
         // Only check for re-exports if the symbol is not defined here
         if !symbol_is_defined_here {
-            // Check if this symbol is imported from another module (re-export)
-            for item in module_dep.items.values() {
-                if let ItemType::FromImport {
-                    module: from_module,
-                    names,
-                    level,
-                    is_star,
-                    ..
-                } = &item.item_type
+            if let Some(bindings) = module_dep.named_import_bindings_for(symbol) {
+                for binding in bindings {
+                    let resolved_module_name = if binding.level > 0 {
+                        self.resolve_relative_with_context(
+                            module_id,
+                            binding.level,
+                            &binding.module,
+                        )
+                    } else {
+                        binding.module.clone()
+                    };
+
+                    if let Some(&resolved_module_id) =
+                        self.graph.module_names.get(&resolved_module_name)
+                    {
+                        debug!(
+                            "Symbol {symbol} is re-exported from \
+                             {resolved_module_name}::{}",
+                            binding.original_name
+                        );
+                        worklist.push_back((resolved_module_id, binding.original_name.clone()));
+                        return;
+                    }
+                }
+            }
+
+            for wildcard_import in module_dep.wildcard_imports() {
+                let resolved_module_name = if wildcard_import.level > 0 {
+                    self.resolve_relative_with_context(
+                        module_id,
+                        wildcard_import.level,
+                        &wildcard_import.module,
+                    )
+                } else {
+                    wildcard_import.module.clone()
+                };
+
+                if let Some(&resolved_module_id) =
+                    self.graph.module_names.get(&resolved_module_name)
+                    && let Some(target_dep) = self.graph.modules.get(&resolved_module_id)
+                    && target_dep.is_in_all_export(symbol)
                 {
-                    for (original_name, alias_opt) in names {
-                        let local_name = alias_opt.as_ref().unwrap_or(original_name);
-                        if local_name == symbol {
-                            // This symbol is re-exported from another module
-                            let resolved_module_name = if *level > 0 {
-                                self.resolve_relative_with_context(module_id, *level, from_module)
-                            } else {
-                                from_module.clone()
-                            };
-
-                            if let Some(&resolved_module_id) =
-                                self.graph.module_names.get(&resolved_module_name)
-                            {
-                                debug!(
-                                    "Symbol {symbol} is re-exported from \
-                                     {resolved_module_name}::{original_name}"
-                                );
-                                worklist.push_back((resolved_module_id, original_name.clone()));
-                                // Also mark the import itself as used
-                                self.add_item_dependencies(item, module_id, worklist);
-                                return;
-                            }
-                        }
-                    }
-
-                    // Special case: wildcard re-export (from module import *)
-                    if *is_star {
-                        let resolved_module_name = if *level > 0 {
-                            self.resolve_relative_with_context(module_id, *level, from_module)
-                        } else {
-                            from_module.clone()
-                        };
-
-                        if let Some(&resolved_module_id) =
-                            self.graph.module_names.get(&resolved_module_name)
-                            && let Some(target_dep) = self.graph.modules.get(&resolved_module_id)
-                        {
-                            // If the target module explicitly exports this symbol in __all__, use
-                            // it
-                            let is_in_all = target_dep.items.values().any(|it| {
-                                Self::is_all_assignment(it)
-                                    && it.eventual_read_vars.contains(symbol)
-                            });
-                            if is_in_all {
-                                debug!(
-                                    "Symbol {symbol} resolved via wildcard re-export from \
-                                     {resolved_module_name}"
-                                );
-                                worklist.push_back((resolved_module_id, symbol.to_owned()));
-                                self.add_item_dependencies(item, module_id, worklist);
-                                return;
-                            }
-                        }
-                    }
+                    debug!(
+                        "Symbol {symbol} resolved via wildcard re-export from \
+                         {resolved_module_name}"
+                    );
+                    worklist.push_back((resolved_module_id, symbol.to_owned()));
+                    return;
                 }
             }
         }
@@ -754,8 +681,7 @@ impl<'a> TreeShaker<'a> {
             return;
         };
 
-        let has_explicit_all = target_dep.items.values().any(Self::is_all_assignment);
-        if has_explicit_all {
+        if target_dep.has_explicit_all() {
             self.mark_all_defined_symbols_as_used(resolved_module_id, worklist);
         } else {
             self.mark_non_private_symbols_as_used(resolved_module_id, worklist);
@@ -1078,12 +1004,10 @@ impl<'a> TreeShaker<'a> {
         let prefix = format!("{base_var}.");
         for (name, &module_id) in &self.graph.module_names {
             if name.starts_with(&prefix) {
-                if let Some(module_dep) = self.graph.modules.get(&module_id) {
-                    for item in module_dep.items.values() {
-                        if item.defined_symbols.contains(attr) {
-                            return Some(module_id);
-                        }
-                    }
+                if let Some(module_dep) = self.graph.modules.get(&module_id)
+                    && module_dep.defines_symbol(attr)
+                {
+                    return Some(module_id);
                 }
             }
         }
@@ -1102,16 +1026,9 @@ impl<'a> TreeShaker<'a> {
             .get(&resolved_from_module_id)
             .map_or("", |m| m.module_name.as_str());
         if let Some(module_dep) = self.graph.modules.get(&resolved_from_module_id) {
-            for item in module_dep.items.values() {
-                if Self::is_all_assignment(item) {
-                    // Mark all symbols listed in __all__
-                    for symbol in &item.eventual_read_vars {
-                        debug!(
-                            "Marking {symbol} from star import of {resolved_from_module} as used"
-                        );
-                        worklist.push_back((resolved_from_module_id, symbol.clone()));
-                    }
-                }
+            for symbol in module_dep.explicit_all_names() {
+                debug!("Marking {symbol} from star import of {resolved_from_module} as used");
+                worklist.push_back((resolved_from_module_id, symbol.clone()));
             }
         }
     }
@@ -1128,26 +1045,11 @@ impl<'a> TreeShaker<'a> {
             .get(&resolved_from_module_id)
             .map_or("", |m| m.module_name.as_str());
         if let Some(module_dep) = self.graph.modules.get(&resolved_from_module_id) {
-            for item in module_dep.items.values() {
-                for symbol in &item.defined_symbols {
-                    if !symbol.starts_with('_') {
-                        debug!(
-                            "Marking {symbol} from star import of {resolved_from_module} as used"
-                        );
-                        worklist.push_back((resolved_from_module_id, symbol.clone()));
-                    }
-                }
+            for symbol in module_dep.non_private_defined_symbol_names() {
+                debug!("Marking {symbol} from star import of {resolved_from_module} as used");
+                worklist.push_back((resolved_from_module_id, symbol.clone()));
             }
         }
-    }
-
-    /// Helper method to check if an item is an __all__ assignment
-    fn is_all_assignment(item: &ItemData) -> bool {
-        matches!(
-            &item.item_type,
-            ItemType::Assignment { targets, .. }
-                if targets.iter().any(|t| t == "__all__")
-        )
     }
 
     /// Check if a module uses the dynamic __all__ access pattern
@@ -1157,9 +1059,7 @@ impl<'a> TreeShaker<'a> {
             return false;
         };
 
-        // Check if the module has __all__ defined
-        let has_all = module_dep.items.values().any(Self::is_all_assignment);
-        if !has_all {
+        if !module_dep.has_explicit_all() {
             return false;
         }
 
@@ -1208,25 +1108,17 @@ impl<'a> TreeShaker<'a> {
             .get(&module_id)
             .map_or("", |m| m.module_name.as_str());
         if let Some(module_dep) = self.graph.modules.get(&module_id) {
-            for item in module_dep.items.values() {
-                if Self::is_all_assignment(item) {
-                    // Mark all symbols listed in __all__ (stored in eventual_read_vars)
-                    for symbol in &item.eventual_read_vars {
-                        debug!(
-                            "Marking {symbol} from module {module_name} as used due to dynamic \
-                             __all__ access"
-                        );
-                        // Resolve the symbol's source module or use the current module
-                        if let Some((source_module_id, original_name)) =
-                            self.resolve_import_alias(module_id, symbol)
-                        {
-                            worklist.push_back((source_module_id, original_name));
-                        } else {
-                            // Symbol is defined in the current module
-                            worklist.push_back((module_id, symbol.clone()));
-                        }
-                    }
-                    break;
+            for symbol in module_dep.explicit_all_names() {
+                debug!(
+                    "Marking {symbol} from module {module_name} as used due to dynamic \
+                     __all__ access"
+                );
+                if let Some((source_module_id, original_name)) =
+                    self.resolve_import_alias(module_id, symbol)
+                {
+                    worklist.push_back((source_module_id, original_name));
+                } else {
+                    worklist.push_back((module_id, symbol.clone()));
                 }
             }
         }

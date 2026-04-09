@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{ModModule, visitor::source_order::SourceOrderVisitor};
+use ruff_python_ast::ModModule;
 
 use crate::{
     analyzers::types::{
@@ -19,12 +19,13 @@ use crate::{
     config::Config,
     dependency_graph::DependencyGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
+    module_facts::ModuleFacts,
     resolver::{ImportType, ModuleId, ModuleResolver},
     symbol_conflict_resolver::SymbolConflictResolver,
     tree_shaking::TreeShaker,
     types::FxIndexMap,
     util::{module_name_from_relative, normalize_line_endings},
-    visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
+    visitors::{DiscoveredImport, ImportLocation, ScopeElement},
 };
 
 /// Static empty parsed module for creating Stylist instances
@@ -171,6 +172,8 @@ struct ProcessedModule {
     ast: ModModule,
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
+    /// Shared module facts reused by discovery and later graph-driven analyses.
+    facts: ModuleFacts,
     /// Module ID if already added to dependency graph
     module_id: Option<ModuleId>,
 }
@@ -265,6 +268,7 @@ impl BundleOrchestrator {
             return Ok(ProcessedModule {
                 ast: cached.ast.clone(),
                 source: cached.source.clone(),
+                facts: cached.facts.clone(),
                 module_id,
             });
         }
@@ -282,6 +286,8 @@ impl BundleOrchestrator {
         let parsed = ruff_python_parser::parse_module(&source)
             .with_context(|| format!("Failed to parse Python file: {}", module_path.display()))?;
         let ast = parsed.into_syntax();
+        let python_version = self.config.python_version().unwrap_or(10);
+        let facts = ModuleFacts::from_ast(&ast, python_version)?;
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
@@ -312,6 +318,7 @@ impl BundleOrchestrator {
         let processed = ProcessedModule {
             ast: ast.clone(),
             source: source.clone(),
+            facts: facts.clone(),
             module_id,
         };
 
@@ -326,6 +333,7 @@ impl BundleOrchestrator {
         Ok(ProcessedModule {
             ast,
             source,
+            facts,
             module_id,
         })
     }
@@ -924,8 +932,11 @@ impl BundleOrchestrator {
                 self.process_module(&module_path, &module_name, None, Some(params.resolver))?;
 
             // Extract imports from the processed AST
-            let imports_with_context =
-                self.extract_imports_from_ast(&processed.ast, &module_path, Some(params.resolver));
+            let imports_with_context = self.extract_imports_from_facts(
+                &processed.facts.discovered_imports,
+                &module_path,
+                Some(params.resolver),
+            );
             let imports: Vec<String> = imports_with_context
                 .iter()
                 .map(|(m, _, _, _)| m.clone())
@@ -995,10 +1006,11 @@ impl BundleOrchestrator {
 
             // Build dependency graph BEFORE no-ops removal
             if let Some(module) = params.graph.get_module_by_name_mut(&module_name) {
-                let python_version = self.config.python_version().unwrap_or(10);
-                let mut builder = crate::graph_builder::GraphBuilder::new(module, python_version);
-                // No longer setting normalized_modules as we handle stdlib normalization later
-                builder.build_from_ast(&processed.ast)?;
+                debug_assert!(
+                    module.items.is_empty(),
+                    "Module graph should be empty before populating cached facts"
+                );
+                processed.facts.populate_module_graph(module);
             }
 
             // Store parsed module data for later use
@@ -1087,23 +1099,14 @@ impl BundleOrchestrator {
         Ok(parsed_modules)
     }
 
-    /// Extract imports from an already-parsed AST with full context information
-    fn extract_imports_from_ast(
+    /// Resolve imports from precomputed module facts with full context information.
+    fn extract_imports_from_facts(
         &self,
-        ast: &ModModule,
+        discovered_imports: &[DiscoveredImport],
         file_path: &Path,
         mut resolver: Option<&ModuleResolver>,
     ) -> ImportExtractionResult {
-        let mut visitor = ImportDiscoveryVisitor::new();
-        for stmt in &ast.body {
-            visitor.visit_stmt(stmt);
-        }
-
-        let discovered_imports = visitor.into_imports();
-        debug!(
-            "ImportDiscoveryVisitor found {} imports",
-            discovered_imports.len()
-        );
+        debug!("ModuleFacts found {} imports", discovered_imports.len());
         if log::log_enabled!(log::Level::Trace) {
             for (i, import) in discovered_imports.iter().enumerate() {
                 trace!(
@@ -1112,10 +1115,10 @@ impl BundleOrchestrator {
                 );
             }
         }
-        let mut imports_with_context = Vec::new();
+        let mut imports_with_context: ImportExtractionResult = Vec::new();
 
         // Process each import and track if it's in an error-handling context
-        for import in &discovered_imports {
+        for import in discovered_imports {
             let is_in_error_handler = Self::is_import_in_error_handler(&import.location);
 
             // Handle ImportlibStatic imports
@@ -1198,7 +1201,7 @@ impl BundleOrchestrator {
     /// Helper to process `ImportlibStatic` imports
     fn process_importlib_static_import(
         &self,
-        import: &crate::visitors::DiscoveredImport,
+        import: &DiscoveredImport,
         imports_set: &mut IndexSet<String>,
     ) {
         if let Some(ref module_name) = import.module_name {
@@ -1210,7 +1213,7 @@ impl BundleOrchestrator {
     /// Process relative imports and add to `IndexSet`
     fn process_relative_import_set(
         &self,
-        import: &crate::visitors::DiscoveredImport,
+        import: &DiscoveredImport,
         file_path: &Path,
         resolver: &mut Option<&ModuleResolver>,
         imports: &mut IndexSet<String>,
@@ -1271,7 +1274,7 @@ impl BundleOrchestrator {
     /// Process a single name import that might be a submodule (`IndexSet` version)
     fn process_single_name_import_set(
         &self,
-        import: &crate::visitors::DiscoveredImport,
+        import: &DiscoveredImport,
         resolver: &mut Option<&ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
@@ -1289,7 +1292,7 @@ impl BundleOrchestrator {
     fn check_submodule_imports_set(
         &self,
         module_name: &str,
-        import: &crate::visitors::DiscoveredImport,
+        import: &DiscoveredImport,
         resolver: &mut Option<&ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
