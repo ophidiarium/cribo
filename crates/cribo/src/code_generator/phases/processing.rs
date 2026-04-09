@@ -126,9 +126,8 @@ impl ProcessingPhase {
                 wrapper_set.contains(module_id)
             );
 
-            let (arc_ast, path, _hash) =
-                modules.get(module_id).expect("Module should exist").clone();
-            let ast = Arc::unwrap_or_clone(arc_ast);
+            let (arc_ast, path, _hash) = modules.get(module_id).expect("Module should exist");
+            let ast = Arc::unwrap_or_clone(Arc::clone(arc_ast));
 
             if inlinable_set.contains(module_id) {
                 Self::process_inlinable_module(
@@ -136,7 +135,7 @@ impl ProcessingPhase {
                     *module_id,
                     &module_name,
                     ast,
-                    &path,
+                    path,
                     &classification.module_exports_map,
                     symbol_renames,
                     params.python_version,
@@ -150,7 +149,7 @@ impl ProcessingPhase {
                     *module_id,
                     &module_name,
                     ast,
-                    &path,
+                    path,
                     symbol_renames,
                     params.python_version,
                     modules,
@@ -387,15 +386,15 @@ impl ProcessingPhase {
 
         // Phase B: Define init functions
         for (mid, mname) in &members {
-            let (arc_ast, path, _hash) = modules.get(mid).expect("cycle member must exist").clone();
-            let ast = Arc::unwrap_or_clone(arc_ast);
+            let (arc_ast, path, _hash) = modules.get(mid).expect("cycle member must exist");
+            let ast = Arc::unwrap_or_clone(Arc::clone(arc_ast));
 
             let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
             let is_in_circular = circular_ctx.member_to_group.contains_key(mid);
 
             let transform_ctx = ModuleTransformContext {
                 module_name: mname,
-                module_path: &path,
+                module_path: path,
                 global_info: global_info.clone(),
                 conflict_resolver: bundler.conflict_resolver,
                 python_version,

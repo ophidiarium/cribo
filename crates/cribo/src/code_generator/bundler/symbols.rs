@@ -916,7 +916,7 @@ impl Bundler<'_> {
             return false;
         };
 
-        for (other_id, (other_ast, other_path, _)) in module_asts {
+        for (other_id, other_ast) in module_asts {
             // Check if the other module is a wrapper
             if !self.wrapper_modules.contains(other_id) {
                 continue;
@@ -929,7 +929,10 @@ impl Bundler<'_> {
                 };
 
                 use crate::code_generator::symbol_source::resolve_import_module;
-                let Some(resolved) = resolve_import_module(self.resolver, import_from, other_path)
+                let Some(other_path) = self.resolver.get_module_path(*other_id) else {
+                    continue;
+                };
+                let Some(resolved) = resolve_import_module(self.resolver, import_from, &other_path)
                 else {
                     continue;
                 };

@@ -2572,7 +2572,8 @@ fn symbol_comes_from_wrapper_module(
     let module_id = bundler.get_module_id(inlined_module);
     let module_data = module_id.and_then(|id| bundler.module_asts.as_ref()?.get(&id));
 
-    if let Some((ast, module_path, _)) = module_data {
+    if let Some(ast) = module_data {
+        let module_path = module_id.and_then(|id| bundler.resolver.get_module_path(id));
         // Check all import statements in the module
         for stmt in &ast.body {
             if let Stmt::ImportFrom(import_from) = stmt {
@@ -2585,14 +2586,16 @@ fn symbol_comes_from_wrapper_module(
                         // Resolve the module this import is from
                         let resolved_module = if import_from.level > 0 {
                             // Relative import - need to resolve it
-                            bundler.resolver.resolve_relative_to_absolute_module_name(
-                                import_from.level,
-                                import_from
-                                    .module
-                                    .as_ref()
-                                    .map(ruff_python_ast::Identifier::as_str),
-                                module_path,
-                            )
+                            module_path.as_deref().and_then(|p| {
+                                bundler.resolver.resolve_relative_to_absolute_module_name(
+                                    import_from.level,
+                                    import_from
+                                        .module
+                                        .as_ref()
+                                        .map(ruff_python_ast::Identifier::as_str),
+                                    p,
+                                )
+                            })
                         } else {
                             import_from.module.as_ref().map(ToString::to_string)
                         };

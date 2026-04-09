@@ -28,14 +28,9 @@ impl Bundler<'_> {
         }
 
         // Determine the path of the current module for proper relative resolution.
-        // Prefer the resolver (always available) over module_asts (only set after prepare_modules).
-        let module_path = self.get_module_id(module_name).and_then(|id| {
-            self.resolver.get_module_path(id).or_else(|| {
-                self.module_asts
-                    .as_ref()
-                    .and_then(|asts| asts.get(&id).map(|(_, path, _)| path.clone()))
-            })
-        });
+        let module_path = self
+            .get_module_id(module_name)
+            .and_then(|id| self.resolver.get_module_path(id));
 
         let fallback = || {
             let mut pkg = module_name.to_owned();
@@ -427,7 +422,7 @@ impl Bundler<'_> {
             return None;
         };
 
-        let (ast, _, _) = module_asts.get(&wrapper_id)?;
+        let ast = module_asts.get(&wrapper_id)?;
 
         // Look for wildcard imports in the wrapper module
         for stmt in &ast.body {
@@ -1277,13 +1272,8 @@ impl Bundler<'_> {
         level: u32,
     ) -> String {
         // First try to resolve using the module's actual path.
-        // Prefer the resolver (always available) over module_asts (only set after prepare_modules).
         if let Some(module_id) = self.get_module_id(module_name) {
-            let path = self.resolver.get_module_path(module_id).or_else(|| {
-                self.module_asts
-                    .as_ref()
-                    .and_then(|asts| asts.get(&module_id).map(|(_, p, _)| p.clone()))
-            });
+            let path = self.resolver.get_module_path(module_id);
             if let Some(path) = path
                 && let Some(resolved) = self
                     .resolver

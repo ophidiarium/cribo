@@ -84,7 +84,7 @@ impl PhaseOrchestrator {
         log::debug!("[Orchestrator] Phase 5: Global Symbol Collection");
         let modules_vec: Vec<(ModuleId, &ModModule, &std::path::Path, &str)> = modules
             .iter()
-            .map(|(id, (ast, path, hash))| (*id, &**ast, path.as_path(), hash.as_str()))
+            .map(|(id, (ast, path, hash))| (*id, ast.as_ref(), path.as_path(), hash.as_str()))
             .collect();
         let mut global_symbols = SymbolAnalyzer::collect_global_symbols(&modules_vec);
 

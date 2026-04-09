@@ -70,8 +70,8 @@ pub(crate) struct Bundler<'a> {
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     /// Symbol dependency graph for circular modules
     pub(crate) symbol_dep_graph: SymbolDependencyGraph,
-    /// Module ASTs for resolving re-exports
-    pub(crate) module_asts: Option<FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>>,
+    /// Module ASTs for resolving re-exports (paths/hashes available via resolver)
+    pub(crate) module_asts: Option<FxIndexMap<ModuleId, Arc<ModModule>>>,
     /// Track all namespaces that need to be created before module initialization
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
@@ -670,7 +670,13 @@ impl<'a> Bundler<'a> {
             .into_iter()
             .map(|(id, (ast, path, hash))| (id, (Arc::new(ast), path, hash)))
             .collect();
-        self.module_asts = Some(modules.clone());
+        // Store only AST Arcs — cheap ref-count bumps, no PathBuf/String allocations
+        self.module_asts = Some(
+            modules
+                .iter()
+                .map(|(id, (ast, _, _))| (*id, Arc::clone(ast)))
+                .collect(),
+        );
         self.populate_symbol_dep_graph(&modules);
         self.track_module_relationships(&modules, params);
         modules

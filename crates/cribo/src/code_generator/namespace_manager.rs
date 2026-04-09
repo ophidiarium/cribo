@@ -3,7 +3,7 @@
 //! This module provides functions for creating and managing Python namespace objects
 //! that simulate module structures in bundled code.
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use log::{debug, warn};
 use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImportFrom};
@@ -47,7 +47,7 @@ pub(crate) struct NamespacePopulationContext<'a> {
     pub modules_with_accessed_all: &'a FxIndexSet<(ModuleId, String)>,
     pub wrapper_modules: &'a FxIndexSet<ModuleId>,
     pub modules_with_explicit_all: &'a FxIndexSet<ModuleId>,
-    pub module_asts: &'a Option<FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>>,
+    pub module_asts: &'a Option<FxIndexMap<ModuleId, Arc<ModModule>>>,
     pub module_init_functions: &'a FxIndexMap<ModuleId, String>,
     pub resolver: &'a crate::resolver::ModuleResolver,
 }
@@ -305,7 +305,7 @@ pub(crate) fn populate_namespace_with_module_symbols(
 
             let mut augmented: FxIndexSet<String> = filtered_exports.iter().cloned().collect();
 
-            for (other_id, (other_ast, other_path, _)) in module_asts {
+            for (other_id, other_ast) in module_asts {
                 // Skip the same module
                 if other_id == &module_id {
                     continue;
@@ -314,10 +314,14 @@ pub(crate) fn populate_namespace_with_module_symbols(
                 // Check if the importing module is a wrapper module that needs runtime access
                 let is_wrapper = ctx.wrapper_modules.contains(other_id);
 
+                let Some(other_path) = ctx.resolver.get_module_path(*other_id) else {
+                    continue;
+                };
+
                 for stmt in &other_ast.body {
                     if let Stmt::ImportFrom(import_from) = stmt
                         && let Some(resolved) =
-                            resolve_import_module(ctx.resolver, import_from, other_path)
+                            resolve_import_module(ctx.resolver, import_from, &other_path)
                         && resolved == *module_name
                     {
                         for alias in &import_from.names {
@@ -840,9 +844,11 @@ fn is_symbol_from_inlined_submodule(
     };
 
     // Find the module's AST to check its imports
-    let Some((ast, module_path, _)) = module_asts.get(&module_id) else {
+    let Some(ast) = module_asts.get(&module_id) else {
         return false;
     };
+
+    let module_path = ctx.resolver.get_module_path(module_id);
 
     // Check if this symbol is imported from an inlined submodule
     for stmt in &ast.body {
@@ -850,11 +856,13 @@ fn is_symbol_from_inlined_submodule(
             continue;
         };
 
-        let resolved_module = crate::code_generator::symbol_source::resolve_import_module(
-            ctx.resolver,
-            import_from,
-            module_path,
-        );
+        let resolved_module = module_path.as_ref().and_then(|p| {
+            crate::code_generator::symbol_source::resolve_import_module(
+                ctx.resolver,
+                import_from,
+                p,
+            )
+        });
 
         if let Some(ref resolved) = resolved_module {
             // Check if the resolved module is inlined
@@ -902,7 +910,7 @@ fn find_symbol_source_module(
 /// Heuristic: detect dynamic __all__ usage pattern in any module that wildcard-imports from
 /// `target_module` and uses `setattr` (e.g., httpx-like pattern).
 fn any_module_wildcard_imports_and_uses_setattr(
-    module_asts: Option<&FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>>,
+    module_asts: Option<&FxIndexMap<ModuleId, Arc<ModModule>>>,
     resolver: &crate::resolver::ModuleResolver,
     target_module: &str,
     current_module_id: ModuleId,
@@ -912,11 +920,15 @@ fn any_module_wildcard_imports_and_uses_setattr(
         return false;
     };
 
-    for (other_id, (ast, path, _)) in asts {
+    for (other_id, ast) in asts {
         // Skip self
         if other_id == &current_module_id {
             continue;
         }
+
+        let Some(path) = resolver.get_module_path(*other_id) else {
+            continue;
+        };
 
         let mut wildcard_imports_targeting_module = false;
         let mut uses_setattr = false;
@@ -927,7 +939,7 @@ fn any_module_wildcard_imports_and_uses_setattr(
                 let resolved = crate::code_generator::symbol_source::resolve_import_module(
                     resolver,
                     import_from,
-                    path,
+                    &path,
                 );
                 if let Some(resolved_name) = resolved {
                     if resolved_name == target_module
