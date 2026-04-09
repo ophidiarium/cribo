@@ -36,7 +36,7 @@ jobs:
       CARGO_NET_RETRY: 10
       CARGO_TERM_COLOR: always
       RUSTUP_MAX_RETRIES: 10
-      RUSTUP_TOOLCHAIN: nightly-2025-08-25
+      RUSTUP_TOOLCHAIN: '1.94.1'
 
     strategy:
       matrix:

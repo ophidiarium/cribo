@@ -4,11 +4,6 @@ protocol = "sparse"
 [build]
 rustflags = ["-Ctarget-cpu=native"]
 
-[unstable]
-cargo-lints       = true
-codegen-backend   = true
-public-dependency = true
-
 [net]
 git-fetch-with-cli = true
 retry              = 10

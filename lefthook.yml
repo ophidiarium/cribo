@@ -28,7 +28,7 @@ pre-commit:
       stage_fixed: true
     taplo:
       glob: '**/*.toml'
-      run: bunx taplo format {staged_files}
+      run: bunx @taplo/cli format {staged_files}
       stage_fixed: true
     yamllint:
       glob: '*.{yml,yaml}'
