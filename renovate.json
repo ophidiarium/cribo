@@ -134,6 +134,12 @@
                 "pyenv"
             ],
             "enabled": false
+        },
+        {
+            "matchManagers": [
+                "github-actions"
+            ],
+            "pinDigests": false
         }
     ],
     "cargo": {
