@@ -44,7 +44,8 @@ pub(crate) fn find_symbol_source_from_wrapper_module(
 
     // Check if this symbol is imported from another module (including nested scopes)
     for import_from in collect_import_from_statements_in_module(ast) {
-        let Some(resolved_module) = resolve_import_module(resolver, import_from, &module_path)
+        let Some(resolved_module) =
+            resolve_import_module(resolver, import_from, Some(&module_path))
         else {
             // Unresolvable import — skip and continue scanning remaining imports.
             continue;
@@ -100,9 +101,11 @@ pub(crate) fn find_symbol_source_from_wrapper_module(
 pub(crate) fn resolve_import_module(
     resolver: &ModuleResolver,
     import_from: &StmtImportFrom,
-    module_path: &Path,
+    module_path: Option<&Path>,
 ) -> Option<String> {
     if import_from.level > 0 {
+        // Relative imports require a filesystem path to resolve from
+        let module_path = module_path?;
         resolver.resolve_relative_to_absolute_module_name(
             import_from.level,
             import_from

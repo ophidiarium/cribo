@@ -934,7 +934,8 @@ impl Bundler<'_> {
                 };
 
                 use crate::code_generator::symbol_source::resolve_import_module;
-                let Some(resolved) = resolve_import_module(self.resolver, import_from, &other_path)
+                let Some(resolved) =
+                    resolve_import_module(self.resolver, import_from, Some(&other_path))
                 else {
                     continue;
                 };

@@ -442,7 +442,7 @@ impl Bundler<'_> {
                         };
 
                         let Some(resolved_module) =
-                            resolve_import_module(self.resolver, import_from, &wrapper_path)
+                            resolve_import_module(self.resolver, import_from, Some(&wrapper_path))
                         else {
                             continue;
                         };

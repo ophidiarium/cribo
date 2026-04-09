@@ -314,14 +314,12 @@ pub(crate) fn populate_namespace_with_module_symbols(
                 // Check if the importing module is a wrapper module that needs runtime access
                 let is_wrapper = ctx.wrapper_modules.contains(other_id);
 
-                let Some(other_path) = ctx.resolver.get_module_path(*other_id) else {
-                    continue;
-                };
+                let other_path = ctx.resolver.get_module_path(*other_id);
 
                 for stmt in &other_ast.body {
                     if let Stmt::ImportFrom(import_from) = stmt
                         && let Some(resolved) =
-                            resolve_import_module(ctx.resolver, import_from, &other_path)
+                            resolve_import_module(ctx.resolver, import_from, other_path.as_deref())
                         && resolved == *module_name
                     {
                         for alias in &import_from.names {
@@ -856,13 +854,11 @@ fn is_symbol_from_inlined_submodule(
             continue;
         };
 
-        let resolved_module = module_path.as_ref().and_then(|p| {
-            crate::code_generator::symbol_source::resolve_import_module(
-                ctx.resolver,
-                import_from,
-                p,
-            )
-        });
+        let resolved_module = crate::code_generator::symbol_source::resolve_import_module(
+            ctx.resolver,
+            import_from,
+            module_path.as_deref(),
+        );
 
         if let Some(ref resolved) = resolved_module {
             // Check if the resolved module is inlined
@@ -926,9 +922,7 @@ fn any_module_wildcard_imports_and_uses_setattr(
             continue;
         }
 
-        let Some(path) = resolver.get_module_path(*other_id) else {
-            continue;
-        };
+        let path = resolver.get_module_path(*other_id);
 
         let mut wildcard_imports_targeting_module = false;
         let mut uses_setattr = false;
@@ -939,7 +933,7 @@ fn any_module_wildcard_imports_and_uses_setattr(
                 let resolved = crate::code_generator::symbol_source::resolve_import_module(
                     resolver,
                     import_from,
-                    &path,
+                    path.as_deref(),
                 );
                 if let Some(resolved_name) = resolved {
                     if resolved_name == target_module
