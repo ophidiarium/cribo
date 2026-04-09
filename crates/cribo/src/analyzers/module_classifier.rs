@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use log::debug;
 use ruff_python_ast::{ModModule, Stmt};
@@ -12,8 +12,8 @@ use crate::{
 
 /// Result of module classification
 pub(crate) struct ClassificationResult {
-    pub inlinable_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
-    pub wrapper_modules: Vec<(ModuleId, ModModule, PathBuf, String)>,
+    pub inlinable_modules: Vec<(ModuleId, Arc<ModModule>, PathBuf, String)>,
+    pub wrapper_modules: Vec<(ModuleId, Arc<ModModule>, PathBuf, String)>,
     pub module_exports_map: FxIndexMap<ModuleId, Option<Vec<String>>>,
     pub modules_with_explicit_all: FxIndexSet<ModuleId>,
 }
@@ -61,7 +61,7 @@ impl<'a> ModuleClassifier<'a> {
     /// Also collects module exports and tracks modules with explicit __all__
     pub(crate) fn classify_modules(
         mut self,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
         python_version: u8,
     ) -> ClassificationResult {
         let mut inlinable_modules = Vec::new();

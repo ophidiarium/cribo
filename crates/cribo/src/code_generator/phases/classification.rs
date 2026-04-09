@@ -6,7 +6,7 @@
 //! - Registering wrapper modules with synthetic names
 //! - Managing inlined module set
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use ruff_python_ast::ModModule;
 
@@ -41,7 +41,7 @@ impl ClassificationPhase {
     pub(crate) fn execute(
         &self,
         bundler: &mut Bundler<'_>,
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
         python_version: u8,
     ) -> ClassificationResult {
         // Classify modules into inlinable and wrapper modules
@@ -174,7 +174,7 @@ mod tests {
         let result = ClassificationResult {
             inlinable_modules: vec![(
                 ModuleId::ENTRY,
-                empty_module,
+                Arc::new(empty_module),
                 PathBuf::new(),
                 "hash".to_owned(),
             )],
@@ -230,13 +230,13 @@ mod tests {
         let result = ClassificationResult {
             inlinable_modules: vec![(
                 ModuleId::ENTRY,
-                empty_module1,
+                Arc::new(empty_module1),
                 PathBuf::new(),
                 "hash1".to_owned(),
             )],
             wrapper_modules: vec![(
                 ModuleId::new(1),
-                empty_module2,
+                Arc::new(empty_module2),
                 PathBuf::new(),
                 "hash2".to_owned(),
             )],

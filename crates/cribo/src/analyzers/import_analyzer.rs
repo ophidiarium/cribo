@@ -3,7 +3,7 @@
 //! This module provides functionality for analyzing import patterns,
 //! including direct imports, namespace imports, and import relationships.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use log::debug;
 use ruff_python_ast::{Expr, ModModule, Stmt, StmtImportFrom};
@@ -30,7 +30,7 @@ struct ImportUsageContext<'a> {
 impl ImportAnalyzer {
     /// Find modules that are imported directly (e.g., `import module`)
     pub(crate) fn find_directly_imported_modules(
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
         resolver: &ModuleResolver,
     ) -> FxIndexSet<String> {
         let mut directly_imported = FxIndexSet::default();
@@ -68,7 +68,7 @@ impl ImportAnalyzer {
     ///
     /// Returns a map from each imported `ModuleId` to the set of `ModuleId`s that import it.
     pub(crate) fn find_namespace_imported_modules(
-        modules: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        modules: &FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
         resolver: &ModuleResolver,
     ) -> FxIndexMap<ModuleId, FxIndexSet<ModuleId>> {
         let mut namespace_imported_modules: FxIndexMap<ModuleId, FxIndexSet<ModuleId>> =
@@ -657,7 +657,7 @@ impl ImportAnalyzer {
     /// This function is used to determine if private symbols (e.g., starting with underscore)
     /// should still be exported because they're imported by other modules.
     pub(crate) fn is_symbol_imported_by_other_modules(
-        module_asts: &FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        module_asts: &FxIndexMap<ModuleId, Arc<ModModule>>,
         module_id: ModuleId,
         symbol_name: &str,
         module_exports: Option<&FxIndexMap<ModuleId, Option<Vec<String>>>>,
@@ -693,7 +693,7 @@ impl ImportAnalyzer {
         };
 
         // Look through all modules to see if any import this symbol
-        for (other_module_id, (ast, _, _)) in module_asts {
+        for (other_module_id, ast) in module_asts {
             // Skip the module itself
             if other_module_id == &module_id {
                 continue;
@@ -915,13 +915,14 @@ mod tests {
 
     use super::*;
 
-    /// Helper to build a `ModuleResolver` and `FxIndexMap<ModuleId, (ModModule, PathBuf, String)>`
-    /// from a list of `(name, ast, path, hash)` tuples — the same data the old tests used.
+    /// Helper to build a `ModuleResolver` and `FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf,
+    /// String)>` from a list of `(name, ast, path, hash)` tuples — the same data the old tests
+    /// used.
     fn build_test_modules(
         entries: Vec<(&str, ModModule, PathBuf, &str)>,
     ) -> (
         ModuleResolver,
-        FxIndexMap<ModuleId, (ModModule, PathBuf, String)>,
+        FxIndexMap<ModuleId, (Arc<ModModule>, PathBuf, String)>,
     ) {
         let config = crate::config::Config {
             src: vec![PathBuf::from(".")],
@@ -931,7 +932,7 @@ mod tests {
         let mut modules = FxIndexMap::default();
         for (name, ast, path, hash) in entries {
             let id = resolver.register_module(name, &path);
-            modules.insert(id, (ast, path, hash.to_owned()));
+            modules.insert(id, (Arc::new(ast), path, hash.to_owned()));
         }
         (resolver, modules)
     }
