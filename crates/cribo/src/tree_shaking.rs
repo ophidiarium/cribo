@@ -1222,4 +1222,43 @@ mod tests {
         // Verify unused symbol by negative is_symbol_used check
         assert!(!shaker.is_symbol_used("test_module", "unused_func"));
     }
+
+    #[test]
+    fn test_find_attribute_in_submodules_returns_matching_namespace_submodule() {
+        let mut graph = DependencyGraph::new();
+        let resolver = ModuleResolver::new(crate::config::Config::default());
+
+        let submodule_id = graph.add_module(
+            ModuleId::new(1),
+            "namespace_pkg.feature".to_owned(),
+            &std::path::PathBuf::from("namespace_pkg/feature.py"),
+        );
+        let submodule = graph
+            .modules
+            .get_mut(&submodule_id)
+            .expect("namespace submodule should exist");
+
+        submodule.add_item(ItemData {
+            item_type: ItemType::FunctionDef {
+                name: "exported_attr".to_owned(),
+            },
+            defined_symbols: std::iter::once("exported_attr".into()).collect(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            var_decls: std::iter::once("exported_attr".into()).collect(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
+            has_side_effects: false,
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
+            containing_scope: None,
+        });
+
+        let shaker = TreeShaker::from_graph(&graph, &resolver);
+        let resolved_id = shaker.find_attribute_in_submodules("namespace_pkg", "exported_attr");
+
+        assert_eq!(resolved_id, Some(submodule_id));
+    }
 }
