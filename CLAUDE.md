@@ -296,7 +296,7 @@ cribo --entry main.py --stdout -vv
 - [ ] Create feature branch: `git checkout -b fix/descriptive-name origin/main`
 - [ ] Implement changes
 - [ ] **Test validation**: `cargo test --workspace` (must pass)
-- [ ] **Clippy validation**: `cargo clippy --workspace --all-targets` (must be clean)
+- [ ] **Clippy validation**: `cargo clippy --workspace --all-targets --all-features` (must be clean)
 - [ ] Commit with conventional message
 - [ ] Push with upstream: `git push -u origin <branch-name>`
 
@@ -580,8 +580,8 @@ Check `references/` directory for local clones of above and some other examples
 # 1. Run all tests in the workspace
 cargo test --workspace
 
-# 2. Run clippy on all targets
-cargo clippy --workspace --all-targets
+# 2. Run clippy on all targets (CI uses --all-features which enables additional lints)
+cargo clippy --workspace --all-targets --all-features
 
 # 3. Fix any clippy errors or warnings
 # NEVER use #[allow] annotations as a "fix" - do actual refactoring
@@ -675,6 +675,9 @@ gh api repos/ophidiarium/cribo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
 - use ast-grep if needed
 - NEVER drop stashes!
 - There are NEVER pre-existing test failures. Every feature development starts from the `main` branch, which is always in a clean state with all tests passing. If any test fails during or after a change, immediately investigate the root cause—do not assume the failure was present before your work. Never waste time considering the possibility of a pre-existing broken test.
+- **Nightly reserved keywords**: `gen` is reserved on nightly Rust 2026+. Use `generator_expr` instead of `gen` in `Expr::Generator(gen)` patterns.
+- **Symbol reordering is currently unreachable**: `reorder_statements_for_circular_module` + `SymbolDependencyGraph` are populated but never consumed at runtime (circular → always wrappers, entry → returns early). See comment on the function in `symbols.rs`.
+- **Prefer ruff visitor pattern for AST traversal**: Use `ruff_python_ast::visitor::Visitor` trait with `walk_stmt`/`walk_expr` instead of manual match arms when traversing all statement/expression types. See `ClassBodyRefCollector` in `circular_deps.rs`.
 
 ## 🚨 REMINDER: ALL TESTS ON MAIN BRANCH ARE ALWAYS WORKING! 🚨
 
