@@ -1130,6 +1130,26 @@ mod tests {
 
     use super::*;
 
+    fn function_item(name: &str) -> ItemData {
+        ItemData {
+            item_type: ItemType::FunctionDef {
+                name: name.to_owned(),
+            },
+            defined_symbols: std::iter::once(name.to_owned()).collect(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            var_decls: std::iter::once(name.to_owned()).collect(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
+            has_side_effects: false,
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
+            containing_scope: None,
+        }
+    }
+
     #[test]
     fn test_basic_tree_shaking() {
         let mut graph = DependencyGraph::new();
@@ -1224,6 +1244,51 @@ mod tests {
     }
 
     #[test]
+    fn test_mark_all_symbols_from_module_all_as_used_falls_back_to_local_symbol() {
+        let mut graph = DependencyGraph::new();
+        let resolver = ModuleResolver::new(crate::config::Config::default());
+
+        let module_id = graph.add_module(
+            ModuleId::new(1),
+            "all_module".to_owned(),
+            &std::path::PathBuf::from("all_module.py"),
+        );
+        let module = graph
+            .modules
+            .get_mut(&module_id)
+            .expect("module should exist");
+
+        module.add_item(ItemData {
+            item_type: ItemType::Assignment {
+                targets: vec!["__all__".to_owned()],
+            },
+            defined_symbols: FxIndexSet::default(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: std::iter::once("local_export".to_owned()).collect(),
+            var_decls: std::iter::once("__all__".to_owned()).collect(),
+            write_vars: std::iter::once("__all__".to_owned()).collect(),
+            eventual_write_vars: FxIndexSet::default(),
+            has_side_effects: false,
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
+            containing_scope: None,
+        });
+        module.add_item(function_item("local_export"));
+
+        let shaker = TreeShaker::from_graph(&graph, &resolver);
+        let mut worklist = VecDeque::new();
+        shaker.mark_all_symbols_from_module_all_as_used(module_id, &mut worklist);
+
+        assert_eq!(
+            worklist.pop_front(),
+            Some((module_id, "local_export".to_owned()))
+        );
+        assert!(worklist.is_empty());
+    }
+
+    #[test]
     fn test_find_attribute_in_submodules_returns_matching_namespace_submodule() {
         let mut graph = DependencyGraph::new();
         let resolver = ModuleResolver::new(crate::config::Config::default());
@@ -1238,27 +1303,13 @@ mod tests {
             .get_mut(&submodule_id)
             .expect("namespace submodule should exist");
 
-        submodule.add_item(ItemData {
-            item_type: ItemType::FunctionDef {
-                name: "exported_attr".to_owned(),
-            },
-            defined_symbols: std::iter::once("exported_attr".into()).collect(),
-            read_vars: FxIndexSet::default(),
-            eventual_read_vars: FxIndexSet::default(),
-            var_decls: std::iter::once("exported_attr".into()).collect(),
-            write_vars: FxIndexSet::default(),
-            eventual_write_vars: FxIndexSet::default(),
-            has_side_effects: false,
-            imported_names: FxIndexSet::default(),
-            reexported_names: FxIndexSet::default(),
-            symbol_dependencies: FxIndexMap::default(),
-            attribute_accesses: FxIndexMap::default(),
-            containing_scope: None,
-        });
+        submodule.add_item(function_item("exported_attr"));
 
         let shaker = TreeShaker::from_graph(&graph, &resolver);
         let resolved_id = shaker.find_attribute_in_submodules("namespace_pkg", "exported_attr");
+        let missing_id = shaker.find_attribute_in_submodules("namespace_pkg", "nonexistent_attr");
 
         assert_eq!(resolved_id, Some(submodule_id));
+        assert_eq!(missing_id, None);
     }
 }

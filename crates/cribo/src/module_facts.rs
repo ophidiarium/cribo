@@ -17,6 +17,9 @@ pub(crate) struct ModuleFacts {
     /// Imports discovered with execution-context metadata.
     pub discovered_imports: Vec<DiscoveredImport>,
     /// Fine-grained module items consumed by the dependency graph and tree-shaking.
+    ///
+    /// These remain cached on `ModuleFacts` so later graph population clones each item into the
+    /// destination `ModuleDepGraph` instead of transferring ownership out of the cached facts.
     pub items: Vec<ItemData>,
 }
 
@@ -30,6 +33,9 @@ impl ModuleFacts {
     }
 
     /// Populate a `ModuleDepGraph` with the precomputed item metadata.
+    ///
+    /// Items are cloned here because cached `ModuleFacts` are reused across analyses, while each
+    /// `ModuleDepGraph` needs owned `ItemData` values that it can index and mutate independently.
     pub(crate) fn populate_module_graph(&self, module: &mut ModuleDepGraph) {
         for item in &self.items {
             module.add_item(item.clone());

@@ -850,3 +850,59 @@ impl Bundler<'_> {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_ast::Expr;
+
+    use super::*;
+    use crate::{config::Config, resolver::ModuleResolver};
+
+    fn parse_assignment_statements(source: &str) -> Vec<Stmt> {
+        ruff_python_parser::parse_module(source)
+            .expect("test module should parse")
+            .into_syntax()
+            .body
+    }
+
+    fn assignment_targets(statements: &[Stmt]) -> Vec<String> {
+        statements
+            .iter()
+            .map(|stmt| match stmt {
+                Stmt::Assign(assign) => match assign.targets.as_slice() {
+                    [Expr::Name(name)] => name.id.to_string(),
+                    _ => panic!("expected simple assignment target"),
+                },
+                _ => panic!("expected assignment statement"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_reorder_statements_for_circular_module_preserves_entry_order() {
+        let resolver = ModuleResolver::new(Config::default());
+        let mut bundler = Bundler::new(None, &resolver);
+        bundler.entry_module_name = "entry_module".to_owned();
+
+        let statements = parse_assignment_statements("first = 1\nsecond = 2\nthird = 3\n");
+        let original_order = assignment_targets(&statements);
+        let reordered =
+            bundler.reorder_statements_for_circular_module("entry_module", statements, 11);
+
+        assert_eq!(assignment_targets(&reordered), original_order);
+    }
+
+    #[test]
+    fn test_reorder_statements_for_circular_module_preserves_non_entry_order() {
+        let resolver = ModuleResolver::new(Config::default());
+        let mut bundler = Bundler::new(None, &resolver);
+        bundler.entry_module_name = "entry_module".to_owned();
+
+        let statements = parse_assignment_statements("first = 1\nsecond = 2\nthird = 3\n");
+        let original_order = assignment_targets(&statements);
+        let reordered =
+            bundler.reorder_statements_for_circular_module("other_module", statements, 11);
+
+        assert_eq!(assignment_targets(&reordered), original_order);
+    }
+}

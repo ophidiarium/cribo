@@ -2,7 +2,7 @@ use std::{
     fmt::Write,
     fs,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -174,7 +174,7 @@ struct ProcessedModule {
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
     /// Shared module facts reused by discovery and later graph-driven analyses.
-    facts: ModuleFacts,
+    facts: Arc<ModuleFacts>,
     /// Module ID if already added to dependency graph
     module_id: Option<ModuleId>,
 }
@@ -269,7 +269,7 @@ impl BundleOrchestrator {
             return Ok(ProcessedModule {
                 ast: cached.ast.clone(),
                 source: cached.source.clone(),
-                facts: cached.facts.clone(),
+                facts: Arc::clone(&cached.facts),
                 module_id,
             });
         }
@@ -288,7 +288,7 @@ impl BundleOrchestrator {
             .with_context(|| format!("Failed to parse Python file: {}", module_path.display()))?;
         let ast = parsed.into_syntax();
         let python_version = self.config.python_version().unwrap_or(10);
-        let facts = ModuleFacts::from_ast(&ast, python_version)?;
+        let facts = Arc::new(ModuleFacts::from_ast(&ast, python_version)?);
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
@@ -319,7 +319,7 @@ impl BundleOrchestrator {
         let processed = ProcessedModule {
             ast: ast.clone(),
             source: source.clone(),
-            facts: facts.clone(),
+            facts: Arc::clone(&facts),
             module_id,
         };
 
