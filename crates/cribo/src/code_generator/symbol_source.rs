@@ -40,12 +40,12 @@ pub(crate) fn find_symbol_source_from_wrapper_module(
     // Find the module's AST to check its imports
     let module_id = resolver.get_module_id_by_name(module_name)?;
     let ast = module_asts.get(&module_id)?;
-    let module_path = resolver.get_module_path(module_id)?;
+    let module_path = resolver.get_module_path(module_id);
 
     // Check if this symbol is imported from another module (including nested scopes)
     for import_from in collect_import_from_statements_in_module(ast) {
         let Some(resolved_module) =
-            resolve_import_module(resolver, import_from, Some(&module_path))
+            resolve_import_module(resolver, import_from, module_path.as_deref())
         else {
             // Unresolvable import — skip and continue scanning remaining imports.
             continue;
