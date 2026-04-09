@@ -127,7 +127,9 @@ impl ProcessingPhase {
             );
 
             let (arc_ast, path, _hash) = modules.get(module_id).expect("Module should exist");
-            let ast = Arc::unwrap_or_clone(Arc::clone(arc_ast));
+            // modules is a shared reference, so the Arc always has strong_count >= 2
+            // after cloning; Arc::unwrap_or_clone would never take the fast unwrap path.
+            let ast = (**arc_ast).clone();
 
             if inlinable_set.contains(module_id) {
                 Self::process_inlinable_module(
@@ -387,7 +389,7 @@ impl ProcessingPhase {
         // Phase B: Define init functions
         for (mid, mname) in &members {
             let (arc_ast, path, _hash) = modules.get(mid).expect("cycle member must exist");
-            let ast = Arc::unwrap_or_clone(Arc::clone(arc_ast));
+            let ast = (**arc_ast).clone();
 
             let global_info = crate::analyzers::GlobalAnalyzer::analyze(mname, &ast);
             let is_in_circular = circular_ctx.member_to_group.contains_key(mid);
