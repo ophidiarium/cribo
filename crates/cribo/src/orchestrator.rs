@@ -127,12 +127,13 @@ type ProcessedModules = IndexSet<ModuleId>;
 /// (`module_id`, imports, ast, source)
 type ParsedModuleData = (ModuleId, Vec<String>, ModModule, String);
 /// Type alias for import extraction result
-type ImportExtractionResult = Vec<(
+type ImportExtractionItem = (
     String,
     bool,
     Option<crate::visitors::ImportType>,
     Option<String>,
-)>;
+);
+type ImportExtractionResult = Vec<ImportExtractionItem>;
 
 /// Parameters for discovery phase operations
 struct DiscoveryParams<'a> {
@@ -1120,61 +1121,106 @@ impl BundleOrchestrator {
         // Process each import and track if it's in an error-handling context
         for import in discovered_imports {
             let is_in_error_handler = Self::is_import_in_error_handler(&import.location);
-
-            // Handle ImportlibStatic imports
-            if matches!(
+            let extracted_imports = if matches!(
                 import.import_type,
                 crate::visitors::ImportType::ImportlibStatic
             ) {
-                let mut temp_set = IndexSet::new();
-                self.process_importlib_static_import(import, &mut temp_set);
-                for module_name in temp_set {
-                    imports_with_context.push((
-                        module_name,
-                        is_in_error_handler,
-                        Some(import.import_type),
-                        import.package_context.clone(),
-                    ));
-                }
+                self.handle_importlib_static(import, is_in_error_handler)
             } else if import.level > 0 {
-                // Handle relative imports
-                let mut imports_set = IndexSet::new();
-                self.process_relative_import_set(
-                    import,
-                    file_path,
-                    &mut resolver,
-                    &mut imports_set,
-                );
-                for module in imports_set {
-                    imports_with_context.push((module, is_in_error_handler, None, None));
-                }
+                self.handle_relative_import(import, file_path, &mut resolver, is_in_error_handler)
             } else if let Some(ref module_name) = import.module_name {
-                // Absolute imports
-                imports_with_context.push((module_name.clone(), is_in_error_handler, None, None));
-
-                // Check if any imported names are actually submodules
-                let mut imports_set = IndexSet::new();
-                self.check_submodule_imports_set(
-                    module_name,
-                    import,
-                    &mut resolver,
-                    &mut imports_set,
-                );
-                for module in imports_set {
-                    if module != *module_name {
-                        imports_with_context.push((module, is_in_error_handler, None, None));
-                    }
-                }
+                self.handle_absolute_import(module_name, import, &mut resolver, is_in_error_handler)
             } else if import.names.len() == 1 {
-                let mut imports_set = IndexSet::new();
-                self.process_single_name_import_set(import, &mut resolver, &mut imports_set);
-                for module in imports_set {
-                    imports_with_context.push((module, is_in_error_handler, None, None));
-                }
-            }
+                self.handle_single_name_import(import, &mut resolver, is_in_error_handler)
+            } else {
+                Vec::new()
+            };
+
+            imports_with_context.extend(extracted_imports);
         }
 
         imports_with_context
+    }
+
+    /// Handle `ImportlibStatic` imports and preserve package context metadata.
+    fn handle_importlib_static(
+        &self,
+        import: &DiscoveredImport,
+        is_in_error_handler: bool,
+    ) -> ImportExtractionResult {
+        let mut imports_set = IndexSet::new();
+        self.process_importlib_static_import(import, &mut imports_set);
+
+        imports_set
+            .into_iter()
+            .map(|module_name| {
+                (
+                    module_name,
+                    is_in_error_handler,
+                    Some(import.import_type),
+                    import.package_context.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Handle relative imports by resolving them against the current file path.
+    fn handle_relative_import(
+        &self,
+        import: &DiscoveredImport,
+        file_path: &Path,
+        resolver: &mut Option<&ModuleResolver>,
+        is_in_error_handler: bool,
+    ) -> ImportExtractionResult {
+        let mut imports_set = IndexSet::new();
+        self.process_relative_import_set(import, file_path, resolver, &mut imports_set);
+        Self::imports_with_basic_context(imports_set, is_in_error_handler)
+    }
+
+    /// Handle absolute imports and any imported names that resolve to submodules.
+    fn handle_absolute_import(
+        &self,
+        module_name: &str,
+        import: &DiscoveredImport,
+        resolver: &mut Option<&ModuleResolver>,
+        is_in_error_handler: bool,
+    ) -> ImportExtractionResult {
+        let mut imports_with_context =
+            vec![(module_name.to_owned(), is_in_error_handler, None, None)];
+        let mut imports_set = IndexSet::new();
+        self.check_submodule_imports_set(module_name, import, resolver, &mut imports_set);
+
+        imports_with_context.extend(
+            imports_set
+                .into_iter()
+                .filter(|module| module != module_name)
+                .map(|module| (module, is_in_error_handler, None, None)),
+        );
+
+        imports_with_context
+    }
+
+    /// Handle single-name imports that may resolve directly to modules.
+    fn handle_single_name_import(
+        &self,
+        import: &DiscoveredImport,
+        resolver: &mut Option<&ModuleResolver>,
+        is_in_error_handler: bool,
+    ) -> ImportExtractionResult {
+        let mut imports_set = IndexSet::new();
+        self.process_single_name_import_set(import, resolver, &mut imports_set);
+        Self::imports_with_basic_context(imports_set, is_in_error_handler)
+    }
+
+    /// Attach the default extraction context to resolved import names.
+    fn imports_with_basic_context(
+        imports_set: IndexSet<String>,
+        is_in_error_handler: bool,
+    ) -> ImportExtractionResult {
+        imports_set
+            .into_iter()
+            .map(|module| (module, is_in_error_handler, None, None))
+            .collect()
     }
 
     /// Check if an import is in an error-handling context (try/except or with suppress)
