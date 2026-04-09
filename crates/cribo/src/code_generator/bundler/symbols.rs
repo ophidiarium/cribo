@@ -922,6 +922,11 @@ impl Bundler<'_> {
                 continue;
             }
 
+            // Resolve wrapper path once per module (avoids repeated locking/allocation)
+            let Some(other_path) = self.resolver.get_module_path(*other_id) else {
+                continue;
+            };
+
             // Check if this wrapper imports the symbol
             for stmt in &other_ast.body {
                 let Stmt::ImportFrom(import_from) = stmt else {
@@ -929,9 +934,6 @@ impl Bundler<'_> {
                 };
 
                 use crate::code_generator::symbol_source::resolve_import_module;
-                let Some(other_path) = self.resolver.get_module_path(*other_id) else {
-                    continue;
-                };
                 let Some(resolved) = resolve_import_module(self.resolver, import_from, &other_path)
                 else {
                     continue;
