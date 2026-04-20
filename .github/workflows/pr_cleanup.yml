@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Bencher CLI
-        uses: bencherdev/bencher@0f8f620172ccd6225d40a7590598eb7b41718af8 # main
+        uses: bencherdev/bencher@52bd2513e4bd0124f7d160749b01f6a22b31c486 # main
 
       - name: Archive closed PR branch with Bencher
         run: |
