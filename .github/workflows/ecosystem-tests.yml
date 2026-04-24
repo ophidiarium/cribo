@@ -161,7 +161,7 @@ jobs:
           fi
 
       - name: Install Bencher CLI
-        uses: bencherdev/bencher@52bd2513e4bd0124f7d160749b01f6a22b31c486 # main
+        uses: bencherdev/bencher@46d007c103827da37db1a25b705dc73d3aaff7e6 # main
 
       - name: Run ecosystem benchmarks with Bencher
         id: bench
