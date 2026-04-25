@@ -1,7 +1,11 @@
 //! Symbol/export decisions, entry module processing, and circular dependency handling.
 
+use std::path::Path;
+
 use ruff_python_ast::{
-    Expr, ExprContext, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImportFrom,
+    Expr, ExprContext, ExprUnaryOp, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef,
+    StmtImportFrom, UnaryOp,
+    visitor::{self, Visitor},
 };
 
 use super::Bundler;
@@ -615,6 +619,34 @@ impl Bundler<'_> {
         }
     }
 
+    /// Determine which branch of an if statement is guarded by `TYPE_CHECKING`.
+    ///
+    /// Returns:
+    /// - `Some(true)` for `if TYPE_CHECKING:`
+    /// - `Some(false)` for `if not TYPE_CHECKING:` (the else branch is type-checking)
+    /// - `None` for any other condition
+    fn type_checking_branch(expr: &Expr) -> Option<bool> {
+        match expr {
+            Expr::Name(name) if name.id.as_str() == "TYPE_CHECKING" => Some(true),
+            Expr::Attribute(attr)
+                if attr.attr.as_str() == "TYPE_CHECKING"
+                    && matches!(&*attr.value, Expr::Name(name) if name.id.as_str() == "typing") =>
+            {
+                Some(true)
+            }
+            Expr::UnaryOp(ExprUnaryOp {
+                op: UnaryOp::Not,
+                operand,
+                ..
+            }) => match Self::type_checking_branch(operand) {
+                Some(true) => Some(false),
+                Some(false) => Some(true),
+                None => None,
+            },
+            _ => None,
+        }
+    }
+
     pub(crate) fn should_inline_symbol(
         &self,
         symbol_name: &str,
@@ -628,6 +660,10 @@ impl Bundler<'_> {
         // Check this BEFORE __all__ exclusion to avoid discarding symbols that wrapper
         // init code relies on at runtime.
         if self.is_symbol_imported_by_wrapper(module_id, symbol_name) {
+            return true;
+        }
+
+        if self.is_symbol_imported_in_type_checking_block(module_id, symbol_name) {
             return true;
         }
 
@@ -671,27 +707,10 @@ impl Bundler<'_> {
             }
         }
 
-        // Fallback: keep symbols explicitly imported by other modules
         let module_name = self
             .resolver
             .get_module_name(module_id)
             .unwrap_or_else(|| "<unknown>".to_owned());
-
-        if let Some(module_asts) = &self.module_asts
-            && ImportAnalyzer::is_symbol_imported_by_other_modules(
-                module_asts,
-                module_id,
-                symbol_name,
-                Some(&self.module_exports),
-                self.resolver,
-            )
-        {
-            log::debug!(
-                "Keeping symbol '{symbol_name}' from module '{module_name}' because it is \
-                 imported by other modules"
-            );
-            return true;
-        }
 
         log::trace!(
             "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
@@ -848,6 +867,146 @@ impl Bundler<'_> {
         }
 
         false
+    }
+
+    /// Preserve symbols imported solely from `TYPE_CHECKING` blocks until the dependency graph
+    /// can model type-only imports precisely.
+    fn is_symbol_imported_in_type_checking_block(
+        &self,
+        module_id: ModuleId,
+        symbol_name: &str,
+    ) -> bool {
+        let Some(module_name) = self.resolver.get_module_name(module_id) else {
+            return false;
+        };
+
+        let Some(module_asts) = &self.module_asts else {
+            return false;
+        };
+
+        for (other_id, other_ast) in module_asts {
+            if !self.bundled_modules.contains(other_id) {
+                continue;
+            }
+
+            let module_path = self.resolver.get_module_path(*other_id);
+            let mut visitor = TypeCheckingImportVisitor::new(
+                self.resolver,
+                module_path.as_deref(),
+                &module_name,
+                symbol_name,
+            );
+            visitor.visit_body(&other_ast.body);
+
+            if visitor.found {
+                log::debug!(
+                    "Keeping symbol '{symbol_name}' from module '{module_name}' because a \
+                     bundled module imports it in a TYPE_CHECKING block"
+                );
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+struct TypeCheckingImportVisitor<'a> {
+    resolver: &'a crate::resolver::ModuleResolver,
+    module_path: Option<&'a Path>,
+    imported_module_name: &'a str,
+    symbol_name: &'a str,
+    type_checking_depth: usize,
+    found: bool,
+}
+
+impl<'a> TypeCheckingImportVisitor<'a> {
+    const fn new(
+        resolver: &'a crate::resolver::ModuleResolver,
+        module_path: Option<&'a Path>,
+        imported_module_name: &'a str,
+        symbol_name: &'a str,
+    ) -> Self {
+        Self {
+            resolver,
+            module_path,
+            imported_module_name,
+            symbol_name,
+            type_checking_depth: 0,
+            found: false,
+        }
+    }
+
+    fn is_matching_import(&self, import_from: &StmtImportFrom) -> bool {
+        use crate::code_generator::symbol_source::resolve_import_module;
+
+        let Some(resolved_module_name) =
+            resolve_import_module(self.resolver, import_from, self.module_path)
+        else {
+            return false;
+        };
+
+        resolved_module_name == self.imported_module_name
+            && import_from.names.iter().any(|alias| {
+                let imported_name = alias.name.as_str();
+                imported_name == self.symbol_name || imported_name == "*"
+            })
+    }
+}
+
+impl<'a> Visitor<'a> for TypeCheckingImportVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::ImportFrom(import_from) if self.type_checking_depth > 0 => {
+                self.found = self.is_matching_import(import_from);
+            }
+            Stmt::If(if_stmt) => {
+                let branch = Bundler::type_checking_branch(&if_stmt.test);
+
+                if matches!(branch, Some(true)) {
+                    self.type_checking_depth += 1;
+                }
+                for stmt in &if_stmt.body {
+                    self.visit_stmt(stmt);
+                    if self.found {
+                        break;
+                    }
+                }
+                if matches!(branch, Some(true)) {
+                    self.type_checking_depth -= 1;
+                }
+
+                for clause in &if_stmt.elif_else_clauses {
+                    let clause_is_type_checking = (matches!(branch, Some(false))
+                        && clause.test.is_none())
+                        || matches!(
+                            clause.test.as_ref().and_then(Bundler::type_checking_branch),
+                            Some(true)
+                        );
+
+                    if clause_is_type_checking {
+                        self.type_checking_depth += 1;
+                    }
+                    for stmt in &clause.body {
+                        self.visit_stmt(stmt);
+                        if self.found {
+                            break;
+                        }
+                    }
+                    if clause_is_type_checking {
+                        self.type_checking_depth -= 1;
+                    }
+                    if self.found {
+                        break;
+                    }
+                }
+            }
+            _ => visitor::walk_stmt(self, stmt),
+        }
     }
 }
 

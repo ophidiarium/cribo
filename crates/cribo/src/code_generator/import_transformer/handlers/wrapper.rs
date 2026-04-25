@@ -171,8 +171,9 @@ impl WrapperHandler {
         at_module_level: bool,
     ) -> Vec<Stmt> {
         let mut assignments = Vec::new();
+        let source_module_id = bundler.get_module_id(module_name);
 
-        if let Some(module_id) = bundler.get_module_id(module_name)
+        if let Some(module_id) = source_module_id
             && bundler.module_synthetic_names.contains_key(&module_id)
         {
             let current_module_id = current_module.and_then(|m| bundler.get_module_id(m));
@@ -189,7 +190,7 @@ impl WrapperHandler {
             );
         }
 
-        let module_exports = if let Some(module_id) = bundler.get_module_id(module_name) {
+        let module_exports = if let Some(module_id) = source_module_id {
             if let Some(Some(export_list)) = bundler.module_exports.get(&module_id) {
                 export_list.clone()
             } else if let Some(semantic_exports) = bundler.semantic_exports.get(&module_id) {
@@ -260,10 +261,9 @@ impl WrapperHandler {
             {
                 continue;
             }
-            assignments.push(statements::simple_assign(
-                symbol_name,
-                expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
-            ));
+            let value_expr =
+                expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load);
+            assignments.push(statements::simple_assign(symbol_name, value_expr));
             // Only add explicit module attribute assignment for wrapper inits to ensure proper
             // symbol propagation. The module_transformer's add_module_attr_if_exported handles
             // regular cases, but wrapper wildcard imports need explicit handling.

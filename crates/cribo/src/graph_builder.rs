@@ -6,7 +6,7 @@ use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use crate::{
     dependency_graph::{ItemData, ItemType, ModuleDepGraph},
     types::{FxIndexMap, FxIndexSet},
-    visitors::ExpressionSideEffectDetector,
+    visitors::{ExpressionSideEffectDetector, utils::extract_string_list_from_expr},
 };
 
 /// Context for for statement variable collection
@@ -591,13 +591,9 @@ impl<'a> GraphBuilder<'a> {
 
             if is_all_assignment {
                 // Extract names from __all__ value
-                if let Expr::List(list_expr) = assign.value.as_ref() {
-                    reexported_names.extend(list_expr.elts.iter().filter_map(
-                        |element| match element {
-                            Expr::StringLiteral(string_lit) => Some(string_lit.value.to_string()),
-                            _ => None,
-                        },
-                    ));
+                let extracted = extract_string_list_from_expr(&assign.value);
+                if let Some(names) = extracted.names {
+                    reexported_names.extend(names);
                 }
             }
 

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{cell::RefCell, collections::VecDeque};
 
 use log::{debug, info, trace, warn};
 
@@ -17,6 +17,8 @@ pub(crate) struct TreeShaker<'a> {
     graph: &'a DependencyGraph,
     /// Final set of symbols to keep (`module_id`, `symbol_name`)
     used_symbols: FxIndexSet<(ModuleId, String)>,
+    /// Side-effect modules already seeded during this analysis run.
+    seeded_side_effect_modules: RefCell<FxIndexSet<ModuleId>>,
 }
 
 impl<'a> TreeShaker<'a> {
@@ -49,12 +51,27 @@ impl<'a> TreeShaker<'a> {
             .resolve_relative_import_from_package_name(level, name_opt, current_name)
     }
 
+    /// Resolve an import target to its absolute module name.
+    pub(crate) fn resolve_import_module_name(
+        &self,
+        current_module_id: ModuleId,
+        module: &str,
+        level: u32,
+    ) -> String {
+        if level > 0 {
+            self.resolve_relative_with_context(current_module_id, level, module)
+        } else {
+            module.to_owned()
+        }
+    }
+
     /// Create a tree shaker from an existing `DependencyGraph`
     pub(crate) fn from_graph(graph: &'a DependencyGraph, resolver: &'a ModuleResolver) -> Self {
         Self {
             resolver,
             graph,
             used_symbols: FxIndexSet::default(),
+            seeded_side_effect_modules: RefCell::new(FxIndexSet::default()),
         }
     }
 
@@ -69,6 +86,7 @@ impl<'a> TreeShaker<'a> {
     /// Analyze which symbols should be kept based on entry point
     pub(crate) fn analyze(&mut self, entry_module: &str) {
         info!("Starting tree-shaking analysis from entry module: {entry_module}");
+        self.seeded_side_effect_modules.borrow_mut().clear();
 
         // Verify that the entry module is registered with the expected ID
         let entry_id = self.graph.module_names.get(entry_module).copied();
@@ -232,30 +250,40 @@ impl<'a> TreeShaker<'a> {
         module_id: ModuleId,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
+        {
+            let mut seeded_modules = self.seeded_side_effect_modules.borrow_mut();
+            if !seeded_modules.insert(module_id) {
+                debug!(
+                    "Skipping already-seeded side effects for module {}",
+                    self.get_module_display_name(module_id)
+                );
+                return;
+            }
+        }
+
         if let Some(module_dep) = self.graph.modules.get(&module_id) {
             debug!(
                 "Seeding side effects for reachable module: {}",
                 module_dep.module_name
             );
+            if self.module_uses_dynamic_all_access(module_id) {
+                self.mark_all_symbols_from_module_all_as_used(module_id, worklist);
+            }
             for item in module_dep.items.values() {
-                match item.item_type {
-                    ItemType::Expression | ItemType::Assignment { .. } => {
-                        self.add_vars_to_worklist(
-                            &item.read_vars,
-                            module_id,
-                            worklist,
-                            "reachable side-effect module",
-                        );
-                        self.add_attribute_accesses_to_worklist(
-                            &item.attribute_accesses,
-                            module_id,
-                            worklist,
-                        );
+                match &item.item_type {
+                    ItemType::Import { module, .. } => {
+                        self.handle_direct_import(module, module_id, "module", worklist);
+                    }
+                    ItemType::FromImport { .. } => {
+                        self.handle_from_import(item, module_id, "module", worklist);
                     }
                     ItemType::FunctionDef { .. } | ItemType::ClassDef { .. } => {
                         for symbol in &item.defined_symbols {
                             worklist.push_back((module_id, symbol.clone()));
                         }
+                    }
+                    _ if item.has_side_effects => {
+                        self.add_item_dependencies(item, module_id, worklist);
                     }
                     _ => {}
                 }
@@ -267,125 +295,22 @@ impl<'a> TreeShaker<'a> {
     pub(crate) fn mark_used_symbols(&mut self, entry_id: ModuleId) {
         let mut worklist: VecDeque<(ModuleId, String)> = VecDeque::new();
 
-        // First pass: find all direct module imports across all modules
-        // Also detect dynamic access patterns that require keeping all __all__ symbols
-        for (&module_id, module_dep) in &self.graph.modules {
-            let module_name = module_dep.module_name.as_str();
-            // Check if this module uses dynamic access pattern (locals()/vars() with __all__)
-            let uses_dynamic_access = self.module_uses_dynamic_all_access(module_id);
-
-            if uses_dynamic_access {
-                debug!(
-                    "Module {module_name} uses dynamic __all__ access pattern (locals/globals \
-                     with setattr loop)"
-                );
-                // Mark all symbols in __all__ as used for this module
-                self.mark_all_symbols_from_module_all_as_used(module_id, &mut worklist);
+        // Start with all symbols referenced by the entry module
+        if let Some(entry_dep) = self.graph.modules.get(&entry_id) {
+            if self.module_uses_dynamic_all_access(entry_id) {
+                self.mark_all_symbols_from_module_all_as_used(entry_id, &mut worklist);
             }
-
-            for item in module_dep.items.values() {
+            for item in entry_dep.items.values() {
                 match &item.item_type {
-                    // Check for direct module imports (import module_name)
                     ItemType::Import { module, .. } => {
-                        let module_display = self.get_module_display_name(module_id);
-                        debug!("Found direct import of module {module} in {module_display}");
-                        if let Some(&imported_module_id) = self.graph.module_names.get(module) {
-                            // If this imported module has side effects, seed them
-                            if self.module_has_side_effects(imported_module_id) {
-                                self.seed_side_effects_for_module(
-                                    imported_module_id,
-                                    &mut worklist,
-                                );
-                            } else {
-                                // For modules without side effects that are directly imported,
-                                // preserve their exported symbols (classes and functions)
-                                // This is important for modules that export classes with
-                                // dependencies
-                                self.preserve_exported_symbols(
-                                    imported_module_id,
-                                    module,
-                                    &mut worklist,
-                                );
-                            }
-                        }
+                        self.handle_direct_import(module, entry_id, "entry module", &mut worklist);
                     }
-                    // Check for from imports that import the module itself (from x import module)
-                    ItemType::FromImport {
-                        module: from_module,
-                        names,
-                        level,
-                        is_star,
-                        ..
-                    } => {
-                        // First resolve relative imports
-                        let resolved_from_module = if *level > 0 {
-                            self.resolve_relative_with_context(module_id, *level, from_module)
-                        } else {
-                            from_module.clone()
-                        };
-
-                        // When importing from a module, if that module has side effects, seed them
-                        // This handles cases like: from .utils.config import some_function
-                        // where .utils.config has side effects that need to run
-                        if let Some(&from_module_id) =
-                            self.graph.module_names.get(&resolved_from_module)
-                            && self.module_has_side_effects(from_module_id)
-                        {
-                            self.seed_side_effects_for_module(from_module_id, &mut worklist);
-                        }
-
-                        // Handle star imports - from module import *
-                        if *is_star {
-                            // For star imports, we need to mark all symbols from __all__ (if
-                            // defined) or all non-private symbols as
-                            // potentially used
-                            if let Some(&target_module_id) =
-                                self.graph.module_names.get(&resolved_from_module)
-                                && let Some(target_dep) = self.graph.modules.get(&target_module_id)
-                            {
-                                if target_dep.has_explicit_all() {
-                                    // Mark only symbols in __all__ for star imports
-                                    self.mark_all_defined_symbols_as_used(
-                                        target_module_id,
-                                        &mut worklist,
-                                    );
-                                } else {
-                                    // No __all__ defined, mark all non-private symbols
-                                    self.mark_non_private_symbols_as_used(
-                                        target_module_id,
-                                        &mut worklist,
-                                    );
-                                }
-                            }
-                        } else {
-                            // Regular from imports
-                            for (name, _alias) in names {
-                                // Check if this is importing a submodule directly
-                                let potential_module = format!("{resolved_from_module}.{name}");
-                                // Check if this module exists
-                                if let Some(&submodule_id) =
-                                    self.graph.module_names.get(&potential_module)
-                                    && self.module_has_side_effects(submodule_id)
-                                {
-                                    let module_display = self.get_module_display_name(module_id);
-                                    debug!(
-                                        "Found from import of module {potential_module} in \
-                                         {module_display}"
-                                    );
-                                    // If this submodule has side effects, seed them
-                                    self.seed_side_effects_for_module(submodule_id, &mut worklist);
-                                }
-                            }
-                        }
+                    ItemType::FromImport { .. } => {
+                        self.handle_from_import(item, entry_id, "entry module", &mut worklist);
                     }
                     _ => {}
                 }
-            }
-        }
 
-        // Start with all symbols referenced by the entry module
-        if let Some(entry_dep) = self.graph.modules.get(&entry_id) {
-            for item in entry_dep.items.values() {
                 // Mark classes and functions defined in the entry module as used
                 // This ensures that classes/functions defined in the entry module
                 // (even inside try blocks) are kept along with their dependencies
@@ -454,6 +379,10 @@ impl<'a> TreeShaker<'a> {
 
         let module_display = self.get_module_display_name(module_id);
         debug!("Processing symbol definition: {module_display}::{symbol}");
+
+        if self.module_uses_dynamic_all_access(module_id) {
+            self.mark_all_symbols_from_module_all_as_used(module_id, worklist);
+        }
 
         // First check if this symbol is actually defined in this module
         // (not just imported/re-exported)
@@ -570,72 +499,11 @@ impl<'a> TreeShaker<'a> {
                 ItemType::Import {
                     module: imported_module,
                     ..
-                } => self.handle_direct_import(
-                    item,
-                    imported_module,
-                    module_id,
-                    scope_name,
-                    worklist,
-                ),
-                ItemType::FromImport {
-                    module: from_module,
-                    names,
-                    level,
-                    is_star,
-                    ..
-                } => {
-                    // Resolve relative imports
-                    let resolved_module_name = if *level > 0 {
-                        self.resolve_relative_with_context(module_id, *level, from_module)
-                    } else {
-                        from_module.clone()
-                    };
-                    if *is_star {
-                        self.handle_star_import(&resolved_module_name, worklist);
-                    } else {
-                        self.handle_named_imports(
-                            &resolved_module_name,
-                            names,
-                            scope_name,
-                            worklist,
-                        );
-                    }
-                    // Preserve local bindings declared by this import
-                    for var in &item.var_decls {
-                        debug!("  Adding local imported binding {var} to worklist");
-                        worklist.push_back((module_id, var.clone()));
-                    }
+                } => self.handle_direct_import(imported_module, module_id, scope_name, worklist),
+                ItemType::FromImport { .. } => {
+                    self.handle_from_import(item, module_id, scope_name, worklist);
                 }
                 _ => {}
-            }
-        }
-    }
-
-    /// Preserve exported symbols from a directly imported module
-    fn preserve_exported_symbols(
-        &self,
-        imported_module_id: ModuleId,
-        module_name: &str,
-        worklist: &mut VecDeque<(ModuleId, String)>,
-    ) {
-        let Some(module_dep) = self.graph.modules.get(&imported_module_id) else {
-            return;
-        };
-
-        for item in module_dep.items.values() {
-            if !matches!(
-                &item.item_type,
-                ItemType::ClassDef { .. } | ItemType::FunctionDef { .. }
-            ) {
-                continue;
-            }
-
-            for symbol in &item.defined_symbols {
-                debug!(
-                    "Preserving exported symbol '{symbol}' from directly imported module \
-                     {module_name}"
-                );
-                worklist.push_back((imported_module_id, symbol.clone()));
             }
         }
     }
@@ -643,19 +511,12 @@ impl<'a> TreeShaker<'a> {
     /// Handle direct import statements within a scope
     fn handle_direct_import(
         &self,
-        item: &ItemData,
         imported_module: &str,
-        module_id: ModuleId,
+        _module_id: ModuleId,
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
         debug!("Marking import {imported_module} as used (inside scope {scope_name})");
-
-        // For direct imports, we need to mark the variables they declare as used
-        for var in &item.var_decls {
-            debug!("  Adding imported variable {var} to worklist");
-            worklist.push_back((module_id, var.clone()));
-        }
 
         // If this imported module has side effects, seed them
         let Some(&imported_module_id) = self.graph.module_names.get(imported_module) else {
@@ -664,6 +525,47 @@ impl<'a> TreeShaker<'a> {
 
         if self.module_has_side_effects(imported_module_id) {
             self.seed_side_effects_for_module(imported_module_id, worklist);
+        }
+    }
+
+    /// Handle from-import statements within a reachable scope.
+    fn handle_from_import(
+        &self,
+        item: &ItemData,
+        module_id: ModuleId,
+        scope_name: &str,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+    ) {
+        let ItemType::FromImport {
+            module: from_module,
+            names,
+            level,
+            is_star,
+        } = &item.item_type
+        else {
+            return;
+        };
+
+        let resolved_module_name = if *level > 0 {
+            self.resolve_relative_with_context(module_id, *level, from_module)
+        } else {
+            from_module.clone()
+        };
+
+        if let Some(&from_module_id) = self.graph.module_names.get(&resolved_module_name)
+            && self.module_has_side_effects(from_module_id)
+        {
+            self.seed_side_effects_for_module(from_module_id, worklist);
+        }
+
+        if *is_star {
+            self.handle_star_import(&resolved_module_name, worklist);
+        } else {
+            self.handle_named_imports(&resolved_module_name, names, scope_name, worklist);
+        }
+
+        for var in &item.var_decls {
+            debug!("  Tracking imported binding {var} in scope {scope_name}");
         }
     }
 
@@ -696,15 +598,8 @@ impl<'a> TreeShaker<'a> {
         scope_name: &str,
         worklist: &mut VecDeque<(ModuleId, String)>,
     ) {
-        let Some(&resolved_module_id) = self.graph.module_names.get(resolved_module_name) else {
-            return;
-        };
-
         for (name, _alias) in names {
-            debug!(
-                "Marking {resolved_module_name}::{name} as used (imported in scope {scope_name})"
-            );
-            worklist.push_back((resolved_module_id, name.clone()));
+            debug!("Tracking named import {resolved_module_name}::{name} in scope {scope_name}");
 
             // Check if this is importing a submodule
             let potential_module = format!("{resolved_module_name}.{name}");
@@ -736,8 +631,22 @@ impl<'a> TreeShaker<'a> {
     ) {
         // Add all variables read by this item
         for var in &item.read_vars {
-            // Check if this var is an imported alias first
-            if let Some((source_module_id, original_name)) =
+            if let Some(source_module_id) = self.resolve_from_module_import(current_module_id, var)
+            {
+                self.mark_module_namespace_as_used(
+                    source_module_id,
+                    worklist,
+                    "item read dependency",
+                );
+            } else if let Some(source_module_id) =
+                self.resolve_module_import_alias(current_module_id, var)
+            {
+                self.mark_module_namespace_as_used(
+                    source_module_id,
+                    worklist,
+                    "item read dependency",
+                );
+            } else if let Some((source_module_id, original_name)) =
                 self.resolve_import_alias(current_module_id, var)
             {
                 worklist.push_back((source_module_id, original_name));
@@ -748,8 +657,22 @@ impl<'a> TreeShaker<'a> {
 
         // Add eventual reads (from function bodies)
         for var in &item.eventual_read_vars {
-            // Check if this var is an imported alias first
-            if let Some((source_module_id, original_name)) =
+            if let Some(source_module_id) = self.resolve_from_module_import(current_module_id, var)
+            {
+                self.mark_module_namespace_as_used(
+                    source_module_id,
+                    worklist,
+                    "eventual item read dependency",
+                );
+            } else if let Some(source_module_id) =
+                self.resolve_module_import_alias(current_module_id, var)
+            {
+                self.mark_module_namespace_as_used(
+                    source_module_id,
+                    worklist,
+                    "eventual item read dependency",
+                );
+            } else if let Some((source_module_id, original_name)) =
                 self.resolve_import_alias(current_module_id, var)
             {
                 worklist.push_back((source_module_id, original_name));
@@ -884,7 +807,14 @@ impl<'a> TreeShaker<'a> {
         context: &str,
     ) {
         for var in vars {
-            if let Some((source_module_id, original_name)) =
+            if let Some(source_module_id) = self.resolve_from_module_import(module_id, var) {
+                let source_display = self.get_module_display_name(source_module_id);
+                debug!(
+                    "Found imported submodule dependency in {context}: {var} -> module \
+                     {source_display}"
+                );
+                self.mark_module_namespace_as_used(source_module_id, worklist, context);
+            } else if let Some((source_module_id, original_name)) =
                 self.resolve_import_alias(module_id, var)
             {
                 let source_display = self.get_module_display_name(source_module_id);
@@ -893,11 +823,44 @@ impl<'a> TreeShaker<'a> {
                      {source_display}::{original_name}"
                 );
                 worklist.push_back((source_module_id, original_name));
+            } else if let Some(source_module_id) = self.resolve_module_import_alias(module_id, var)
+            {
+                let source_display = self.get_module_display_name(source_module_id);
+                debug!(
+                    "Found module namespace dependency in {context}: {var} -> module \
+                     {source_display}"
+                );
+                self.mark_module_namespace_as_used(source_module_id, worklist, context);
             } else if let Some(found_module_id) = self.find_defining_module(var) {
                 let module_display = self.get_module_display_name(found_module_id);
                 debug!("Found symbol dependency in {context}: {var} in module {module_display}");
                 worklist.push_back((found_module_id, var.clone()));
             }
+        }
+    }
+
+    /// Mark a module object as used, preserving only the surface observable through that namespace.
+    fn mark_module_namespace_as_used(
+        &self,
+        module_id: ModuleId,
+        worklist: &mut VecDeque<(ModuleId, String)>,
+        context: &str,
+    ) {
+        let module_display = self.get_module_display_name(module_id);
+        debug!("Preserving namespace surface for module {module_display} from {context}");
+
+        if self.module_has_side_effects(module_id) {
+            self.seed_side_effects_for_module(module_id, worklist);
+        }
+
+        let Some(module_dep) = self.graph.modules.get(&module_id) else {
+            return;
+        };
+
+        if module_dep.has_explicit_all() {
+            self.mark_all_defined_symbols_as_used(module_id, worklist);
+        } else {
+            self.mark_non_private_symbols_as_used(module_id, worklist);
         }
     }
 

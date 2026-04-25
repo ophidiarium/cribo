@@ -175,10 +175,6 @@ impl InlinedHandler {
                 .get(&source_module_id)
                 .and_then(|exports| exports.as_ref());
 
-            let module_var =
-                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                    &module_name,
-                );
             for symbol_name in &module_exports {
                 // Skip private symbols unless explicitly in __all__
                 if symbol_name.starts_with('_')
@@ -208,21 +204,21 @@ impl InlinedHandler {
                 );
 
                 if renamed_symbol == *symbol_name {
-                    // Symbol wasn't renamed — read from the inlined module's namespace.
-                    // This explicit assignment is needed inside wrapper init functions
-                    // where a conditional branch (try/except) may assign the same name,
-                    // making Python treat it as local throughout the function.
-                    result_stmts.push(statements::simple_assign(
+                    use crate::code_generator::module_registry::get_module_var_identifier;
+
+                    // Read through the source module namespace so wrapper init finalization
+                    // doesn't rewrite the access into self.__dict__ lookups.
+                    let source_namespace =
+                        get_module_var_identifier(source_module_id, bundler.resolver);
+                    let namespace_symbol = expressions::attribute(
+                        expressions::name(&source_namespace, ExprContext::Load),
                         symbol_name,
-                        expressions::attribute(
-                            expressions::name(&module_var, ExprContext::Load),
-                            symbol_name.as_str(),
-                            ExprContext::Load,
-                        ),
-                    ));
+                        ExprContext::Load,
+                    );
+                    result_stmts.push(statements::simple_assign(symbol_name, namespace_symbol));
                     log::debug!(
                         "Created wildcard import binding: {symbol_name} = \
-                         {module_var}.{symbol_name}"
+                         {source_namespace}.{symbol_name}"
                     );
                 } else {
                     // Symbol was renamed, create an alias assignment

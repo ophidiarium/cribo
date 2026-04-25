@@ -324,6 +324,10 @@ pub(crate) fn populate_namespace_with_module_symbols(
                     {
                         for alias in &import_from.names {
                             let name = alias.name.as_str();
+                            if name == "*" {
+                                augmented.extend(exports.iter().cloned());
+                                continue;
+                            }
                             // For wrapper modules, include all imported names as they'll be
                             // accessed at runtime.
                             // For regular modules without explicit __all__, only augment
