@@ -97,7 +97,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock', '.cargo/config.toml') }}"
           cache-on-failure: true
 
       # - name: Set up MSBuild (arm64)

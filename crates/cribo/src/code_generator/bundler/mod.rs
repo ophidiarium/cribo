@@ -4,7 +4,7 @@ mod imports;
 mod symbols;
 mod transforms;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{cell::RefCell, path::PathBuf, sync::Arc};
 
 use ruff_python_ast::{AtomicNodeIndex, Expr, ModModule, Stmt, StmtAssign, StmtImportFrom};
 
@@ -20,6 +20,8 @@ use crate::{
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
 };
+
+type TypeCheckingImportIndex = FxIndexMap<ModuleId, FxIndexSet<String>>;
 
 /// Context for transforming bundled imports
 pub(super) struct BundledImportContext<'a> {
@@ -96,6 +98,8 @@ pub(crate) struct Bundler<'a> {
         Option<&'a crate::symbol_conflict_resolver::SymbolConflictResolver>,
     /// Track which wrapper modules have had their init function emitted (definition + assignment)
     pub(crate) emitted_wrapper_inits: FxIndexSet<ModuleId>,
+    /// Cached imports that appear under `TYPE_CHECKING` guards, keyed by imported module.
+    type_checking_import_index: RefCell<Option<TypeCheckingImportIndex>>,
 }
 
 impl std::fmt::Debug for Bundler<'_> {
@@ -352,6 +356,7 @@ impl<'a> Bundler<'a> {
             modules_with_accessed_all: FxIndexSet::default(),
             conflict_resolver: None,
             emitted_wrapper_inits: FxIndexSet::default(),
+            type_checking_import_index: RefCell::new(None),
         }
     }
 

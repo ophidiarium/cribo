@@ -313,6 +313,11 @@ pub(crate) fn populate_namespace_with_module_symbols(
 
                 // Check if the importing module is a wrapper module that needs runtime access
                 let is_wrapper = ctx.wrapper_modules.contains(other_id);
+                let importer_is_runtime_reachable = ctx
+                    .tree_shaking_keep_symbols
+                    .as_ref()
+                    .is_none_or(|kept_symbols| kept_symbols.contains_key(other_id))
+                    || is_wrapper;
 
                 let other_path = ctx.resolver.get_module_path(*other_id);
 
@@ -324,6 +329,13 @@ pub(crate) fn populate_namespace_with_module_symbols(
                     {
                         for alias in &import_from.names {
                             let name = alias.name.as_str();
+                            if name == "*" && !importer_is_runtime_reachable {
+                                continue;
+                            }
+                            if name == "*" {
+                                augmented.extend(exports.iter().cloned());
+                                continue;
+                            }
                             // For wrapper modules, include all imported names as they'll be
                             // accessed at runtime.
                             // For regular modules without explicit __all__, only augment

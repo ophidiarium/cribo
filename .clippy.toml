@@ -74,7 +74,7 @@ disallowed-types = [
 disallowed-methods = [
     # Keep all your determinism rules
     { path = "rand::random", reason = "Use a deterministic hash (e.g. via a cryptographic hasher like Sha256) instead of `rand::random`." },
-    { path = "rand::Rng::gen", reason = "Use a deterministic hash (e.g. via Sha256) rather than generating random bytes at runtime." },
+    { path = "rand::Rng::gen", reason = "Use a deterministic hash (e.g. via Sha256) rather than generating random bytes at runtime.", allow-invalid = true },
 
     # Keep your cow_utils optimizations
     { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_to_ascii_lowercase()` instead." },
@@ -129,6 +129,8 @@ allowed-duplicate-crates = [
     # thiserror: pep508_rs uses 1.0, ruff crates use 2.0 (breaking changes in 2.0)
     "thiserror",
     "thiserror-impl",
+    # winnow: pyproject-toml uses toml 0.9, ruff uses toml 1.1.
+    "winnow",
     # windows-sys ecosystem: different CLI deps on different versions (0.59, 0.60, 0.61)
     # Causes cascading duplicates across all windows_{arch}_{abi} crates
     "windows-targets",

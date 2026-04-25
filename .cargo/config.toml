@@ -1,9 +1,6 @@
 [registries.crates-io]
 protocol = "sparse"
 
-[build]
-rustflags = ["-Ctarget-cpu=native"]
-
 [net]
 git-fetch-with-cli = true
 retry              = 10
