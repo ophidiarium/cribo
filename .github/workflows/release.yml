@@ -114,16 +114,16 @@ jobs:
       #   run: echo "VCTargetsPath=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\ARM64" >> $GITHUB_ENV
 
       - name: 'Install cargo insta'
-        uses: taiki-e/install-action@8002e0e61dfa209f5a4071401b4662c95b4e2ead # v2
+        uses: taiki-e/install-action@5f57d6cb7cd20b14a8a27f522884c4bc8a187458 # v2
         with:
           tool: cargo-insta
       - name: 'Install cargo nextest'
-        uses: taiki-e/install-action@8002e0e61dfa209f5a4071401b4662c95b4e2ead # v2
+        uses: taiki-e/install-action@5f57d6cb7cd20b14a8a27f522884c4bc8a187458 # v2
         with:
           tool: cargo-nextest
 
       - name: Install taplo
-        uses: taiki-e/install-action@8002e0e61dfa209f5a4071401b4662c95b4e2ead # v2
+        uses: taiki-e/install-action@5f57d6cb7cd20b14a8a27f522884c4bc8a187458 # v2
         with:
           tool: taplo
 
@@ -295,7 +295,7 @@ jobs:
         run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Build wheels
-        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: build
           args: --release --out dist
@@ -556,7 +556,7 @@ jobs:
       # Build source distribution (sdist) - only on one platform to avoid duplicates
       - name: Build sdist
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           command: sdist
@@ -783,7 +783,7 @@ jobs:
           PY
 
       - name: Publish distribution 📦 to TestPyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           verbose: true
@@ -874,7 +874,7 @@ jobs:
           PY
 
       - name: Publish distribution 📦 to PyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           verbose: true
           print-hash: true
