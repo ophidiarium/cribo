@@ -46,7 +46,7 @@ jobs:
         with:
           # Use a shared cache key based on Cargo.lock hash for better cache invalidation
           # Include hash to ensure cache is invalidated when dependencies change
-          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
+          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock', '.cargo/config.toml') }}"
           # Cache even on build failures to speed up subsequent runs
           cache-on-failure: true
 
