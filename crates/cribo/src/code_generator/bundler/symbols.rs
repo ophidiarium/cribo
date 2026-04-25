@@ -8,7 +8,7 @@ use ruff_python_ast::{
     visitor::{self, Visitor},
 };
 
-use super::Bundler;
+use super::{Bundler, TypeCheckingImportIndex};
 use crate::{
     analyzers::ImportAnalyzer,
     ast_builder::{expressions, other, statements},
@@ -609,14 +609,7 @@ impl Bundler<'_> {
 
     /// Check if a condition is a `TYPE_CHECKING` check
     pub(super) fn is_type_checking_condition(expr: &Expr) -> bool {
-        match expr {
-            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
-            Expr::Attribute(attr) => {
-                attr.attr.as_str() == "TYPE_CHECKING"
-                    && matches!(&*attr.value, Expr::Name(name) if name.id.as_str() == "typing")
-            }
-            _ => false,
-        }
+        matches!(Self::type_checking_branch(expr), Some(true))
     }
 
     /// Determine which branch of an if statement is guarded by `TYPE_CHECKING`.
@@ -876,133 +869,136 @@ impl Bundler<'_> {
         module_id: ModuleId,
         symbol_name: &str,
     ) -> bool {
-        let Some(module_name) = self.resolver.get_module_name(module_id) else {
-            return false;
-        };
+        if self.type_checking_import_index.borrow().is_none() {
+            let index = self.build_type_checking_import_index();
+            *self.type_checking_import_index.borrow_mut() = Some(index);
+        }
 
+        let is_imported = self
+            .type_checking_import_index
+            .borrow()
+            .as_ref()
+            .is_some_and(|index| {
+                index.get(&module_id).is_some_and(|symbols| {
+                    symbols.contains(symbol_name) || symbols.contains(TYPE_CHECKING_WILDCARD)
+                })
+            });
+
+        if is_imported {
+            let module_name = self
+                .resolver
+                .get_module_name(module_id)
+                .unwrap_or_else(|| format!("<unknown module {module_id}>"));
+            log::debug!(
+                "Keeping symbol '{symbol_name}' from module '{module_name}' because a bundled \
+                 module imports it in a TYPE_CHECKING block"
+            );
+        }
+
+        is_imported
+    }
+
+    fn build_type_checking_import_index(&self) -> TypeCheckingImportIndex {
         let Some(module_asts) = &self.module_asts else {
-            return false;
+            return TypeCheckingImportIndex::default();
         };
 
+        let mut index = TypeCheckingImportIndex::default();
         for (other_id, other_ast) in module_asts {
             if !self.bundled_modules.contains(other_id) {
                 continue;
             }
 
             let module_path = self.resolver.get_module_path(*other_id);
-            let mut visitor = TypeCheckingImportVisitor::new(
-                self.resolver,
-                module_path.as_deref(),
-                &module_name,
-                symbol_name,
-            );
-            visitor.visit_body(&other_ast.body);
+            let mut collector =
+                TypeCheckingImportCollector::new(self.resolver, module_path.as_deref());
+            collector.visit_body(&other_ast.body);
 
-            if visitor.found {
-                log::debug!(
-                    "Keeping symbol '{symbol_name}' from module '{module_name}' because a \
-                     bundled module imports it in a TYPE_CHECKING block"
-                );
-                return true;
+            for (imported_module_id, imported_symbols) in collector.into_imports() {
+                index
+                    .entry(imported_module_id)
+                    .or_default()
+                    .extend(imported_symbols);
             }
         }
 
-        false
+        index
     }
 }
 
-struct TypeCheckingImportVisitor<'a> {
+const TYPE_CHECKING_WILDCARD: &str = "*";
+
+struct TypeCheckingImportCollector<'a> {
     resolver: &'a crate::resolver::ModuleResolver,
     module_path: Option<&'a Path>,
-    imported_module_name: &'a str,
-    symbol_name: &'a str,
+    imports: TypeCheckingImportIndex,
     type_checking_depth: usize,
-    found: bool,
 }
 
-impl<'a> TypeCheckingImportVisitor<'a> {
-    const fn new(
-        resolver: &'a crate::resolver::ModuleResolver,
-        module_path: Option<&'a Path>,
-        imported_module_name: &'a str,
-        symbol_name: &'a str,
-    ) -> Self {
+impl<'a> TypeCheckingImportCollector<'a> {
+    fn new(resolver: &'a crate::resolver::ModuleResolver, module_path: Option<&'a Path>) -> Self {
         Self {
             resolver,
             module_path,
-            imported_module_name,
-            symbol_name,
+            imports: TypeCheckingImportIndex::default(),
             type_checking_depth: 0,
-            found: false,
         }
     }
 
-    fn is_matching_import(&self, import_from: &StmtImportFrom) -> bool {
+    fn into_imports(self) -> TypeCheckingImportIndex {
+        self.imports
+    }
+
+    fn collect_import(&mut self, import_from: &StmtImportFrom) {
         use crate::code_generator::symbol_source::resolve_import_module;
 
         let Some(resolved_module_name) =
             resolve_import_module(self.resolver, import_from, self.module_path)
         else {
-            return false;
+            return;
         };
 
-        resolved_module_name == self.imported_module_name
-            && import_from.names.iter().any(|alias| {
-                let imported_name = alias.name.as_str();
-                imported_name == self.symbol_name || imported_name == "*"
-            })
+        let Some(imported_module_id) = self.resolver.get_module_id_by_name(&resolved_module_name)
+        else {
+            return;
+        };
+
+        let imported_symbols = self.imports.entry(imported_module_id).or_default();
+        for alias in &import_from.names {
+            imported_symbols.insert(alias.name.as_str().to_owned());
+        }
+    }
+
+    fn visit_type_checking_body(&mut self, body: &'a [Stmt], is_type_checking: bool) {
+        if is_type_checking {
+            self.type_checking_depth += 1;
+        }
+        self.visit_body(body);
+        if is_type_checking {
+            self.type_checking_depth -= 1;
+        }
     }
 }
 
-impl<'a> Visitor<'a> for TypeCheckingImportVisitor<'_> {
+impl<'a> Visitor<'a> for TypeCheckingImportCollector<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        if self.found {
-            return;
-        }
-
         match stmt {
             Stmt::ImportFrom(import_from) if self.type_checking_depth > 0 => {
-                self.found = self.is_matching_import(import_from);
+                self.collect_import(import_from);
             }
             Stmt::If(if_stmt) => {
                 let branch = Bundler::type_checking_branch(&if_stmt.test);
 
-                if matches!(branch, Some(true)) {
-                    self.type_checking_depth += 1;
-                }
-                for stmt in &if_stmt.body {
-                    self.visit_stmt(stmt);
-                    if self.found {
-                        break;
-                    }
-                }
-                if matches!(branch, Some(true)) {
-                    self.type_checking_depth -= 1;
-                }
+                self.visit_type_checking_body(&if_stmt.body, matches!(branch, Some(true)));
 
                 for clause in &if_stmt.elif_else_clauses {
-                    let clause_is_type_checking = (matches!(branch, Some(false))
-                        && clause.test.is_none())
+                    let clause_is_type_checking = matches!(branch, Some(false))
                         || matches!(
                             clause.test.as_ref().and_then(Bundler::type_checking_branch),
                             Some(true)
                         );
 
-                    if clause_is_type_checking {
-                        self.type_checking_depth += 1;
-                    }
-                    for stmt in &clause.body {
-                        self.visit_stmt(stmt);
-                        if self.found {
-                            break;
-                        }
-                    }
-                    if clause_is_type_checking {
-                        self.type_checking_depth -= 1;
-                    }
-                    if self.found {
-                        break;
-                    }
+                    self.visit_type_checking_body(&clause.body, clause_is_type_checking);
                 }
             }
             _ => visitor::walk_stmt(self, stmt),
@@ -1035,6 +1031,36 @@ mod tests {
                 _ => panic!("expected assignment statement"),
             })
             .collect()
+    }
+
+    #[test]
+    fn test_type_checking_import_collector_treats_not_type_checking_continuations_as_type_only() {
+        let resolver = ModuleResolver::new(Config::default());
+        let imported_id = resolver.register_module("types_mod", Path::new("types_mod.py"));
+
+        let statements = ruff_python_parser::parse_module(
+            r"
+if not TYPE_CHECKING:
+    runtime_value = 1
+elif condition:
+    from types_mod import T
+else:
+    from types_mod import U
+",
+        )
+        .expect("test module should parse")
+        .into_syntax()
+        .body;
+
+        let mut collector = TypeCheckingImportCollector::new(&resolver, None);
+        collector.visit_body(&statements);
+        let imports = collector.into_imports();
+        let symbols = imports
+            .get(&imported_id)
+            .expect("TYPE_CHECKING imports should be collected");
+
+        assert!(symbols.contains("T"));
+        assert!(symbols.contains("U"));
     }
 
     #[test]

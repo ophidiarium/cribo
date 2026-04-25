@@ -249,8 +249,12 @@ pub(super) fn trim_unused_imports_from_modules(
                             level,
                             ..
                         } => {
-                            let resolved_from_module =
-                                shaker.resolve_import_module_name(*module_id, from_module, *level);
+                            let unresolved_from_module = from_module.trim_start_matches('.');
+                            let resolved_from_module = shaker.resolve_import_module_name(
+                                *module_id,
+                                unresolved_from_module,
+                                *level,
+                            );
 
                             // For from imports, check each imported name
                             for (imported_name, alias_opt) in names {
@@ -372,7 +376,10 @@ pub(super) fn trim_unused_imports_from_modules(
                         crate::dependency_graph::ItemType::Import { module, .. } => {
                             // For regular imports (import module), check if they're only used
                             // by tree-shaken code
-                            let import_name = module.split('.').next_back().unwrap_or(module);
+                            let import_name = import_item.var_decls.iter().next().map_or_else(
+                                || module.split('.').next().unwrap_or(module),
+                                String::as_str,
+                            );
 
                             log::debug!(
                                 "Checking module import '{import_name}' (full: '{module}') for \
@@ -390,6 +397,14 @@ pub(super) fn trim_unused_imports_from_modules(
                             {
                                 log::debug!(
                                     "Skipping tree-shaking for re-exported import '{import_name}'"
+                                );
+                                continue;
+                            }
+
+                            if shaker.is_symbol_used(module_name, import_name) {
+                                log::debug!(
+                                    "Skipping tree-shaking for import '{import_name}' - local \
+                                     binding is marked as used"
                                 );
                                 continue;
                             }
