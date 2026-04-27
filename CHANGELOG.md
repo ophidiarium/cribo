@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.5](https://github.com/ophidiarium/cribo/compare/v0.8.4...v0.8.5) (2026-04-27)
+
+
+### Features
+
+* unify bundling and tree-shaking analysis facts ([#468](https://github.com/ophidiarium/cribo/issues/468)) ([21b9cb3](https://github.com/ophidiarium/cribo/commit/21b9cb37bee6a89065a5175322f1d868afc4f659))
+
 ## [0.8.4](https://github.com/ophidiarium/cribo/compare/v0.8.3...v0.8.4) (2026-04-09)
 
 
