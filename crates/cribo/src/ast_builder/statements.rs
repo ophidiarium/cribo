@@ -35,6 +35,25 @@ pub(crate) fn assign(targets: Vec<Expr>, value: Expr) -> Stmt {
     })
 }
 
+/// Attach original-statement provenance to synthesized assignments.
+///
+/// Import rewriting often expands one import into several assignments. Those
+/// assignments execute at the import site, so preserving its range and node
+/// index lets source-map extraction map failures in generated initializer calls
+/// back to the user-written import line.
+pub(crate) fn inherit_assignment_provenance(
+    statements: &mut [Stmt],
+    range: TextRange,
+    node_index: ruff_python_ast::NodeIndex,
+) {
+    for statement in statements {
+        if let Stmt::Assign(assign) = statement {
+            assign.range = range;
+            assign.node_index.set(node_index);
+        }
+    }
+}
+
 /// Creates a simple assignment statement with a string target.
 ///
 /// This is a convenience wrapper around `assign` for the common case

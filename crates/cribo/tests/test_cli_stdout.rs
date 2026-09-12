@@ -108,6 +108,7 @@ fn get_cli_filters() -> Vec<(&'static str, &'static str)> {
     vec![
         // Normalize file paths - Unix/macOS
         (r"/Volumes/workplace/[^\s]+", "<WORKSPACE>"),
+        (r"/local/home/[^/]+/[^\s]+", "<WORKSPACE>"),
         (r"/home/[^/]+/[^\s]+", "<WORKSPACE>"),
         (r"/Users/[^/]+/[^\s]+", "<WORKSPACE>"),
         // Normalize file paths - Windows

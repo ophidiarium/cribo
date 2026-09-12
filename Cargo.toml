@@ -25,10 +25,13 @@ ruff_python_semantic = { git = "https://github.com/astral-sh/ruff/", tag = "0.16
 ruff_python_stdlib   = { git = "https://github.com/astral-sh/ruff/", tag = "0.16.7" }
 ruff_text_size       = { git = "https://github.com/astral-sh/ruff/", tag = "0.16.7" }
 
+# Source map generation (Source Map v3, pinned exact version)
+oxc_sourcemap = "=8.1.2"
+
 # Serialization and configuration
-serde = { version = "1.0", features = ["derive"] }
+serde      = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml  = "0.9"
+toml       = "0.9"
 # Package name normalization (PEP 503)
 pep508_rs = "0.9"
 
@@ -43,8 +46,9 @@ petgraph   = "0.8"
 rustc-hash = "2.1"
 
 # Utilities
-cow-utils = "0.1.3"
-etcetera  = "0.11"
+base64-simd = "0.8"
+cow-utils   = "0.1.3"
+etcetera    = "0.11"
 
 # Testing
 insta             = { version = "1.43.1", features = ["filters", "glob", "yaml"] }
@@ -62,17 +66,17 @@ unsafe_code     = "warn"
 # Add these for better AI-generated code catching:
 exported_private_dependencies = { level = "allow", priority = 10 }
 missing_debug_implementations = "warn"
-rust_2018_compatibility = { level = "warn", priority = -2 }
-rust_2018_idioms = { level = "warn", priority = -2 }
-rust_2021_compatibility = { level = "warn", priority = -2 }
-rust_2024_compatibility = { level = "warn", priority = -2 }                           # Warns about 2015 idioms in 2018 edition
+missing_docs                  = "allow"                            # Or "allow" if too noisy
+rust_2018_compatibility       = { level = "warn", priority = -2 }
+rust_2018_idioms              = { level = "warn", priority = -2 }
+rust_2021_compatibility       = { level = "warn", priority = -2 }
+rust_2024_compatibility       = { level = "warn", priority = -2 }  # Warns about 2015 idioms in 2018 edition
 trivial_casts                 = "warn"
 trivial_numeric_casts         = "warn"
 unused_extern_crates          = "warn"
 unused_import_braces          = "warn"
 unused_qualifications         = "warn"
 variant_size_differences      = "warn"
-missing_docs                  = "allow"                             # Or "allow" if too noisy
 
 [workspace.lints.clippy]
 # Categories
@@ -103,7 +107,7 @@ similar_names                = "allow"
 single_match_else            = "allow"
 too_many_lines               = "deny"
 unnecessary_debug_formatting = "allow"
-unused_self = "allow"
+unused_self                  = "allow"
 
 # Additional allows for practical development
 cast_possible_truncation = "allow"
@@ -149,29 +153,29 @@ path_buf_push_overwrite         = "warn"
 ptr_as_ptr                      = "warn"
 # redundant_pub_crate disabled due to conflict with unreachable-pub lint
 # When a module is pub but items inside are pub(crate), both lints fire incorrectly
-redundant_pub_crate             = "allow"
-ref_binding_to_reference        = "warn"
-ref_option_ref                  = "warn"
-semicolon_if_nothing_returned   = "warn"
-str_to_string                   = "warn"
-string_add                      = "warn"
-string_add_assign               = "warn"
-string_lit_as_bytes             = "warn"
+redundant_pub_crate           = "allow"
+ref_binding_to_reference      = "warn"
+ref_option_ref                = "warn"
+semicolon_if_nothing_returned = "warn"
+str_to_string                 = "warn"
+string_add                    = "warn"
+string_add_assign             = "warn"
+string_lit_as_bytes           = "warn"
 # string_to_string has been removed - implicit_clone covers those cases
-type_repetition_in_bounds       = "warn"
-unnecessary_self_imports        = "warn"
-unnecessary_wraps               = "warn"
-unneeded_field_pattern          = "warn"
-unnested_or_patterns            = "warn"
-unseparated_literal_suffix      = "warn"
-unused_async                    = "warn"
-use_self                        = "warn"
-useless_let_if_seq              = "warn"
-verbose_bit_mask                = "warn"
-wildcard_imports                = "warn"
+type_repetition_in_bounds  = "warn"
+unnecessary_self_imports   = "warn"
+unnecessary_wraps          = "warn"
+unneeded_field_pattern     = "warn"
+unnested_or_patterns       = "warn"
+unseparated_literal_suffix = "warn"
+unused_async               = "warn"
+use_self                   = "warn"
+useless_let_if_seq         = "warn"
+verbose_bit_mask           = "warn"
+wildcard_imports           = "warn"
 
 # Add these specific lints to catch .ok() misuse
-match_result_ok = "warn" # Catches if let Some(x) = result.ok() (renamed from if_let_some_result)
+match_result_ok    = "warn" # Catches if let Some(x) = result.ok() (renamed from if_let_some_result)
 option_map_unit_fn = "warn" # Catches .map(|_| ())
 question_mark      = "warn" # Encourages using ? operator
 result_map_unit_fn = "warn" # Catches .map(|_| ())

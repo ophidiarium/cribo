@@ -115,6 +115,12 @@ fn get_path_filters() -> Vec<(&'static str, &'static str)> {
             r"line \d+, in import_module",
             "line <LINE>, in import_module",
         ),
+        // The digest authenticates exact map bytes, which legitimately vary
+        // when source paths differ across platforms or coverage builds.
+        (
+            r#"(_CriboSourceMapRuntime\._bootstrap\("[^"]+", globals\(\)\.get\("__file__", "<stdin>"\), ")[0-9a-f]{64}("\))"#,
+            "$1<SOURCE_MAP_DIGEST>$2",
+        ),
         // Note: Only keeping first 2 lines of stderr eliminates most cross-platform differences
         // Note: File paths eliminated by using stdin execution (shows as <stdin>)
     ]
@@ -142,6 +148,43 @@ struct RuffLintResults {
 struct RequirementsData {
     packages: Vec<String>,
     count: usize,
+}
+
+/// Render a Source Map v3 JSON as a deterministic, path-free text dump.
+///
+/// One line per mapping: `bundle:<line> `<generated statement>` -> <source
+/// basename>:<line>` with 1-based line numbers. Basenames keep the snapshot
+/// free of machine-specific absolute paths.
+fn render_source_map_dump(map_json: &str, bundled_code: &str) -> String {
+    use std::fmt::Write;
+
+    let map = oxc_sourcemap::SourceMap::from_json_string(map_json)
+        .expect("emitted source map must be valid Source Map v3 JSON");
+    let bundle_lines: Vec<&str> = bundled_code.lines().collect();
+    let mut dump = String::new();
+    for token in map.get_tokens() {
+        let source = token
+            .get_source_id()
+            .and_then(|id| map.get_source(id))
+            .unwrap_or("<unknown>");
+        let source_name = Path::new(source).file_name().map_or_else(
+            || source.to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let generated_text = bundle_lines
+            .get(token.get_dst_line() as usize)
+            .map(|line| line.trim())
+            .unwrap_or_default();
+        let _ = writeln!(
+            dump,
+            "bundle:{:<4} `{}` -> {}:{}",
+            token.get_dst_line() + 1,
+            generated_text,
+            source_name,
+            token.get_src_line() + 1,
+        );
+    }
+    dump
 }
 
 /// Run ruff linting on bundled code to cross-validate import handling
@@ -230,6 +273,9 @@ fn test_bundling_fixtures() {
         // Check fixture type based on prefix
         let expects_bundling_failure = fixture_name.starts_with("xfail_");
         let expects_python_failure = fixture_name.starts_with("pyfail_");
+        // sourcemap_ fixtures opt into --sourcemap=linked and get an extra
+        // normalized mapping snapshot (see render_source_map_dump)
+        let enables_sourcemap = fixture_name.starts_with("sourcemap_");
 
         // Get Python executable once for the entire test
         let python_cmd = common::get_python_executable();
@@ -332,6 +378,9 @@ fn test_bundling_fixtures() {
         if fake_venv.is_some() {
             cribo_args.push("--bundle-third-party");
         }
+        if enables_sourcemap {
+            cribo_args.push("--sourcemap=linked");
+        }
         // A fixture-level cribo.toml supplies configuration (e.g. module-map entries)
         let fixture_config = fixture_dir.join("cribo.toml");
         let fixture_config_str = fixture_config.to_str().map(ToOwned::to_owned);
@@ -375,6 +424,15 @@ fn test_bundling_fixtures() {
 
         // Read the bundled code
         let bundled_code = fs::read_to_string(&bundle_path).unwrap();
+
+        // Sourcemap fixtures must produce a sibling map; snapshot it in a
+        // normalized, path-free form so mapping regressions are visible.
+        let source_map_dump = enables_sourcemap.then(|| {
+            let map_path = temp_dir.path().join("bundled.py.map");
+            let map_json = fs::read_to_string(&map_path)
+                .expect("sourcemap fixture must produce bundled.py.map");
+            render_source_map_dump(&map_json, &bundled_code)
+        });
 
         // Read and parse the requirements.txt if it was generated
         let requirements_path = temp_dir.path().join("requirements.txt");
@@ -609,6 +667,11 @@ fn test_bundling_fixtures() {
 
             // Snapshot ruff linting results
             insta::assert_debug_snapshot!("ruff_lint_results", ruff_results);
+
+            // Snapshot the normalized source map for sourcemap_ fixtures
+            if let Some(dump) = &source_map_dump {
+                insta::assert_snapshot!("source_map", dump);
+            }
 
             // Snapshot requirements data as YAML
             insta::assert_yaml_snapshot!("requirements", requirements_data);

@@ -265,9 +265,12 @@ impl Bundler<'_> {
                     module_renames.insert(func_name.clone(), renamed_name.clone());
                     ctx.global_symbols.insert(renamed_name.clone());
 
-                    // Clone and rename the function
+                    // Clone and rename the function, preserving the original
+                    // identifier's range for source-map provenance (see the
+                    // class rename below for the rationale).
+                    let original_name_range = func_def.name.range;
                     let mut func_def_clone = func_def.clone();
-                    func_def_clone.name = Identifier::new(renamed_name, TextRange::default());
+                    func_def_clone.name = Identifier::new(renamed_name, original_name_range);
 
                     // Apply renames to function annotations (parameters and return type)
                     if let Some(ref mut returns) = func_def_clone.returns {
@@ -626,9 +629,14 @@ impl Bundler<'_> {
         module_renames.insert(class_name.clone(), renamed_name.clone());
         ctx.global_symbols.insert(renamed_name.clone());
 
-        // Clone and rename the class
+        // Clone and rename the class. The original identifier's range is
+        // preserved on the renamed name: these ranges point into the original
+        // module source and feed source-map provenance (the code generator
+        // never reads them), and the name is the only header token that
+        // exists on every class form (`class C:` has no argument list).
+        let original_name_range = class_def.name.range;
         let mut class_def_clone = class_def.clone();
-        class_def_clone.name = Identifier::new(renamed_name.clone(), TextRange::default());
+        class_def_clone.name = Identifier::new(renamed_name.clone(), original_name_range);
 
         // Apply renames to base classes and keyword arguments
         // CRITICAL: For cross-module inheritance, we need to apply renames from the

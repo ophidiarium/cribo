@@ -28,6 +28,7 @@ pub(crate) mod module_facts;
 pub(crate) mod python;
 pub(crate) mod requirement_resolver;
 pub(crate) mod side_effects;
+pub(crate) mod source_map;
 pub(crate) mod symbol_conflict_resolver;
 pub(crate) mod transformation_context;
 pub(crate) mod tree_shaking;

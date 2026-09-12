@@ -139,6 +139,9 @@ cribo --entry src/main.py --output bundle.py -vvv   # trace level
 
 # Custom config file
 cribo --entry src/main.py --output bundle.py --config my-cribo.toml
+
+# Generate a Source Map v3 and remap runtime tracebacks to original sources
+cribo --entry src/main.py --output bundle.py --sourcemap
 ```
 
 ### CLI Options
@@ -155,6 +158,8 @@ cribo --entry src/main.py --output bundle.py --config my-cribo.toml
 - `--python <PATH>`: Python interpreter whose installed distribution metadata is used for requirements
 - `--no-tree-shake`: Disable tree-shaking optimization (tree-shaking is enabled by default)
 - `--target-version <VERSION>`: Target Python version (e.g., py38, py39, py310, py311, py312, py313)
+- `--sourcemap[=<MODE>]`: Generate a Source Map v3 for the bundle and inject a traceback-remapping runtime. Modes: `linked` (default; writes `<output>.map` plus a `# sourceMappingURL=` comment), `inline` (embeds the map as a base64 comment; the default with `--stdout`), `external` (writes `<output>.map` with no comment). See [Source Maps](#source-maps)
+- `--sources-content=<BOOL>`: Force embedding original sources in the map (default: omitted for `inline`, included for `linked`/`external`)
 - `-h, --help`: Print help information
 - `-V, --version`: Print version information
 
@@ -211,6 +216,61 @@ cribo --entry main.py --output bundle.py --no-tree-shake
 - If you encounter undefined symbol errors with complex circular dependencies
 - When you need to preserve all code for dynamic imports or reflection
 - For debugging purposes to see the complete bundled output
+
+### Source Maps
+
+Cribo can emit a [Source Map v3](https://tc39.es/ecma426/) (the language-agnostic
+format used across the JavaScript ecosystem) mapping every statement in the bundle
+back to its original file and line, plus an injected runtime that remaps uncaught
+exception tracebacks to the original sources — analogous to
+`node --enable-source-maps`:
+
+```bash
+# linked (default): writes bundle.py.map + a trailing sourceMappingURL comment
+cribo --entry src/main.py --output bundle.py --sourcemap
+
+# inline: the map travels inside the bundle as a base64 comment
+cribo --entry src/main.py --output bundle.py --sourcemap=inline
+
+# external: writes bundle.py.map, no comment in the bundle
+cribo --entry src/main.py --output bundle.py --sourcemap=external
+```
+
+With source maps enabled, a crash inside the bundle prints the original locations:
+
+```text
+Traceback (most recent call last):
+  File "/app/src/main.py", line 3, in <module>
+    boom()
+  File "/app/src/helper.py", line 5, in inner
+    raise ValueError("kaboom")
+ValueError: kaboom
+```
+
+Runtime activation follows the delivery mode:
+
+- `inline`: active by default; `CRIBO_SOURCE_MAPS=0` disables it
+- `linked`: active exactly when `<bundle>.map` exists next to the bundle at run
+  time — delete the map to ship without remapping, drop it back to re-enable
+- `external`: dormant unless `CRIBO_SOURCE_MAPS=1` is set (or the variable holds a
+  path to the map file)
+- In every mode, `CRIBO_SOURCE_MAPS=<path>` points the runtime at an explicit map
+  file — the only way to remap a bundle executed via `python -` (stdin), whose
+  inline map cannot be re-read at run time
+
+The runtime is lazy (zero file access, parsing, or decoding until the first
+uncaught exception), streams the map in constant memory so it works under resource
+pressure, covers `sys.excepthook`, `threading.excepthook`, and
+`sys.unraisablehook`, chains to any pre-installed custom hooks, preserves the
+default silent handling of `SystemExit` in worker threads, and falls back to the
+standard traceback on any failure. Known limitations: user code that formats
+tracebacks itself (e.g. `traceback.format_exc()`) is not remapped;
+`ExceptionGroup` chains defer to the standard (unremapped but complete) rendering;
+and under a hard out-of-memory condition no pure-Python hook can run.
+Configuration-file equivalents: `sourcemap = "linked" | "inline" | "external"` and
+`sources-content = true|false` in `cribo.toml`; environment equivalents:
+`CRIBO_SOURCEMAP` and `CRIBO_SOURCES_CONTENT`. Full design:
+[docs/source-maps.md](docs/source-maps.md).
 
 ### Dependency Detection (`cribo deps`)
 

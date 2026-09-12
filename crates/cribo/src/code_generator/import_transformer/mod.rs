@@ -883,11 +883,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    let result = rewrite_import_with_renames(
+                    let mut result = rewrite_import_with_renames(
                         self.state.bundler,
                         new_import.clone(),
                         self.state.symbol_renames,
                         &mut self.state.populated_modules,
+                    );
+                    statements::inherit_assignment_provenance(
+                        &mut result,
+                        import_stmt.range,
+                        import_stmt.node_index.load(),
                     );
 
                     // Track any aliases created by the import to prevent incorrect stdlib
@@ -1001,7 +1006,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                 if is_hoisted {
                     vec![stmt.clone()]
                 } else {
-                    self.handle_import_from(import_from)
+                    let mut result = self.handle_import_from(import_from);
+                    statements::inherit_assignment_provenance(
+                        &mut result,
+                        import_from.range,
+                        import_from.node_index.load(),
+                    );
+                    result
                 }
             }
             _ => vec![stmt.clone()],

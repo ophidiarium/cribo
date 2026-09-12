@@ -24,6 +24,7 @@ mod python;
 mod requirement_resolver;
 mod resolver;
 mod side_effects;
+mod source_map;
 mod symbol_conflict_resolver;
 mod transformation_context;
 mod tree_shaking;
@@ -31,7 +32,7 @@ mod types;
 mod util;
 mod visitors;
 
-use config::Config;
+use config::{Config, SourceMapMode};
 use orchestrator::BundleOrchestrator;
 
 #[derive(Parser)]
@@ -81,6 +82,20 @@ struct Cli {
     /// and are emitted into requirements.txt
     #[arg(long)]
     bundle_third_party: bool,
+
+    /// Generate a Source Map v3 for the bundle. A bare `--sourcemap` selects
+    /// `linked` (`inline` with --stdout); or choose explicitly with
+    /// `--sourcemap=linked|inline|external`
+    // Option<Option<T>> is clap's idiom for a flag with an optional value:
+    // the outer Option is flag presence, the inner one the explicit value.
+    #[expect(clippy::option_option)]
+    #[arg(long, value_enum, num_args = 0..=1, require_equals = true)]
+    sourcemap: Option<Option<SourceMapMode>>,
+
+    /// Force embedding original sources in the map as `sourcesContent`
+    /// (default: omitted for inline, included for linked/external)
+    #[arg(long, require_equals = true, value_name = "BOOL")]
+    sources_content: Option<bool>,
 }
 
 #[derive(Subcommand)]
@@ -217,6 +232,31 @@ fn run_bundle(mut config: Config, cli: &Cli) -> anyhow::Result<()> {
     // Enable third-party bundling from CLI (opt-in; config file/env can also enable it)
     if cli.bundle_third_party {
         config.bundle_third_party = Some(true);
+    }
+
+    // Resolve the source map mode: CLI takes precedence over the config file.
+    // A bare `--sourcemap` selects the esbuild-style default: linked for file
+    // output, inline for stdout (a linked map has nowhere to live next to stdout).
+    if let Some(cli_mode) = cli.sourcemap {
+        config.sourcemap = Some(cli_mode.unwrap_or(if cli.stdout {
+            SourceMapMode::Inline
+        } else {
+            SourceMapMode::Linked
+        }));
+    }
+    if cli.stdout
+        && matches!(
+            config.sourcemap,
+            Some(SourceMapMode::Linked | SourceMapMode::External)
+        )
+    {
+        return Err(anyhow!(
+            "linked and external source maps require an output file; use --sourcemap=inline with \
+             --stdout"
+        ));
+    }
+    if let Some(sources_content) = cli.sources_content {
+        config.sources_content = Some(sources_content);
     }
 
     debug!("Configuration: {config:?}");

@@ -563,6 +563,10 @@ The simple renaming approach is tempting for its simplicity, but Python's dynami
 
 ## Source Map Support
 
+> **Note:** the agreed, implemented design for source maps lives in
+> [`docs/source-maps.md`](./source-maps.md). The sections below are the original
+> exploratory sketch and are kept for historical context.
+
 ### Overview
 
 Source maps enable debugging of bundled code by mapping locations in the bundle back to original source files. Cribo should adopt the JavaScript Source Map v3 specification for Python bundles.

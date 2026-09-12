@@ -16,12 +16,13 @@ use crate::{
         ResolutionStrategy,
     },
     code_generator::{Bundler, phases::orchestrator::PhaseOrchestrator},
-    config::Config,
+    config::{Config, SourceMapMode},
     dependency_graph::DependencyGraph,
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     module_facts::ModuleFacts,
     requirement_resolver::RequirementResolver,
     resolver::{ImportOrigin, ModuleId, ModuleResolver},
+    source_map::{ProvenanceResolver, SourceMapOptions, build_source_map},
     symbol_conflict_resolver::SymbolConflictResolver,
     tree_shaking::TreeShaker,
     types::FxIndexMap,
@@ -36,6 +37,127 @@ static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = On
 fn get_empty_parsed_module() -> &'static ruff_python_parser::Parsed<ModModule> {
     EMPTY_PARSED_MODULE
         .get_or_init(|| ruff_python_parser::parse_module("").expect("Failed to parse empty module"))
+}
+
+/// Path of the source map file for a bundle output path (`bundle.py` → `bundle.py.map`).
+fn source_map_path_for(output_path: &Path) -> PathBuf {
+    let mut file_name = output_path.file_name().map_or_else(
+        || std::ffi::OsString::from("bundle.py"),
+        std::ffi::OsStr::to_os_string,
+    );
+    file_name.push(".map");
+    output_path.with_file_name(file_name)
+}
+
+/// Collision-resistant, unpredictable suffix for a staged map file.
+///
+/// In a shared writable directory a predictable temp name (e.g. PID-derived)
+/// could be pre-created by another local user, turning every `create_new`
+/// attempt into a denial of service. The suffix hashes process identity, an
+/// ASLR-randomized stack address, wall-clock nanoseconds, and the attempt
+/// counter — not guessable ahead of time, and fresh entropy per retry. This
+/// names a transient file only; deterministic-output rules are unaffected.
+fn staging_suffix(attempt: u32) -> String {
+    use sha2::{Digest as _, Sha256};
+
+    let stack_probe = 0_u8;
+    let mut hasher = Sha256::new();
+    hasher.update(std::process::id().to_le_bytes());
+    hasher.update(attempt.to_le_bytes());
+    hasher.update((&raw const stack_probe as usize).to_le_bytes());
+    if let Ok(elapsed) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        hasher.update(elapsed.as_secs().to_le_bytes());
+        hasher.update(elapsed.subsec_nanos().to_le_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(16);
+    for byte in &digest[..8] {
+        write!(hex, "{byte:02x}").expect("Writing to String never fails");
+    }
+    hex
+}
+
+/// Stage the source map into a collision-resistant temp file next to `map_path`.
+///
+/// The file is opened with `create_new` (`O_EXCL` semantics), which neither
+/// follows a pre-planted symlink nor truncates an existing file — a requirement
+/// for outputs in shared sticky directories, where a temp name could otherwise
+/// be predicted and pointed elsewhere. Names are unpredictable (see
+/// [`staging_suffix`]) and collisions retry with fresh entropy, which also
+/// keeps concurrent builds from stomping each other's staged map.
+///
+/// The staged file is born `0600` on Unix (mode set atomically at `open(2)`
+/// time), so no other user can grab a readable handle between creation and a
+/// later `chmod`. When a previous map exists *and is owned by this user*, its
+/// permissions are then copied onto the staged file before any content is
+/// written, so a restricted map (e.g. 0600 protecting `sourcesContent`) stays
+/// restricted across rebuilds — while a foreign pre-created file in a shared
+/// sticky directory cannot force a permissive mode. Otherwise the file keeps
+/// `0600`; after the rename the map is owner-only by default, and users who
+/// want it world-readable can `chmod` it once — the permissions persist
+/// across subsequent rebuilds.
+fn stage_map_file(map_path: &Path, map_json: &str) -> std::io::Result<PathBuf> {
+    use std::io::Write as _;
+
+    /// Owning uid on Unix; constant elsewhere (no ownership model to check).
+    #[cfg(unix)]
+    fn uid_of(metadata: &fs::Metadata) -> u32 {
+        use std::os::unix::fs::MetadataExt as _;
+        metadata.uid()
+    }
+    #[cfg(not(unix))]
+    fn uid_of(_metadata: &fs::Metadata) -> u32 {
+        0
+    }
+
+    let base_name = map_path.file_name().map_or_else(
+        || std::ffi::OsString::from("bundle.py.map"),
+        std::ffi::OsStr::to_os_string,
+    );
+    let mut attempt = 0_u32;
+    loop {
+        let mut tmp_name = base_name.clone();
+        tmp_name.push(format!(".{}.tmp", staging_suffix(attempt)));
+        let tmp_path = map_path.with_file_name(tmp_name);
+        let mut open_options = fs::OpenOptions::new();
+        open_options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            open_options.mode(0o600);
+        }
+        match open_options.open(&tmp_path) {
+            Ok(mut file) => {
+                // symlink_metadata: an attacker-planted symlink at the map
+                // path must not decide the staged file's permissions. On Unix
+                // the previous map must also be owned by the same uid as the
+                // staged file (i.e. this process): in a shared sticky
+                // directory anyone can pre-create a world-readable file at
+                // the predictable final path, and inheriting its mode would
+                // expose `sourcesContent` before the rename even fails.
+                let staged_uid = uid_of(&file.metadata()?);
+                let write_result = fs::symlink_metadata(map_path)
+                    .ok()
+                    .filter(fs::Metadata::is_file)
+                    .filter(|metadata| uid_of(metadata) == staged_uid)
+                    .map_or(Ok(()), |metadata| {
+                        file.set_permissions(metadata.permissions())
+                    })
+                    .and_then(|()| file.write_all(map_json.as_bytes()))
+                    .and_then(|()| file.flush());
+                if let Err(err) = write_result {
+                    drop(file);
+                    let _ = fs::remove_file(&tmp_path);
+                    return Err(err);
+                }
+                return Ok(tmp_path);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && attempt < 1024 => {
+                attempt += 1;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
 
 /// Type alias for module processing queue
@@ -70,6 +192,16 @@ struct StaticBundleParams<'a> {
     graph: &'a DependencyGraph,
     circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
     tree_shaker: Option<&'a TreeShaker<'a>>,
+    /// Output file path when writing to disk; `None` for stdout output.
+    /// Used for the source map `file` field and source path relativization.
+    output_path: Option<&'a Path>,
+}
+
+/// Result of static bundle emission: the code plus an optional source map JSON.
+struct EmittedBundle {
+    code: String,
+    /// Source Map v3 JSON, present when `Config::sourcemap` is enabled.
+    source_map: Option<String>,
 }
 
 /// Context for dependency building operations
@@ -601,14 +733,32 @@ impl BundleOrchestrator {
 
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code = self.emit_static_bundle(&StaticBundleParams {
+        let emitted = self.emit_static_bundle(&StaticBundleParams {
             sorted_module_ids: &sorted_module_ids,
             parsed_modules: Some(&parsed_modules),
             resolver: &resolver,
             graph: &graph,
             circular_dep_analysis: circular_dep_analysis.as_ref(),
             tree_shaker: tree_shaker.as_ref(),
+            output_path: None,
         })?;
+        let mut bundled_code = emitted.code;
+
+        // Bake the map digest into the runtime prologue (or blank the
+        // placeholder when no map was produced).
+        if self.config.sourcemap.is_some() {
+            bundled_code =
+                crate::source_map::apply_map_digest(&bundled_code, emitted.source_map.as_deref());
+        }
+
+        // Stdout output can only carry an inline map; other modes are rejected
+        // at CLI validation time.
+        if self.config.sourcemap == Some(SourceMapMode::Inline)
+            && let Some(map_json) = emitted.source_map.as_deref()
+        {
+            bundled_code.push('\n');
+            bundled_code.push_str(&crate::source_map::inline_source_mapping_comment(map_json));
+        }
 
         // Generate requirements.txt if requested
         if emit_requirements {
@@ -660,25 +810,104 @@ impl BundleOrchestrator {
 
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code = self.emit_static_bundle(&StaticBundleParams {
+        let emitted = self.emit_static_bundle(&StaticBundleParams {
             sorted_module_ids: &sorted_module_ids,
             parsed_modules: Some(&parsed_modules), // Use pre-parsed modules to avoid double parsing
             resolver: &resolver,
             graph: &graph,
             circular_dep_analysis: circular_dep_analysis.as_ref(),
             tree_shaker: tree_shaker.as_ref(),
+            output_path: Some(output_path),
         })?;
+        let mut bundled_code = emitted.code;
+
+        // Bake the map digest into the runtime prologue (or blank the
+        // placeholder when no map was produced): the digest lives inside the
+        // executing code itself, immune to on-disk replacement.
+        if self.config.sourcemap.is_some() {
+            bundled_code =
+                crate::source_map::apply_map_digest(&bundled_code, emitted.source_map.as_deref());
+        }
+
+        // Apply the configured source map delivery mode. The map file itself is
+        // written only after the bundle write succeeds, so a failed run never
+        // leaves an orphaned (and potentially stale) map next to an old bundle.
+        let mut pending_map: Option<(PathBuf, &str)> = None;
+        if let (Some(mode), Some(map_json)) = (self.config.sourcemap, emitted.source_map.as_deref())
+        {
+            match mode {
+                SourceMapMode::Linked | SourceMapMode::External => {
+                    let map_path = source_map_path_for(output_path);
+                    if mode == SourceMapMode::Linked {
+                        let map_file_name =
+                            map_path.file_name().unwrap_or_else(|| map_path.as_os_str());
+                        bundled_code.push('\n');
+                        bundled_code.push_str(&crate::source_map::linked_source_mapping_comment(
+                            map_file_name,
+                        ));
+                    }
+                    pending_map = Some((map_path, map_json));
+                }
+                SourceMapMode::Inline => {
+                    bundled_code.push('\n');
+                    bundled_code
+                        .push_str(&crate::source_map::inline_source_mapping_comment(map_json));
+                }
+            }
+        }
 
         // Generate requirements.txt if requested
         if emit_requirements {
             self.write_requirements_file(&sorted_module_ids, &resolver, &graph, output_path)?;
         }
 
+        // Publish the bundle and map as close to atomically as possible: the
+        // map content is staged to a temp file *before* the bundle is written
+        // (a staging failure aborts with the old pair intact) and renamed over
+        // the final map path *after* (rename is atomic and replaces a stale
+        // map even when the file itself is read-only). The only remaining
+        // mismatch window is a rename failure, which requires directory-level
+        // problems that would have failed the bundle write too.
+        let staged_map = if let Some((map_path, map_json)) = pending_map {
+            let tmp_path = stage_map_file(&map_path, map_json).with_context(|| {
+                format!(
+                    "Failed to stage source map file next to: {}",
+                    map_path.display()
+                )
+            })?;
+            Some((tmp_path, map_path))
+        } else {
+            None
+        };
+
         // Write output file
-        fs::write(output_path, bundled_code)
-            .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+        let bundle_write = fs::write(output_path, bundled_code)
+            .with_context(|| format!("Failed to write output file: {}", output_path.display()));
+        if let Err(err) = bundle_write {
+            if let Some((tmp_path, _)) = staged_map {
+                let _ = fs::remove_file(tmp_path);
+            }
+            return Err(err);
+        }
 
         info!("Bundle written to: {}", output_path.display());
+
+        if let Some((tmp_path, map_path)) = staged_map {
+            // std's rename replaces an existing destination on every platform
+            // (MoveFileExW with MOVEFILE_REPLACE_EXISTING on Windows). The one
+            // residual case is a read-only destination on Windows, so fall
+            // back to remove-then-rename before giving up.
+            let publish = fs::rename(&tmp_path, &map_path).or_else(|_| {
+                fs::remove_file(&map_path).and_then(|()| fs::rename(&tmp_path, &map_path))
+            });
+            if let Err(err) = publish {
+                let _ = fs::remove_file(&tmp_path);
+                return Err(err).with_context(|| {
+                    format!("Failed to publish source map file: {}", map_path.display())
+                });
+            }
+            info!("Source map written to: {}", map_path.display());
+        }
 
         Ok(())
     }
@@ -1955,7 +2184,7 @@ impl BundleOrchestrator {
     }
 
     /// Emit bundle using static bundler (no exec calls)
-    fn emit_static_bundle(&mut self, params: &StaticBundleParams<'_>) -> Result<String> {
+    fn emit_static_bundle(&mut self, params: &StaticBundleParams<'_>) -> Result<EmittedBundle> {
         // First, detect and resolve conflicts after all modules have been analyzed
         let conflicts = self.conflict_resolver.detect_and_resolve_conflicts();
         if !conflicts.is_empty() {
@@ -2034,7 +2263,7 @@ impl BundleOrchestrator {
         }
 
         // Bundle all modules using the phase-based orchestrator
-        let bundled_ast = PhaseOrchestrator::bundle(
+        let mut bundled_ast = PhaseOrchestrator::bundle(
             &mut static_bundler,
             &crate::code_generator::BundleParams {
                 modules: &module_asts,
@@ -2047,6 +2276,14 @@ impl BundleOrchestrator {
                 python_version: self.config.python_version().unwrap_or(10),
             },
         );
+
+        // Inject the traceback-remapping runtime before code generation so the
+        // emitted text and the bundled AST stay structurally aligned for the
+        // source map extraction walk.
+        if let Some(mode) = self.config.sourcemap {
+            crate::source_map::inject_runtime_prologue(&mut bundled_ast, mode);
+        }
+        let bundled_ast = bundled_ast;
 
         // Generate Python code from AST
         let empty_parsed = get_empty_parsed_module();
@@ -2082,8 +2319,75 @@ impl BundleOrchestrator {
             String::new(), // Empty line
         ];
         final_output.extend(code_parts);
+        let code = final_output.join("\n");
 
-        Ok(final_output.join("\n"))
+        // Extract source map when enabled: re-parse the emitted code and walk it
+        // in parallel with the bundled AST (which carries node provenance).
+        let source_map = self
+            .config
+            .sourcemap
+            .map(|_| self.extract_source_map(&code, &bundled_ast, params))
+            .transpose()?;
+
+        Ok(EmittedBundle { code, source_map })
+    }
+
+    /// Build the Source Map v3 JSON for an emitted bundle.
+    fn extract_source_map(
+        &self,
+        code: &str,
+        bundled_ast: &ModModule,
+        params: &StaticBundleParams<'_>,
+    ) -> Result<String> {
+        let parsed_modules = params
+            .parsed_modules
+            .context("source map generation requires parsed module data")?;
+
+        // Module ordinals were assigned by the bundler's AST indexing pass in
+        // the order of `parsed_modules`; register provenance in the same order.
+        let mut provenance = ProvenanceResolver::default();
+        for (module_id, _imports, _ast, source) in parsed_modules {
+            let path = params
+                .resolver
+                .get_module_path(*module_id)
+                .unwrap_or_else(|| {
+                    let name = params
+                        .resolver
+                        .get_module_name(*module_id)
+                        .unwrap_or_else(|| format!("module_{}", module_id.as_u32()));
+                    PathBuf::from(&name)
+                });
+            let path = fs::canonicalize(&path)
+                .or_else(|_| std::path::absolute(&path))
+                .unwrap_or(path);
+            provenance.push_module(path, source.clone());
+        }
+
+        let file_name = params.output_path.and_then(Path::file_name).map_or_else(
+            || "<stdout>".to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        // Source paths are relative to the directory the map lives in (the
+        // output directory). For stdout output the bundle's eventual location
+        // is unknown, so paths stay absolute.
+        let base_dir = params.output_path.and_then(Path::parent).map(|dir| {
+            let dir = if dir.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                dir
+            };
+            fs::canonicalize(dir)
+                .or_else(|_| std::path::absolute(dir))
+                .unwrap_or_else(|_| dir.to_path_buf())
+        });
+
+        let options = SourceMapOptions {
+            file: &file_name,
+            include_contents: self.config.include_sources_content(),
+            base_dir: base_dir.as_deref(),
+        };
+        build_source_map(code, bundled_ast, &provenance, &options)
+            .context("failed to generate requested source map")
     }
 
     /// Generate requirements.txt content from third-party imports
@@ -2311,6 +2615,92 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    /// End-to-end source map extraction: bundle a three-module project (inlined
+    /// module, wrapper module with side effects, entry) with an inline map and
+    /// verify statement mappings point back at the original files and lines.
+    #[test]
+    fn test_source_map_extraction_end_to_end() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        fs::write(
+            temp_dir.path().join("main.py"),
+            "from utils import add\nimport effects\n\nresult = add(1, 2)\nprint(result, \
+             effects.X)\n",
+        )?;
+        fs::write(
+            temp_dir.path().join("utils.py"),
+            "def add(a, b):\n    total = a + b\n    return total\n",
+        )?;
+        // The print side effect forces this module onto the wrapper path.
+        fs::write(
+            temp_dir.path().join("effects.py"),
+            "print(\"side effect\")\nX = 42\n",
+        )?;
+
+        let config = Config {
+            sourcemap: Some(SourceMapMode::Inline),
+            ..Config::default()
+        };
+        let mut orchestrator = BundleOrchestrator::new(config);
+        let code = orchestrator.bundle_to_string(&temp_dir.path().join("main.py"), false)?;
+
+        // The bundle must end with an inline sourceMappingURL comment.
+        let marker = "# sourceMappingURL=data:application/json;base64,";
+        let marker_pos = code
+            .rfind(marker)
+            .expect("inline source map comment present");
+        let payload = code[marker_pos + marker.len()..].trim_end();
+        let map_bytes = base64_simd::STANDARD
+            .decode_to_vec(payload.as_bytes())
+            .expect("valid base64 payload");
+        let map_json = String::from_utf8(map_bytes).expect("valid UTF-8 source map");
+
+        let map = oxc_sourcemap::SourceMap::from_json_string(&map_json)
+            .expect("valid Source Map v3 JSON");
+        assert_eq!(map.get_file(), Some("<stdout>"));
+        // Inline mode omits sourcesContent by default.
+        assert!(!map_json.contains("sourcesContent"));
+
+        let lookup = map.generate_lookup_table();
+        let find_generated_line = |needle: &str| -> u32 {
+            code.lines()
+                .position(|line| line.trim() == needle)
+                .unwrap_or_else(|| panic!("bundle must contain a line matching `{needle}`"))
+                as u32
+        };
+        let assert_maps_to = |needle: &str, source_suffix: &str, original_line: u32| {
+            let generated_line = find_generated_line(needle);
+            let token = map
+                .lookup_token(&lookup, generated_line, 0)
+                .unwrap_or_else(|| panic!("mapping for `{needle}` on line {generated_line}"));
+            assert_eq!(
+                token.get_dst_line(),
+                generated_line,
+                "`{needle}` must have a mapping on its own line, not inherit an earlier one"
+            );
+            let source = map
+                .get_source(token.get_source_id().expect("source id"))
+                .expect("source path");
+            assert!(
+                source.ends_with(source_suffix),
+                "`{needle}` should map into {source_suffix}, got {source}"
+            );
+            assert_eq!(
+                token.get_src_line(),
+                original_line,
+                "`{needle}` should map to 0-based line {original_line} of {source_suffix}"
+            );
+        };
+
+        // Inlined module: statement nested in a function body.
+        assert_maps_to("return total", "utils.py", 2);
+        // Wrapper module: statement inside the synthesized init function.
+        assert_maps_to("X = 42", "effects.py", 1);
+        // Entry module statement.
+        assert_maps_to("result = add(1, 2)", "main.py", 3);
+
+        Ok(())
+    }
 
     /// External importlib targets recorded during one bundle run must not leak into a
     /// later run on the same orchestrator instance.

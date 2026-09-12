@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/sourcemap_wrapper/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "effects module loading\ncounter: 1\nboosted: 21",
+    stderr: "",
+}
