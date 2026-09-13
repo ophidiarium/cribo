@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.3](https://github.com/ophi-dev/cribo/compare/v0.9.2...v0.9.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* **ci:** authenticate npm releases with token ([c3f0fe6](https://github.com/ophi-dev/cribo/commit/c3f0fe60bc98a74f530dea15a1f52997c9b3466e))
+* **npm:** update trusted publishing repository ([cac22e0](https://github.com/ophi-dev/cribo/commit/cac22e029781e8e7699775a0d7085ebfaf5972c8))
+
 ## [0.9.2](https://github.com/ophi-dev/cribo/compare/v0.9.1...v0.9.2) (2026-08-20)
 
 
